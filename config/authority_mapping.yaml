@@ -1,0 +1,289 @@
+# =============================================================================
+# Chapter 99 Subheading to Authority Mapping
+# =============================================================================
+#
+# Maps HTS Chapter 99 subheadings (found in footnotes) to tariff authorities.
+# Each entry specifies:
+#   - authority: The legal authority (section_232, section_301, ieepa, etc.)
+#   - sub_authority: Specific program within authority
+#   - rate: The additional duty rate
+#   - countries: Which countries this applies to (default: all)
+#   - effective_date: When the duty took effect
+#   - proclamation: Reference to proclamation or executive order
+#
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Section 301 - China Trade Practices
+# -----------------------------------------------------------------------------
+
+'9903.88.01':
+  authority: section_301
+  sub_authority: list_1
+  description: 'Section 301 List 1 - Technology transfer'
+  rate: 0.25
+  countries:
+    - '5700'  # China
+  effective_date: '2018-07-06'
+  proclamation: '83 FR 28710'
+
+'9903.88.02':
+  authority: section_301
+  sub_authority: list_2
+  description: 'Section 301 List 2'
+  rate: 0.25
+  countries:
+    - '5700'  # China
+  effective_date: '2018-08-23'
+  proclamation: '83 FR 40823'
+
+'9903.88.03':
+  authority: section_301
+  sub_authority: list_3
+  description: 'Section 301 List 3'
+  rate: 0.25
+  countries:
+    - '5700'  # China
+  effective_date: '2018-09-24'
+  proclamation: '83 FR 47974'
+
+'9903.88.04':
+  authority: section_301
+  sub_authority: list_3_increase
+  description: 'Section 301 List 3 - Rate increase to 25%'
+  rate: 0.25
+  countries:
+    - '5700'  # China
+  effective_date: '2019-05-10'
+  proclamation: '84 FR 20459'
+
+'9903.88.15':
+  authority: section_301
+  sub_authority: list_4a
+  description: 'Section 301 List 4A'
+  rate: 0.075
+  countries:
+    - '5700'  # China
+  effective_date: '2019-09-01'
+  proclamation: '84 FR 43304'
+  notes: 'Originally 15%, reduced to 7.5% in Phase 1 deal'
+
+'9903.88.16':
+  authority: section_301
+  sub_authority: list_4a_exclusion
+  description: 'Section 301 List 4A Exclusions'
+  rate: 0.0
+  countries:
+    - '5700'
+  effective_date: '2019-09-01'
+
+# Additional 301 subheadings
+'9903.88.21':
+  authority: section_301
+  sub_authority: list_1_exclusion
+  description: 'Section 301 List 1 Exclusions'
+  rate: 0.0
+  countries:
+    - '5700'
+
+'9903.88.22':
+  authority: section_301
+  sub_authority: list_2_exclusion
+  description: 'Section 301 List 2 Exclusions'
+  rate: 0.0
+  countries:
+    - '5700'
+
+'9903.88.25':
+  authority: section_301
+  sub_authority: list_3_exclusion
+  description: 'Section 301 List 3 Exclusions'
+  rate: 0.0
+  countries:
+    - '5700'
+
+'9903.88.26':
+  authority: section_301
+  sub_authority: list_3_exclusion
+  description: 'Section 301 List 3 Exclusions (reinstated)'
+  rate: 0.25
+  countries:
+    - '5700'
+
+'9903.88.27':
+  authority: section_301
+  sub_authority: list_4a_exclusion
+  description: 'Section 301 List 4A Exclusions'
+  rate: 0.0
+  countries:
+    - '5700'
+
+'9903.88.28':
+  authority: section_301
+  sub_authority: list_4a_exclusion
+  description: 'Section 301 List 4A Exclusions (reinstated)'
+  rate: 0.075
+  countries:
+    - '5700'
+
+'9903.88.69':
+  authority: section_301
+  sub_authority: 2024_increase
+  description: 'Section 301 2024 Tariff Increases'
+  rate: 0.25
+  countries:
+    - '5700'
+  effective_date: '2024-09-27'
+  notes: 'Covers EVs, batteries, solar cells, semiconductors, steel/aluminum, medical equipment'
+
+# -----------------------------------------------------------------------------
+# Section 232 - National Security
+# -----------------------------------------------------------------------------
+
+'9903.80.01':
+  authority: section_232
+  sub_authority: steel
+  description: 'Section 232 Steel - 25%'
+  rate: 0.25
+  countries: all
+  effective_date: '2018-03-23'
+  proclamation: '9705'
+
+'9903.80.02':
+  authority: section_232
+  sub_authority: steel_exempt
+  description: 'Section 232 Steel Exemptions'
+  rate: 0.0
+  countries: all
+
+'9903.81.01':
+  authority: section_232
+  sub_authority: aluminum
+  description: 'Section 232 Aluminum - 10%'
+  rate: 0.10
+  countries: all
+  effective_date: '2018-03-23'
+  proclamation: '9704'
+
+'9903.81.02':
+  authority: section_232
+  sub_authority: aluminum_exempt
+  description: 'Section 232 Aluminum Exemptions'
+  rate: 0.0
+  countries: all
+
+'9903.82.01':
+  authority: section_232
+  sub_authority: steel_derivatives
+  description: 'Section 232 Steel Derivatives'
+  rate: 0.25
+  countries: all
+  effective_date: '2020-02-08'
+  proclamation: '9980'
+
+'9903.82.02':
+  authority: section_232
+  sub_authority: aluminum_derivatives
+  description: 'Section 232 Aluminum Derivatives'
+  rate: 0.10
+  countries: all
+  effective_date: '2020-02-08'
+  proclamation: '9980'
+
+# -----------------------------------------------------------------------------
+# IEEPA - International Emergency Economic Powers Act
+# -----------------------------------------------------------------------------
+
+'9903.90.08':
+  authority: ieepa
+  sub_authority: reciprocal_baseline
+  description: 'IEEPA Reciprocal Tariffs - Baseline 10%'
+  rate: 0.10
+  countries: all
+  effective_date: '2025-04-05'
+  notes: 'Universal baseline reciprocal tariff'
+
+'9903.90.09':
+  authority: ieepa
+  sub_authority: reciprocal_china
+  description: 'IEEPA Reciprocal Tariffs - China'
+  rate: 0.145
+  countries:
+    - '5700'
+  effective_date: '2025-04-09'
+
+'9903.91.01':
+  authority: ieepa
+  sub_authority: fentanyl_china
+  description: 'IEEPA Fentanyl - China 20%'
+  rate: 0.20
+  countries:
+    - '5700'
+  effective_date: '2025-02-04'
+
+'9903.91.05':
+  authority: ieepa
+  sub_authority: fentanyl_canada_mexico
+  description: 'IEEPA Fentanyl - Canada/Mexico 25%'
+  rate: 0.25
+  countries:
+    - '1220'  # Canada
+    - '2010'  # Mexico
+  effective_date: '2025-03-04'
+
+# -----------------------------------------------------------------------------
+# Section 201 - Safeguard Measures
+# -----------------------------------------------------------------------------
+
+'9903.41.05':
+  authority: section_201
+  sub_authority: washing_machines
+  description: 'Section 201 Safeguard - Washing Machines'
+  rate: 0.20
+  countries: all
+  effective_date: '2018-02-07'
+  proclamation: '9694'
+
+'9903.41.10':
+  authority: section_201
+  sub_authority: solar_cells
+  description: 'Section 201 Safeguard - Solar Cells'
+  rate: 0.15
+  countries: all
+  effective_date: '2018-02-07'
+  proclamation: '9693'
+
+# -----------------------------------------------------------------------------
+# Antidumping/Countervailing Duties (Reference Only)
+# -----------------------------------------------------------------------------
+
+'9904.04.50':
+  authority: ad_cvd
+  sub_authority: antidumping
+  description: 'Antidumping Duty Reference'
+  rate: null
+  countries: varies
+  notes: 'AD/CVD rates are product and country specific, not tracked here'
+
+'9904.05.01':
+  authority: ad_cvd
+  sub_authority: countervailing
+  description: 'Countervailing Duty Reference'
+  rate: null
+  countries: varies
+  notes: 'AD/CVD rates are product and country specific, not tracked here'
+
+# =============================================================================
+# Unmapped Subheadings
+# =============================================================================
+#
+# Add entries here as new Chapter 99 subheadings are identified.
+# Run the HTS parser to see which subheadings are in current HTS data.
+#
+# To find unmapped subheadings:
+#   1. Run 01_ingest_hts.R
+#   2. Check list_chapter99_refs() output
+#   3. Research subheading in Chapter 99 notes
+#   4. Add entry above with appropriate authority mapping
+#
+# =============================================================================

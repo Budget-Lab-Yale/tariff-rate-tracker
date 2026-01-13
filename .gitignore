@@ -1,0 +1,25 @@
+# R
+.Rhistory
+.RData
+.Rproj.user/
+
+# Data files (large)
+data/hts_archives/*.json
+data/processed/*.rds
+
+# Output files (regenerated)
+snapshots/
+changes/
+exports/
+
+# Temp files
+tmpclaude-*
+*.tmp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
