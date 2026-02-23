@@ -6,15 +6,21 @@
 # Data files (large)
 data/hts_archives/*.json
 data/processed/*.rds
+data/timeseries/
+data/tpc/*.csv
 
 # Output files (regenerated)
 snapshots/
 changes/
 exports/
 
-# Temp files
+# Temp/diagnostic scripts
 tmpclaude-*
 *.tmp
+check_*.R
+_*.R
+*.ps1
+*.sh
 
 # OS files
 .DS_Store
@@ -23,3 +29,6 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Claude
+.claude/

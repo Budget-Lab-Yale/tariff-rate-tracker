@@ -4,91 +4,69 @@ This file provides guidance to Claude Code when working with code in this reposi
 
 ## Project Overview
 
-Tariff Rate Tracker - An R-based system for tracking daily U.S. tariff rates by product, country, and tariff authority. Parses HTS (Harmonized Tariff Schedule) JSON archives, maps Chapter 99 footnote references to authorities, and generates outputs compatible with the Yale Budget Lab Tariff-Model.
+Tariff Rate Tracker - An R-based system for constructing statutory U.S. tariff rates at the HTS-10 x country level. Parses HTS JSON archives iteratively across all revisions to build a time series of tariff rates. All rates derived from HTS source data -- TPC benchmark data is for validation only.
 
 ## Key Commands
 
 ```bash
-# Run full pipeline
-Rscript src/run_daily.R
+# Full backfill: process all 34 HTS revisions
+Rscript src/00_build_timeseries.R
 
-# Run with specific year/date
-Rscript src/run_daily.R --year 2026 --date 2026-01-15
+# Incremental: process only new revisions after rev_32
+Rscript src/00_build_timeseries.R --start-from rev_32
 
-# Run individual steps
-Rscript src/01_ingest_hts.R
-Rscript src/02_extract_authorities.R
-Rscript src/03_expand_countries.R
-Rscript src/04_calculate_rates.R
-Rscript src/05_write_outputs.R
+# Single-revision pipeline (quick check)
+Rscript src/run_pipeline.R
+
+# TPC validation across all 5 dates
+Rscript test_tpc_comparison.R
 ```
 
 ## Architecture
 
 ```
-HTS JSON → Parse → Extract Authorities → Expand Countries → Calculate Rates → Output
+For each HTS revision (basic, rev_1, ..., rev_32, 2026_basic):
+  JSON -> Parse Ch99 -> Parse Products -> Extract Policy Params -> Calculate Rates -> Snapshot
+All snapshots -> rate_timeseries.rds
 ```
 
-**Data Flow:**
-1. `01_ingest_hts.R`: Parse HTS JSON → `hts_parsed.rds`
-2. `02_extract_authorities.R`: Map Chapter 99 → `authority_data.rds`
-3. `03_expand_countries.R`: Expand to countries → `expanded_data.rds`
-4. `04_calculate_rates.R`: Apply stacking → `rate_data.rds`
-5. `05_write_outputs.R`: Generate snapshots/exports
+**Active Pipeline (v2 timeseries):**
+1. `00_build_timeseries.R`: Main orchestrator (iterates revisions)
+2. `01_parse_chapter99.R`: Extract Ch99 entries (rates, authority, countries)
+3. `02_parse_products.R`: Extract product lines (base rates, footnote refs)
+4. `03_calculate_rates.R`: Join products to authorities, apply stacking
+5. `04_validate_tpc.R`: TPC benchmark comparison
+6. `05_parse_policy_params.R`: Extract IEEPA, fentanyl, 232, USMCA from JSON
+7. `06_scrape_revision_dates.R`: Revision date metadata
+8. `07_apply_scenarios.R`: Counterfactual scenarios (zero out authorities)
+9. `08_diagnostics.R`: Debugging and validation utilities
 
-## Key Configuration Files
+**Key Configuration:**
+- `config/revision_dates.csv`: revision -> effective_date -> tpc_date mapping
+- `config/scenarios.yaml`: Counterfactual scenario definitions
 
-**config/authority_mapping.yaml** - Maps Chapter 99 subheadings (e.g., 9903.88.03) to:
-- `authority`: section_301, section_232, ieepa, section_201, section_122
-- `sub_authority`: list_1, steel, reciprocal_baseline, etc.
-- `rate`: Additional duty rate (decimal)
-- `countries`: List of Census codes or 'all'
-
-**config/country_rules.yaml** - Defines:
-- `country_groups`: Mnemonics (china, usmca, eu) → Census codes
-- `section_232_exemptions`: Country exemptions by product type
-- `stacking_rules`: How authorities combine
+**Legacy (v1, config-driven):**
+- `run_daily.R`, `01_ingest_hts.R` through `05_write_outputs.R`
+- `config/authority_mapping.yaml`, `config/country_rules.yaml`
 
 ## Stacking Rules
 
-From Tariff-ETRs methodology:
-
 ```r
 # China (5700)
-total = max(232, reciprocal) + fentanyl + 301 + s122
+total = max(232, reciprocal) + fentanyl + 301
 
 # Canada/Mexico (1220, 2010)
-total = max(232, reciprocal) + fentanyl + s122
+total = 232 + (reciprocal + fentanyl) * usmca_factor
 
 # All Others
-total = (232 > 0 ? 232 : reciprocal + fentanyl) + s122
+total = (232 > 0 ? 232 : reciprocal + fentanyl)
 ```
 
 ## Census Country Codes
 
-Key codes used throughout:
-- `5700` - China
-- `1220` - Canada
-- `2010` - Mexico
-- `4120` - United Kingdom
-- `5880` - Japan
+Key codes: 5700 (China), 1220 (Canada), 2010 (Mexico), 4120 (UK), 5880 (Japan), 5820 (Hong Kong)
 
 Full list: `resources/census_codes.csv`
-
-## Adding New Authority Mappings
-
-When unmapped Chapter 99 subheadings appear:
-
-1. Check pipeline output for unmapped references
-2. Research subheading in HTS Chapter 99 notes
-3. Add to `config/authority_mapping.yaml`:
-```yaml
-'9903.XX.XX':
-  authority: <authority_name>
-  sub_authority: <program>
-  rate: 0.XX
-  countries: ['5700']  # or 'all'
-```
 
 ## Style Guidelines
 
@@ -98,6 +76,7 @@ When unmapped Chapter 99 subheadings appear:
 - Use `%>%` pipes
 - Explicit `return()` at function end
 - 2-space indentation
+- Main orchestrator files use `00_` prefix (never "master")
 
 ## Related Repositories
 

@@ -240,6 +240,102 @@ identify_discrepancies <- function(comparison) {
 
 
 # =============================================================================
+# Per-Revision Validation
+# =============================================================================
+
+#' Validate a single revision's rates against TPC for a specific date
+#'
+#' Called from 00_build_timeseries.R for revisions that have a tpc_date.
+#' Compares our calculated rates to TPC and returns summary metrics.
+#'
+#' @param revision_rates Our calculated rates for one revision
+#' @param tpc_path Path to TPC CSV file
+#' @param tpc_date The TPC date to compare against (Date or character)
+#' @param census_codes Census codes data frame
+#' @return List with match_rate, mean_abs_diff, by_country, by_authority, comparison
+validate_revision_against_tpc <- function(revision_rates, tpc_path, tpc_date, census_codes) {
+  tpc_date <- as.Date(tpc_date)
+
+  # Create country mapping and load TPC data
+  name_to_code <- create_country_name_map(census_codes)
+  tpc_data <- load_tpc_data(tpc_path, name_to_code)
+
+  # Filter TPC to the target date
+  tpc_date_data <- tpc_data %>%
+    filter(date == tpc_date) %>%
+    select(hts10, country = country_code, tpc_rate_change)
+
+  if (nrow(tpc_date_data) == 0) {
+    message('  No TPC data for date: ', tpc_date)
+    return(list(
+      match_rate = NA_real_,
+      mean_abs_diff = NA_real_,
+      by_country = tibble(),
+      by_authority = tibble(),
+      comparison = tibble()
+    ))
+  }
+
+  # Our rates: use total_additional as the rate change from zero baseline
+  our_rates <- revision_rates %>%
+    select(hts10, country, total_additional,
+           rate_232, rate_301, rate_ieepa_recip, rate_ieepa_fent, rate_other)
+
+  # Join and compare
+  comparison <- tpc_date_data %>%
+    inner_join(our_rates, by = c('hts10', 'country')) %>%
+    mutate(
+      diff = total_additional - tpc_rate_change,
+      abs_diff = abs(diff),
+      match_2pp = abs_diff < 0.02  # within 2 percentage points
+    )
+
+  # Summary metrics
+  match_rate <- if (nrow(comparison) > 0) mean(comparison$match_2pp) else NA_real_
+  mean_abs_diff <- if (nrow(comparison) > 0) mean(comparison$abs_diff) else NA_real_
+
+  # By country
+  by_country <- comparison %>%
+    group_by(country) %>%
+    summarise(
+      n = n(),
+      n_match = sum(match_2pp),
+      pct_match = round(mean(match_2pp) * 100, 1),
+      mean_abs_diff = round(mean(abs_diff) * 100, 2),
+      .groups = 'drop'
+    ) %>%
+    arrange(pct_match)
+
+  # By authority gap: where does the discrepancy come from?
+  by_authority <- comparison %>%
+    filter(!match_2pp) %>%
+    mutate(
+      gap_from_301 = rate_301 > 0 & tpc_rate_change > total_additional,
+      gap_from_ieepa = rate_ieepa_recip > 0
+    ) %>%
+    summarise(
+      n_mismatches = n(),
+      n_with_301 = sum(gap_from_301),
+      n_with_ieepa = sum(gap_from_ieepa),
+      mean_gap = round(mean(abs_diff) * 100, 2)
+    )
+
+  message('  Validation: ', nrow(comparison), ' comparisons, ',
+          round(match_rate * 100, 1), '% match (±2pp), ',
+          'mean diff: ', round(mean_abs_diff * 100, 2), 'pp')
+
+  return(list(
+    match_rate = match_rate,
+    mean_abs_diff = mean_abs_diff,
+    n_comparisons = nrow(comparison),
+    by_country = by_country,
+    by_authority = by_authority,
+    comparison = comparison
+  ))
+}
+
+
+# =============================================================================
 # Main Validation Pipeline
 # =============================================================================
 

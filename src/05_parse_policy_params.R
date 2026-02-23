@@ -262,6 +262,16 @@ extract_ieepa_rates <- function(hts_raw, country_lookup) {
 
   message('  IEEPA tier entries found: ', length(ieepa_items))
 
+  # Early return if no IEEPA entries (e.g., basic revision)
+  if (length(ieepa_items) == 0) {
+    message('  No IEEPA entries — returning empty tibble')
+    return(tibble(
+      ch99_code = character(), rate = numeric(), rate_type = character(),
+      phase = character(), terminated = logical(),
+      country_name = character(), census_code = character()
+    ))
+  }
+
   # Parse each entry
   results <- map_dfr(ieepa_items, function(item) {
     ch99_code <- item$htsno %||% NA_character_
@@ -359,7 +369,282 @@ extract_ieepa_rates <- function(hts_raw, country_lookup) {
     message('  Unmatched names: ', paste(unmatched, collapse = ', '))
   }
 
+  # ---- Detect universal IEEPA baseline (9903.01.25) ----
+  # During the 90-day pause (Apr 9 – Jul 8, 2025), the country-specific
+  # rates from 9903.01.43-76 were suspended. Only the universal 10% baseline
+  # (9903.01.25) remained in effect for non-China countries. The HTS JSON
+  # retains the suspended entries at their original rates, so we detect the
+  # baseline and cap Phase 1 rates accordingly.
+  #
+  # 9903.01.63 (China/HK/Macau) was NOT paused — its rate was modified
+  # (125% → 34%) rather than suspended. We exempt it from capping.
+  baseline_item <- Filter(function(x) {
+    (x$htsno %||% '') == '9903.01.25'
+  }, hts_raw)
+
+  universal_baseline <- NULL
+  if (length(baseline_item) > 0) {
+    bl_general <- baseline_item[[1]]$general %||% ''
+    bl_match <- str_match(bl_general, '\\+\\s*([0-9.]+)%')
+    if (!is.na(bl_match[1, 2])) {
+      universal_baseline <- as.numeric(bl_match[1, 2]) / 100
+      message('  Universal IEEPA baseline (9903.01.25): ',
+              round(universal_baseline * 100), '%')
+
+      # Cap Phase 1 country-specific entries at baseline, except China entry
+      # 9903.01.63 is China/HK/Macau — exempt from the 90-day pause
+      china_entry <- '9903.01.63'
+      phase1_cappable <- results$phase == 'phase1_apr9' &
+        results$ch99_code != china_entry &
+        !is.na(results$rate) &
+        results$rate > universal_baseline
+
+      n_capped <- sum(phase1_cappable)
+      if (n_capped > 0) {
+        results$rate[phase1_cappable] <- universal_baseline
+        message('  Capped ', n_capped, ' Phase 1 entries to baseline ',
+                round(universal_baseline * 100), '%')
+      }
+    }
+  }
+
+  attr(results, 'universal_baseline') <- universal_baseline
   return(results)
+}
+
+
+# =============================================================================
+# IEEPA Fentanyl/Initial Rate Extraction
+# =============================================================================
+
+#' Extract IEEPA fentanyl/initial country-specific rates from HTS JSON
+#'
+#' Parses 9903.01.01-24: Initial IEEPA tariffs (fentanyl + early reciprocal).
+#' These STACK on top of the reciprocal tariffs from 9903.01.25+/9903.02.xx.
+#'
+#' Key entries:
+#'   - 9903.01.01: Mexico (+25%, fentanyl IEEPA)
+#'   - 9903.01.10: Canada (+35%, fentanyl + initial reciprocal)
+#'   - 9903.01.20: China/HK (+10%, initial IEEPA)
+#'   - 9903.01.24: China/HK (+10%, additional provision)
+#'
+#' Rate types are all surcharges ("+X%").
+#' Exclusion entries (9903.01.02-09, 11-15, 21-23) have no additional rate.
+#'
+#' @param hts_raw Parsed HTS JSON (list)
+#' @param country_lookup Named vector from build_country_lookup()
+#' @return Tibble with ch99_code, rate, country_name, census_code
+extract_ieepa_fentanyl_rates <- function(hts_raw, country_lookup) {
+  message('Extracting IEEPA fentanyl/initial rates...')
+
+  # Filter to 9903.01.01 through 9903.01.24
+  fent_items <- Filter(function(x) {
+    htsno <- x$htsno %||% ''
+    grepl('^9903\\.01\\.(0[1-9]|1[0-9]|2[0-4])$', htsno)
+  }, hts_raw)
+
+  message('  Fentanyl/initial entries found: ', length(fent_items))
+
+  if (length(fent_items) == 0) {
+    message('  No fentanyl entries — returning empty tibble')
+    return(tibble(
+      ch99_code = character(), rate = numeric(),
+      country_name = character(), census_code = character()
+    ))
+  }
+
+  # Parse each entry — only keep entries with a rate (exclusions have no "+X%")
+  results <- map_dfr(fent_items, function(item) {
+    ch99_code <- item$htsno %||% NA_character_
+    general <- item$general %||% ''
+    description <- item$description %||% ''
+
+    # Only surcharge rates ("+X%")
+    surcharge_match <- str_match(general, '\\+\\s*([0-9.]+)%')
+    if (is.na(surcharge_match[1, 2])) {
+      return(NULL)  # Skip exclusion entries
+    }
+
+    rate <- as.numeric(surcharge_match[1, 2]) / 100
+
+    # Extract country from description
+    country_names <- extract_countries_from_description(description)
+    if (length(country_names) == 0) return(NULL)
+
+    matched <- match_countries(country_names, country_lookup)
+
+    tibble(
+      ch99_code = ch99_code,
+      rate = rate,
+      country_name = matched$country_name,
+      census_code = matched$census_code
+    )
+  })
+
+  if (nrow(results) == 0) {
+    message('  No fentanyl entries with rates parsed')
+    return(tibble(
+      ch99_code = character(), rate = numeric(),
+      country_name = character(), census_code = character()
+    ))
+  }
+
+  # Drop unmatched countries
+  results <- results %>% filter(!is.na(census_code))
+
+  # For countries with multiple entries, take the FIRST entry (by ch99_code).
+  # The first entry in each country block is the general rate (applies to most
+  # products), with subsequent entries being exceptions (product-specific lower
+  # rates or anti-transshipment penalties). For blanket application, the general
+  # entry is appropriate.
+  country_fent <- results %>%
+    group_by(census_code) %>%
+    arrange(ch99_code) %>%
+    summarise(
+      rate = first(rate),
+      ch99_code = first(ch99_code),
+      country_name = first(country_name),
+      .groups = 'drop'
+    )
+
+  message('  Fentanyl rates by country:')
+  for (i in seq_len(nrow(country_fent))) {
+    message('    ', country_fent$country_name[i], ' (',
+            country_fent$census_code[i], '): ',
+            round(country_fent$rate[i] * 100), '%')
+  }
+
+  return(country_fent)
+}
+
+
+# =============================================================================
+# Section 232 Rate Extraction
+# =============================================================================
+
+#' Extract Section 232 blanket rates from Chapter 99 data
+#'
+#' Section 232 tariffs (steel/aluminum) are NOT linked via product footnotes.
+#' Coverage is defined by US Notes 16 (steel) and 19 (aluminum) referencing
+#' HTS chapters 72-73 (steel) and 76 (aluminum).
+#'
+#' Parses 9903.80-84 (steel) and 9903.85 (aluminum) entries to build a
+#' per-country rate lookup, handling country exemptions.
+#'
+#' @param ch99_data Parsed Chapter 99 data from parse_chapter99()
+#' @return List with:
+#'   - steel_rates: tibble(country_code, rate) for steel
+#'   - aluminum_rates: tibble(country_code, rate) for aluminum
+#'   - steel_entries: filtered ch99_data for steel
+#'   - aluminum_entries: filtered ch99_data for aluminum
+extract_section232_rates <- function(ch99_data) {
+  message('Extracting Section 232 blanket rates...')
+
+  # Get all 232 entries with parsed rates
+  s232 <- ch99_data %>%
+    filter(grepl('^9903\\.8[0-5]', ch99_code), !is.na(rate)) %>%
+    mutate(
+      s232_type = case_when(
+        grepl('^9903\\.8[0-4]', ch99_code) ~ 'steel',
+        grepl('^9903\\.85', ch99_code) ~ 'aluminum'
+      )
+    )
+
+  if (nrow(s232) == 0) {
+    message('  No Section 232 entries with rates found')
+    return(list(
+      steel_rate = 0, aluminum_rate = 0,
+      steel_exempt = character(0), aluminum_exempt = character(0),
+      has_232 = FALSE
+    ))
+  }
+
+  # Separate steel vs aluminum entries
+  steel_entries <- s232 %>% filter(s232_type == 'steel')
+  aluminum_entries <- s232 %>% filter(s232_type == 'aluminum')
+
+  # For steel: use PARENT entries only (9903.80.01, 9903.80.03, 9903.80.61)
+  # NOT the product-specific entries (9903.81.xx) which may have higher rates
+  # (50%) for specific derivative products we can't identify by chapter alone.
+  steel_parent <- steel_entries %>%
+    filter(grepl('^9903\\.80\\.', ch99_code))
+  steel_deriv <- steel_entries %>%
+    filter(!grepl('^9903\\.80\\.', ch99_code))
+
+  # Prefer 'all' entry (9903.80.61, exemptions revoked) over 'all_except' (9903.80.01)
+  steel_all <- steel_parent %>% filter(country_type == 'all')
+  steel_except <- steel_parent %>% filter(country_type == 'all_except')
+
+  if (nrow(steel_all) > 0) {
+    steel_rate <- max(steel_all$rate)
+    steel_exempt <- character(0)
+    message('  Steel 232: ', round(steel_rate * 100), '% (all countries)')
+  } else if (nrow(steel_except) > 0) {
+    steel_rate <- max(steel_except$rate)
+    steel_exempt <- unique(unlist(steel_except$exempt_countries))
+    message('  Steel 232: ', round(steel_rate * 100), '% (all except ',
+            length(steel_exempt), ' countries/groups)')
+  } else {
+    steel_rate <- 0
+    steel_exempt <- character(0)
+  }
+
+  # Aluminum: use PARENT entries only (9903.85.01, 9903.85.03)
+  # NOT product-specific entries (9903.85.02 = 50%, 9903.85.67 = 200%, etc.)
+  alum_parent <- aluminum_entries %>%
+    filter(ch99_code %in% c('9903.85.01', '9903.85.03'))
+  alum_increase <- aluminum_entries %>%
+    filter(ch99_code == '9903.85.12')  # General increase entry (25%)
+
+  alum_except <- alum_parent %>% filter(country_type == 'all_except')
+
+  # If the 25% general increase entry exists (9903.85.12, all countries),
+  # use that rate for all countries
+  if (nrow(alum_increase) > 0 && alum_increase$country_type[1] == 'all') {
+    aluminum_rate <- alum_increase$rate[1]
+    aluminum_exempt <- character(0)
+    message('  Aluminum 232: ', round(aluminum_rate * 100), '% (all countries, increased)')
+  } else if (nrow(alum_except) > 0) {
+    aluminum_rate <- max(alum_except$rate)
+    aluminum_exempt <- unique(unlist(alum_except$exempt_countries))
+    message('  Aluminum 232: ', round(aluminum_rate * 100), '% (all except ',
+            length(aluminum_exempt), ' countries/groups)')
+  } else {
+    aluminum_rate <- 0
+    aluminum_exempt <- character(0)
+  }
+
+  return(list(
+    steel_rate = steel_rate,
+    aluminum_rate = aluminum_rate,
+    steel_exempt = steel_exempt,
+    aluminum_exempt = aluminum_exempt,
+    has_232 = (steel_rate > 0 || aluminum_rate > 0)
+  ))
+}
+
+
+#' Check if a Census country code is exempt from Section 232
+#'
+#' Handles ISO codes, group codes ('EU'), and Census codes in the exempt list.
+#'
+#' @param census_code Census country code (e.g., '4280')
+#' @param exempt_list Vector of exempt codes (ISO, Census, or groups like 'EU')
+#' @return Logical — TRUE if exempt
+is_232_exempt <- function(census_code, exempt_list) {
+  if (length(exempt_list) == 0) return(FALSE)
+
+  # Direct Census code match
+  if (census_code %in% exempt_list) return(TRUE)
+
+  # Check if country is in ISO_TO_CENSUS and its ISO code is exempt
+  iso_code <- names(ISO_TO_CENSUS)[match(census_code, ISO_TO_CENSUS)]
+  if (!is.na(iso_code) && iso_code %in% exempt_list) return(TRUE)
+
+  # Check EU group membership
+  if ('EU' %in% exempt_list && census_code %in% EU27_CODES) return(TRUE)
+
+  return(FALSE)
 }
 
 

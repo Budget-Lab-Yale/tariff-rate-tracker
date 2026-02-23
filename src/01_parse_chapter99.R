@@ -74,9 +74,11 @@ infer_authority <- function(ch99_code) {
     middle >= 80 && middle <= 82 ~ 'section_232',          # 9903.80-82: Steel 232
     middle >= 83 && middle <= 84 ~ 'section_232_auto',     # 9903.83-84: Autos 232
     middle == 85 ~ 'section_232_aluminum',                  # 9903.85: Aluminum 232
-    middle >= 86 && middle <= 89 ~ 'section_301',          # 9903.86-89: China 301
-    middle >= 90 && middle <= 92 ~ 'ieepa',                # 9903.90-92: IEEPA
-    middle >= 93 && middle <= 96 ~ 'ieepa',                # 9903.93-96: IEEPA variants
+    middle >= 86 && middle <= 89 ~ 'section_301',          # 9903.86-89: China 301 (US Note 20/21)
+    middle == 90 ~ 'ieepa',                                # 9903.90: IEEPA (China surcharges)
+    middle == 91 ~ 'section_301',                          # 9903.91: Biden 301 (US Note 31, China)
+    middle == 92 ~ 'section_301',                          # 9903.92: 301-related crane duties
+    middle == 94 ~ 'section_232_auto',                     # 9903.94: Auto tariffs (US Note 33)
     middle >= 40 && middle <= 45 ~ 'section_201',          # 9903.40-45: Safeguards
     TRUE ~ 'other'
   )
@@ -104,6 +106,16 @@ parse_countries <- function(description) {
 
   # Check for "product of China" pattern
   if (str_detect(desc_lower, 'product of china')) {
+    return(list(type = 'specific', countries = c('CN'), exempt = character(0)))
+  }
+
+  # US Note 21 = Biden Section 301 (China-specific)
+  if (str_detect(desc_lower, 'u\\.s\\.\\s*note\\s*21')) {
+    return(list(type = 'specific', countries = c('CN'), exempt = character(0)))
+  }
+
+  # US Note 31 = Biden Section 301 increases (China-specific)
+  if (str_detect(desc_lower, 'u\\.s\\.\\s*note\\s*31')) {
     return(list(type = 'specific', countries = c('CN'), exempt = character(0)))
   }
 

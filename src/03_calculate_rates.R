@@ -78,13 +78,18 @@ classify_authority <- function(ch99_code) {
     return('section_301')
   }
 
-  # IEEPA: 9903.90.xx - 9903.96.xx
-  if (middle >= 90 && middle <= 96) {
-    # Distinguish fentanyl from reciprocal based on subheading
-    # 9903.91.xx appears to be fentanyl-related based on HTS
-    if (middle == 91) {
-      return('ieepa_fentanyl')
-    }
+  # Section 301 Biden-era: 9903.91.xx (US Note 31), 9903.92.xx (crane duties)
+  if (middle == 91 || middle == 92) {
+    return('section_301')
+  }
+
+  # Section 232 auto: 9903.94.xx (US Note 33)
+  if (middle == 94) {
+    return('section_232')
+  }
+
+  # IEEPA: 9903.90.xx (China surcharges), 9903.93/95/96
+  if (middle == 90 || (middle >= 93 && middle <= 96 && middle != 94)) {
     return('ieepa_reciprocal')
   }
 
@@ -145,10 +150,9 @@ get_ch99_rate_for_country <- function(ch99_code, country, ch99_data) {
 
 #' Apply stacking rules to calculate total additional duty
 #'
-#' Implements Tariff-ETRs stacking logic:
+#' Implements stacking logic:
 #'   - China: max(232, reciprocal) + fentanyl + 301 + other
-#'   - Others with 232: 232 + other (232 takes precedence)
-#'   - Others without 232: reciprocal + fentanyl + other
+#'   - All others: max(232, reciprocal) + fentanyl + other
 #'
 #' @param rate_232 Section 232 rate
 #' @param rate_301 Section 301 rate
@@ -158,19 +162,15 @@ get_ch99_rate_for_country <- function(ch99_code, country, ch99_data) {
 #' @param country Census country code
 #' @return Total additional duty
 apply_stacking <- function(rate_232, rate_301, rate_ieepa_recip, rate_ieepa_fent, rate_other, country) {
-  # China: special stacking
+  # China: max(232, reciprocal) + fentanyl + 301 + other
   if (country == CTY_CHINA) {
     base <- max(rate_232, rate_ieepa_recip, na.rm = TRUE)
     return(base + rate_ieepa_fent + rate_301 + rate_other)
   }
 
-  # Others with 232: 232 takes precedence over reciprocal
-  if (rate_232 > 0) {
-    return(rate_232 + rate_other)
-  }
-
-  # Others without 232: use IEEPA rates
-  return(rate_ieepa_recip + rate_ieepa_fent + rate_other)
+  # All others: max(232, reciprocal) + fentanyl + other
+  base <- max(rate_232, rate_ieepa_recip, na.rm = TRUE)
+  return(base + rate_ieepa_fent + rate_other)
 }
 
 
@@ -310,9 +310,14 @@ calculate_rates_fast <- function(products, ch99_data, countries) {
   # For each product-country, determine applicable rates
   # This requires checking country applicability for each Ch99 entry
 
+  # Rename list columns to avoid name collision with the 'countries' argument
+  product_ch99_rates <- product_ch99_rates %>%
+    rename(ch99_countries = countries, ch99_exempt = exempt_countries)
+
   # Create full expansion: product × ch99 × country
+  country_vec <- countries  # local copy to avoid any ambiguity
   full_expansion <- product_ch99_rates %>%
-    crossing(country = countries)
+    tidyr::expand_grid(country = country_vec)
 
   message('  Full expansion: ', nrow(full_expansion))
 
@@ -320,7 +325,7 @@ calculate_rates_fast <- function(products, ch99_data, countries) {
   full_expansion <- full_expansion %>%
     rowwise() %>%
     mutate(
-      applies = check_country_applies(country, country_type, countries, exempt_countries)
+      applies = check_country_applies(country, country_type, ch99_countries, ch99_exempt)
     ) %>%
     ungroup() %>%
     filter(applies)
@@ -377,11 +382,8 @@ calculate_rates_fast <- function(products, ch99_data, countries) {
         country == CTY_CHINA ~
           pmax(rate_232, rate_ieepa_recip) + rate_ieepa_fent + rate_301 + rate_other,
 
-        # Others with 232: 232 + other
-        rate_232 > 0 ~ rate_232 + rate_other,
-
-        # Others: reciprocal + fentanyl + other
-        TRUE ~ rate_ieepa_recip + rate_ieepa_fent + rate_other
+        # All others: max(232, reciprocal) + fentanyl + other
+        TRUE ~ pmax(rate_232, rate_ieepa_recip) + rate_ieepa_fent + rate_other
       ),
       total_rate = base_rate + total_additional
     )
@@ -398,9 +400,13 @@ calculate_rates_fast <- function(products, ch99_data, countries) {
 #' @param exempt List of exempt countries
 #' @return Logical
 check_country_applies <- function(country, country_type, countries, exempt) {
+  # Defensive checks
+  if (length(country) == 0 || is.na(country)) return(FALSE)
+  if (length(country_type) == 0 || is.na(country_type)) return(TRUE)
+
   # Convert Census to ISO for matching
   country_iso <- names(ISO_TO_CENSUS)[match(country, ISO_TO_CENSUS)]
-  if (is.na(country_iso)) country_iso <- country
+  if (length(country_iso) == 0 || is.na(country_iso)) country_iso <- country
 
   switch(
     country_type,
@@ -410,6 +416,338 @@ check_country_applies <- function(country, country_type, countries, exempt) {
     'unknown' = TRUE,  # Assume applies if unknown
     FALSE
   )
+}
+
+
+# =============================================================================
+# Per-Revision Rate Calculator
+# =============================================================================
+
+#' Calculate rates for a single HTS revision
+#'
+#' Wraps calculate_rates_fast() but applies blanket tariffs that are NOT
+#' referenced via product footnotes:
+#'   - IEEPA reciprocal: blanket on all products for applicable countries
+#'   - Section 232: blanket on steel (ch72-73) and aluminum (ch76) products
+#'   - USMCA exemptions: eligible products exempt from IEEPA for CA/MX
+#'
+#' @param products Product data from parse_products()
+#' @param ch99_data Chapter 99 data from parse_chapter99()
+#' @param ieepa_rates IEEPA rates from extract_ieepa_rates() (or NULL)
+#' @param usmca USMCA eligibility from extract_usmca_eligibility() (or NULL)
+#' @param countries Vector of Census country codes
+#' @param revision_id Revision identifier (e.g., 'rev_7')
+#' @param effective_date Date the revision took effect
+#' @param s232_rates Section 232 rates from extract_section232_rates() (or NULL)
+#' @param fentanyl_rates Fentanyl rates from extract_ieepa_fentanyl_rates() (or NULL)
+#' @return Tibble with rate columns + revision, effective_date, usmca_eligible
+calculate_rates_for_revision <- function(
+  products, ch99_data, ieepa_rates, usmca,
+  countries, revision_id, effective_date,
+  s232_rates = NULL,
+  fentanyl_rates = NULL
+) {
+  message('Calculating rates for revision: ', revision_id, ' (', effective_date, ')')
+
+  # 1. Get footnote-based rates from calculate_rates_fast()
+  #    This captures 232, 301, fentanyl, other — but NOT IEEPA reciprocal,
+  #    which is a blanket tariff not referenced via product footnotes.
+  rates <- calculate_rates_fast(products, ch99_data, countries)
+
+  if (nrow(rates) == 0) {
+    message('  No rates calculated for ', revision_id)
+    return(tibble(
+      hts10 = character(), country = character(),
+      base_rate = numeric(), rate_232 = numeric(), rate_301 = numeric(),
+      rate_ieepa_recip = numeric(), rate_ieepa_fent = numeric(), rate_other = numeric(),
+      total_additional = numeric(), total_rate = numeric(),
+      usmca_eligible = logical(), revision = character(), effective_date = as.Date(character())
+    ))
+  }
+
+  # 2. Build per-country IEEPA reciprocal lookup from ieepa_rates
+  #    IEEPA reciprocal is a BLANKET tariff — it applies to all products for
+  #    applicable countries, not just products with IEEPA footnotes. The country-
+  #    specific rates from 9903.01/02.xx define the rate per country.
+  has_active_ieepa <- !is.null(ieepa_rates) && nrow(ieepa_rates) > 0
+
+  if (has_active_ieepa) {
+    # Do NOT filter on 'terminated' — for a given revision, all IEEPA entries
+    # present in the JSON were effective as of that revision. The "provision
+    # terminated" text was added in later revisions.
+    active_ieepa <- ieepa_rates %>%
+      filter(!is.na(census_code), !is.na(rate))
+
+    if (nrow(active_ieepa) > 0) {
+      # Prefer Phase 2 over Phase 1 when both exist for a country
+      # (Phase 2 supersedes Phase 1 with updated rates)
+      country_ieepa <- active_ieepa %>%
+        mutate(phase_priority = if_else(phase == 'phase2_aug7', 1L, 2L)) %>%
+        group_by(census_code) %>%
+        arrange(phase_priority, desc(rate)) %>%
+        summarise(
+          ieepa_country_rate = first(rate),
+          ieepa_type = first(rate_type),
+          .groups = 'drop'
+        )
+
+      # Apply IEEPA reciprocal to ALL products for applicable countries
+      rates <- rates %>%
+        left_join(
+          country_ieepa %>% rename(country = census_code),
+          by = 'country'
+        ) %>%
+        mutate(
+          rate_ieepa_recip = case_when(
+            is.na(ieepa_country_rate) ~ 0,              # country not in IEEPA list
+            ieepa_type == 'surcharge' ~ ieepa_country_rate,
+            ieepa_type == 'floor' ~ pmax(0, ieepa_country_rate - base_rate),
+            ieepa_type == 'passthrough' ~ 0,
+            TRUE ~ 0
+          )
+        ) %>%
+        select(-ieepa_country_rate, -ieepa_type)
+
+      # Also add IEEPA rows for products NOT currently in rates
+      # (products with no other Ch99 duties but still subject to IEEPA)
+      ieepa_country_codes <- country_ieepa$census_code
+      ieepa_countries_in_scope <- intersect(ieepa_country_codes, countries)
+
+      existing_pairs <- rates %>%
+        filter(country %in% ieepa_countries_in_scope) %>%
+        select(hts10, country)
+
+      all_products_base <- products %>%
+        select(hts10, base_rate) %>%
+        mutate(base_rate = coalesce(base_rate, 0))
+
+      new_pairs <- all_products_base %>%
+        tidyr::expand_grid(country = ieepa_countries_in_scope) %>%
+        anti_join(existing_pairs, by = c('hts10', 'country')) %>%
+        left_join(
+          country_ieepa %>% rename(country = census_code),
+          by = 'country'
+        ) %>%
+        mutate(
+          rate_232 = 0, rate_301 = 0, rate_ieepa_fent = 0, rate_other = 0,
+          rate_ieepa_recip = case_when(
+            ieepa_type == 'surcharge' ~ ieepa_country_rate,
+            ieepa_type == 'floor' ~ pmax(0, ieepa_country_rate - base_rate),
+            TRUE ~ 0
+          )
+        ) %>%
+        filter(rate_ieepa_recip > 0) %>%
+        select(-ieepa_country_rate, -ieepa_type)
+
+      if (nrow(new_pairs) > 0) {
+        message('  Adding ', nrow(new_pairs), ' product-country pairs for IEEPA-only duties')
+        rates <- bind_rows(rates, new_pairs)
+      }
+    } else {
+      # No usable IEEPA entries (all missing rate or census_code)
+      rates <- rates %>% mutate(rate_ieepa_recip = 0)
+    }
+  } else {
+    # No IEEPA in this revision — zero out
+    rates <- rates %>% mutate(rate_ieepa_recip = 0)
+  }
+
+  # 2b. Apply IEEPA fentanyl/initial rates as blanket tariff
+  #     9903.01.01-24: Mexico (+25%), Canada (+35%), China (+10%)
+  #     These STACK with reciprocal tariffs for CA/MX.
+  #     China/HK are EXCLUDED: their 9903.90.xx footnote rates already
+  #     incorporate fentanyl (adding it would double-count ~10pp).
+  CTY_HK <- '5820'
+  has_fentanyl <- !is.null(fentanyl_rates) && nrow(fentanyl_rates) > 0
+
+  if (has_fentanyl) {
+    fent_lookup <- fentanyl_rates %>%
+      filter(!(census_code %in% c(CTY_CHINA, CTY_HK))) %>%
+      select(census_code, fent_rate = rate)
+
+    # Apply fentanyl to existing rows
+    rates <- rates %>%
+      left_join(fent_lookup, by = c('country' = 'census_code')) %>%
+      mutate(rate_ieepa_fent = coalesce(fent_rate, 0)) %>%
+      select(-fent_rate)
+
+    # Add fentanyl-only rows for products not yet in rates
+    fent_country_codes <- intersect(fentanyl_rates$census_code, countries)
+    if (length(fent_country_codes) > 0) {
+      existing_fent <- rates %>%
+        filter(country %in% fent_country_codes) %>%
+        select(hts10, country)
+
+      new_fent_pairs <- products %>%
+        select(hts10, base_rate) %>%
+        mutate(base_rate = coalesce(base_rate, 0)) %>%
+        tidyr::expand_grid(country = fent_country_codes) %>%
+        anti_join(existing_fent, by = c('hts10', 'country')) %>%
+        left_join(fent_lookup, by = c('country' = 'census_code')) %>%
+        mutate(
+          rate_232 = 0, rate_301 = 0, rate_ieepa_recip = 0,
+          rate_ieepa_fent = coalesce(fent_rate, 0), rate_other = 0
+        ) %>%
+        filter(rate_ieepa_fent > 0) %>%
+        select(-fent_rate)
+
+      if (nrow(new_fent_pairs) > 0) {
+        message('  Adding ', nrow(new_fent_pairs),
+                ' product-country pairs for fentanyl-only duties')
+        rates <- bind_rows(rates, new_fent_pairs)
+      }
+    }
+
+    n_with_fent <- sum(rates$rate_ieepa_fent > 0)
+    message('  With IEEPA fentanyl: ', n_with_fent)
+  } else {
+    rates <- rates %>% mutate(rate_ieepa_fent = coalesce(rate_ieepa_fent, 0))
+  }
+
+  # 3. Apply Section 232 as blanket tariff
+  #    232 is defined by US Notes 16 (steel) and 19 (aluminum), not via product
+  #    footnotes. Apply to products in covered HTS chapters.
+  if (is.null(s232_rates)) {
+    s232_rates <- extract_section232_rates(ch99_data)
+  }
+
+  if (s232_rates$has_232) {
+    # Identify covered products by HTS chapter
+    steel_products <- products %>%
+      filter(substr(hts10, 1, 2) %in% c('72', '73')) %>%
+      pull(hts10)
+    aluminum_products <- products %>%
+      filter(substr(hts10, 1, 2) == '76') %>%
+      pull(hts10)
+
+    n_steel <- length(steel_products)
+    n_alum <- length(aluminum_products)
+    message('  Section 232 coverage: ', n_steel, ' steel + ', n_alum, ' aluminum products')
+
+    # Build per-country 232 rate: check exemptions for each country
+    country_232 <- tibble(country = countries) %>%
+      mutate(
+        steel_exempt = map_lgl(country, ~is_232_exempt(.x, s232_rates$steel_exempt)),
+        alum_exempt = map_lgl(country, ~is_232_exempt(.x, s232_rates$aluminum_exempt)),
+        steel_rate = if_else(steel_exempt, 0, s232_rates$steel_rate),
+        aluminum_rate = if_else(alum_exempt, 0, s232_rates$aluminum_rate)
+      )
+
+    n_steel_countries <- sum(country_232$steel_rate > 0)
+    n_alum_countries <- sum(country_232$aluminum_rate > 0)
+    message('  Steel applies to ', n_steel_countries, ' countries, aluminum to ', n_alum_countries)
+
+    # Update rate_232 for products already in rates
+    rates <- rates %>%
+      left_join(
+        country_232 %>% select(country, steel_rate_232 = steel_rate, alum_rate_232 = aluminum_rate),
+        by = 'country'
+      ) %>%
+      mutate(
+        chapter = substr(hts10, 1, 2),
+        blanket_232 = case_when(
+          chapter %in% c('72', '73') ~ coalesce(steel_rate_232, 0),
+          chapter == '76' ~ coalesce(alum_rate_232, 0),
+          TRUE ~ 0
+        ),
+        # Take max of footnote-based 232 and blanket 232
+        rate_232 = pmax(rate_232, blanket_232)
+      ) %>%
+      select(-steel_rate_232, -alum_rate_232, -chapter, -blanket_232)
+
+    # Also add rows for 232-covered products NOT yet in rates
+    # (products with no other Ch99 duties and not covered by IEEPA)
+    s232_country_codes <- country_232 %>%
+      filter(steel_rate > 0 | aluminum_rate > 0) %>%
+      pull(country)
+
+    all_232_products <- c(steel_products, aluminum_products)
+    existing_pairs_232 <- rates %>%
+      filter(hts10 %in% all_232_products, country %in% s232_country_codes) %>%
+      select(hts10, country)
+
+    new_232_pairs <- products %>%
+      filter(hts10 %in% all_232_products) %>%
+      select(hts10, base_rate) %>%
+      mutate(base_rate = coalesce(base_rate, 0)) %>%
+      tidyr::expand_grid(country = s232_country_codes) %>%
+      anti_join(existing_pairs_232, by = c('hts10', 'country')) %>%
+      left_join(
+        country_232 %>% select(country, steel_rate_232 = steel_rate, alum_rate_232 = aluminum_rate),
+        by = 'country'
+      ) %>%
+      mutate(
+        chapter = substr(hts10, 1, 2),
+        rate_232 = case_when(
+          chapter %in% c('72', '73') ~ coalesce(steel_rate_232, 0),
+          chapter == '76' ~ coalesce(alum_rate_232, 0),
+          TRUE ~ 0
+        ),
+        rate_301 = 0, rate_ieepa_recip = 0, rate_ieepa_fent = 0, rate_other = 0
+      ) %>%
+      filter(rate_232 > 0) %>%
+      select(-steel_rate_232, -alum_rate_232, -chapter)
+
+    if (nrow(new_232_pairs) > 0) {
+      message('  Adding ', nrow(new_232_pairs), ' product-country pairs for 232-only duties')
+      rates <- bind_rows(rates, new_232_pairs)
+    }
+  }
+
+  # 4. Apply USMCA exemptions
+  if (!is.null(usmca) && nrow(usmca) > 0) {
+    rates <- rates %>%
+      left_join(
+        usmca %>% select(hts10, usmca_eligible),
+        by = 'hts10'
+      ) %>%
+      mutate(
+        usmca_eligible = coalesce(usmca_eligible, FALSE),
+        # USMCA-eligible products exempt from IEEPA for Canada/Mexico
+        # (9903.01.14 explicitly exempts USMCA articles)
+        rate_ieepa_recip = if_else(
+          country %in% c(CTY_CANADA, CTY_MEXICO) & usmca_eligible,
+          0, rate_ieepa_recip
+        ),
+        rate_ieepa_fent = if_else(
+          country %in% c(CTY_CANADA, CTY_MEXICO) & usmca_eligible,
+          0, rate_ieepa_fent
+        )
+      )
+  } else {
+    rates <- rates %>% mutate(usmca_eligible = FALSE)
+  }
+
+  # 5. Re-apply stacking rules with updated IEEPA and 232 rates
+  rates <- rates %>%
+    mutate(
+      total_additional = case_when(
+        # China: max(232, reciprocal) + fentanyl + 301 + other
+        country == CTY_CHINA ~
+          pmax(rate_232, rate_ieepa_recip) + rate_ieepa_fent + rate_301 + rate_other,
+        # All others: max(232, reciprocal) + fentanyl + other
+        TRUE ~ pmax(rate_232, rate_ieepa_recip) + rate_ieepa_fent + rate_other
+      ),
+      total_rate = base_rate + total_additional
+    )
+
+  # 6. Add revision metadata
+  rates <- rates %>%
+    mutate(
+      revision = revision_id,
+      effective_date = as.Date(effective_date)
+    )
+
+  # Summary
+  n_with_ieepa <- sum(rates$rate_ieepa_recip > 0)
+  n_with_232 <- sum(rates$rate_232 > 0)
+  n_usmca <- sum(rates$usmca_eligible)
+  message('  Products-countries: ', nrow(rates))
+  message('  With IEEPA reciprocal: ', n_with_ieepa)
+  message('  With Section 232: ', n_with_232)
+  message('  USMCA eligible: ', n_usmca)
+
+  return(rates)
 }
 
 

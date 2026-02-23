@@ -1,0 +1,9 @@
+I've attached the estimated tariff rate change by variety and dates you requested. Several things to note:
+
+1.	We assume a 50% metal share for steel and aluminum derivatives which the HTS specifies is only subject to steel or aluminum tariffs for the share that is the metal.
+2.	We assume 40% of imported drugs are generic. This is only relevant for trading partners with deals that exempt their generic drugs from reciprocal tariffs.
+3.	Canadian- and Mexican-origin goods face a rate that is multiplied by the complement of the USMCA share for each product.
+4.	Estimates do not include the recently announced semiconductor tariffs.
+
+
+Date: January 23, 2026
