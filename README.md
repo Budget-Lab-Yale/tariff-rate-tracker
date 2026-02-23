@@ -374,6 +374,10 @@ Products identified by chapter (72-73 = steel, 76 = aluminum). Rates parsed from
 - **Census Country Codes**: [Census Bureau](https://www.census.gov/foreign-trade/schedules/b/countrycodes.html)
 - **Federal Register**: Proclamations and executive orders (manual curation)
 
+## Acknowledgments
+
+We thank the [Urban-Brookings Tax Policy Center](https://www.taxpolicycenter.org/) for generously providing a snapshot of their tariff rate data for validation purposes.
+
 ## Related Projects
 
 - [Tariff-Model](https://github.com/Budget-Lab-Yale/Tariff-Model) - Economic impact modeling
