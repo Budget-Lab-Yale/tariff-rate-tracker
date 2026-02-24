@@ -86,16 +86,31 @@ rate_timeseries.rds -> import-weighted ETRs (10_weighted_etr.R via get_rates_at_
 
 ## Stacking Rules
 
+Mutual exclusion between 232 and IEEPA reciprocal (aligned with Tariff-ETRs):
+
 ```r
-# China (5700)
-total = max(232, reciprocal) + fentanyl + 301
+# China with 232:    232 + fentanyl + 301 + s122 + other
+# China without 232: reciprocal + fentanyl + 301 + s122 + other
+# Others with 232:   232 + s122 + other              (fentanyl does NOT stack on 232)
+# Others without 232: reciprocal + fentanyl + s122 + other
 
-# Canada/Mexico (1220, 2010)
-total = 232 + (reciprocal + fentanyl) * usmca_factor
-
-# All Others
-total = (232 > 0 ? 232 : reciprocal + fentanyl)
+# USMCA (CA/MX): binary exemption — eligible products get IEEPA/fentanyl zeroed out
 ```
+
+Key: 232 takes precedence over IEEPA reciprocal. Fentanyl only stacks on 232 for China.
+
+## Section 232 Coverage
+
+- Steel: chapters 72-73 (blanket via 9903.80-84)
+- Aluminum: chapter 76 (blanket via 9903.85)
+- Autos: heading 8703 + light trucks (blanket via 9903.94, config prefixes)
+- Copper: headings 7406-7419 (config prefixes)
+- Derivatives: captured via product footnote mechanism (not blanket)
+
+## IEEPA Product Exemptions
+
+~1,087 products exempt from IEEPA reciprocal (Annex A / US Note 2 subdivision (v)(iii)).
+List in `resources/ieepa_exempt_products.csv`. Not parseable from HTS JSON (US Notes text unavailable via API).
 
 ## Census Country Codes
 

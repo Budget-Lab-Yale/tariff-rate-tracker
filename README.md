@@ -33,16 +33,18 @@ The orchestrator repeats these steps for each HTS revision, producing per-revisi
 | File | Purpose |
 |------|---------|
 | `00_build_timeseries.R` | **Main orchestrator.** Iterates over all HTS revisions, builds per-revision rate snapshots, computes deltas, runs TPC validation, and combines into a long-format time series. Supports incremental updates via `--start-from`. |
-| `01_parse_chapter99.R` | Parses all Chapter 99 entries from HTS JSON. Extracts rates from the `general` field (e.g., "the duty + 25%" -> 0.25), infers authority type from the subheading range, and parses country scope from the `description` field. |
-| `02_parse_products.R` | Parses HTS-10 product lines. Extracts base MFN rates and Chapter 99 footnote references (the `footnotes` field contains "See 9903.xx.xx" cross-references). |
-| `03_calculate_rates.R` | Joins products to Chapter 99 authorities via footnote refs. Applies IEEPA reciprocal/fentanyl as blanket country-level tariffs. Identifies Section 232 products by HTS chapter. Applies stacking rules. Expands to the country dimension. |
-| `04_validate_tpc.R` | Compares calculated rates against TPC benchmark data at the HTS-10 x country x date level. Reports match rates and identifies systematic discrepancies. |
-| `05_parse_policy_params.R` | Extracts policy parameters directly from HTS JSON: (1) IEEPA country-specific reciprocal rates from 9903.01-02.xx entries, with rate_type classification (surcharge/floor/passthrough) and EU expansion to 27 member states; (2) IEEPA fentanyl/initial rates from 9903.01.01-24; (3) Section 232 rates from Ch99 entries; (4) USMCA eligibility from the `special` field ("S"/"S+" program codes). |
-| `06_scrape_revision_dates.R` | Loads revision date metadata from `config/revision_dates.csv`. Provides helper functions for mapping revisions to effective dates and TPC validation dates. |
-| `07_apply_scenarios.R` | Counterfactual scenario system. Zeros out selected authority columns and recomputes totals. Config in `config/scenarios.yaml`. |
-| `08_diagnostics.R` | Validation and debugging utilities: Section 301 coverage gap report, China IEEPA tracking, per-revision summary. |
+| `01_scrape_revision_dates.R` | Scrapes USITC for revision effective dates. |
+| `02_download_hts.R` | Downloads missing HTS JSON archives from USITC. |
+| `03_parse_chapter99.R` | Parses all Chapter 99 entries from HTS JSON. Extracts rates from the `general` field, infers authority type from the subheading range, and parses country scope from the `description` field. |
+| `04_parse_products.R` | Parses HTS-10 product lines. Extracts base MFN rates and Chapter 99 footnote references. |
+| `05_parse_policy_params.R` | Extracts policy parameters directly from HTS JSON: IEEPA country-specific reciprocal rates (with rate_type classification and EU expansion), IEEPA fentanyl rates, Section 232 rates (including 9903.94 autos), and USMCA eligibility. |
+| `06_calculate_rates.R` | Joins products to Chapter 99 authorities via footnote refs. Applies IEEPA reciprocal/fentanyl as blanket country-level tariffs (with product exemptions). Identifies Section 232 products by chapter and heading prefix. Applies stacking rules. Expands to the country dimension. |
+| `07_validate_tpc.R` | Compares calculated rates against TPC benchmark data at the HTS-10 x country x date level. Reports match rates and identifies systematic discrepancies. |
+| `08_apply_scenarios.R` | Counterfactual scenario system. Zeros out selected authority columns and recomputes totals. Config in `config/scenarios.yaml`. |
+| `09_diagnostics.R` | Validation and debugging utilities: Section 301 coverage gap report, China IEEPA tracking, per-revision summary. |
 | `helpers.R` | Shared utility functions (rate parsing, HTS normalization, footnote extraction, file I/O). |
-| `06_weighted_etr.R` | Import-weighted effective tariff rate analysis. Loads 2024 Census import weights, calculates weighted average ETRs by authority/partner/sector, produces comparison plots with TPC overlays. |
+| `10_weighted_etr.R` | Import-weighted effective tariff rate analysis. Uses `get_rates_at_date()` from `11_daily_series.R` to query the built timeseries, calculates weighted average ETRs by authority/partner/sector, produces comparison plots with TPC overlays. |
+| `11_daily_series.R` | Daily rate series: `get_rates_at_date(ts, date)` for point-in-time queries, `build_daily_aggregates()` for pre-computed daily ETRs, `expand_to_daily()` for on-demand expansion. |
 
 ### Single-Revision Pipeline
 
@@ -116,12 +118,15 @@ Each snapshot/timeseries row contains:
 | `rate_301` | dbl | Section 301 |
 | `rate_ieepa_recip` | dbl | IEEPA reciprocal |
 | `rate_ieepa_fent` | dbl | IEEPA fentanyl |
+| `rate_s122` | dbl | Section 122 |
 | `rate_other` | dbl | Other (Section 201, etc.) |
 | `total_additional` | dbl | After stacking |
 | `total_rate` | dbl | base + additional |
 | `usmca_eligible` | lgl | USMCA flag |
 | `revision` | chr | e.g., 'rev_7' |
 | `effective_date` | Date | From revision_dates.csv |
+| `valid_from` | Date | Interval start (timeseries only) |
+| `valid_until` | Date | Interval end (timeseries only) |
 
 ## Tariff Authorities
 
@@ -131,7 +136,8 @@ Each snapshot/timeseries row contains:
 |-----------|-------------|-----------|---------------------|-------|
 | **Section 232 (steel)** | `rate_232` | All (some exemptions early 2025) | Entire year; predates 2025 | 25% through ~rev_17, then 50% |
 | **Section 232 (aluminum)** | `rate_232` | All (some exemptions early 2025) | Entire year; predates 2025 | 25% through ~rev_17, then 50% |
-| **Section 232 (autos)** | `rate_232` | All | From ~rev_8 (Apr 3) | 25% |
+| **Section 232 (autos)** | `rate_232` | All (USMCA-exempt) | From ~rev_8 (Apr 3) | 25% |
+| **Section 232 (copper)** | `rate_232` | All | From config | 25% |
 | **Section 301 (original, China)** | `rate_301` | China only | Entire year; predates 2025 | 7.5-25% by list |
 | **Section 301 (Biden acceleration)** | `rate_301` | China only | Phased: Sep 2024, Jan 2025, Jan 2026 | +25% (minerals), +50% (semicon/solar), +100% (EVs) |
 | **Section 301 (cranes)** | `rate_301` | China only | From ~rev_16 (Jun 2025) | 25% |
@@ -160,22 +166,23 @@ Each authority has a different mechanism for linking Ch99 entries to products:
 | 9903.91.xx | US Note 31 | Product footnotes | ~382 (Biden acceleration) |
 | 9903.92.xx | US Note 31 | Product footnotes | ~20 (crane duties) |
 
-**Extraction:** `01_parse_chapter99.R` parses each 9903.xx.xx entry's `general` field for the rate and `description` for country scope. `02_parse_products.R` extracts footnote references from each product's `footnotes` field. `03_calculate_rates.R` joins on the Ch99 code.
+**Extraction:** `03_parse_chapter99.R` parses each 9903.xx.xx entry's `general` field for the rate and `description` for country scope. `04_parse_products.R` extracts footnote references from each product's `footnotes` field. `06_calculate_rates.R` joins on the Ch99 code.
 
 **Gap:** Products defined by US Note 20/21 product lists (~5,000) are not captured because those products lack direct footnote references to Ch99 entries. The linkage is implicit via the Note.
 
-#### Section 232 -- Chapter-based identification
+#### Section 232 -- Chapter/heading-based identification
 
 | Ch99 Range | Product Scope | Linkage |
 |-----------|---------------|---------|
-| 9903.80-82.xx | Steel (HTS Ch. 72-73) | **Hardcoded chapter match**: `substr(hts10, 1, 2) %in% c('72', '73')` |
-| 9903.85.xx | Aluminum (HTS Ch. 76) | **Hardcoded chapter match**: `substr(hts10, 1, 2) == '76'` |
-| 9903.83-84.xx | Autos | Product footnotes |
-| 9903.94.xx | Autos (US Note 33) | Product footnotes |
+| 9903.80-82.xx | Steel (HTS Ch. 72-73) | **Blanket chapter match**: chapters 72-73 |
+| 9903.85.xx | Aluminum (HTS Ch. 76) | **Blanket chapter match**: chapter 76 |
+| 9903.83-84.xx | Autos (footnote-linked) | Product footnotes |
+| 9903.94.xx | Autos (HTS heading 8703 + light trucks) | **Blanket heading match**: 13 passenger auto prefixes + 4 light truck prefixes |
+| (copper) | Copper (HTS headings 7406-7419) | **Blanket heading match**: 11 heading prefixes |
 
-**Extraction:** `05_parse_policy_params.R:extract_section232_rates()` reads the 9903.80-85.xx entries and returns the rate + country exemptions per revision. `03_calculate_rates.R` applies this as a blanket tariff to products in chapters 72-73 and 76. Country exemptions are parsed from Ch99 description text ("except products of Australia, of Canada...").
+**Extraction:** `05_parse_policy_params.R:extract_section232_rates()` reads 9903.80-85.xx and 9903.94.xx entries and returns rates + country exemptions per revision. `06_calculate_rates.R` applies blanket 232 tariffs using variable-length prefix matching from `config/policy_params.yaml:section_232_chapters` (steel/aluminum) and `section_232_headings` (autos, copper). USMCA exemptions are configured per heading group (`usmca_exempt: true` for autos, `false` for copper).
 
-**Gap:** Derivative products -- goods in other chapters containing steel/aluminum components (referenced via "note 16(a)(ii)") -- are not covered. TPC assumes 50% metal content for these.
+**Gap:** Derivative products -- goods in other chapters containing steel/aluminum components (referenced via "note 16(a)(ii)") -- are captured when linked via product footnotes, but not yet covered by blanket matching. TPC assumes 50% metal content for these.
 
 #### IEEPA Reciprocal -- Blanket country-level tariff
 
@@ -190,7 +197,7 @@ Each authority has a different mechanism for linking Ch99 entries to products:
 - **Floor** (EU, Japan, S. Korea): minimum rate (e.g., 15% floor -- only adds duty if base_rate < 15%)
 - **Passthrough** (base_rate >= floor): no additional duty
 
-`03_calculate_rates.R` applies these rates to ALL products for each country, with no footnote linkage needed.
+`06_calculate_rates.R` applies these rates to all products for each country, with no footnote linkage needed. ~1,087 products are exempt from IEEPA reciprocal (Annex A / US Note 2 subdivision (v)(iii)); the exempt list is maintained in `resources/ieepa_exempt_products.csv`.
 
 #### IEEPA Fentanyl -- Blanket country-level tariff
 
@@ -200,7 +207,7 @@ Each authority has a different mechanism for linking Ch99 entries to products:
 
 **Extraction:** `05_parse_policy_params.R:extract_ieepa_fentanyl_rates()` parses 9903.01.01-24 entries. For countries with multiple entries (general rate + anti-transshipment penalties), takes the FIRST entry per country (by Ch99 code order), which is the general rate.
 
-`03_calculate_rates.R` applies fentanyl as a blanket tariff to all products for Canada/Mexico. USMCA-eligible products are exempt.
+`06_calculate_rates.R` applies fentanyl as a blanket tariff to all products for Canada/Mexico. USMCA-eligible products are exempt.
 
 ### 3. Hardcoded Elements and Magic Numbers
 
@@ -208,29 +215,35 @@ Each authority has a different mechanism for linking Ch99 entries to products:
 
 | Constant | Location | Value | Used For |
 |----------|----------|-------|----------|
-| `CTY_CHINA` | `03_calculate_rates.R:34` | `'5700'` | Stacking rules, fentanyl exclusion |
-| `CTY_CANADA` | `03_calculate_rates.R:35` | `'1220'` | USMCA exemption |
-| `CTY_MEXICO` | `03_calculate_rates.R:36` | `'2010'` | USMCA exemption |
-| `CTY_HK` | `03_calculate_rates.R:560` | `'5820'` | Fentanyl exclusion (alongside China) |
-| `EU27_CODES` | `05_parse_policy_params.R:23-50` | 27 Census codes | Expanding "European Union" Ch99 entries to member states |
-| `ISO_TO_CENSUS` | `03_calculate_rates.R:41-46` | 12 mappings | Converting Ch99 country descriptions (ISO-style) to Census codes |
+| `CTY_CHINA` | `config/policy_params.yaml` | `'5700'` | Stacking rules, fentanyl exclusion |
+| `CTY_CANADA` | `config/policy_params.yaml` | `'1220'` | USMCA exemption |
+| `CTY_MEXICO` | `config/policy_params.yaml` | `'2010'` | USMCA exemption |
+| `CTY_HK` | `config/policy_params.yaml` | `'5820'` | Fentanyl exclusion (alongside China) |
+| `EU27_CODES` | `config/policy_params.yaml` | 27 Census codes | Expanding "European Union" Ch99 entries to member states |
+| `ISO_TO_CENSUS` | `config/policy_params.yaml` | 12 mappings | Converting Ch99 country descriptions (ISO-style) to Census codes |
 
 #### Product Coverage Rules
 
 | Rule | Location | Logic | Notes |
 |------|----------|-------|-------|
-| Steel = Ch. 72-73 | `03_calculate_rates.R:617-618` | `substr(hts10, 1, 2) %in% c('72', '73')` | Covers ~1,800 products; misses derivatives in other chapters |
-| Aluminum = Ch. 76 | `03_calculate_rates.R:619-620` | `substr(hts10, 1, 2) == '76'` | Covers ~600 products; misses derivatives in other chapters |
+| Steel = Ch. 72-73 | `06_calculate_rates.R` | Chapter-level prefix match | Covers ~1,800 products |
+| Aluminum = Ch. 76 | `06_calculate_rates.R` | Chapter-level prefix match | Covers ~600 products |
+| Autos = heading 8703 + light trucks | `06_calculate_rates.R` | Heading-level prefix match (13+4 prefixes) | USMCA-exempt; from `policy_params.yaml` |
+| Copper = headings 7406-7419 | `06_calculate_rates.R` | Heading-level prefix match (11 prefixes) | Not USMCA-exempt; from `policy_params.yaml` |
+| IEEPA exempt products | `06_calculate_rates.R` | HTS10 in `resources/ieepa_exempt_products.csv` | ~1,087 Annex A products; IEEPA recip zeroed out |
 | USMCA eligibility | `05_parse_policy_params.R` | `special` field contains "S" or "S+" | Binary flag; no utilization-rate adjustment |
 
 #### Stacking Rules
 
 | Rule | Location | Logic | Notes |
 |------|----------|-------|-------|
-| China stacking | `03_calculate_rates.R:726-727` | `max(232, recip) + fent + 301 + other` | Only China gets 301 added to stack |
-| Others stacking | `03_calculate_rates.R:729` | `max(232, recip) + fent + other` | 232 and IEEPA recip are mutually exclusive via max() |
-| USMCA exemption | `03_calculate_rates.R:706-716` | CA/MX USMCA products: `rate_ieepa_recip = 0`, `rate_ieepa_fent = 0` | 232 still applies to USMCA products |
-| China fentanyl exclusion | `03_calculate_rates.R:564-565` | `filter(!(census_code %in% c(CTY_CHINA, CTY_HK)))` | China/HK 9903.90.xx rates already incorporate fentanyl |
+| 232/IEEPA mutual exclusion | `helpers.R:apply_stacking_rules()` | 232 > 0 → use 232, else use IEEPA recip | 232 takes precedence over IEEPA reciprocal |
+| China stacking | `helpers.R:apply_stacking_rules()` | `232 + fent + 301 + s122 + other` (or `recip + fent + 301 + s122 + other`) | Only China gets 301 added to stack |
+| Others stacking (with 232) | `helpers.R:apply_stacking_rules()` | `232 + s122 + other` | Fentanyl does NOT stack on 232 for non-China |
+| Others stacking (no 232) | `helpers.R:apply_stacking_rules()` | `recip + fent + s122 + other` | Full IEEPA stack applies |
+| USMCA exemption | `06_calculate_rates.R` | CA/MX USMCA products: `rate_ieepa_recip = 0`, `rate_ieepa_fent = 0` | 232 still applies to USMCA products |
+| IEEPA product exemptions | `06_calculate_rates.R` | ~1,087 products exempt from IEEPA reciprocal | From `resources/ieepa_exempt_products.csv` (Annex A) |
+| China fentanyl exclusion | `06_calculate_rates.R` | China/HK excluded from blanket fentanyl | 9903.90.xx rates already incorporate fentanyl |
 
 #### Phase/Rate Selection
 
@@ -254,26 +267,32 @@ Each authority has a different mechanism for linking Ch99 entries to products:
 
 ## Stacking Rules
 
-Tariff authorities overlap. The stacking rules (from Tariff-ETRs) determine how they combine:
+Tariff authorities overlap. Section 232 and IEEPA reciprocal are **mutually exclusive** (232 takes precedence). Fentanyl only stacks on 232 for China.
 
-**China (Census 5700):**
+**China with 232 product:**
 ```
-total = max(section_232, ieepa_reciprocal) + ieepa_fentanyl + section_301
-```
-Note: China fentanyl (9903.01.20, +10%) is **not** applied as a blanket tariff because China's 9903.90.xx footnote rates already incorporate fentanyl. Applying it would double-count.
-
-**Canada/Mexico (Census 1220, 2010):**
-```
-total = section_232 + (ieepa_reciprocal + ieepa_fentanyl) * usmca_factor
-# usmca_factor = 0 if product is USMCA-eligible ("S"/"S+" in special field), 1 otherwise
-# Section 232 applies regardless of USMCA status
-# 9903.01.14 explicitly exempts USMCA articles from fentanyl tariffs
+total = rate_232 + rate_ieepa_fent + rate_301 + rate_s122 + rate_other
 ```
 
-**All other countries:**
+**China without 232 product:**
 ```
-total = (section_232 > 0 ? section_232 : ieepa_reciprocal + ieepa_fentanyl)
+total = rate_ieepa_recip + rate_ieepa_fent + rate_301 + rate_s122 + rate_other
 ```
+
+**Other countries with 232 product:**
+```
+total = rate_232 + rate_s122 + rate_other
+# Fentanyl does NOT stack on 232 for non-China countries
+```
+
+**Other countries without 232 product:**
+```
+total = rate_ieepa_recip + rate_ieepa_fent + rate_s122 + rate_other
+```
+
+**Canada/Mexico USMCA exemption:** Products with "S"/"S+" in `special` field get IEEPA reciprocal and fentanyl zeroed out. Section 232 still applies regardless of USMCA status.
+
+**China fentanyl exclusion:** China/Hong Kong are excluded from blanket fentanyl application because their 9903.90.xx footnote rates already incorporate fentanyl -- adding it would double-count ~10pp.
 
 ## Data
 
@@ -284,6 +303,7 @@ total = (section_232 > 0 ? section_232 : ieepa_reciprocal + ieepa_fentanyl)
 
 ### Configuration
 
+- `config/policy_params.yaml`: All policy constants (country codes, authority ranges, 232 chapter/heading coverage, floor rates, 301 rates). Single source of truth loaded by `helpers.R::load_policy_params()`.
 - `config/revision_dates.csv`: Maps each HTS revision to its effective date and (where applicable) the corresponding TPC validation date. 37 rows covering basic through 2026_basic.
 - `config/scenarios.yaml`: Counterfactual scenario definitions (baseline, no_ieepa, no_301, no_232, pre_2025, etc.). Used by `07_apply_scenarios.R`.
 - `config/authority_mapping.yaml`: Manual mapping of ~28 key Chapter 99 subheadings. Used by v1 pipeline only.
@@ -294,6 +314,7 @@ total = (section_232 > 0 ? section_232 : ieepa_reciprocal + ieepa_fentanyl)
 - `resources/census_codes.csv`: 240 Census country codes.
 - `resources/hs10_gtap_crosswalk.csv`: 18,700-row crosswalk from HTS-10 to GTAP sectors.
 - `resources/country_partner_mapping.csv`: 50-row mapping from Census codes to partner aggregation.
+- `resources/ieepa_exempt_products.csv`: 1,087 HTS-10 codes exempt from IEEPA reciprocal (Annex A / US Note 2 subdivision (v)(iii)). Derived from Tariff-ETRs config.
 
 ## Validation Status
 
@@ -334,9 +355,9 @@ China's IEEPA reciprocal is parsed from 9903.01.63 (Phase 1, +34%). TPC data imp
 
 These countries have a split rate structure: products with base rates >= 15% get no additional duty (passthrough), while products with base rates < 15% get a floor to 15%. The code handles this via the `rate_type` field, but some floor calculations may be inaccurate when the product base rate is missing or incorrectly parsed.
 
-### 4. Section 232 derivative products not yet handled
+### 4. Section 232 derivative products partially handled
 
-Steel and aluminum are identified by HTS chapter (72-73 for steel, 76 for aluminum), but derivative products in other chapters containing steel/aluminum components are not yet covered. TPC assumes a 50% metal share for derivatives. The Ch99 entries reference these via "note 16(a)(ii)" in the HTS.
+Steel (Ch. 72-73), aluminum (Ch. 76), autos (heading 8703 + light trucks), and copper (headings 7406-7419) are covered by blanket prefix matching. Derivative products in other chapters containing steel/aluminum components are captured when linked via product footnotes but not by blanket matching. TPC assumes a 50% metal share for derivatives. The Ch99 entries reference these via "note 16(a)(ii)" in the HTS.
 
 ### 5. USMCA eligibility is binary, not utilization-adjusted
 
@@ -366,7 +387,7 @@ Products with "S" or "S+" program codes exempt from IEEPA tariffs (both fentanyl
 
 ### Section 232 duties (Fixed)
 
-Products identified by chapter (72-73 = steel, 76 = aluminum). Rates parsed from Ch99 entries per revision (25% early 2025, 50% after mid-2025 increase). `infer_authority()` corrected: 9903.85.xx is aluminum 232, not Section 301.
+Products identified by chapter (72-73 = steel, 76 = aluminum) and heading-level prefixes (8703 = autos, 7406-7419 = copper). Rates parsed from Ch99 entries per revision (25% early 2025, 50% after mid-2025 increase). Coverage expanded beyond steel/aluminum to include autos (9903.94.xx) and copper via `config/policy_params.yaml:section_232_headings`.
 
 ## Data Sources
 

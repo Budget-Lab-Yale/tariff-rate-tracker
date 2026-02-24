@@ -272,35 +272,49 @@ aggregate_tpc <- function(tpc_weighted, imports_gtap) {
 
 #' Compute net authority contributions from snapshot rate columns
 #'
-#' Derives net_232, net_ieepa, net_fentanyl, net_301 from the timeseries
-#' rate columns using the same stacking logic as 06_calculate_rates.R.
+#' Derives net_232, net_ieepa, net_fentanyl, net_301, net_s122 from the
+#' timeseries rate columns using mutual-exclusion stacking rules.
 #' Net contributions sum to total_additional.
 #'
+#' Stacking rules:
+#'   China (232>0):  net_232 + net_fentanyl + net_301 + net_s122
+#'   China (no 232): net_ieepa + net_fentanyl + net_301 + net_s122
+#'   Others (232>0): net_232 + net_s122 (no fentanyl on 232)
+#'   Others (no 232): net_ieepa + net_fentanyl + net_s122
+#'
 #' @param df Data frame with rate_232, rate_301, rate_ieepa_recip,
-#'   rate_ieepa_fent, country columns
-#' @return df with net_232, net_ieepa, net_fentanyl, net_301 added
+#'   rate_ieepa_fent, rate_s122, country columns
+#' @return df with net_232, net_ieepa, net_fentanyl, net_301, net_s122 added
 compute_net_authority_contributions <- function(df) {
+  # Ensure rate_s122 exists (backwards compat with old snapshots)
+  if (!'rate_s122' %in% names(df)) {
+    df$rate_s122 <- 0
+  }
+
   df %>%
     mutate(
-      # China: max(232, recip) means 232 only contributes the excess over recip
-      # Others: 232 is exclusive with recip (whichever is active)
-      net_ieepa = case_when(
-        country == CTY_CHINA ~ rate_ieepa_recip,
-        country %in% c(CTY_CANADA, CTY_MEXICO) ~ 0,
-        rate_232 > 0 ~ 0,
-        TRUE ~ rate_ieepa_recip
-      ),
+      # 232 vs IEEPA: mutually exclusive (232 takes precedence)
       net_232 = case_when(
-        country == CTY_CHINA ~ pmax(0, rate_232 - rate_ieepa_recip),
-        country %in% c(CTY_CANADA, CTY_MEXICO) ~ rate_232,
         rate_232 > 0 ~ rate_232,
         TRUE ~ 0
       ),
-      net_fentanyl = rate_ieepa_fent,
+      net_ieepa = case_when(
+        rate_232 > 0 ~ 0,        # 232 takes precedence
+        TRUE ~ rate_ieepa_recip
+      ),
+      # Fentanyl: stacks for China always; for others only when no 232
+      net_fentanyl = case_when(
+        country == CTY_CHINA ~ rate_ieepa_fent,
+        rate_232 > 0 ~ 0,        # fentanyl does NOT stack on 232 for non-China
+        TRUE ~ rate_ieepa_fent
+      ),
+      # 301: China only
       net_301 = case_when(
         country == CTY_CHINA ~ rate_301,
         TRUE ~ 0
-      )
+      ),
+      # s122: stacks on everything
+      net_s122 = rate_s122
     )
 }
 
@@ -344,7 +358,7 @@ compute_weighted_etrs <- function(data) {
       snapshot_net <- snapshot %>%
         compute_net_authority_contributions() %>%
         select(hts10, country, total_rate = total_additional,
-               net_232, net_ieepa, net_fentanyl, net_301)
+               net_232, net_ieepa, net_fentanyl, net_301, net_s122)
 
       # Join snapshot rates with import flows
       rated <- flows %>%
@@ -355,7 +369,7 @@ compute_weighted_etrs <- function(data) {
         mutate(date = date, label = label)
 
       rated %>% select(hs10, cty_code, partner, imports, date, label,
-                        total_rate, net_232, net_ieepa, net_fentanyl, net_301)
+                        total_rate, net_232, net_ieepa, net_fentanyl, net_301, net_s122)
     })
 
   message('  Total rated flows: ', nrow(results))
@@ -417,6 +431,7 @@ aggregate_etrs <- function(results, imports_gtap) {
       etr_ieepa = sum(net_ieepa * imports) / sum(imports),
       etr_fentanyl = sum(net_fentanyl * imports) / sum(imports),
       etr_301 = sum(net_301 * imports) / sum(imports),
+      etr_s122 = sum(net_s122 * imports) / sum(imports),
       .groups = 'drop'
     ) %>%
     mutate(label = factor(label, levels = POLICY_DATES$label))
@@ -552,7 +567,7 @@ plot_etrs <- function(etrs, tpc_etrs, output_dir) {
 
   # --- Plot 3: Authority decomposition (stacked bars) + TPC total line ---
   auth_long <- etrs$by_authority %>%
-    select(date, label, etr_232, etr_ieepa, etr_fentanyl, etr_301) %>%
+    select(date, label, etr_232, etr_ieepa, etr_fentanyl, etr_301, etr_s122) %>%
     pivot_longer(cols = starts_with('etr_'),
                  names_to = 'authority', values_to = 'etr') %>%
     mutate(
@@ -560,12 +575,14 @@ plot_etrs <- function(etrs, tpc_etrs, output_dir) {
         authority == 'etr_232' ~ 'Section 232',
         authority == 'etr_ieepa' ~ 'IEEPA Reciprocal',
         authority == 'etr_fentanyl' ~ 'IEEPA Fentanyl',
-        authority == 'etr_301' ~ 'Section 301'
+        authority == 'etr_301' ~ 'Section 301',
+        authority == 'etr_s122' ~ 'Section 122'
       ),
       authority = factor(authority, levels = c(
-        'IEEPA Reciprocal', 'IEEPA Fentanyl', 'Section 301', 'Section 232'
+        'IEEPA Reciprocal', 'IEEPA Fentanyl', 'Section 301', 'Section 232', 'Section 122'
       ))
-    )
+    ) %>%
+    filter(etr > 0 | authority != 'Section 122')  # hide s122 when all zeros
 
   tpc_total_overlay <- tpc_etrs$overall %>%
     left_join(POLICY_DATES, by = 'date') %>%
@@ -591,7 +608,8 @@ plot_etrs <- function(etrs, tpc_etrs, output_dir) {
       'IEEPA Reciprocal' = '#e67e22',
       'IEEPA Fentanyl' = '#f1c40f',
       'Section 301' = '#3498db',
-      'Section 232' = '#2ecc71'
+      'Section 232' = '#2ecc71',
+      'Section 122' = '#9b59b6'
     )) +
     scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
     theme_etr

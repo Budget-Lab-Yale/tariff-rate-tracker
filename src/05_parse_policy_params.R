@@ -507,24 +507,21 @@ extract_ieepa_fentanyl_rates <- function(hts_raw, country_lookup) {
 
 #' Extract Section 232 blanket rates from Chapter 99 data
 #'
-#' Section 232 tariffs (steel/aluminum) are NOT linked via product footnotes.
-#' Coverage is defined by US Notes 16 (steel) and 19 (aluminum) referencing
-#' HTS chapters 72-73 (steel) and 76 (aluminum).
+#' Section 232 tariffs are NOT linked via product footnotes.
+#' Coverage is defined by US Notes:
+#'   - US Note 16: Steel (chapters 72-73), via 9903.80-84
+#'   - US Note 19: Aluminum (chapter 76), via 9903.85
+#'   - US Note 25: Autos/auto parts, via 9903.94
 #'
-#' Parses 9903.80-84 (steel) and 9903.85 (aluminum) entries to build a
-#' per-country rate lookup, handling country exemptions.
+#' Parses applicable Ch99 entries and returns per-tariff rates.
 #'
 #' @param ch99_data Parsed Chapter 99 data from parse_chapter99()
-#' @return List with:
-#'   - steel_rates: tibble(country_code, rate) for steel
-#'   - aluminum_rates: tibble(country_code, rate) for aluminum
-#'   - steel_entries: filtered ch99_data for steel
-#'   - aluminum_entries: filtered ch99_data for aluminum
+#' @return List with per-tariff rates, exemptions, and has_232 flag
 extract_section232_rates <- function(ch99_data) {
   message('Extracting Section 232 blanket rates...')
 
-  # Get all 232 entries with parsed rates
-  s232 <- ch99_data %>%
+  # --- Steel and Aluminum (9903.80-85) ---
+  s232_sa <- ch99_data %>%
     filter(grepl('^9903\\.8[0-5]', ch99_code), !is.na(rate)) %>%
     mutate(
       s232_type = case_when(
@@ -533,28 +530,11 @@ extract_section232_rates <- function(ch99_data) {
       )
     )
 
-  if (nrow(s232) == 0) {
-    message('  No Section 232 entries with rates found')
-    return(list(
-      steel_rate = 0, aluminum_rate = 0,
-      steel_exempt = character(0), aluminum_exempt = character(0),
-      has_232 = FALSE
-    ))
-  }
+  steel_entries <- s232_sa %>% filter(s232_type == 'steel')
+  aluminum_entries <- s232_sa %>% filter(s232_type == 'aluminum')
 
-  # Separate steel vs aluminum entries
-  steel_entries <- s232 %>% filter(s232_type == 'steel')
-  aluminum_entries <- s232 %>% filter(s232_type == 'aluminum')
-
-  # For steel: use PARENT entries only (9903.80.01, 9903.80.03, 9903.80.61)
-  # NOT the product-specific entries (9903.81.xx) which may have higher rates
-  # (50%) for specific derivative products we can't identify by chapter alone.
-  steel_parent <- steel_entries %>%
-    filter(grepl('^9903\\.80\\.', ch99_code))
-  steel_deriv <- steel_entries %>%
-    filter(!grepl('^9903\\.80\\.', ch99_code))
-
-  # Prefer 'all' entry (9903.80.61, exemptions revoked) over 'all_except' (9903.80.01)
+  # Steel: use PARENT entries only (9903.80.xx)
+  steel_parent <- steel_entries %>% filter(grepl('^9903\\.80\\.', ch99_code))
   steel_all <- steel_parent %>% filter(country_type == 'all')
   steel_except <- steel_parent %>% filter(country_type == 'all_except')
 
@@ -573,16 +553,13 @@ extract_section232_rates <- function(ch99_data) {
   }
 
   # Aluminum: use PARENT entries only (9903.85.01, 9903.85.03)
-  # NOT product-specific entries (9903.85.02 = 50%, 9903.85.67 = 200%, etc.)
   alum_parent <- aluminum_entries %>%
     filter(ch99_code %in% c('9903.85.01', '9903.85.03'))
   alum_increase <- aluminum_entries %>%
-    filter(ch99_code == '9903.85.12')  # General increase entry (25%)
+    filter(ch99_code == '9903.85.12')
 
   alum_except <- alum_parent %>% filter(country_type == 'all_except')
 
-  # If the 25% general increase entry exists (9903.85.12, all countries),
-  # use that rate for all countries
   if (nrow(alum_increase) > 0 && alum_increase$country_type[1] == 'all') {
     aluminum_rate <- alum_increase$rate[1]
     aluminum_exempt <- character(0)
@@ -597,12 +574,51 @@ extract_section232_rates <- function(ch99_data) {
     aluminum_exempt <- character(0)
   }
 
+  # --- Autos (9903.94) ---
+  s232_auto <- ch99_data %>%
+    filter(grepl('^9903\\.94', ch99_code), !is.na(rate))
+
+  if (nrow(s232_auto) > 0) {
+    # Auto entries: look for parent entry applying to all countries
+    auto_all <- s232_auto %>% filter(country_type == 'all')
+    auto_except <- s232_auto %>% filter(country_type == 'all_except')
+
+    if (nrow(auto_all) > 0) {
+      auto_rate <- max(auto_all$rate)
+      auto_exempt <- character(0)
+      message('  Auto 232: ', round(auto_rate * 100), '% (all countries)')
+    } else if (nrow(auto_except) > 0) {
+      auto_rate <- max(auto_except$rate)
+      auto_exempt <- unique(unlist(auto_except$exempt_countries))
+      message('  Auto 232: ', round(auto_rate * 100), '% (all except ',
+              length(auto_exempt), ' countries/groups)')
+    } else {
+      # Country-specific auto entries: take the max as the default
+      auto_rate <- max(s232_auto$rate)
+      auto_exempt <- character(0)
+      message('  Auto 232: ', round(auto_rate * 100), '% (country-specific entries)')
+    }
+  } else {
+    auto_rate <- 0
+    auto_exempt <- character(0)
+  }
+
+  has_232 <- (steel_rate > 0 || aluminum_rate > 0 || auto_rate > 0)
+
+  if (auto_rate > 0) {
+    message('  232 coverage: steel + aluminum + autos')
+  } else if (has_232) {
+    message('  232 coverage: steel + aluminum only (no auto entries found)')
+  }
+
   return(list(
     steel_rate = steel_rate,
     aluminum_rate = aluminum_rate,
+    auto_rate = auto_rate,
     steel_exempt = steel_exempt,
     aluminum_exempt = aluminum_exempt,
-    has_232 = (steel_rate > 0 || aluminum_rate > 0)
+    auto_exempt = auto_exempt,
+    has_232 = has_232
   ))
 }
 

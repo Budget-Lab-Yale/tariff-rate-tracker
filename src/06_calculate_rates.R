@@ -242,7 +242,22 @@ calculate_rates_for_revision <- function(
   #    IEEPA reciprocal is a BLANKET tariff — it applies to all products for
   #    applicable countries, not just products with IEEPA footnotes. The country-
   #    specific rates from 9903.01/02.xx define the rate per country.
+  #
+  #    Product-level exemptions (Annex A / US Note 2 subdivision (v)(iii)):
+  #    ~1,087 products are exempt from IEEPA reciprocal. These are defined by
+  #    executive order, not by HTS footnotes, so we load from a resource file.
   has_active_ieepa <- !is.null(ieepa_rates) && nrow(ieepa_rates) > 0
+
+  # Load IEEPA product exemptions
+  ieepa_exempt_path <- here('resources', 'ieepa_exempt_products.csv')
+  ieepa_exempt_products <- if (file.exists(ieepa_exempt_path)) {
+    read_csv(ieepa_exempt_path, col_types = cols(hts10 = col_character()))$hts10
+  } else {
+    character(0)
+  }
+  if (length(ieepa_exempt_products) > 0) {
+    message('  IEEPA exempt products loaded: ', length(ieepa_exempt_products))
+  }
 
   if (has_active_ieepa) {
     # Do NOT filter on 'terminated' — for a given revision, all IEEPA entries
@@ -265,6 +280,7 @@ calculate_rates_for_revision <- function(
         )
 
       # Apply IEEPA reciprocal to ALL products for applicable countries
+      # EXCEPT products on the exemption list (Annex A / US Note 2)
       rates <- rates %>%
         left_join(
           country_ieepa %>% rename(country = census_code),
@@ -272,7 +288,8 @@ calculate_rates_for_revision <- function(
         ) %>%
         mutate(
           rate_ieepa_recip = case_when(
-            is.na(ieepa_country_rate) ~ 0,              # country not in IEEPA list
+            hts10 %in% ieepa_exempt_products ~ 0,       # product-level exemption
+            is.na(ieepa_country_rate) ~ 0,               # country not in IEEPA list
             ieepa_type == 'surcharge' ~ ieepa_country_rate,
             ieepa_type == 'floor' ~ pmax(0, ieepa_country_rate - base_rate),
             ieepa_type == 'passthrough' ~ 0,
@@ -291,6 +308,7 @@ calculate_rates_for_revision <- function(
         select(hts10, country)
 
       all_products_base <- products %>%
+        filter(!hts10 %in% ieepa_exempt_products) %>%   # exclude exempt products
         select(hts10, base_rate) %>%
         mutate(base_rate = coalesce(base_rate, 0))
 
@@ -377,14 +395,21 @@ calculate_rates_for_revision <- function(
   }
 
   # 3. Apply Section 232 as blanket tariff
-  #    232 is defined by US Notes 16 (steel) and 19 (aluminum), not via product
-  #    footnotes. Apply to products in covered HTS chapters.
+  #    232 is defined by US Notes, not via product footnotes.
+  #    Steel: chapters 72-73 (US Note 16, 9903.80-84)
+  #    Aluminum: chapter 76 (US Note 19, 9903.85)
+  #    Autos: heading 8703 + specific subheadings (US Note 25, 9903.94)
+  #    Copper: specific headings in chapter 74 (9903.85.xx derivatives)
   if (is.null(s232_rates)) {
     s232_rates <- extract_section232_rates(ch99_data)
   }
 
+  # Load heading-level 232 config from policy params
+  s232_headings <- if (!is.null(.pp)) .pp$section_232_headings else NULL
+
   if (s232_rates$has_232) {
-    # Identify covered products by HTS chapter
+    # --- Identify covered products by prefix matching ---
+    # Chapter-level: steel (72-73), aluminum (76)
     steel_products <- products %>%
       filter(substr(hts10, 1, 2) %in% STEEL_CHAPTERS) %>%
       pull(hts10)
@@ -392,72 +417,170 @@ calculate_rates_for_revision <- function(
       filter(substr(hts10, 1, 2) %in% ALUM_CHAPTERS) %>%
       pull(hts10)
 
+    # Heading-level: autos, copper, etc.
+    auto_products <- character(0)
+    copper_products <- character(0)
+    heading_product_lists <- list()
+
+    if (!is.null(s232_headings)) {
+      for (tariff_name in names(s232_headings)) {
+        cfg <- s232_headings[[tariff_name]]
+        prefixes <- unlist(cfg$prefixes)
+        if (length(prefixes) == 0) next
+
+        # Match products by prefix
+        pattern <- paste0('^(', paste(prefixes, collapse = '|'), ')')
+        matched <- products %>%
+          filter(grepl(pattern, hts10)) %>%
+          pull(hts10)
+
+        heading_product_lists[[tariff_name]] <- list(
+          products = matched,
+          rate = cfg$default_rate %||% s232_rates$auto_rate,
+          usmca_exempt = cfg$usmca_exempt %||% FALSE
+        )
+
+        if (grepl('auto|vehicle', tariff_name, ignore.case = TRUE)) {
+          auto_products <- c(auto_products, matched)
+        } else if (grepl('copper', tariff_name, ignore.case = TRUE)) {
+          copper_products <- c(copper_products, matched)
+        }
+      }
+    }
+    auto_products <- unique(auto_products)
+    copper_products <- unique(copper_products)
+
     n_steel <- length(steel_products)
     n_alum <- length(aluminum_products)
-    message('  Section 232 coverage: ', n_steel, ' steel + ', n_alum, ' aluminum products')
+    n_auto <- length(auto_products)
+    n_copper <- length(copper_products)
+    message('  Section 232 coverage: ', n_steel, ' steel + ', n_alum,
+            ' aluminum + ', n_auto, ' auto + ', n_copper, ' copper products')
 
-    # Build per-country 232 rate: check exemptions for each country
+    # --- Build product-level 232 rate lookup from heading configs ---
+    # Each heading config specifies its own rate. Build an hts10 -> rate mapping.
+    heading_product_rate <- map_dfr(names(heading_product_lists), function(nm) {
+      cfg <- heading_product_lists[[nm]]
+      if (length(cfg$products) == 0) return(tibble())
+      tibble(
+        hts10 = cfg$products,
+        heading_232_rate = cfg$rate,
+        heading_usmca_exempt = isTRUE(cfg$usmca_exempt)
+      )
+    })
+    # If a product appears in multiple heading tariffs, take the max rate
+    if (nrow(heading_product_rate) > 0) {
+      heading_product_rate <- heading_product_rate %>%
+        group_by(hts10) %>%
+        summarise(
+          heading_232_rate = max(heading_232_rate),
+          heading_usmca_exempt = any(heading_usmca_exempt),
+          .groups = 'drop'
+        )
+    }
+
+    # --- Build per-country rate lookup ---
     country_232 <- tibble(country = countries) %>%
       mutate(
         steel_exempt = map_lgl(country, ~is_232_exempt(.x, s232_rates$steel_exempt)),
         alum_exempt = map_lgl(country, ~is_232_exempt(.x, s232_rates$aluminum_exempt)),
+        auto_exempt = map_lgl(country, ~is_232_exempt(.x, s232_rates$auto_exempt)),
         steel_rate = if_else(steel_exempt, 0, s232_rates$steel_rate),
-        aluminum_rate = if_else(alum_exempt, 0, s232_rates$aluminum_rate)
+        aluminum_rate = if_else(alum_exempt, 0, s232_rates$aluminum_rate),
+        auto_rate = if_else(auto_exempt, 0, s232_rates$auto_rate)
       )
 
     n_steel_countries <- sum(country_232$steel_rate > 0)
     n_alum_countries <- sum(country_232$aluminum_rate > 0)
-    message('  Steel applies to ', n_steel_countries, ' countries, aluminum to ', n_alum_countries)
+    n_auto_countries <- sum(country_232$auto_rate > 0)
+    message('  Steel: ', n_steel_countries, ' countries, aluminum: ',
+            n_alum_countries, ', auto: ', n_auto_countries)
 
-    # Update rate_232 for products already in rates
+    # --- Update rate_232 for products already in rates ---
+    # Join heading-level rates for auto/copper/etc products
+    if (nrow(heading_product_rate) > 0) {
+      rates <- rates %>%
+        left_join(heading_product_rate, by = 'hts10')
+    } else {
+      rates$heading_232_rate <- 0
+      rates$heading_usmca_exempt <- FALSE
+    }
+
     rates <- rates %>%
       left_join(
-        country_232 %>% select(country, steel_rate_232 = steel_rate, alum_rate_232 = aluminum_rate),
+        country_232 %>% select(country, steel_rate_232 = steel_rate,
+                               alum_rate_232 = aluminum_rate),
         by = 'country'
       ) %>%
       mutate(
         chapter = substr(hts10, 1, 2),
+        # For heading-level products, zero out rate for USMCA-exempt CA/MX
+        heading_rate_adj = case_when(
+          is.na(heading_232_rate) | heading_232_rate == 0 ~ 0,
+          heading_usmca_exempt & country %in% c(CTY_CANADA, CTY_MEXICO) ~ 0,
+          TRUE ~ heading_232_rate
+        ),
         blanket_232 = case_when(
           chapter %in% STEEL_CHAPTERS ~ coalesce(steel_rate_232, 0),
           chapter %in% ALUM_CHAPTERS ~ coalesce(alum_rate_232, 0),
+          heading_rate_adj > 0 ~ heading_rate_adj,
           TRUE ~ 0
         ),
-        # Take max of footnote-based 232 and blanket 232
         rate_232 = pmax(rate_232, blanket_232)
       ) %>%
-      select(-steel_rate_232, -alum_rate_232, -chapter, -blanket_232)
+      select(-steel_rate_232, -alum_rate_232, -chapter, -blanket_232,
+             -heading_232_rate, -heading_usmca_exempt, -heading_rate_adj)
 
-    # Also add rows for 232-covered products NOT yet in rates
+    # --- Add rows for 232-covered products NOT yet in rates ---
     s232_country_codes <- country_232 %>%
-      filter(steel_rate > 0 | aluminum_rate > 0) %>%
+      filter(steel_rate > 0 | aluminum_rate > 0 | auto_rate > 0) %>%
       pull(country)
 
-    all_232_products <- c(steel_products, aluminum_products)
+    all_heading_products <- if (nrow(heading_product_rate) > 0) heading_product_rate$hts10 else character(0)
+    all_232_products <- unique(c(steel_products, aluminum_products, all_heading_products))
     existing_pairs_232 <- rates %>%
       filter(hts10 %in% all_232_products, country %in% s232_country_codes) %>%
       select(hts10, country)
 
-    new_232_pairs <- products %>%
+    new_232_base <- products %>%
       filter(hts10 %in% all_232_products) %>%
       select(hts10, base_rate) %>%
-      mutate(base_rate = coalesce(base_rate, 0)) %>%
+      mutate(base_rate = coalesce(base_rate, 0))
+
+    if (nrow(heading_product_rate) > 0) {
+      new_232_base <- new_232_base %>%
+        left_join(heading_product_rate, by = 'hts10')
+    } else {
+      new_232_base$heading_232_rate <- 0
+      new_232_base$heading_usmca_exempt <- FALSE
+    }
+
+    new_232_pairs <- new_232_base %>%
       tidyr::expand_grid(country = s232_country_codes) %>%
       anti_join(existing_pairs_232, by = c('hts10', 'country')) %>%
       left_join(
-        country_232 %>% select(country, steel_rate_232 = steel_rate, alum_rate_232 = aluminum_rate),
+        country_232 %>% select(country, steel_rate_232 = steel_rate,
+                               alum_rate_232 = aluminum_rate),
         by = 'country'
       ) %>%
       mutate(
         chapter = substr(hts10, 1, 2),
+        heading_rate_adj = case_when(
+          is.na(heading_232_rate) | heading_232_rate == 0 ~ 0,
+          heading_usmca_exempt & country %in% c(CTY_CANADA, CTY_MEXICO) ~ 0,
+          TRUE ~ heading_232_rate
+        ),
         rate_232 = case_when(
           chapter %in% STEEL_CHAPTERS ~ coalesce(steel_rate_232, 0),
           chapter %in% ALUM_CHAPTERS ~ coalesce(alum_rate_232, 0),
+          heading_rate_adj > 0 ~ heading_rate_adj,
           TRUE ~ 0
         ),
         rate_301 = 0, rate_ieepa_recip = 0, rate_ieepa_fent = 0, rate_other = 0
       ) %>%
       filter(rate_232 > 0) %>%
-      select(-steel_rate_232, -alum_rate_232, -chapter)
+      select(-steel_rate_232, -alum_rate_232, -chapter,
+             -heading_232_rate, -heading_usmca_exempt, -heading_rate_adj)
 
     if (nrow(new_232_pairs) > 0) {
       message('  Adding ', nrow(new_232_pairs), ' product-country pairs for 232-only duties')

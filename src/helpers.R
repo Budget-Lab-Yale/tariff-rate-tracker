@@ -369,7 +369,7 @@ resolve_json_path <- function(revision, archive_dir = here('data', 'hts_archives
 #' Canonical column vector for rate output
 RATE_SCHEMA <- c(
   'hts10', 'country', 'base_rate',
-  'rate_232', 'rate_301', 'rate_ieepa_recip', 'rate_ieepa_fent', 'rate_other',
+  'rate_232', 'rate_301', 'rate_ieepa_recip', 'rate_ieepa_fent', 'rate_s122', 'rate_other',
   'total_additional', 'total_rate',
   'usmca_eligible', 'revision', 'effective_date',
   'valid_from', 'valid_until'
@@ -387,7 +387,7 @@ enforce_rate_schema <- function(df) {
   defaults <- list(
     hts10 = NA_character_, country = NA_character_,
     base_rate = 0, rate_232 = 0, rate_301 = 0,
-    rate_ieepa_recip = 0, rate_ieepa_fent = 0, rate_other = 0,
+    rate_ieepa_recip = 0, rate_ieepa_fent = 0, rate_s122 = 0, rate_other = 0,
     total_additional = 0, total_rate = 0,
     usmca_eligible = FALSE, revision = NA_character_,
     effective_date = as.Date(NA),
@@ -397,6 +397,16 @@ enforce_rate_schema <- function(df) {
   for (col in RATE_SCHEMA) {
     if (!col %in% names(df)) {
       df[[col]] <- defaults[[col]]
+    }
+  }
+
+  # Fill NAs in numeric rate columns (bind_rows can introduce NAs)
+  rate_cols <- c('base_rate', 'rate_232', 'rate_301', 'rate_ieepa_recip',
+                 'rate_ieepa_fent', 'rate_s122', 'rate_other',
+                 'total_additional', 'total_rate')
+  for (col in rate_cols) {
+    if (col %in% names(df)) {
+      df[[col]][is.na(df[[col]])] <- 0
     }
   }
 
@@ -414,24 +424,48 @@ enforce_rate_schema <- function(df) {
 
 #' Apply tariff stacking rules (vectorized)
 #'
-#' Implements the canonical stacking logic:
-#'   - China: max(232, reciprocal) + fentanyl + 301 + other
-#'   - All others: max(232, reciprocal) + fentanyl + other
+#' Implements mutual-exclusion stacking (aligned with Tariff-ETRs):
 #'
-#' Operates on a data frame with rate columns and a country column.
+#'   China (232 > 0):  232 + fentanyl + 301 + s122 + other
+#'   China (no 232):   reciprocal + fentanyl + 301 + s122 + other
+#'   Others (232 > 0): 232 + s122 + other         (no fentanyl on 232)
+#'   Others (no 232):  reciprocal + fentanyl + s122 + other
+#'
+#' Key rules:
+#'   - 232 and IEEPA reciprocal are mutually exclusive (232 takes precedence)
+#'   - Fentanyl stacks on everything for China, but NOT on 232 for others
+#'   - Section 301 only applies to China
+#'   - Section 122 stacks on everything
 #'
 #' @param df Data frame with rate_232, rate_301, rate_ieepa_recip,
-#'   rate_ieepa_fent, rate_other, country columns
+#'   rate_ieepa_fent, rate_s122, rate_other, country columns
 #' @param cty_china Census code for China (default: '5700')
 #' @return df with total_additional and total_rate recomputed
 apply_stacking_rules <- function(df, cty_china = '5700') {
+  # Ensure rate_s122 exists and has no NAs
+  # (bind_rows can introduce NAs when combining dataframes with/without this column)
+  if (!'rate_s122' %in% names(df)) {
+    df$rate_s122 <- 0
+  } else {
+    df$rate_s122[is.na(df$rate_s122)] <- 0
+  }
+
   df %>%
     mutate(
       total_additional = case_when(
+        # China with 232: 232 + fentanyl + 301 + s122 + other
+        country == cty_china & rate_232 > 0 ~
+          rate_232 + rate_ieepa_fent + rate_301 + rate_s122 + rate_other,
+
+        # China without 232: reciprocal + fentanyl + 301 + s122 + other
         country == cty_china ~
-          pmax(rate_232, rate_ieepa_recip) + rate_ieepa_fent + rate_301 + rate_other,
-        TRUE ~
-          pmax(rate_232, rate_ieepa_recip) + rate_ieepa_fent + rate_other
+          rate_ieepa_recip + rate_ieepa_fent + rate_301 + rate_s122 + rate_other,
+
+        # Others with 232: just 232 + s122 + other (fentanyl does NOT stack on 232)
+        rate_232 > 0 ~ rate_232 + rate_s122 + rate_other,
+
+        # Others without 232: reciprocal + fentanyl + s122 + other
+        TRUE ~ rate_ieepa_recip + rate_ieepa_fent + rate_s122 + rate_other
       ),
       total_rate = base_rate + total_additional
     )

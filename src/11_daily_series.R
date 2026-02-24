@@ -169,7 +169,8 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL) {
         mean_232 = mean(rev_data$rate_232),
         mean_301 = mean(rev_data$rate_301),
         mean_ieepa = mean(rev_data$rate_ieepa_recip),
-        mean_fentanyl = mean(rev_data$rate_ieepa_fent)
+        mean_fentanyl = mean(rev_data$rate_ieepa_fent),
+        mean_s122 = if ('rate_s122' %in% names(rev_data)) mean(rev_data$rate_s122) else 0
       )
       if (has_weights) {
         wt_data <- ts_weighted %>% filter(revision == !!revision)
@@ -179,8 +180,11 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL) {
           row$etr_301 <- sum(wt_data$rate_301 * wt_data$imports) / total_imp
           row$etr_ieepa <- sum(wt_data$rate_ieepa_recip * wt_data$imports) / total_imp
           row$etr_fentanyl <- sum(wt_data$rate_ieepa_fent * wt_data$imports) / total_imp
+          row$etr_s122 <- if ('rate_s122' %in% names(wt_data)) {
+            sum(wt_data$rate_s122 * wt_data$imports) / total_imp
+          } else 0
         } else {
-          row$etr_232 <- row$etr_301 <- row$etr_ieepa <- row$etr_fentanyl <- NA_real_
+          row$etr_232 <- row$etr_301 <- row$etr_ieepa <- row$etr_fentanyl <- row$etr_s122 <- NA_real_
         }
       }
       return(row)
