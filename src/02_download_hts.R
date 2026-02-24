@@ -184,8 +184,8 @@ download_missing_revisions <- function(
 # =============================================================================
 
 if (sys.nframe() == 0) {
-  setwd('C:/Users/ji252/Documents/GitHub/tariff-rate-tracker')
-  source('src/helpers.R')
+  library(here)
+  source(here('src', 'helpers.R'))
 
   # Parse command line arguments
   args <- commandArgs(trailingOnly = TRUE)

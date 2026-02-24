@@ -17,11 +17,10 @@
 library(tidyverse)
 library(yaml)
 
-# Country code constants (same as 03_calculate_rates.R)
-CTY_CHINA <- '5700'
-
-# Authority name to column mapping
-AUTHORITY_COLUMNS <- c(
+# NOTE: CTY_CHINA and AUTHORITY_COLUMNS loaded from YAML via helpers.R
+.pp_08 <- tryCatch(load_policy_params(), error = function(e) NULL)
+CTY_CHINA <- if (!is.null(.pp_08)) .pp_08$CTY_CHINA else '5700'
+AUTHORITY_COLUMNS <- if (!is.null(.pp_08)) .pp_08$AUTHORITY_COLUMNS else c(
   'section_232'      = 'rate_232',
   'section_301'      = 'rate_301',
   'ieepa_reciprocal' = 'rate_ieepa_recip',
@@ -91,21 +90,12 @@ apply_scenario <- function(rates, scenario_name, scenarios_path = 'config/scenar
     }
   }
 
-  # Re-apply stacking rules
-  result <- result %>%
-    mutate(
-      total_additional = case_when(
-        # China: max(232, reciprocal) + fentanyl + 301 + other
-        country == CTY_CHINA ~
-          pmax(rate_232, rate_ieepa_recip) + rate_ieepa_fent + rate_301 + rate_other,
-        # Others with 232: 232 + other
-        rate_232 > 0 ~ rate_232 + rate_other,
-        # Others: reciprocal + fentanyl + other
-        TRUE ~ rate_ieepa_recip + rate_ieepa_fent + rate_other
-      ),
-      total_rate = base_rate + total_additional,
-      scenario = scenario_name
-    )
+  # Re-apply stacking rules (shared implementation from helpers.R)
+  result <- apply_stacking_rules(result, CTY_CHINA) %>%
+    mutate(scenario = scenario_name)
+
+  # Enforce canonical schema
+  result <- enforce_rate_schema(result)
 
   # Summary
   message('  Mean total rate: ', round(mean(result$total_rate) * 100, 2), '%')
@@ -175,7 +165,8 @@ compare_scenarios <- function(rates, scenario_a, scenario_b, scenarios_path = 'c
 # =============================================================================
 
 if (sys.nframe() == 0) {
-  setwd('C:/Users/ji252/Documents/GitHub/tariff-rate-tracker')
+  library(here)
+  source(here('src', 'helpers.R'))
 
   # Load latest snapshot or time series
   ts_path <- 'data/timeseries/rate_timeseries.rds'

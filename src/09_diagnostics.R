@@ -11,8 +11,9 @@
 
 library(tidyverse)
 
-# Country code constants
-CTY_CHINA <- '5700'
+# Country code constants (loaded from YAML via helpers.R)
+.pp_09 <- tryCatch(load_policy_params(), error = function(e) NULL)
+CTY_CHINA <- if (!is.null(.pp_09)) .pp_09$CTY_CHINA else '5700'
 
 
 # =============================================================================
@@ -305,6 +306,7 @@ run_all_diagnostics <- function(
 # =============================================================================
 
 if (sys.nframe() == 0) {
-  setwd('C:/Users/ji252/Documents/GitHub/tariff-rate-tracker')
+  library(here)
+  source(here('src', 'helpers.R'))
   run_all_diagnostics()
 }

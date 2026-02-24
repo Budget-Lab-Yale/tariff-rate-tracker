@@ -9,7 +9,8 @@
 #
 # =============================================================================
 
-source('src/helpers.R')
+library(here)
+source(here('src', 'helpers.R'))
 
 # =============================================================================
 # Snapshot Generation
@@ -361,12 +362,12 @@ write_tariff_model_export <- function(rate_data, authority_data, export_date = S
 # =============================================================================
 
 if (sys.nframe() == 0) {
-  setwd('C:/Users/ji252/Documents/GitHub/tariff-rate-tracker')
+  library(here)
 
   # Load data
-  rate_data <- readRDS('data/processed/rate_data.rds')
-  authority_data <- readRDS('data/processed/authority_data.rds')
-  hts_data <- readRDS('data/processed/hts_parsed.rds')
+  rate_data <- readRDS(here('data', 'processed', 'rate_data.rds'))
+  authority_data <- readRDS(here('data', 'processed', 'authority_data.rds'))
+  hts_data <- readRDS(here('data', 'processed', 'hts_parsed.rds'))
 
   snapshot_date <- Sys.Date()
 
@@ -379,7 +380,7 @@ if (sys.nframe() == 0) {
   )
 
   # Check for previous snapshot
-  previous_snapshots <- list.dirs('snapshots', recursive = FALSE)
+  previous_snapshots <- list.dirs(here('snapshots'), recursive = FALSE)
   previous_snapshots <- previous_snapshots[previous_snapshots != snapshot_dir]
 
   if (length(previous_snapshots) > 0) {

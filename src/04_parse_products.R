@@ -19,124 +19,9 @@
 library(tidyverse)
 library(jsonlite)
 
-# =============================================================================
-# Rate Parsing Functions
-# =============================================================================
-
-#' Parse a simple rate string into numeric
-#'
-#' Handles: "6.8%", "Free", "25%"
-#' Returns NA for compound/specific rates
-#'
-#' @param rate_string Rate text from HTS
-#' @return Numeric rate or NA
-parse_simple_rate <- function(rate_string) {
-  if (is.null(rate_string) || is.na(rate_string) || rate_string == '') {
-    return(NA_real_)
-  }
-
-  rate_string <- trimws(rate_string)
-
-  # Handle "Free"
-  if (tolower(rate_string) == 'free') {
-    return(0.0)
-  }
-
-  # Simple percentage: "6.8%" or "25%"
-  if (grepl('^[0-9.]+%$', rate_string)) {
-    value <- as.numeric(gsub('%', '', rate_string))
-    return(value / 100)
-  }
-
-  # Not a simple rate
-  return(NA_real_)
-}
-
-
-#' Check if rate string is simple ad valorem
-#'
-#' @param rate_string Rate text
-#' @return Logical
-is_simple_rate <- function(rate_string) {
-  if (is.null(rate_string) || is.na(rate_string) || rate_string == '') {
-    return(FALSE)
-  }
-  rate_string <- trimws(rate_string)
-  tolower(rate_string) == 'free' || grepl('^[0-9.]+%$', rate_string)
-}
-
-
-# =============================================================================
-# HTS Code Functions
-# =============================================================================
-
-#' Normalize HTS code to 10-digit format
-#'
-#' @param hts_code HTS code with dots (e.g., "0101.30.00.00")
-#' @return 10-digit code without dots (e.g., "0101300000")
-normalize_hts10 <- function(hts_code) {
-  if (is.null(hts_code) || is.na(hts_code) || hts_code == '') {
-    return(NA_character_)
-  }
-
-  # Remove dots
-  clean <- gsub('\\.', '', hts_code)
-
-  # Must be at least 4 digits and at most 10
-  if (nchar(clean) < 4 || nchar(clean) > 10) {
-    return(NA_character_)
-  }
-
-  # Pad to 10 digits
-  if (nchar(clean) < 10) {
-    clean <- str_pad(clean, 10, side = 'right', pad = '0')
-  }
-
-  return(clean)
-}
-
-
-#' Check if HTS code is a valid 10-digit product code
-#'
-#' @param hts_code HTS code
-#' @return Logical
-is_valid_hts10 <- function(hts_code) {
-  if (is.null(hts_code) || is.na(hts_code) || hts_code == '') {
-    return(FALSE)
-  }
-
-  clean <- gsub('\\.', '', hts_code)
-
-  # Must be exactly 10 digits
-  nchar(clean) == 10 && grepl('^[0-9]+$', clean)
-}
-
-
-# =============================================================================
-# Footnote Parsing Functions
-# =============================================================================
-
-#' Extract Chapter 99 references from footnotes
-#'
-#' @param footnotes List of footnote objects
-#' @return Character vector of Chapter 99 codes
-extract_ch99_refs <- function(footnotes) {
-  if (is.null(footnotes) || length(footnotes) == 0) {
-    return(character(0))
-  }
-
-  refs <- character(0)
-
-  for (fn in footnotes) {
-    value <- fn$value %||% ''
-
-    # Pattern: "See 9903.XX.XX" or just "9903.XX.XX"
-    matches <- str_extract_all(value, '9903\\.[0-9]{2}\\.[0-9]{2}')[[1]]
-    refs <- c(refs, matches)
-  }
-
-  unique(refs)
-}
+# NOTE: parse_rate(), is_simple_rate(), normalize_hts(), is_valid_hts10(),
+# and extract_chapter99_refs() are all defined in helpers.R.
+# This file uses those shared versions.
 
 
 # =============================================================================
@@ -168,16 +53,16 @@ parse_products <- function(json_path) {
       return(NULL)
     }
 
-    hts10 <- normalize_hts10(htsno)
+    hts10 <- normalize_hts(htsno)
     general <- item$general %||% ''
     description <- item$description %||% ''
 
     # Parse rate
-    base_rate <- parse_simple_rate(general)
+    base_rate <- parse_rate(general)
     has_complex <- !is_simple_rate(general) && general != ''
 
     # Extract Chapter 99 references
-    ch99_refs <- extract_ch99_refs(item$footnotes)
+    ch99_refs <- extract_chapter99_refs(item$footnotes)
 
     tibble(
       hts10 = hts10,
@@ -268,7 +153,8 @@ compare_products <- function(old_products, new_products) {
 # =============================================================================
 
 if (sys.nframe() == 0) {
-  setwd('C:/Users/ji252/Documents/GitHub/tariff-rate-tracker')
+  library(here)
+  source(here('src', 'helpers.R'))
 
   # Parse baseline and latest revision
   products_basic <- parse_products('data/hts_archives/hts_2025_basic.json')

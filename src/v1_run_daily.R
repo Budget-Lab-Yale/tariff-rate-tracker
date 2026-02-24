@@ -21,7 +21,8 @@
 # =============================================================================
 
 # Load helpers
-source('src/helpers.R')
+library(here)
+source(here('src', 'helpers.R'))
 
 # Source processing scripts (functions only, not main execution)
 # We'll call their functions directly
@@ -57,7 +58,7 @@ run_pipeline <- function(hts_year = format(Sys.Date(), '%Y'),
   message('=== Step 1: Ingest HTS Data ===')
 
   # Source the ingest script to get functions
-  source('src/v1_ingest_hts.R', local = TRUE)
+  source(here('src', 'v1_ingest_hts.R'), local = TRUE)
 
   # Get HTS archive
   hts_file <- tryCatch(
@@ -76,7 +77,7 @@ run_pipeline <- function(hts_year = format(Sys.Date(), '%Y'),
   # --------------------------------------------------------------------------
   message('\n=== Step 2: Extract Authorities ===')
 
-  source('src/v1_extract_authorities.R', local = TRUE)
+  source(here('src', 'v1_extract_authorities.R'), local = TRUE)
   authority_data <- extract_authorities(hts_data)
   saveRDS(authority_data, 'data/processed/authority_data.rds')
 
@@ -85,7 +86,7 @@ run_pipeline <- function(hts_year = format(Sys.Date(), '%Y'),
   # --------------------------------------------------------------------------
   message('\n=== Step 3: Expand to Countries ===')
 
-  source('src/v1_expand_countries.R', local = TRUE)
+  source(here('src', 'v1_expand_countries.R'), local = TRUE)
   expanded_data <- expand_to_countries(authority_data)
   saveRDS(expanded_data, 'data/processed/expanded_data.rds')
 
@@ -94,7 +95,7 @@ run_pipeline <- function(hts_year = format(Sys.Date(), '%Y'),
   # --------------------------------------------------------------------------
   message('\n=== Step 4: Calculate Effective Rates ===')
 
-  source('src/v1_calculate_rates.R', local = TRUE)
+  source(here('src', 'v1_calculate_rates.R'), local = TRUE)
   rate_data <- calculate_effective_rates(hts_data, expanded_data)
   saveRDS(rate_data, 'data/processed/rate_data.rds')
 
@@ -103,7 +104,7 @@ run_pipeline <- function(hts_year = format(Sys.Date(), '%Y'),
   # --------------------------------------------------------------------------
   message('\n=== Step 5: Write Outputs ===')
 
-  source('src/v1_write_outputs.R', local = TRUE)
+  source(here('src', 'v1_write_outputs.R'), local = TRUE)
 
   hts_revision <- paste('HTS', hts_year, 'Basic Edition')
   snapshot_dir <- write_snapshot(rate_data, hts_data, snapshot_date, hts_revision)
@@ -222,8 +223,7 @@ print_key_stats <- function(rate_data = NULL) {
 # =============================================================================
 
 if (sys.nframe() == 0) {
-  # Set working directory
-  setwd('C:/Users/ji252/Documents/GitHub/tariff-rate-tracker')
+  library(here)
 
   # Parse command line arguments
   args <- commandArgs(trailingOnly = TRUE)

@@ -9,8 +9,9 @@
 #
 # =============================================================================
 
-source('src/helpers.R')
-source('src/v1_ingest_hts.R')
+library(here)
+source(here('src', 'helpers.R'))
+source(here('src', 'v1_ingest_hts.R'))
 
 # =============================================================================
 # Comparison Functions
@@ -185,12 +186,12 @@ get_new_ch99_timeline <- function(results) {
 # =============================================================================
 
 if (sys.nframe() == 0) {
-  setwd('C:/Users/ji252/Documents/GitHub/tariff-rate-tracker')
+  library(here)
 
   # Run comparisons
   results <- compare_all_revisions(
-    baseline_path = 'data/hts_archives/hts_2025_basic.json',
-    revision_pattern = 'data/hts_archives/hts_2025_rev_*.json'
+    baseline_path = here('data', 'hts_archives', 'hts_2025_basic.json'),
+    revision_pattern = here('data', 'hts_archives', 'hts_2025_rev_*.json')
   )
 
   # Create summary
@@ -214,10 +215,10 @@ if (sys.nframe() == 0) {
   }
 
   # Save results
-  ensure_dir('output/revision_comparison')
-  write_csv(summary_table, 'output/revision_comparison/summary.csv')
-  write_csv(ch99_timeline, 'output/revision_comparison/new_ch99_timeline.csv')
-  saveRDS(results, 'output/revision_comparison/full_results.rds')
+  ensure_dir(here('output', 'revision_comparison'))
+  write_csv(summary_table, here('output', 'revision_comparison', 'summary.csv'))
+  write_csv(ch99_timeline, here('output', 'revision_comparison', 'new_ch99_timeline.csv'))
+  saveRDS(results, here('output', 'revision_comparison', 'full_results.rds'))
 
   message('\nResults saved to output/revision_comparison/')
 }

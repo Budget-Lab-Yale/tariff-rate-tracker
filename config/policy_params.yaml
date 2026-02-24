@@ -1,0 +1,131 @@
+# =============================================================================
+# Policy Parameters — Single Source of Truth
+# =============================================================================
+# All hardcoded constants formerly scattered across pipeline files.
+# Loaded by helpers.R::load_policy_params()
+# =============================================================================
+
+# --- Census country codes for key countries ---
+country_codes:
+  CTY_CHINA:  '5700'
+  CTY_CANADA: '1220'
+  CTY_MEXICO: '2010'
+  CTY_JAPAN:  '5880'
+  CTY_UK:     '4120'
+  CTY_HK:     '5820'
+
+# --- ISO to Census code mapping ---
+iso_to_census:
+  CN: '5700'
+  CA: '1220'
+  MX: '2010'
+  JP: '5880'
+  UK: '4120'
+  GB: '4120'
+  AU: '6021'
+  KR: '5800'
+  RU: '4621'
+  AR: '3570'
+  BR: '3510'
+  UA: '4622'
+
+# --- EU-27 member state Census codes ---
+eu27_codes:
+  '4330': Austria
+  '4231': Belgium
+  '4870': Bulgaria
+  '4791': Croatia
+  '4910': Cyprus
+  '4351': Czech Republic
+  '4099': Denmark
+  '4470': Estonia
+  '4050': Finland
+  '4279': France
+  '4280': Germany
+  '4840': Greece
+  '4370': Hungary
+  '4190': Ireland
+  '4759': Italy
+  '4490': Latvia
+  '4510': Lithuania
+  '4239': Luxembourg
+  '4730': Malta
+  '4210': Netherlands
+  '4550': Poland
+  '4710': Portugal
+  '4850': Romania
+  '4359': Slovakia
+  '4792': Slovenia
+  '4700': Spain
+  '4010': Sweden
+
+# --- Authority classification ranges (9903.xx) ---
+authority_ranges:
+  section_232:      [80, 81, 82, 83, 84, 85, 94]
+  section_301:      [86, 87, 88, 89, 91, 92]
+  ieepa_reciprocal: [90, 93, 95, 96]
+  section_201:      [40, 41, 42, 43, 44, 45]
+  ieepa_fentanyl_range:
+    start: '9903.01.01'
+    end:   '9903.01.24'
+  ieepa_phase1_range:
+    start: '9903.01.43'
+    end:   '9903.01.75'
+  ieepa_phase2_range:
+    start: '9903.02.02'
+    end:   '9903.02.81'
+
+# --- Section 232 covered HTS chapters ---
+section_232_chapters:
+  steel: ['72', '73']
+  aluminum: ['76']
+
+# --- Floor rate structure (EU, Japan, S. Korea) ---
+floor_rates:
+  eu_floor: 0.15
+  floor_rate: 0.15
+  floor_countries: ['5880', '5800']   # Japan, South Korea
+
+# --- Authority name to rate column mapping ---
+authority_columns:
+  section_232:      rate_232
+  section_301:      rate_301
+  ieepa_reciprocal: rate_ieepa_recip
+  ieepa_fentanyl:   rate_ieepa_fent
+  other:            rate_other
+
+# --- Section 301 rates (Ch99 pattern -> rate) ---
+# Used by 10_weighted_etr.R for direct rate lookup
+section_301_rates:
+  - ch99_pattern: '9903.88.01'
+    s301_rate: 0.25
+  - ch99_pattern: '9903.88.02'
+    s301_rate: 0.25
+  - ch99_pattern: '9903.88.03'
+    s301_rate: 0.25
+  - ch99_pattern: '9903.88.04'
+    s301_rate: 0.25
+  - ch99_pattern: '9903.88.09'
+    s301_rate: 0.10
+  - ch99_pattern: '9903.88.15'
+    s301_rate: 0.075
+  - ch99_pattern: '9903.88.16'
+    s301_rate: 0.15
+  - ch99_pattern: '9903.91.01'
+    s301_rate: 0.25
+  - ch99_pattern: '9903.91.02'
+    s301_rate: 0.50
+  - ch99_pattern: '9903.91.03'
+    s301_rate: 1.00
+  - ch99_pattern: '9903.91.04'
+    s301_rate: 0.25
+  - ch99_pattern: '9903.91.05'
+    s301_rate: 0.50
+  - ch99_pattern: '9903.91.11'
+    s301_rate: 0.25
+
+# --- Validation thresholds ---
+validation_thresholds:
+  exact: 0.005
+  within_2pp: 0.02
+  within_5pp: 0.05

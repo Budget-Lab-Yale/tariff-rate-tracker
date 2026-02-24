@@ -120,7 +120,8 @@ update_revision_dates <- function(csv_path, scraped) {
 # =============================================================================
 
 if (sys.nframe() == 0) {
-  setwd('C:/Users/ji252/Documents/GitHub/tariff-rate-tracker')
+  library(here)
+  source(here('src', 'helpers.R'))
 
   # Try scraping first
   scraped <- scrape_usitc_revision_dates()

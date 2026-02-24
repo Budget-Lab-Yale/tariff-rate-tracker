@@ -14,15 +14,19 @@
 # =============================================================================
 
 library(tidyverse)
+library(here)
+
+source(here('src', 'helpers.R'))
 
 # =============================================================================
 # Constants
 # =============================================================================
 
 # Key Census country codes
-CTY_CHINA <- '5700'
-CTY_CANADA <- '1220'
-CTY_MEXICO <- '2010'
+.pp_v1 <- tryCatch(load_policy_params(), error = function(e) NULL)
+CTY_CHINA  <- if (!is.null(.pp_v1)) .pp_v1$CTY_CHINA  else '5700'
+CTY_CANADA <- if (!is.null(.pp_v1)) .pp_v1$CTY_CANADA else '1220'
+CTY_MEXICO <- if (!is.null(.pp_v1)) .pp_v1$CTY_MEXICO else '2010'
 
 # Country name to Census code mapping (for TPC comparison)
 COUNTRY_NAME_TO_CODE <- c(
@@ -351,14 +355,14 @@ compare_to_tpc <- function(rates, tpc_path) {
 # =============================================================================
 
 if (sys.nframe() == 0) {
-  setwd('C:/Users/ji252/Documents/GitHub/tariff-rate-tracker')
+  library(here)
 
   # Load data
-  ch99 <- load_chapter99('data/processed/chapter99_raw.csv')
-  products <- load_products('data/processed/products_raw.csv')
+  ch99 <- load_chapter99(here('data', 'processed', 'chapter99_raw.csv'))
+  products <- load_products(here('data', 'processed', 'products_raw.csv'))
 
   # Load country codes
-  census_codes <- read_csv('resources/census_codes.csv', col_types = cols(.default = col_character()))
+  census_codes <- read_csv(here('resources', 'census_codes.csv'), col_types = cols(.default = col_character()))
   countries <- census_codes$Code
 
   message('\nLoaded ', length(countries), ' countries')
@@ -367,7 +371,7 @@ if (sys.nframe() == 0) {
   rates <- calculate_rates(products, ch99, countries)
 
   # Save
-  write_csv(rates, 'data/processed/rates_calculated.csv')
+  write_csv(rates, here('data', 'processed', 'rates_calculated.csv'))
   message('\nSaved rates to data/processed/rates_calculated.csv')
 
   # Summary by country
@@ -388,9 +392,9 @@ if (sys.nframe() == 0) {
     print()
 
   # Compare to TPC
-  if (file.exists('data/tpc/tariff_by_flow_day.csv')) {
-    comparison <- compare_to_tpc(rates, 'data/tpc/tariff_by_flow_day.csv')
-    write_csv(comparison, 'output/tpc_comparison.csv')
+  if (file.exists(here('data', 'tpc', 'tariff_by_flow_day.csv'))) {
+    comparison <- compare_to_tpc(rates, here('data', 'tpc', 'tariff_by_flow_day.csv'))
+    write_csv(comparison, here('output', 'tpc_comparison.csv'))
     message('\nSaved TPC comparison to output/tpc_comparison.csv')
   }
 }

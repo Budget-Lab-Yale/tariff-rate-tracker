@@ -2,43 +2,47 @@
 # Step 03: Calculate Total Tariff Rates
 # =============================================================================
 #
-# Calculates total effective tariff rate for each HTS10 × country combination
+# Calculates total effective tariff rate for each HTS10 x country combination
 # using stacking rules from Tariff-ETRs.
 #
-# Stacking Rules (from Tariff-ETRs):
-#   - China: max(232, reciprocal) + fentanyl + s122
-#   - Others with 232: 232 + s122 (232 takes precedence over reciprocal)
-#   - Others without 232: reciprocal + fentanyl + s122
+# PUBLIC API:
+#   calculate_rates_for_revision() — Entry point for per-revision rate calculation.
+#     Called by 00_build_timeseries.R and run_pipeline.R.
 #
-# Output: rates_{revision}.rds with columns:
-#   - hts10: 10-digit HTS code
-#   - country: Country code (Census or ISO)
-#   - base_rate: MFN base rate
-#   - rate_232: Section 232 additional duty
-#   - rate_301: Section 301 additional duty
-#   - rate_ieepa_recip: IEEPA reciprocal tariff
-#   - rate_ieepa_fent: IEEPA fentanyl tariff
-#   - rate_other: Other Chapter 99 duties
-#   - total_additional: Combined additional duties (with stacking)
-#   - total_rate: base_rate + total_additional
+# INTERNAL:
+#   calculate_rates_fast() — Footnote-based rate calculation (vectorized)
+#   check_country_applies() — Country applicability check
+#
+# Output: rates_{revision}.rds with columns per RATE_SCHEMA (see helpers.R)
 #
 # =============================================================================
 
 library(tidyverse)
 
-# =============================================================================
-# Country Code Constants
-# =============================================================================
+# NOTE: classify_authority(), apply_stacking_rules(), enforce_rate_schema(),
+# and RATE_SCHEMA are defined in helpers.R.
 
-# Census codes for key countries
-CTY_CHINA <- '5700'
-CTY_CANADA <- '1220'
-CTY_MEXICO <- '2010'
-CTY_JAPAN <- '5880'
-CTY_UK <- '4120'
+# Load policy parameters from YAML (country codes, ISO mapping)
+.pp <- tryCatch(
+  load_policy_params(),
+  error = function(e) {
+    # Graceful fallback when sourced before helpers.R sets working dir
+    NULL
+  }
+)
 
-# Map ISO codes to Census codes
-ISO_TO_CENSUS <- c(
+# Country code constants — loaded from YAML, with fallback for standalone use
+CTY_CHINA  <- if (!is.null(.pp)) .pp$CTY_CHINA  else '5700'
+CTY_CANADA <- if (!is.null(.pp)) .pp$CTY_CANADA else '1220'
+CTY_MEXICO <- if (!is.null(.pp)) .pp$CTY_MEXICO else '2010'
+CTY_JAPAN  <- if (!is.null(.pp)) .pp$CTY_JAPAN  else '5880'
+CTY_UK     <- if (!is.null(.pp)) .pp$CTY_UK     else '4120'
+CTY_HK     <- if (!is.null(.pp)) .pp$CTY_HK     else '5820'
+
+STEEL_CHAPTERS <- if (!is.null(.pp)) .pp$section_232_chapters$steel else c('72', '73')
+ALUM_CHAPTERS  <- if (!is.null(.pp)) .pp$section_232_chapters$aluminum else c('76')
+
+ISO_TO_CENSUS <- if (!is.null(.pp)) .pp$ISO_TO_CENSUS else c(
   'CN' = '5700', 'CA' = '1220', 'MX' = '2010',
   'JP' = '5880', 'UK' = '4120', 'GB' = '4120',
   'AU' = '6021', 'KR' = '5800', 'RU' = '4621',
@@ -47,226 +51,12 @@ ISO_TO_CENSUS <- c(
 
 
 # =============================================================================
-# Authority Classification Functions
-# =============================================================================
-
-#' Classify Chapter 99 code into authority buckets
-#'
-#' @param ch99_code Chapter 99 subheading
-#' @return Authority bucket name
-classify_authority <- function(ch99_code) {
-  if (is.na(ch99_code) || ch99_code == '') return('unknown')
-
-  parts <- str_split(ch99_code, '\\.')[[1]]
-  if (length(parts) < 2) return('unknown')
-
-  middle <- as.integer(parts[2])
-  last <- if (length(parts) >= 3) as.integer(parts[3]) else 0
-
-  # Section 232: 9903.80.xx - 9903.84.xx (steel, autos)
-  if (middle >= 80 && middle <= 84) {
-    return('section_232')
-  }
-
-  # Section 232 aluminum: 9903.85.xx
-  if (middle == 85) {
-    return('section_232')
-  }
-
-  # Section 301: 9903.86.xx - 9903.89.xx (China tariffs)
-  if (middle >= 86 && middle <= 89) {
-    return('section_301')
-  }
-
-  # Section 301 Biden-era: 9903.91.xx (US Note 31), 9903.92.xx (crane duties)
-  if (middle == 91 || middle == 92) {
-    return('section_301')
-  }
-
-  # Section 232 auto: 9903.94.xx (US Note 33)
-  if (middle == 94) {
-    return('section_232')
-  }
-
-  # IEEPA: 9903.90.xx (China surcharges), 9903.93/95/96
-  if (middle == 90 || (middle >= 93 && middle <= 96 && middle != 94)) {
-    return('ieepa_reciprocal')
-  }
-
-  # Section 201 (safeguards): 9903.40.xx - 9903.45.xx
-  if (middle >= 40 && middle <= 45) {
-    return('section_201')
-  }
-
-  return('other')
-}
-
-
-# =============================================================================
 # Rate Lookup Functions
 # =============================================================================
 
-#' Get additional duty rate for a Chapter 99 reference and country
-#'
-#' @param ch99_code Chapter 99 subheading
-#' @param country Census country code
-#' @param ch99_data Chapter 99 rate data
-#' @return Numeric rate or 0
-get_ch99_rate_for_country <- function(ch99_code, country, ch99_data) {
-  # Find the Chapter 99 entry
-  entry <- ch99_data %>%
-    filter(ch99_code == !!ch99_code)
-
-  if (nrow(entry) == 0 || is.na(entry$rate[1])) {
-    return(0)
-  }
-
-  rate <- entry$rate[1]
-  country_type <- entry$country_type[1]
-  countries <- entry$countries[[1]]
-  exempt <- entry$exempt_countries[[1]]
-
-  # Convert ISO to Census if needed
-  country_census <- country
-  country_iso <- names(ISO_TO_CENSUS)[match(country, ISO_TO_CENSUS)]
-  if (is.na(country_iso)) country_iso <- country
-
-  # Check applicability based on country type
-  applies <- switch(
-    country_type,
-    'all' = TRUE,
-    'all_except' = !(country_iso %in% exempt),
-    'specific' = country_iso %in% countries || country %in% countries,
-    FALSE
-  )
-
-  if (applies) rate else 0
-}
-
-
 # =============================================================================
-# Stacking Rules Implementation
+# Vectorized Rate Calculation
 # =============================================================================
-
-#' Apply stacking rules to calculate total additional duty
-#'
-#' Implements stacking logic:
-#'   - China: max(232, reciprocal) + fentanyl + 301 + other
-#'   - All others: max(232, reciprocal) + fentanyl + other
-#'
-#' @param rate_232 Section 232 rate
-#' @param rate_301 Section 301 rate
-#' @param rate_ieepa_recip IEEPA reciprocal rate
-#' @param rate_ieepa_fent IEEPA fentanyl rate
-#' @param rate_other Other additional duties
-#' @param country Census country code
-#' @return Total additional duty
-apply_stacking <- function(rate_232, rate_301, rate_ieepa_recip, rate_ieepa_fent, rate_other, country) {
-  # China: max(232, reciprocal) + fentanyl + 301 + other
-  if (country == CTY_CHINA) {
-    base <- max(rate_232, rate_ieepa_recip, na.rm = TRUE)
-    return(base + rate_ieepa_fent + rate_301 + rate_other)
-  }
-
-  # All others: max(232, reciprocal) + fentanyl + other
-  base <- max(rate_232, rate_ieepa_recip, na.rm = TRUE)
-  return(base + rate_ieepa_fent + rate_other)
-}
-
-
-# =============================================================================
-# Main Calculation Function
-# =============================================================================
-#' Calculate rates for all HTS10 × country combinations
-#'
-#' @param products Product data from parse_products
-#' @param ch99_data Chapter 99 data from parse_chapter99
-#' @param countries Vector of country codes to calculate for
-#' @return Tibble with rate calculations
-calculate_rates <- function(products, ch99_data, countries) {
-  message('Calculating rates for ', nrow(products), ' products × ', length(countries), ' countries...')
-
-  # Get products with Chapter 99 references
-  products_with_refs <- products %>%
-    filter(n_ch99_refs > 0)
-
-  message('  Products with Ch99 refs: ', nrow(products_with_refs))
-
-  # For each product, calculate rates by country
-  results <- list()
-
-  pb <- txtProgressBar(min = 0, max = nrow(products_with_refs), style = 3)
-
-  for (i in seq_len(nrow(products_with_refs))) {
-    setTxtProgressBar(pb, i)
-
-    row <- products_with_refs[i, ]
-    hts10 <- row$hts10
-    base_rate <- row$base_rate
-    ch99_refs <- row$ch99_refs[[1]]
-
-    # Skip if no base rate (complex rate)
-    if (is.na(base_rate)) base_rate <- 0
-
-    # For each country, calculate applicable rates
-    for (country in countries) {
-      rate_232 <- 0
-      rate_301 <- 0
-      rate_ieepa_recip <- 0
-      rate_ieepa_fent <- 0
-      rate_other <- 0
-
-      # Sum applicable Chapter 99 rates by authority
-      for (ch99_ref in ch99_refs) {
-        ch99_rate <- get_ch99_rate_for_country(ch99_ref, country, ch99_data)
-
-        if (ch99_rate > 0) {
-          auth <- classify_authority(ch99_ref)
-
-          switch(
-            auth,
-            'section_232' = { rate_232 <- max(rate_232, ch99_rate) },
-            'section_301' = { rate_301 <- rate_301 + ch99_rate },
-            'ieepa_reciprocal' = { rate_ieepa_recip <- max(rate_ieepa_recip, ch99_rate) },
-            'ieepa_fentanyl' = { rate_ieepa_fent <- max(rate_ieepa_fent, ch99_rate) },
-            { rate_other <- rate_other + ch99_rate }
-          )
-        }
-      }
-
-      # Apply stacking rules
-      total_additional <- apply_stacking(
-        rate_232, rate_301, rate_ieepa_recip, rate_ieepa_fent, rate_other, country
-      )
-
-      # Only store if there are additional duties
-      if (total_additional > 0) {
-        results[[length(results) + 1]] <- tibble(
-          hts10 = hts10,
-          country = country,
-          base_rate = base_rate,
-          rate_232 = rate_232,
-          rate_301 = rate_301,
-          rate_ieepa_recip = rate_ieepa_recip,
-          rate_ieepa_fent = rate_ieepa_fent,
-          rate_other = rate_other,
-          total_additional = total_additional,
-          total_rate = base_rate + total_additional
-        )
-      }
-    }
-  }
-
-  close(pb)
-
-  # Combine results
-  rates <- bind_rows(results)
-
-  message('\n  Calculated ', nrow(rates), ' product-country rates with additional duties')
-
-  return(rates)
-}
-
 
 #' Fast vectorized rate calculation (for large datasets)
 #'
@@ -277,7 +67,7 @@ calculate_rates <- function(products, ch99_data, countries) {
 calculate_rates_fast <- function(products, ch99_data, countries) {
   message('Calculating rates (fast mode)...')
 
-  # Expand products to product × country
+  # Expand products to product x country
   products_expanded <- products %>%
     filter(n_ch99_refs > 0) %>%
     select(hts10, base_rate, ch99_refs) %>%
@@ -314,7 +104,7 @@ calculate_rates_fast <- function(products, ch99_data, countries) {
   product_ch99_rates <- product_ch99_rates %>%
     rename(ch99_countries = countries, ch99_exempt = exempt_countries)
 
-  # Create full expansion: product × ch99 × country
+  # Create full expansion: product x ch99 x country
   country_vec <- countries  # local copy to avoid any ambiguity
   full_expansion <- product_ch99_rates %>%
     tidyr::expand_grid(country = country_vec)
@@ -332,7 +122,7 @@ calculate_rates_fast <- function(products, ch99_data, countries) {
 
   message('  After country filtering: ', nrow(full_expansion))
 
-  # Aggregate by product × country × authority (take max within authority)
+  # Aggregate by product x country x authority (take max within authority)
   by_authority <- full_expansion %>%
     group_by(hts10, country, authority) %>%
     summarise(
@@ -374,19 +164,8 @@ calculate_rates_fast <- function(products, ch99_data, countries) {
       rate_ieepa_fent = rate_ieepa_fentanyl
     )
 
-  # Apply stacking rules (vectorized)
-  rates_final <- rates_wide %>%
-    mutate(
-      total_additional = case_when(
-        # China: max(232, reciprocal) + fentanyl + 301 + other
-        country == CTY_CHINA ~
-          pmax(rate_232, rate_ieepa_recip) + rate_ieepa_fent + rate_301 + rate_other,
-
-        # All others: max(232, reciprocal) + fentanyl + other
-        TRUE ~ pmax(rate_232, rate_ieepa_recip) + rate_ieepa_fent + rate_other
-      ),
-      total_rate = base_rate + total_additional
-    )
+  # Apply stacking rules (vectorized, from helpers.R)
+  rates_final <- apply_stacking_rules(rates_wide, CTY_CHINA)
 
   return(rates_final)
 }
@@ -456,13 +235,7 @@ calculate_rates_for_revision <- function(
 
   if (nrow(rates) == 0) {
     message('  No rates calculated for ', revision_id)
-    return(tibble(
-      hts10 = character(), country = character(),
-      base_rate = numeric(), rate_232 = numeric(), rate_301 = numeric(),
-      rate_ieepa_recip = numeric(), rate_ieepa_fent = numeric(), rate_other = numeric(),
-      total_additional = numeric(), total_rate = numeric(),
-      usmca_eligible = logical(), revision = character(), effective_date = as.Date(character())
-    ))
+    return(enforce_rate_schema(tibble()))
   }
 
   # 2. Build per-country IEEPA reciprocal lookup from ieepa_rates
@@ -557,7 +330,6 @@ calculate_rates_for_revision <- function(
   #     These STACK with reciprocal tariffs for CA/MX.
   #     China/HK are EXCLUDED: their 9903.90.xx footnote rates already
   #     incorporate fentanyl (adding it would double-count ~10pp).
-  CTY_HK <- '5820'
   has_fentanyl <- !is.null(fentanyl_rates) && nrow(fentanyl_rates) > 0
 
   if (has_fentanyl) {
@@ -614,10 +386,10 @@ calculate_rates_for_revision <- function(
   if (s232_rates$has_232) {
     # Identify covered products by HTS chapter
     steel_products <- products %>%
-      filter(substr(hts10, 1, 2) %in% c('72', '73')) %>%
+      filter(substr(hts10, 1, 2) %in% STEEL_CHAPTERS) %>%
       pull(hts10)
     aluminum_products <- products %>%
-      filter(substr(hts10, 1, 2) == '76') %>%
+      filter(substr(hts10, 1, 2) %in% ALUM_CHAPTERS) %>%
       pull(hts10)
 
     n_steel <- length(steel_products)
@@ -646,8 +418,8 @@ calculate_rates_for_revision <- function(
       mutate(
         chapter = substr(hts10, 1, 2),
         blanket_232 = case_when(
-          chapter %in% c('72', '73') ~ coalesce(steel_rate_232, 0),
-          chapter == '76' ~ coalesce(alum_rate_232, 0),
+          chapter %in% STEEL_CHAPTERS ~ coalesce(steel_rate_232, 0),
+          chapter %in% ALUM_CHAPTERS ~ coalesce(alum_rate_232, 0),
           TRUE ~ 0
         ),
         # Take max of footnote-based 232 and blanket 232
@@ -656,7 +428,6 @@ calculate_rates_for_revision <- function(
       select(-steel_rate_232, -alum_rate_232, -chapter, -blanket_232)
 
     # Also add rows for 232-covered products NOT yet in rates
-    # (products with no other Ch99 duties and not covered by IEEPA)
     s232_country_codes <- country_232 %>%
       filter(steel_rate > 0 | aluminum_rate > 0) %>%
       pull(country)
@@ -679,8 +450,8 @@ calculate_rates_for_revision <- function(
       mutate(
         chapter = substr(hts10, 1, 2),
         rate_232 = case_when(
-          chapter %in% c('72', '73') ~ coalesce(steel_rate_232, 0),
-          chapter == '76' ~ coalesce(alum_rate_232, 0),
+          chapter %in% STEEL_CHAPTERS ~ coalesce(steel_rate_232, 0),
+          chapter %in% ALUM_CHAPTERS ~ coalesce(alum_rate_232, 0),
           TRUE ~ 0
         ),
         rate_301 = 0, rate_ieepa_recip = 0, rate_ieepa_fent = 0, rate_other = 0
@@ -704,7 +475,6 @@ calculate_rates_for_revision <- function(
       mutate(
         usmca_eligible = coalesce(usmca_eligible, FALSE),
         # USMCA-eligible products exempt from IEEPA for Canada/Mexico
-        # (9903.01.14 explicitly exempts USMCA articles)
         rate_ieepa_recip = if_else(
           country %in% c(CTY_CANADA, CTY_MEXICO) & usmca_eligible,
           0, rate_ieepa_recip
@@ -719,17 +489,7 @@ calculate_rates_for_revision <- function(
   }
 
   # 5. Re-apply stacking rules with updated IEEPA and 232 rates
-  rates <- rates %>%
-    mutate(
-      total_additional = case_when(
-        # China: max(232, reciprocal) + fentanyl + 301 + other
-        country == CTY_CHINA ~
-          pmax(rate_232, rate_ieepa_recip) + rate_ieepa_fent + rate_301 + rate_other,
-        # All others: max(232, reciprocal) + fentanyl + other
-        TRUE ~ pmax(rate_232, rate_ieepa_recip) + rate_ieepa_fent + rate_other
-      ),
-      total_rate = base_rate + total_additional
-    )
+  rates <- apply_stacking_rules(rates, CTY_CHINA)
 
   # 6. Add revision metadata
   rates <- rates %>%
@@ -737,6 +497,9 @@ calculate_rates_for_revision <- function(
       revision = revision_id,
       effective_date = as.Date(effective_date)
     )
+
+  # 7. Enforce canonical schema
+  rates <- enforce_rate_schema(rates)
 
   # Summary
   n_with_ieepa <- sum(rates$rate_ieepa_recip > 0)
@@ -756,7 +519,8 @@ calculate_rates_for_revision <- function(
 # =============================================================================
 
 if (sys.nframe() == 0) {
-  setwd('C:/Users/ji252/Documents/GitHub/tariff-rate-tracker')
+  library(here)
+  source(here('src', 'helpers.R'))
 
   # Load data
   ch99_data <- readRDS('data/processed/chapter99_rates.rds')

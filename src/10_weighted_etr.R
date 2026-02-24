@@ -28,9 +28,12 @@ library(tidyverse)
 # Configuration
 # =============================================================================
 
-CTY_CHINA <- '5700'
-CTY_CANADA <- '1220'
-CTY_MEXICO <- '2010'
+# Constants loaded from YAML (via helpers.R)
+.pp_10 <- tryCatch(load_policy_params(), error = function(e) NULL)
+
+CTY_CHINA  <- if (!is.null(.pp_10)) .pp_10$CTY_CHINA  else '5700'
+CTY_CANADA <- if (!is.null(.pp_10)) .pp_10$CTY_CANADA else '1220'
+CTY_MEXICO <- if (!is.null(.pp_10)) .pp_10$CTY_MEXICO else '2010'
 
 # Policy regime snapshot dates (aligned to TPC benchmark dates)
 POLICY_DATES <- tribble(
@@ -42,34 +45,21 @@ POLICY_DATES <- tribble(
   '2025-11-17',  'Current'
 )
 
-# Section 301 + Biden acceleration rates (products reference via footnotes)
-SECTION_301_RATES <- tribble(
+# Section 301 + Biden acceleration rates
+SECTION_301_RATES <- if (!is.null(.pp_10)) .pp_10$SECTION_301_RATES else tribble(
   ~ch99_pattern, ~s301_rate,
-  # Original Section 301 (Lists 1-4, 2018-2019)
-  '9903.88.01', 0.25,
-  '9903.88.02', 0.25,
-  '9903.88.03', 0.25,
-  '9903.88.04', 0.25,
-  '9903.88.09', 0.10,
-  '9903.88.15', 0.075,
-  '9903.88.16', 0.15,
-  # Biden Section 301 acceleration (U.S. note 31, effective 2024-2025)
-  '9903.91.01', 0.25,
-  '9903.91.02', 0.50,
-  '9903.91.03', 1.00,
-  '9903.91.04', 0.25,
-  '9903.91.05', 0.50,
+  '9903.88.01', 0.25, '9903.88.02', 0.25, '9903.88.03', 0.25,
+  '9903.88.04', 0.25, '9903.88.09', 0.10, '9903.88.15', 0.075,
+  '9903.88.16', 0.15, '9903.91.01', 0.25, '9903.91.02', 0.50,
+  '9903.91.03', 1.00, '9903.91.04', 0.25, '9903.91.05', 0.50,
   '9903.91.11', 0.25
 )
 
-SECTION_232_CHAPTERS <- c('72', '73', '76')
+SECTION_232_CHAPTERS <- if (!is.null(.pp_10)) .pp_10$SECTION_232_CHAPTERS else c('72', '73', '76')
 
-# EU floor rate (applied uniformly to all EU-27 members)
-EU_FLOOR_RATE <- 0.15
-
-# Japan and South Korea also have floor structures
-FLOOR_COUNTRIES <- c('5880', '5800')  # Japan, South Korea
-FLOOR_RATE <- 0.15
+EU_FLOOR_RATE    <- if (!is.null(.pp_10)) .pp_10$EU_FLOOR_RATE    else 0.15
+FLOOR_RATE       <- if (!is.null(.pp_10)) .pp_10$FLOOR_RATE       else 0.15
+FLOOR_COUNTRIES  <- if (!is.null(.pp_10)) .pp_10$FLOOR_COUNTRIES  else c('5880', '5800')
 
 # TPC country name overrides (names that don't exact-match census_codes.csv)
 TPC_NAME_FIXES <- c(
@@ -698,7 +688,8 @@ plot_etrs <- function(etrs, tpc_etrs, output_dir) {
 # =============================================================================
 
 if (sys.nframe() == 0) {
-  setwd('C:/Users/ji252/Documents/GitHub/tariff-rate-tracker')
+  library(here)
+  source(here('src', 'helpers.R'))
 
   data <- load_data(
     products_path = 'data/processed/products_raw.csv',

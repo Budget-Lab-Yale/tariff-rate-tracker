@@ -25,16 +25,18 @@
 
 library(tidyverse)
 library(jsonlite)
+library(here)
 
 # Source pipeline components
-source('src/helpers.R')
-source('src/01_scrape_revision_dates.R')
-source('src/02_download_hts.R')
-source('src/03_parse_chapter99.R')
-source('src/04_parse_products.R')
-source('src/05_parse_policy_params.R')
-source('src/06_calculate_rates.R')
-source('src/07_validate_tpc.R')
+source(here('src', 'logging.R'))
+source(here('src', 'helpers.R'))
+source(here('src', '01_scrape_revision_dates.R'))
+source(here('src', '02_download_hts.R'))
+source(here('src', '03_parse_chapter99.R'))
+source(here('src', '04_parse_products.R'))
+source(here('src', '05_parse_policy_params.R'))
+source(here('src', '06_calculate_rates.R'))
+source(here('src', '07_validate_tpc.R'))
 
 
 # =============================================================================
@@ -71,6 +73,15 @@ build_full_timeseries <- function(
   message('Started: ', start_time)
   message('Mode: ', if (is.null(start_from)) 'Full backfill' else paste('Incremental from', start_from))
   message(strrep('=', 70), '\n')
+
+  # ---- Initialize logging ----
+  log_dir <- file.path(output_dir, '..', '..', 'output', 'logs')
+  init_logging(
+    log_file = file.path(ensure_dir(log_dir),
+                         paste0('build_', format(start_time, '%Y%m%d_%H%M%S'), '.log')),
+    level = 'info'
+  )
+  log_info('Build started: ', if (is.null(start_from)) 'full backfill' else paste('from', start_from))
 
   # ---- Setup ----
   ensure_dir(output_dir)
@@ -142,6 +153,8 @@ build_full_timeseries <- function(
 
   # ---- Main processing loop ----
   snapshot_paths <- character()
+  failed_revisions <- character()
+  last_successful_rev <- if (!is.null(start_from)) start_from else NULL
 
   for (i in seq_along(revisions_to_process)) {
     rev_id <- revisions_to_process[i]
@@ -153,89 +166,110 @@ build_full_timeseries <- function(
     message('[', i, '/', length(revisions_to_process), '] Processing: ',
             rev_id, ' (effective ', eff_date, ')')
     message(strrep('-', 60))
+    log_info('[', i, '/', length(revisions_to_process), '] ', rev_id,
+             ' (', eff_date, ')')
 
-    # a. Resolve JSON path
-    json_path <- resolve_json_path(rev_id, archive_dir)
+    tryCatch({
+      # a. Resolve JSON path
+      json_path <- resolve_json_path(rev_id, archive_dir)
 
-    # b. Read raw JSON (needed for IEEPA/USMCA extraction)
-    hts_raw <- fromJSON(json_path, simplifyDataFrame = FALSE)
+      # b. Read raw JSON (needed for IEEPA/USMCA extraction)
+      hts_raw <- fromJSON(json_path, simplifyDataFrame = FALSE)
 
-    # c. Parse Chapter 99 entries
-    ch99_data <- parse_chapter99(json_path)
+      # c. Parse Chapter 99 entries
+      ch99_data <- parse_chapter99(json_path)
 
-    # d. Parse products
-    products <- parse_products(json_path)
+      # d. Parse products
+      products <- parse_products(json_path)
 
-    # e. Extract IEEPA rates, fentanyl rates, Section 232 rates, and USMCA eligibility
-    ieepa_rates <- extract_ieepa_rates(hts_raw, country_lookup)
-    fentanyl_rates <- extract_ieepa_fentanyl_rates(hts_raw, country_lookup)
-    s232_rates <- extract_section232_rates(ch99_data)
-    usmca <- extract_usmca_eligibility(hts_raw)
+      # e. Extract IEEPA rates, fentanyl rates, Section 232 rates, and USMCA eligibility
+      ieepa_rates <- extract_ieepa_rates(hts_raw, country_lookup)
+      fentanyl_rates <- extract_ieepa_fentanyl_rates(hts_raw, country_lookup)
+      s232_rates <- extract_section232_rates(ch99_data)
+      usmca <- extract_usmca_eligibility(hts_raw)
 
-    # f. Compute delta from previous revision
-    if (!is.null(prev_ch99)) {
-      delta <- list(
-        ch99 = compare_chapter99(prev_ch99, ch99_data),
-        products = compare_products(prev_products, products)
+      # f. Compute delta from previous revision
+      if (!is.null(prev_ch99)) {
+        delta <- list(
+          ch99 = compare_chapter99(prev_ch99, ch99_data),
+          products = compare_products(prev_products, products)
+        )
+        delta_path <- file.path(output_dir, paste0('delta_', rev_id, '.rds'))
+        saveRDS(delta, delta_path)
+
+        message('  Delta: +', delta$ch99$n_added, ' ch99 entries, ',
+                '+', delta$products$n_added, ' products, ',
+                delta$ch99$n_rate_changes, ' rate changes')
+      }
+
+      # g. Calculate rates for this revision
+      rates <- calculate_rates_for_revision(
+        products, ch99_data, ieepa_rates, usmca,
+        countries, rev_id, eff_date,
+        s232_rates = s232_rates,
+        fentanyl_rates = fentanyl_rates
       )
-      delta_path <- file.path(output_dir, paste0('delta_', rev_id, '.rds'))
-      saveRDS(delta, delta_path)
 
-      message('  Delta: +', delta$ch99$n_added, ' ch99 entries, ',
-              '+', delta$products$n_added, ' products, ',
-              delta$ch99$n_rate_changes, ' rate changes')
-    }
+      # h. Save snapshot
+      snapshot_path <- file.path(output_dir, paste0('snapshot_', rev_id, '.rds'))
+      saveRDS(rates, snapshot_path)
+      snapshot_paths <- c(snapshot_paths, snapshot_path)
 
-    # g. Calculate rates for this revision
-    rates <- calculate_rates_for_revision(
-      products, ch99_data, ieepa_rates, usmca,
-      countries, rev_id, eff_date,
-      s232_rates = s232_rates,
-      fentanyl_rates = fentanyl_rates
-    )
+      # i. Cache parse results (for incremental)
+      saveRDS(ch99_data, file.path(output_dir, paste0('ch99_', rev_id, '.rds')))
+      saveRDS(products, file.path(output_dir, paste0('products_', rev_id, '.rds')))
 
-    # h. Save snapshot
-    snapshot_path <- file.path(output_dir, paste0('snapshot_', rev_id, '.rds'))
-    saveRDS(rates, snapshot_path)
-    snapshot_paths <- c(snapshot_paths, snapshot_path)
+      # j. TPC validation if this revision has a tpc_date
+      if (!is.na(tpc_date) && file.exists(tpc_path)) {
+        message('  Running TPC validation for date: ', tpc_date)
+        tryCatch({
+          validation <- validate_revision_against_tpc(
+            revision_rates = rates,
+            tpc_path = tpc_path,
+            tpc_date = tpc_date,
+            census_codes = census_codes
+          )
+          val_path <- file.path(output_dir, paste0('validation_', rev_id, '.rds'))
+          saveRDS(validation, val_path)
+          message('  TPC match rate: ', round(validation$match_rate * 100, 1), '%')
+        }, error = function(e) {
+          message('  TPC validation failed: ', conditionMessage(e))
+        })
+      }
 
-    # i. Cache parse results (for incremental)
-    saveRDS(ch99_data, file.path(output_dir, paste0('ch99_', rev_id, '.rds')))
-    saveRDS(products, file.path(output_dir, paste0('products_', rev_id, '.rds')))
+      # k. Log summary
+      if (nrow(rates) > 0) {
+        ieepa_summary <- rates %>%
+          filter(rate_ieepa_recip > 0) %>%
+          summarise(
+            n_countries = n_distinct(country),
+            mean_rate = mean(rate_ieepa_recip)
+          )
+        message('  IEEPA active in ', ieepa_summary$n_countries, ' countries, ',
+                'mean rate: ', round(ieepa_summary$mean_rate * 100, 1), '%')
+      }
 
-    # j. TPC validation if this revision has a tpc_date
-    if (!is.na(tpc_date) && file.exists(tpc_path)) {
-      message('  Running TPC validation for date: ', tpc_date)
-      tryCatch({
-        validation <- validate_revision_against_tpc(
-          revision_rates = rates,
-          tpc_path = tpc_path,
-          tpc_date = tpc_date,
-          census_codes = census_codes
-        )
-        val_path <- file.path(output_dir, paste0('validation_', rev_id, '.rds'))
-        saveRDS(validation, val_path)
-        message('  TPC match rate: ', round(validation$match_rate * 100, 1), '%')
-      }, error = function(e) {
-        message('  TPC validation failed: ', conditionMessage(e))
-      })
-    }
+      # l. Update previous state
+      prev_ch99 <- ch99_data
+      prev_products <- products
 
-    # k. Log summary
-    if (nrow(rates) > 0) {
-      ieepa_summary <- rates %>%
-        filter(rate_ieepa_recip > 0) %>%
-        summarise(
-          n_countries = n_distinct(country),
-          mean_rate = mean(rate_ieepa_recip)
-        )
-      message('  IEEPA active in ', ieepa_summary$n_countries, ' countries, ',
-              'mean rate: ', round(ieepa_summary$mean_rate * 100, 1), '%')
-    }
+      last_successful_rev <<- rev_id
+      log_info('  OK: ', nrow(rates), ' product-country rates')
 
-    # l. Update previous state
-    prev_ch99 <- ch99_data
-    prev_products <- products
+    }, error = function(e) {
+      log_error('FAILED: ', rev_id, ' — ', conditionMessage(e))
+      message('  ERROR: ', conditionMessage(e))
+      message('  Skipping ', rev_id, ' and continuing...')
+      failed_revisions <<- c(failed_revisions, rev_id)
+    })
+  }
+
+  # Report failures
+  if (length(failed_revisions) > 0) {
+    log_warn('Failed revisions (', length(failed_revisions), '): ',
+             paste(failed_revisions, collapse = ', '))
+    message('\nWARNING: ', length(failed_revisions), ' revision(s) failed: ',
+            paste(failed_revisions, collapse = ', '))
   }
 
   # ---- Bind all snapshots ----
@@ -262,7 +296,7 @@ build_full_timeseries <- function(
 
   # ---- Save metadata ----
   metadata <- list(
-    last_revision = rev_id,
+    last_revision = last_successful_rev,
     last_build_time = Sys.time(),
     n_revisions = n_distinct(timeseries$revision),
     n_rows = nrow(timeseries),
@@ -322,7 +356,7 @@ print_timeseries_summary <- function(timeseries_path = 'data/timeseries/rate_tim
 # =============================================================================
 
 if (sys.nframe() == 0) {
-  setwd('C:/Users/ji252/Documents/GitHub/tariff-rate-tracker')
+  library(here)
 
   # Parse command line arguments
   args <- commandArgs(trailingOnly = TRUE)

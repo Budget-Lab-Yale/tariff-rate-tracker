@@ -435,7 +435,8 @@ run_validation <- function(our_rates, tpc_path, census_codes, output_dir = 'outp
 # =============================================================================
 
 if (sys.nframe() == 0) {
-  setwd('C:/Users/ji252/Documents/GitHub/tariff-rate-tracker')
+  library(here)
+  source(here('src', 'helpers.R'))
 
   # Load our calculated rates
   rates <- readRDS('data/processed/rates_rev32.rds')

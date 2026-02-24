@@ -16,7 +16,8 @@
 #
 # =============================================================================
 
-source('src/helpers.R')
+library(here)
+source(here('src', 'helpers.R'))
 
 # =============================================================================
 # Authority Mapping Functions
@@ -152,10 +153,10 @@ get_unmapped_subheadings <- function(authority_data) {
 # =============================================================================
 
 if (sys.nframe() == 0) {
-  setwd('C:/Users/ji252/Documents/GitHub/tariff-rate-tracker')
+  library(here)
 
   # Load parsed HTS data
-  hts_data <- readRDS('data/processed/hts_parsed.rds')
+  hts_data <- readRDS(here('data', 'processed', 'hts_parsed.rds'))
 
   # Extract authorities
   authority_data <- extract_authorities(hts_data)
@@ -169,7 +170,7 @@ if (sys.nframe() == 0) {
   }
 
   # Save
-  ensure_dir('data/processed')
-  saveRDS(authority_data, 'data/processed/authority_data.rds')
+  ensure_dir(here('data', 'processed'))
+  saveRDS(authority_data, here('data', 'processed', 'authority_data.rds'))
   message('\nSaved authority data to data/processed/authority_data.rds')
 }

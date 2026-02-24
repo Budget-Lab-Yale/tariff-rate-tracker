@@ -24,7 +24,8 @@
 #
 # =============================================================================
 
-source('src/helpers.R')
+library(here)
+source(here('src', 'helpers.R'))
 
 # =============================================================================
 # Rate Aggregation Functions
@@ -259,11 +260,11 @@ create_full_rate_matrix <- function(hts_data, rate_data, countries = NULL) {
 # =============================================================================
 
 if (sys.nframe() == 0) {
-  setwd('C:/Users/ji252/Documents/GitHub/tariff-rate-tracker')
+  library(here)
 
   # Load data
-  hts_data <- readRDS('data/processed/hts_parsed.rds')
-  expanded_data <- readRDS('data/processed/expanded_data.rds')
+  hts_data <- readRDS(here('data', 'processed', 'hts_parsed.rds'))
+  expanded_data <- readRDS(here('data', 'processed', 'expanded_data.rds'))
 
   # Calculate rates
   rate_data <- calculate_effective_rates(hts_data, expanded_data)
@@ -278,7 +279,7 @@ if (sys.nframe() == 0) {
     print()
 
   # Save
-  ensure_dir('data/processed')
-  saveRDS(rate_data, 'data/processed/rate_data.rds')
+  ensure_dir(here('data', 'processed'))
+  saveRDS(rate_data, here('data', 'processed', 'rate_data.rds'))
   message('\nSaved rate data to data/processed/rate_data.rds')
 }

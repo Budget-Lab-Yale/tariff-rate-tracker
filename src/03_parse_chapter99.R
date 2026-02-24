@@ -21,68 +21,8 @@
 library(tidyverse)
 library(jsonlite)
 
-# =============================================================================
-# Rate Parsing Functions
-# =============================================================================
-
-#' Parse rate from Chapter 99 general field
-#'
-#' Extracts percentage from strings like:
-#'   "The duty provided in the applicable subheading + 25%"
-#'   "The duty provided in the applicable subheading plus 7.5%"
-#'   "25%"
-#'
-#' @param general_text Text from the general field
-#' @return Numeric rate (e.g., 0.25) or NA
-parse_ch99_rate <- function(general_text) {
-  if (is.null(general_text) || is.na(general_text) || general_text == '') {
-    return(NA_real_)
-  }
-
-  # Pattern: "+ X%" or "plus X%" or just "X%"
-  # Capture the percentage value
-  patterns <- c(
-    '\\+\\s*([0-9]+\\.?[0-9]*)%',      # + 25% or +25%
-    'plus\\s+([0-9]+\\.?[0-9]*)%',     # plus 25%
-    '^([0-9]+\\.?[0-9]*)%$'            # just "25%"
-  )
-
-  for (pattern in patterns) {
-    match <- str_match(general_text, regex(pattern, ignore_case = TRUE))
-    if (!is.na(match[1, 2])) {
-      return(as.numeric(match[1, 2]) / 100)
-    }
-  }
-
-  return(NA_real_)
-}
-
-
-#' Infer authority type from Chapter 99 subheading
-#'
-#' @param ch99_code Chapter 99 code (e.g., "9903.88.15")
-#' @return Authority string
-infer_authority <- function(ch99_code) {
-  # Extract the middle digits (e.g., "88" from "9903.88.15")
-  parts <- str_split(ch99_code, '\\.')[[1]]
-  if (length(parts) < 2) return('unknown')
-
-  middle <- as.integer(parts[2])
-
-  # Based on HTS Chapter 99 structure
-  case_when(
-    middle >= 80 && middle <= 82 ~ 'section_232',          # 9903.80-82: Steel 232
-    middle >= 83 && middle <= 84 ~ 'section_232_auto',     # 9903.83-84: Autos 232
-    middle == 85 ~ 'section_232_aluminum',                  # 9903.85: Aluminum 232
-    middle >= 86 && middle <= 89 ~ 'section_301',          # 9903.86-89: China 301 (US Note 20/21)
-    middle == 90 ~ 'ieepa',                                # 9903.90: IEEPA (China surcharges)
-    middle == 91 ~ 'section_301',                          # 9903.91: Biden 301 (US Note 31, China)
-    middle == 92 ~ 'section_301',                          # 9903.92: 301-related crane duties
-    middle == 94 ~ 'section_232_auto',                     # 9903.94: Auto tariffs (US Note 33)
-    middle >= 40 && middle <= 45 ~ 'section_201',          # 9903.40-45: Safeguards
-    TRUE ~ 'other'
-  )
-}
+# NOTE: parse_ch99_rate() and classify_authority() are defined in helpers.R
+# This file uses those shared versions.
 
 
 # =============================================================================
@@ -211,8 +151,8 @@ parse_chapter99 <- function(json_path) {
       rate <- parse_ch99_rate(other)
     }
 
-    # Infer authority
-    authority <- infer_authority(ch99_code)
+    # Classify authority
+    authority <- classify_authority(ch99_code)
 
     # Parse countries
     country_info <- parse_countries(description)
@@ -293,7 +233,8 @@ compare_chapter99 <- function(old_ch99, new_ch99) {
 # =============================================================================
 
 if (sys.nframe() == 0) {
-  setwd('C:/Users/ji252/Documents/GitHub/tariff-rate-tracker')
+  library(here)
+  source(here('src', 'helpers.R'))
 
   # Parse the most recent revision (has all entries)
   ch99_rev32 <- parse_chapter99('data/hts_archives/hts_2025_rev_32.json')

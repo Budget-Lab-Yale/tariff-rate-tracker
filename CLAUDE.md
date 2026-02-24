@@ -15,11 +15,20 @@ Rscript src/00_build_timeseries.R
 # Incremental: process only new revisions after rev_32
 Rscript src/00_build_timeseries.R --start-from rev_32
 
+# Automated incremental update (checks for new revisions)
+Rscript src/update_pipeline.R
+
 # Single-revision pipeline (quick check)
 Rscript src/run_pipeline.R
 
-# TPC validation across all 5 dates
+# TPC validation across all 5 dates (saves to output/validation/)
 Rscript test_tpc_comparison.R
+
+# Quality report (saves to output/quality/)
+Rscript src/quality_report.R
+
+# Diagnostics (saves to output/diagnostics/)
+Rscript src/09_diagnostics.R
 ```
 
 ## Architecture
@@ -31,9 +40,13 @@ All snapshots -> rate_timeseries.rds
 ```
 
 **Active Pipeline (v2 timeseries):**
-- `helpers.R`: Shared utilities (rate parsing, HTS codes, revision/archive helpers)
-- `00_build_timeseries.R`: Multi-revision orchestrator (iterates revisions)
+- `helpers.R`: Shared utilities (rate parsing, HTS codes, schema enforcement, stacking rules, policy params loader)
+- `logging.R`: Structured logging module (init_logging, log_info/warn/error/debug)
+- `00_build_timeseries.R`: Multi-revision orchestrator with error recovery
 - `run_pipeline.R`: Single-revision orchestrator
+- `update_pipeline.R`: Automated incremental update (detects new revisions)
+- `quality_report.R`: Schema checks, per-revision quality, anomaly detection
+
 1. `01_scrape_revision_dates.R`: Scrape USITC for revision effective dates
 2. `02_download_hts.R`: Download missing HTS JSON archives from USITC
 3. `03_parse_chapter99.R`: Extract Ch99 entries (rates, authority, countries)
@@ -46,8 +59,16 @@ All snapshots -> rate_timeseries.rds
 10. `10_weighted_etr.R`: Import-weighted effective tariff rates
 
 **Key Configuration:**
+- `config/policy_params.yaml`: All policy constants (country codes, authority ranges, 232 chapters, floor rates, 301 rates, etc.)
 - `config/revision_dates.csv`: revision -> effective_date -> tpc_date mapping
 - `config/scenarios.yaml`: Counterfactual scenario definitions
+
+**Shared Infrastructure:**
+- `RATE_SCHEMA` in helpers.R: Canonical column order for rate output
+- `enforce_rate_schema()`: Ensures all rate dataframes have consistent columns
+- `apply_stacking_rules()`: Single vectorized implementation of tariff stacking
+- `classify_authority()`: Unified Ch99 authority classifier
+- `load_policy_params()`: Reads config/policy_params.yaml, unpacks convenience fields
 
 **Legacy (v1, config-driven):**
 - `v1_run_daily.R`, `v1_ingest_hts.R` through `v1_write_outputs.R`

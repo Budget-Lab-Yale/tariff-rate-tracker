@@ -12,6 +12,9 @@
 # =============================================================================
 
 library(tidyverse)
+library(here)
+
+source(here('src', 'helpers.R'))
 
 # =============================================================================
 # Configuration
@@ -47,9 +50,10 @@ TPC_DATE_CONFIG <- list(
 )
 
 # Census country codes
-CTY_CHINA <- '5700'
-CTY_CANADA <- '1220'
-CTY_MEXICO <- '2010'
+.pp_v1 <- tryCatch(load_policy_params(), error = function(e) NULL)
+CTY_CHINA  <- if (!is.null(.pp_v1)) .pp_v1$CTY_CHINA  else '5700'
+CTY_CANADA <- if (!is.null(.pp_v1)) .pp_v1$CTY_CANADA else '1220'
+CTY_MEXICO <- if (!is.null(.pp_v1)) .pp_v1$CTY_MEXICO else '2010'
 
 # Country name to Census code mapping
 COUNTRY_NAME_TO_CODE <- c(
@@ -310,11 +314,11 @@ calculate_and_compare <- function(tpc_path) {
 # =============================================================================
 
 if (sys.nframe() == 0) {
-  setwd('C:/Users/ji252/Documents/GitHub/tariff-rate-tracker')
+  library(here)
 
-  comparison <- calculate_and_compare('data/tpc/tariff_by_flow_day.csv')
+  comparison <- calculate_and_compare(here('data', 'tpc', 'tariff_by_flow_day.csv'))
 
-  write_csv(comparison, 'output/tpc_comparison_timeseries.csv')
+  write_csv(comparison, here('output', 'tpc_comparison_timeseries.csv'))
   message('\nSaved comparison to output/tpc_comparison_timeseries.csv')
 
   # Detailed analysis

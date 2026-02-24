@@ -1,27 +1,27 @@
 ## TPC Validation: Full comparison across all 5 TPC dates
-setwd('C:/Users/ji252/Documents/GitHub/tariff_rate_tracker')
 library(tidyverse)
 library(jsonlite)
+library(here)
 
-source('src/00_build_timeseries.R')
+source(here('src', '00_build_timeseries.R'))
 
 # ---- Config ----
 tpc_revisions <- c('rev_6', 'rev_10', 'rev_17', 'rev_18', 'rev_32')
 
 # Load revision dates to get TPC date mapping
-rev_dates <- load_revision_dates('config/revision_dates.csv')
+rev_dates <- load_revision_dates(here('config', 'revision_dates.csv'))
 tpc_map <- rev_dates %>% filter(!is.na(tpc_date)) %>% select(revision, effective_date, tpc_date)
 cat('TPC validation dates:\n')
 print(tpc_map)
 
 # Load shared resources
-census_codes <- read_csv('resources/census_codes.csv', col_types = cols(.default = col_character()))
+census_codes <- read_csv(here('resources', 'census_codes.csv'), col_types = cols(.default = col_character()))
 countries <- census_codes$Code
-country_lookup <- build_country_lookup('resources/census_codes.csv')
+country_lookup <- build_country_lookup(here('resources', 'census_codes.csv'))
 name_to_code <- create_country_name_map(census_codes)
 
 # Load TPC data once
-tpc_data <- load_tpc_data('data/tpc/tariff_by_flow_day.csv', name_to_code)
+tpc_data <- load_tpc_data(here('data', 'tpc', 'tariff_by_flow_day.csv'), name_to_code)
 tpc_dates <- unique(tpc_data$date)
 cat('\nTPC dates available:', paste(tpc_dates, collapse = ', '), '\n')
 
@@ -39,7 +39,7 @@ for (i in seq_len(nrow(tpc_map))) {
   cat(strrep('=', 70), '\n')
 
   # Parse and calculate
-  json_path <- resolve_json_path(rev_id, 'data/hts_archives')
+  json_path <- resolve_json_path(rev_id, here('data', 'hts_archives'))
   hts_raw <- fromJSON(json_path, simplifyDataFrame = FALSE)
   ch99_data <- parse_chapter99(json_path)
   products <- parse_products(json_path)
@@ -91,6 +91,13 @@ for (i in seq_len(nrow(tpc_map))) {
 # ---- Combined analysis ----
 combined <- bind_rows(all_comparisons)
 
+# Setup output directory
+val_dir <- here('output', 'validation')
+if (!dir.exists(val_dir)) dir.create(val_dir, recursive = TRUE)
+
+# Save full comparison data
+write_csv(combined, file.path(val_dir, 'tpc_comparison_all.csv'))
+
 cat('\n\n', strrep('=', 70), '\n')
 cat('OVERALL TPC COMPARISON SUMMARY\n')
 cat(strrep('=', 70), '\n\n')
@@ -110,6 +117,7 @@ rev_summary <- combined %>%
     .groups = 'drop'
   )
 print(rev_summary)
+write_csv(rev_summary, file.path(val_dir, 'tpc_summary_by_revision.csv'))
 
 # ---- By country (top 20 countries by product count) ----
 cat('\n--- By Country (top 20, latest revision) ---\n\n')
@@ -137,6 +145,7 @@ country_summary <- latest %>%
   select(country, name, n, mean_our, mean_tpc, mean_diff, pct_exact, pct_2pp)
 
 print(country_summary, n = 20)
+write_csv(country_summary, file.path(val_dir, 'tpc_summary_by_country.csv'))
 
 # ---- Best matching countries ----
 cat('\n--- Best Matching Countries (latest revision) ---\n\n')
@@ -156,6 +165,7 @@ best_countries <- latest %>%
   select(country, name, n, pct_exact, pct_2pp, mean_abs_diff)
 
 print(best_countries, n = 20)
+write_csv(best_countries, file.path(val_dir, 'tpc_best_countries.csv'))
 
 # ---- Discrepancy patterns ----
 cat('\n--- Discrepancy Patterns (latest revision) ---\n\n')
@@ -247,6 +257,21 @@ for (j in seq_along(floor_countries)) {
   }
 }
 
+# ---- Save validation metadata ----
+validation_metadata <- list(
+  run_time = Sys.time(),
+  n_revisions = length(tpc_revisions),
+  revisions = tpc_revisions,
+  total_comparisons = nrow(combined),
+  overall_exact_match = mean(combined$match_exact),
+  overall_2pp_match = mean(combined$match_2pp),
+  overall_5pp_match = mean(combined$match_5pp),
+  mean_abs_diff = mean(combined$abs_diff),
+  by_revision = rev_summary
+)
+saveRDS(validation_metadata, file.path(val_dir, 'tpc_validation_metadata.rds'))
+
+cat('\nValidation outputs saved to: ', val_dir, '\n')
 cat('\n', strrep('=', 70), '\n')
 cat('TPC COMPARISON COMPLETE\n')
 cat(strrep('=', 70), '\n')

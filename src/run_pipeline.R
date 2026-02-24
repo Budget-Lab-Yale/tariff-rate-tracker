@@ -22,16 +22,17 @@
 
 library(tidyverse)
 library(jsonlite)
+library(here)
 
 # Source pipeline components
-source('src/helpers.R')
-source('src/01_scrape_revision_dates.R')
-source('src/02_download_hts.R')
-source('src/03_parse_chapter99.R')
-source('src/04_parse_products.R')
-source('src/05_parse_policy_params.R')
-source('src/06_calculate_rates.R')
-source('src/07_validate_tpc.R')
+source(here('src', 'helpers.R'))
+source(here('src', '01_scrape_revision_dates.R'))
+source(here('src', '02_download_hts.R'))
+source(here('src', '03_parse_chapter99.R'))
+source(here('src', '04_parse_products.R'))
+source(here('src', '05_parse_policy_params.R'))
+source(here('src', '06_calculate_rates.R'))
+source(here('src', '07_validate_tpc.R'))
 
 # =============================================================================
 # Pipeline Configuration
@@ -229,7 +230,7 @@ run_full_pipeline <- function(revision = NULL, skip_parse = FALSE, skip_validate
 # =============================================================================
 
 if (sys.nframe() == 0) {
-  setwd('C:/Users/ji252/Documents/GitHub/tariff-rate-tracker')
+  library(here)
 
   # Parse command line arguments
   args <- commandArgs(trailingOnly = TRUE)

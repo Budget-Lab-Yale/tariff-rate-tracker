@@ -3,14 +3,18 @@
 # =============================================================================
 
 library(tidyverse)
+library(here)
+
+source(here('src', 'helpers.R'))
 
 # =============================================================================
 # Configuration
 # =============================================================================
 
-CTY_CHINA <- '5700'
-CTY_CANADA <- '1220'
-CTY_MEXICO <- '2010'
+.pp_v1 <- tryCatch(load_policy_params(), error = function(e) NULL)
+CTY_CHINA  <- if (!is.null(.pp_v1)) .pp_v1$CTY_CHINA  else '5700'
+CTY_CANADA <- if (!is.null(.pp_v1)) .pp_v1$CTY_CANADA else '1220'
+CTY_MEXICO <- if (!is.null(.pp_v1)) .pp_v1$CTY_MEXICO else '2010'
 
 COUNTRY_NAME_TO_CODE <- c(
   'Afghanistan' = '5310', 'Argentina' = '3570', 'Australia' = '6021',
@@ -286,22 +290,22 @@ calculate_rates_v3 <- function(products, tpc_path, ieepa_path, usmca_path) {
 # =============================================================================
 
 if (sys.nframe() == 0) {
-  setwd('C:/Users/ji252/Documents/GitHub/tariff-rate-tracker')
+  library(here)
 
-  products <- read_csv('data/processed/products_raw.csv',
+  products <- read_csv(here('data', 'processed', 'products_raw.csv'),
                        col_types = cols(.default = col_character()))
 
   message('Loaded ', nrow(products), ' products')
 
   results <- calculate_rates_v3(
     products,
-    tpc_path = 'data/tpc/tariff_by_flow_day.csv',
-    ieepa_path = 'data/processed/ieepa_country_rates.csv',
-    usmca_path = 'data/processed/usmca_products.csv'
+    tpc_path = here('data', 'tpc', 'tariff_by_flow_day.csv'),
+    ieepa_path = here('data', 'processed', 'ieepa_country_rates.csv'),
+    usmca_path = here('data', 'processed', 'usmca_products.csv')
   )
 
   write_csv(results %>% select(country, hts10, date, tpc_rate, our_rate, diff, match_2pp),
-            'output/tpc_comparison_v3.csv')
+            here('output', 'tpc_comparison_v3.csv'))
   message('\nSaved to output/tpc_comparison_v3.csv')
 
   # China breakdown

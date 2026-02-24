@@ -16,7 +16,8 @@
 #
 # =============================================================================
 
-source('src/helpers.R')
+library(here)
+source(here('src', 'helpers.R'))
 
 # =============================================================================
 # Main Ingestion Function
@@ -132,8 +133,7 @@ list_chapter99_refs <- function(hts_data) {
 # =============================================================================
 
 if (sys.nframe() == 0) {
-  # Set working directory to project root
-  setwd('C:/Users/ji252/Documents/GitHub/tariff-rate-tracker')
+  library(here)
 
   # Get latest HTS archive
   hts_file <- get_latest_hts_archive('2026')  # Use 2026 since we have that
@@ -150,7 +150,7 @@ if (sys.nframe() == 0) {
   print(head(ch99_summary, 20))
 
   # Save processed data
-  ensure_dir('data/processed')
-  saveRDS(hts_data, 'data/processed/hts_parsed.rds')
+  ensure_dir(here('data', 'processed'))
+  saveRDS(hts_data, here('data', 'processed', 'hts_parsed.rds'))
   message('\nSaved parsed HTS data to data/processed/hts_parsed.rds')
 }

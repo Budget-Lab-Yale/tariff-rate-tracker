@@ -14,7 +14,8 @@
 #
 # =============================================================================
 
-source('src/helpers.R')
+library(here)
+source(here('src', 'helpers.R'))
 
 # =============================================================================
 # Country Expansion Functions
@@ -189,10 +190,10 @@ aggregate_by_product_country <- function(expanded_data) {
 # =============================================================================
 
 if (sys.nframe() == 0) {
-  setwd('C:/Users/ji252/Documents/GitHub/tariff-rate-tracker')
+  library(here)
 
   # Load authority data
-  authority_data <- readRDS('data/processed/authority_data.rds')
+  authority_data <- readRDS(here('data', 'processed', 'authority_data.rds'))
 
   # Expand to countries
   expanded_data <- expand_to_countries(authority_data)
@@ -205,12 +206,12 @@ if (sys.nframe() == 0) {
     print()
 
   # Save
-  ensure_dir('data/processed')
-  saveRDS(expanded_data, 'data/processed/expanded_data.rds')
+  ensure_dir(here('data', 'processed'))
+  saveRDS(expanded_data, here('data', 'processed', 'expanded_data.rds'))
   message('\nSaved expanded data to data/processed/expanded_data.rds')
 
   # Also save aggregated version
   aggregated <- aggregate_by_product_country(expanded_data)
-  saveRDS(aggregated, 'data/processed/aggregated_data.rds')
+  saveRDS(aggregated, here('data', 'processed', 'aggregated_data.rds'))
   message('Saved aggregated data to data/processed/aggregated_data.rds')
 }

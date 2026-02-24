@@ -17,14 +17,18 @@
 # =============================================================================
 
 library(tidyverse)
+library(here)
+
+source(here('src', 'helpers.R'))
 
 # =============================================================================
 # Constants
 # =============================================================================
 
-CTY_CHINA <- '5700'
-CTY_CANADA <- '1220'
-CTY_MEXICO <- '2010'
+.pp_v1 <- tryCatch(load_policy_params(), error = function(e) NULL)
+CTY_CHINA  <- if (!is.null(.pp_v1)) .pp_v1$CTY_CHINA  else '5700'
+CTY_CANADA <- if (!is.null(.pp_v1)) .pp_v1$CTY_CANADA else '1220'
+CTY_MEXICO <- if (!is.null(.pp_v1)) .pp_v1$CTY_MEXICO else '2010'
 CTY_RUSSIA <- '4621'
 
 # Country name to Census code mapping
@@ -326,21 +330,21 @@ compare_to_tpc <- function(rates, tpc_path) {
 # =============================================================================
 
 if (sys.nframe() == 0) {
-  setwd('C:/Users/ji252/Documents/GitHub/tariff-rate-tracker')
+  library(here)
 
   # Load data
-  ch99 <- read_csv('data/processed/chapter99_raw.csv',
+  ch99 <- read_csv(here('data', 'processed', 'chapter99_raw.csv'),
                    col_types = cols(.default = col_character())) %>%
     mutate(rate = as.numeric(rate))
 
-  products <- read_csv('data/processed/products_raw.csv',
+  products <- read_csv(here('data', 'processed', 'products_raw.csv'),
                        col_types = cols(.default = col_character())) %>%
     mutate(
       base_rate = as.numeric(base_rate),
       n_ch99_refs = as.integer(n_ch99_refs)
     )
 
-  census <- read_csv('resources/census_codes.csv',
+  census <- read_csv(here('resources', 'census_codes.csv'),
                      col_types = cols(.default = col_character()))
   countries <- census$Code
 
@@ -350,7 +354,7 @@ if (sys.nframe() == 0) {
   rates <- calculate_rates_v2(products, ch99, countries, apply_universal = TRUE)
 
   # Save
-  write_csv(rates, 'data/processed/rates_v2.csv')
+  write_csv(rates, here('data', 'processed', 'rates_v2.csv'))
 
   # Summary
   cat('\n=== Rate Summary ===\n')
@@ -369,6 +373,6 @@ if (sys.nframe() == 0) {
     print()
 
   # Compare to TPC
-  comparison <- compare_to_tpc(rates, 'data/tpc/tariff_by_flow_day.csv')
-  write_csv(comparison, 'output/tpc_comparison_v2.csv')
+  comparison <- compare_to_tpc(rates, here('data', 'tpc', 'tariff_by_flow_day.csv'))
+  write_csv(comparison, here('output', 'tpc_comparison_v2.csv'))
 }
