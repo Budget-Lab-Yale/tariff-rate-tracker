@@ -145,6 +145,14 @@ section_301_rates:
   - ch99_pattern: '9903.91.11'
     s301_rate: 0.25
 
+# --- Section 301 product lists (blanket coverage) ---
+# Products covered by 301 are defined by US Note 20/21/31 product lists,
+# NOT by individual product footnotes. Sourced from USITC "China Tariffs"
+# reference document (hts.usitc.gov). China only (Census code 5700).
+section_301_products:
+  resource_file: 'resources/s301_product_lists.csv'
+  country: '5700'
+
 # --- Validation thresholds ---
 validation_thresholds:
   exact: 0.005

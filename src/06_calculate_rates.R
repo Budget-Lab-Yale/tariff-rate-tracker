@@ -588,6 +588,107 @@ calculate_rates_for_revision <- function(
     }
   }
 
+  # 3b. Apply Section 301 as blanket tariff for China
+  #     301 products are defined by US Note 20/21/31 product lists (Federal Register).
+  #     Like 232, these are NOT referenced via product footnotes for most products.
+  #     Source: USITC "China Tariffs" reference document (hts.usitc.gov).
+  #
+  #     Known limitation: Some products on Lists 1-4A were later excluded via
+  #     9903.89.xx entries referencing US Note exclusion lists. Those exclusions
+  #     are not captured here — excluded products will incorrectly receive the
+  #     base 301 rate. The impact is minor relative to the ~5,000 product gap
+  #     this step closes.
+  s301_products_path <- here('resources', 's301_product_lists.csv')
+  if (file.exists(s301_products_path)) {
+    s301_products <- read_csv(s301_products_path, col_types = cols(
+      hts8 = col_character(), list = col_character(), ch99_code = col_character()
+    ))
+
+    # Get active 301 ch99 codes from this revision's Ch99 data
+    # Use SECTION_301_RATES config for reliable rate values
+    s301_rate_lookup <- if (!is.null(.pp)) {
+      .pp$SECTION_301_RATES
+    } else {
+      tibble(ch99_pattern = character(), s301_rate = numeric())
+    }
+
+    active_301_codes <- ch99_data %>%
+      filter(ch99_code %in% s301_rate_lookup$ch99_pattern) %>%
+      pull(ch99_code) %>%
+      unique()
+
+    if (length(active_301_codes) > 0) {
+      # Build HTS8 -> max 301 rate lookup (products may appear on multiple lists)
+      s301_lookup <- s301_products %>%
+        filter(ch99_code %in% active_301_codes) %>%
+        inner_join(
+          s301_rate_lookup,
+          by = c('ch99_code' = 'ch99_pattern')
+        ) %>%
+        group_by(hts8) %>%
+        summarise(blanket_301 = max(s301_rate), .groups = 'drop')
+
+      if (nrow(s301_lookup) > 0) {
+        # Update rate_301 for existing China product-country pairs
+        rates <- rates %>%
+          mutate(hts8 = substr(hts10, 1, 8)) %>%
+          left_join(s301_lookup, by = 'hts8') %>%
+          mutate(
+            blanket_301 = coalesce(blanket_301, 0),
+            rate_301 = if_else(
+              country == CTY_CHINA,
+              pmax(rate_301, blanket_301),
+              rate_301
+            )
+          ) %>%
+          select(-hts8, -blanket_301)
+
+        # Add 301-only rows for China products NOT yet in rates
+        # (products with no other Ch99 duties but subject to 301)
+        s301_hts8_codes <- s301_lookup$hts8
+        s301_hts10 <- products %>%
+          mutate(hts8 = substr(hts10, 1, 8)) %>%
+          filter(hts8 %in% s301_hts8_codes) %>%
+          pull(hts10)
+
+        existing_china <- rates %>%
+          filter(country == CTY_CHINA) %>%
+          pull(hts10)
+
+        new_301_products <- setdiff(s301_hts10, existing_china)
+
+        if (length(new_301_products) > 0) {
+          new_301_pairs <- products %>%
+            filter(hts10 %in% new_301_products) %>%
+            select(hts10, base_rate) %>%
+            mutate(
+              base_rate = coalesce(base_rate, 0),
+              hts8 = substr(hts10, 1, 8),
+              country = CTY_CHINA
+            ) %>%
+            left_join(s301_lookup, by = 'hts8') %>%
+            mutate(
+              rate_232 = 0, rate_ieepa_recip = 0,
+              rate_ieepa_fent = 0, rate_other = 0,
+              rate_301 = coalesce(blanket_301, 0)
+            ) %>%
+            filter(rate_301 > 0) %>%
+            select(-hts8, -blanket_301)
+
+          if (nrow(new_301_pairs) > 0) {
+            message('  Adding ', nrow(new_301_pairs),
+                    ' product-country pairs for 301-only duties')
+            rates <- bind_rows(rates, new_301_pairs)
+          }
+        }
+
+        n_301_total <- sum(rates$country == CTY_CHINA & rates$rate_301 > 0)
+        message('  Section 301 blanket: ', nrow(s301_lookup), ' HTS8 codes, ',
+                n_301_total, ' China product-country pairs with 301 rate')
+      }
+    }
+  }
+
   # 4. Apply USMCA exemptions
   if (!is.null(usmca) && nrow(usmca) > 0) {
     rates <- rates %>%
@@ -627,10 +728,12 @@ calculate_rates_for_revision <- function(
   # Summary
   n_with_ieepa <- sum(rates$rate_ieepa_recip > 0)
   n_with_232 <- sum(rates$rate_232 > 0)
+  n_with_301 <- sum(rates$rate_301 > 0)
   n_usmca <- sum(rates$usmca_eligible)
   message('  Products-countries: ', nrow(rates))
   message('  With IEEPA reciprocal: ', n_with_ieepa)
   message('  With Section 232: ', n_with_232)
+  message('  With Section 301: ', n_with_301)
   message('  USMCA eligible: ', n_usmca)
 
   return(rates)

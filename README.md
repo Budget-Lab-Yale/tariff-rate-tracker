@@ -322,22 +322,22 @@ Comparison of timeseries pipeline output against TPC benchmark, matched by revis
 
 | Revision | TPC Date | N Comparisons | Exact (<0.5pp) | Within 2pp | Mean Abs Diff | Mean Diff |
 |----------|----------|---------------|----------------|------------|---------------|-----------|
-| rev_6 | 2025-03-17 | 43,739 | 53.5% | 55.0% | 9.5 pp | +0.6 pp |
-| rev_10 | 2025-04-17 | 213,103 | 76.4% | 76.7% | 5.1 pp | +0.4 pp |
-| rev_17 | 2025-07-17 | 212,625 | 66.8% | 67.1% | 5.4 pp | -1.0 pp |
-| rev_18 | 2025-10-17 | 241,883 | 49.7% | 50.6% | 8.4 pp | -1.7 pp |
-| rev_32 | 2025-11-17 | 241,883 | 45.5% | 46.8% | 9.4 pp | +0.0 pp |
+| rev_6 | 2025-03-17 | 45,756 | 54.5% | 55.9% | 9.4 pp | +1.1 pp |
+| rev_10 | 2025-04-17 | 240,469 | 80.1% | 80.4% | 4.2 pp | -0.6 pp |
+| rev_17 | 2025-07-17 | 239,928 | 70.2% | 70.5% | 5.1 pp | -1.3 pp |
+| rev_18 | 2025-10-17 | 267,603 | 49.2% | 50.2% | 8.2 pp | -1.6 pp |
+| rev_32 | 2025-11-17 | 267,603 | 45.8% | 47.2% | 9.0 pp | -0.2 pp |
 
 Regenerate with: `Rscript test_tpc_comparison.R`
 
-**Best-matching countries** (rev_32): Bangladesh 92%, Madagascar 91%, Tunisia 90%, Pakistan 87%, Cambodia 83%, Indonesia 81%, Vietnam 78%, Turkey 78%.
+**Best-matching countries** (rev_32): Madagascar 94%, Bangladesh 94%, Tunisia 90%, Pakistan 88%, Mauritius 88%, Sri Lanka 86%, Cambodia 83%, Indonesia 82%, Vietnam 79%, Turkey 79%.
 
-**Worst-matching countries** (rev_32): Several EU members at 0% (Belgium, Finland, Slovakia, etc.), Switzerland 0%, Dominican Republic 0%, India 2.8%, Brazil 7%.
+**Worst-matching countries** (rev_32): Switzerland 0.1%, Hong Kong 3.3%, India 2.9%, Singapore 1.9%, Brazil 7.5%.
 
 **Discrepancy patterns** (rev_32):
-- **We are higher than TPC** (32.2% of products, mean +14.5pp): Mostly IEEPA reciprocal for countries where our rate exceeds TPC's. Includes 69K products with IEEPA recip > 0.
-- **TPC is higher than us** (20.9% of products, mean -22.3pp): ~22K products with shortfall near 25pp -- consistent with missing Section 301 coverage. ~4,900 China products where TPC > us have our rate_301 = 0.
-- **China match**: At rev_32, our mean rate (41.9%) is within 0.2pp of TPC (41.7%). Exact match is 0% because the +9pp China IEEPA reciprocal discrepancy (34% statutory vs 25% TPC) offsets the missing 301 coverage, producing individual product-level mismatches even though the mean is close.
+- **We are higher than TPC** (32.3% of products, mean +13.6pp): Mostly IEEPA reciprocal for countries where our rate exceeds TPC's. Includes 79K products with IEEPA recip > 0.
+- **TPC is higher than us** (20.6% of products, mean -22.1pp): ~26K products with shortfall near 25pp -- consistent with missing Section 301 coverage. ~5,800 China products where TPC > us, of which ~4,900 have our rate_301 = 0.
+- **China match**: At rev_32, our mean rate (40.4%) vs TPC (42.2%), diff -1.8pp. Exact match is 0% due to China IEEPA reciprocal discrepancy (34% statutory vs 25% TPC) offsetting missing 301 coverage at the product level.
 
 The largest gap source is **missing Section 301 coverage**: ~22K product-country pairs (most from ~5,000 China products) where TPC shows +25% that we don't capture. These products are defined by US Note 20/21/31 product lists, referenced by description text rather than individual product footnotes.
 

@@ -107,6 +107,16 @@ Key: 232 takes precedence over IEEPA reciprocal. Fentanyl only stacks on 232 for
 - Copper: headings 7406-7419 (config prefixes)
 - Derivatives: captured via product footnote mechanism (not blanket)
 
+## Section 301 Product Coverage
+
+~10,400 HTS8 product codes covered by Section 301 tariffs on China (Lists 1-4A + Biden modifications).
+List in `resources/s301_product_lists.csv`. Sourced from USITC "China Tariffs" reference document
+(hts.usitc.gov, last updated January 1, 2026). Applied as blanket tariff for China (country 5700) in
+`06_calculate_rates.R` step 3b, mirroring the Section 232 blanket pattern.
+
+Known limitation: Some 9903.89.xx exclusions reference US Note product lists (not footnotes) and are
+not captured — excluded products may incorrectly receive the base 301 rate.
+
 ## IEEPA Product Exemptions
 
 ~1,087 products exempt from IEEPA reciprocal (Annex A / US Note 2 subdivision (v)(iii)).
