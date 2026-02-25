@@ -1,6 +1,16 @@
 # Next Steps for Improving Tariff Rate Accuracy
 
-*Generated 2026-02-24 from TPC validation analysis of rev_32*
+*Updated 2026-02-24 from TPC validation analysis of rev_32*
+
+## Current Validation Status (rev_32 → TPC 2025-11-17)
+
+| Metric | Value |
+|--------|-------|
+| Total comparisons | 268,742 |
+| Exact match (<0.5pp) | 52.0% |
+| Within 2pp | 53.3% |
+| Within 5pp | 58.6% |
+| Mean abs diff | 8.1 pp |
 
 ## Tier 1: High Impact (affects 10,000+ product-country pairs)
 
@@ -9,16 +19,17 @@
 - **Pattern**: Our rate 59%, TPC rate 45%; Our rate 42%, TPC 28%; Our rate 34%, TPC 20%
 - **Root cause**: We use the statutory 34% from 9903.01.63, TPC uses ~20%. This likely reflects the Geneva trade deal (May 2025) reducing China's IEEPA rate, which may not be fully captured in HTS revision text.
 - **Fix**: Investigate whether rev_32's ch99 data reflects the Geneva reduction. If not, this may need a temporal override -- the 34% entry was never formally "terminated" in the HTS JSON, but the effective rate changed via executive action.
+- **Note**: At rev_32, China exact match is 79.7% — the 301 product list gap has been largely closed by the blanket approach. The remaining China gap is dominated by this rate discrepancy.
 
 ### 2. Phantom IEEPA Countries (5+ countries, ~95K excess pairs)
 - **Gap**: We assign 15-25% IEEPA rates to countries TPC shows at 0%
-- **Countries**: DR Congo (7660), Laos (5530), Brunei (5020), Belarus (4641), Thailand (3720) -- 18,944 products each
+- **Countries**: DR Congo (7660), Laos (5530), Brunei (5020), Belarus (4641), Thailand (3720) -- 18,945 products each
 - **Root cause**: Our country extraction from ch99 descriptions is over-inclusive, or these countries are classified as "passthrough" (rate = 0) in TPC but we still apply a rate
 - **Fix**: Audit the 110 "passthrough" countries from Phase 2 extraction. Cross-reference with TPC's country list. Passthrough countries should get rate 0, not the universal 10% baseline.
 
 ### 3. India Rate Discrepancy (9,595 products, -25pp)
 - **Gap**: TPC shows 50%, we show 25%
-- **Root cause**: India's reciprocal rate may have been raised from 26% to 50% in a later executive action or Phase 2 update, and our extraction isn't capturing the update. Alternatively, TPC may stack multiple authorities for India.
+- **Root cause**: India's reciprocal rate may have been raised from 26% to 50% in a later executive action or Phase 2 update, and our extraction isn't capturing the update.
 - **Fix**: Check India's Phase 2 rate in the ch99 description text. May also need to verify Phase 1 vs Phase 2 rate precedence logic for India specifically.
 
 ### 4. Brazil Specific Tariff (4,300 products, -40pp)
@@ -37,39 +48,40 @@
 
 ### 6. Singapore & Small Trading Partners (~2,000 products, -20pp+)
 - **Gap**: Singapore TPC=10-30%, ours=0%; similar for Dominican Republic, UAE, Colombia, Australia
-- **Root cause**: These countries may have IEEPA Phase 2 rates that our extraction classifies as "passthrough" (no rate applied). CBO model shows Singapore at 10% default reciprocal.
-- **Fix**: Review Phase 2 extraction for these countries. The "passthrough" classification may be too aggressive -- some passthrough countries may still have effective rates.
+- **Root cause**: These countries may have IEEPA Phase 2 rates that our extraction classifies as "passthrough" (no rate applied).
+- **Fix**: Review Phase 2 extraction for these countries. The "passthrough" classification may be too aggressive.
 
 ### 7. Switzerland IEEPA Over-Application (5,543 products, +24pp)
 - **Gap**: Our rate 39%, TPC 13.6%
-- **Root cause**: We appear to apply a ~31% IEEPA surcharge to Switzerland. TPC shows much lower. Switzerland is EFTA, not EU -- the floor rate logic may be incorrectly including Switzerland, or its Phase 2 rate is wrong.
-- **Fix**: Check Switzerland (4419) in IEEPA extraction. Verify it's correctly handled as a separate entity from EU27.
+- **Root cause**: We apply a +39% IEEPA surcharge (9903.02.58). TPC shows much lower. Switzerland is EFTA, not EU -- not a floor/surcharge selection issue (Switzerland has only surcharge entries). May reflect a rate reduction not yet in our revision data.
+- **Fix**: Check Switzerland (4419) in IEEPA extraction. Verify its Phase 2 rate against executive order text.
 
 ## Tier 3: Refinement (product-level accuracy)
 
 ### 8. China 301 Biden + 232 Stacking (~550 products, -43pp)
 - **Gap**: TPC=93%, ours=50%
-- **Root cause**: Products subject to both Biden 301 (50%) and 232 (25%) where stacking should produce ~93%. Our stacking rules for China may not correctly combine 301 Biden with 232.
-- **Fix**: Check `apply_stacking_rules()` for China products that have both rate_301 > 0 and rate_232 > 0. The formula for China with 232 is `232 + fentanyl + 301`, so 25% + 0% + 50% = 75%, not 93%. The remaining 18pp gap needs investigation -- possibly base rate + additional components.
+- **Root cause**: Products subject to both Biden 301 (50%) and 232 (25%) where stacking should produce ~93%. Our stacking rules may not correctly combine all components for these products.
+- **Fix**: Check `apply_stacking_rules()` for China products with both rate_301 > 0 and rate_232 > 0.
 
 ### 9. Section 301 Exclusions (9903.89.xx) -- 61 remaining products
 - **Gap**: 61 China products where TPC > us and our rate_301 = 0
 - **Root cause**: Products excluded from 301 via 9903.89.xx US Note lists but still in our blanket list, OR products at 10-digit specificity not captured by our 8-digit matching
-- **Fix**: Lower priority since only 61 products. Could source 9903.89.xx exclusion lists from the same USITC reference document.
+- **Fix**: Lower priority since only 61 products.
 
-### 10. Floor Rate Calibration for EU (~4pp systematic, ~35-40% exact match)
-- **Gap**: EU countries average 35-40% exact match with ~4pp mean excess
-- **Root cause**: Our 15% floor applies uniformly to all products. In practice, floor rates only apply when they exceed the base rate, and the base rate distribution affects how many products hit the floor vs. remain at base.
-- **Fix**: Verify the floor rate formula: `max(0, floor_rate - base_rate)`. If already correct, the gap may be from TPC using slightly different floor mechanics.
+### 10. EU Floor Rate Residual (~4pp systematic, ~35-42% exact match)
+- **Gap**: EU countries average 35-42% exact match with ~4pp mean excess
+- **Root cause**: Floor formula `max(0, floor_rate - base_rate)` is correct. Residual gap may be from TPC using slightly different floor mechanics or base rate parsing differences.
+- **Note**: Japan/S. Korea floor selection bug has been **fixed** (was picking surcharge instead of floor when both existed). Japan now at 42.1%, S. Korea at 40.1% exact match, in line with EU countries.
 
 ## Tier 4: Structural / Data Quality
 
 ### 11. TPC Country Coverage Alignment
-- We generate rates for 240 countries; TPC covers ~209. Products for the ~31 countries TPC doesn't cover contribute to the "extra in ours" count (1.8M pairs) but don't affect match rates.
-- **Fix**: Low priority -- our broader coverage is correct by design. Could add a flag to validation to exclude countries TPC doesn't model.
+- We generate rates for 240 countries; TPC covers ~209. Products for the ~31 countries TPC doesn't cover contribute to the "extra in ours" count but don't affect match rates.
+- **Fix**: Low priority -- our broader coverage is correct by design.
 
-### 12. Full Pipeline Rebuild + README Update
-- After implementing Tier 1-2 fixes, run `00_build_timeseries.R` for a full rebuild across all 34 revisions and update README validation table.
+### 12. 2026 HTS Revision Support
+- Pipeline handles `2026_basic` as a special case but has no support for `2026_rev_1`, `2026_rev_2`, etc.
+- `resolve_json_path()` and `list_available_revisions()` need updating before 2026 revisions appear.
 
 ## Priority Ordering
 
@@ -85,3 +97,9 @@
 | P3 | #8-10 Refinements | <0.5pp each |
 
 Items #1 and #2 are the biggest levers -- fixing the China IEEPA rate alone would flip ~85% of China products from "14pp too high" to near-exact match.
+
+## Recently Resolved
+
+- **Section 232 derivative products**: ~130 aluminum-containing articles now covered with metal content scaling (flat 50% default, CBO buckets available). Stacking rules updated for non-metal portion.
+- **Floor country IEEPA selection (Japan/S. Korea)**: Fixed tie-breaking to prefer floor over surcharge when both exist. S. Korea mean diff dropped to 0.1pp.
+- **Section 301 blanket coverage**: ~10,400 HTS8 product codes now applied as blanket tariff for China, closing most of the 301 product gap.

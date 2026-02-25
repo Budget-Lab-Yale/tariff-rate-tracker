@@ -1,5 +1,5 @@
 # =============================================================================
-# Step 03: Calculate Total Tariff Rates
+# Step 06: Calculate Total Tariff Rates
 # =============================================================================
 #
 # Calculates total effective tariff rate for each HTS10 x country combination
@@ -12,6 +12,18 @@
 # INTERNAL:
 #   calculate_rates_fast() — Footnote-based rate calculation (vectorized)
 #   check_country_applies() — Country applicability check
+#   apply_232_derivatives() — Section 232 derivative products + metal scaling
+#
+# Pipeline steps inside calculate_rates_for_revision():
+#   1. Footnote-based rates (301, fentanyl, other via Ch99 refs)
+#   2. IEEPA reciprocal (blanket, country-level)
+#   3. IEEPA fentanyl (blanket, CA/MX/CN)
+#   4. Section 232 base (blanket, chapter/heading)
+#   5. Section 232 derivatives (blanket, product list + metal scaling)
+#   6. Section 301 (blanket, China product list)
+#   7. USMCA exemptions (CA/MX eligible products)
+#   8. Stacking rules (mutual exclusion, nonmetal share)
+#   9. Schema enforcement + metadata
 #
 # Output: rates_{revision}.rds with columns per RATE_SCHEMA (see helpers.R)
 #
@@ -51,11 +63,7 @@ ISO_TO_CENSUS <- if (!is.null(.pp)) .pp$ISO_TO_CENSUS else c(
 
 
 # =============================================================================
-# Rate Lookup Functions
-# =============================================================================
-
-# =============================================================================
-# Vectorized Rate Calculation
+# Vectorized Rate Calculation (footnote-based)
 # =============================================================================
 
 #' Fast vectorized rate calculation (for large datasets)
@@ -199,6 +207,114 @@ check_country_applies <- function(country, country_type, countries, exempt) {
 
 
 # =============================================================================
+# Section 232 Derivative Products
+# =============================================================================
+
+#' Apply Section 232 derivative tariff and metal content scaling
+#'
+#' Derivative products (9903.85.04/.07/.08) are aluminum-containing articles
+#' outside chapter 76. The tariff applies only to the metal content portion
+#' of customs value. This function:
+#'   1. Loads the product list from resources/s232_derivative_products.csv
+#'   2. Matches products by prefix
+#'   3. Applies derivative 232 rates (update existing + add new pairs)
+#'   4. Joins metal content shares and scales rate_232 by metal_share
+#'
+#' @param rates Current rates tibble
+#' @param products Product data from parse_products()
+#' @param ch99_data Chapter 99 data (to check for derivative Ch99 entries)
+#' @param s232_rates Section 232 rates from extract_section232_rates()
+#' @param countries Vector of Census country codes
+#' @return List with 'rates' (updated tibble) and 'deriv_matched' (character vector)
+apply_232_derivatives <- function(rates, products, ch99_data, s232_rates, countries) {
+  deriv_products <- load_232_derivative_products()
+  deriv_matched <- character(0)
+
+  if (!is.null(deriv_products) && nrow(deriv_products) > 0 && s232_rates$has_232) {
+    # Check if derivative Ch99 entries exist in this revision
+    deriv_ch99_codes <- c('9903.85.04', '9903.85.07', '9903.85.08')
+    has_deriv_entries <- any(ch99_data$ch99_code %in% deriv_ch99_codes)
+
+    if (has_deriv_entries) {
+      derivative_rate <- s232_rates$derivative_rate
+      derivative_exempt <- s232_rates$derivative_exempt
+
+      # Match products by prefix
+      deriv_prefixes <- deriv_products$hts_prefix
+      deriv_pattern <- paste0('^(', paste(deriv_prefixes, collapse = '|'), ')')
+      deriv_matched <- products %>%
+        filter(grepl(deriv_pattern, hts10)) %>%
+        pull(hts10)
+
+      message('  Section 232 derivative coverage: ', length(deriv_matched), ' products')
+
+      if (length(deriv_matched) > 0) {
+        # Build per-country rate lookup
+        country_deriv_rate <- tibble(country = countries) %>%
+          mutate(
+            deriv_exempt = map_lgl(country, ~is_232_exempt(.x, derivative_exempt)),
+            deriv_rate = if_else(deriv_exempt, 0, derivative_rate)
+          )
+
+        n_deriv_countries <- sum(country_deriv_rate$deriv_rate > 0)
+        message('  Derivative 232: ', round(derivative_rate * 100), '% for ',
+                n_deriv_countries, ' countries')
+
+        # Update rate_232 for derivative products already in rates
+        rates <- rates %>%
+          left_join(
+            country_deriv_rate %>% select(country, deriv_rate),
+            by = 'country'
+          ) %>%
+          mutate(
+            deriv_rate = coalesce(deriv_rate, 0),
+            rate_232 = if_else(
+              hts10 %in% deriv_matched & deriv_rate > 0,
+              pmax(rate_232, deriv_rate),
+              rate_232
+            )
+          ) %>%
+          select(-deriv_rate)
+
+        # Add new pairs using blanket helper
+        blanket_rates <- country_deriv_rate %>%
+          select(country, blanket_rate = deriv_rate)
+        rates <- add_blanket_pairs(rates, products, deriv_matched, blanket_rates,
+                                   'rate_232', '232 derivative duties')
+      }
+    }
+  }
+
+  # Join metal content shares and scale derivative 232 rates.
+  # For derivative products, rate_232 was set to the full rate above;
+  # now scale by metal_share so that the rate reflects metal-content-only.
+  metal_cfg <- if (!is.null(.pp)) .pp$metal_content else NULL
+  metal_shares <- load_metal_content(metal_cfg, unique(rates$hts10), deriv_matched)
+  if ('metal_share' %in% names(rates)) {
+    rates <- rates %>% select(-metal_share)
+  }
+  rates <- rates %>%
+    left_join(metal_shares, by = 'hts10') %>%
+    mutate(metal_share = coalesce(metal_share, 1.0))
+
+  if (length(deriv_matched) > 0) {
+    rates <- rates %>%
+      mutate(rate_232 = if_else(
+        hts10 %in% deriv_matched & metal_share < 1.0,
+        rate_232 * metal_share,
+        rate_232
+      ))
+
+    n_deriv_with_232 <- sum(rates$hts10 %in% deriv_matched & rates$rate_232 > 0)
+    message('  Derivative 232 after metal scaling: ', n_deriv_with_232,
+            ' product-country pairs')
+  }
+
+  return(list(rates = rates, deriv_matched = deriv_matched))
+}
+
+
+# =============================================================================
 # Per-Revision Rate Calculator
 # =============================================================================
 
@@ -207,7 +323,9 @@ check_country_applies <- function(country, country_type, countries, exempt) {
 #' Wraps calculate_rates_fast() but applies blanket tariffs that are NOT
 #' referenced via product footnotes:
 #'   - IEEPA reciprocal: blanket on all products for applicable countries
-#'   - Section 232: blanket on steel (ch72-73) and aluminum (ch76) products
+#'   - IEEPA fentanyl: blanket on all products for CA/MX/CN
+#'   - Section 232: blanket on steel/aluminum/auto/copper/derivative products
+#'   - Section 301: blanket on China products from product list
 #'   - USMCA exemptions: eligible products exempt from IEEPA for CA/MX
 #'
 #' @param products Product data from parse_products()
@@ -238,7 +356,7 @@ calculate_rates_for_revision <- function(
     return(enforce_rate_schema(tibble()))
   }
 
-  # 2. Build per-country IEEPA reciprocal lookup from ieepa_rates
+  # 2. Apply IEEPA reciprocal (blanket, country-level)
   #    IEEPA reciprocal is a BLANKET tariff — it applies to all products for
   #    applicable countries, not just products with IEEPA footnotes. The country-
   #    specific rates from 9903.01/02.xx define the rate per country.
@@ -351,11 +469,11 @@ calculate_rates_for_revision <- function(
     rates <- rates %>% mutate(rate_ieepa_recip = 0)
   }
 
-  # 2b. Apply IEEPA fentanyl/initial rates as blanket tariff
-  #     9903.01.01-24: Mexico (+25%), Canada (+35%), China (+10%)
-  #     These STACK with reciprocal tariffs for CA/MX.
-  #     China/HK included: fentanyl (9903.01.20/24) is NOT captured via
-  #     product footnotes for China. The 9903.90.xx entries are Russia only.
+  # 3. Apply IEEPA fentanyl/initial rates as blanket tariff
+  #    9903.01.01-24: Mexico (+25%), Canada (+35%), China (+10%)
+  #    These STACK with reciprocal tariffs for CA/MX.
+  #    China/HK included: fentanyl (9903.01.20/24) is NOT captured via
+  #    product footnotes for China. The 9903.90.xx entries are Russia only.
   has_fentanyl <- !is.null(fentanyl_rates) && nrow(fentanyl_rates) > 0
 
   if (has_fentanyl) {
@@ -369,31 +487,12 @@ calculate_rates_for_revision <- function(
       select(-fent_rate)
 
     # Add fentanyl-only rows for products not yet in rates
-    fent_country_codes <- intersect(fentanyl_rates$census_code, countries)
-    if (length(fent_country_codes) > 0) {
-      existing_fent <- rates %>%
-        filter(country %in% fent_country_codes) %>%
-        select(hts10, country)
-
-      new_fent_pairs <- products %>%
-        select(hts10, base_rate) %>%
-        mutate(base_rate = coalesce(base_rate, 0)) %>%
-        tidyr::expand_grid(country = fent_country_codes) %>%
-        anti_join(existing_fent, by = c('hts10', 'country')) %>%
-        left_join(fent_lookup, by = c('country' = 'census_code')) %>%
-        mutate(
-          rate_232 = 0, rate_301 = 0, rate_ieepa_recip = 0,
-          rate_ieepa_fent = coalesce(fent_rate, 0), rate_other = 0
-        ) %>%
-        filter(rate_ieepa_fent > 0) %>%
-        select(-fent_rate)
-
-      if (nrow(new_fent_pairs) > 0) {
-        message('  Adding ', nrow(new_fent_pairs),
-                ' product-country pairs for fentanyl-only duties')
-        rates <- bind_rows(rates, new_fent_pairs)
-      }
-    }
+    fent_country_rates <- fent_lookup %>%
+      rename(country = census_code, blanket_rate = fent_rate) %>%
+      filter(country %in% countries)
+    all_product_hts10 <- products$hts10
+    rates <- add_blanket_pairs(rates, products, all_product_hts10, fent_country_rates,
+                               'rate_ieepa_fent', 'fentanyl-only duties')
 
     n_with_fent <- sum(rates$rate_ieepa_fent > 0)
     message('  With IEEPA fentanyl: ', n_with_fent)
@@ -401,12 +500,12 @@ calculate_rates_for_revision <- function(
     rates <- rates %>% mutate(rate_ieepa_fent = coalesce(rate_ieepa_fent, 0))
   }
 
-  # 3. Apply Section 232 as blanket tariff
+  # 4. Apply Section 232 base tariff (blanket, chapter/heading)
   #    232 is defined by US Notes, not via product footnotes.
   #    Steel: chapters 72-73 (US Note 16, 9903.80-84)
   #    Aluminum: chapter 76 (US Note 19, 9903.85)
   #    Autos: heading 8703 + specific subheadings (US Note 25, 9903.94)
-  #    Copper: specific headings in chapter 74 (9903.85.xx derivatives)
+  #    Copper: specific headings in chapter 74
   if (is.null(s232_rates)) {
     s232_rates <- extract_section232_rates(ch99_data)
   }
@@ -595,123 +694,14 @@ calculate_rates_for_revision <- function(
     }
   }
 
-  # 3a. Apply Section 232 DERIVATIVE tariff for aluminum articles
-  #     Derivative products (9903.85.04/07/08) are aluminum-containing articles
-  #     outside chapter 76. The tariff applies only to the metal content portion.
-  #     Product list in resources/s232_derivative_products.csv (from US Note 19).
-  deriv_products <- load_232_derivative_products()
-  deriv_matched <- character(0)
+  # 5. Apply Section 232 derivative tariff + metal content scaling
+  #    Derivative products (9903.85.04/.07/.08) are aluminum-containing articles
+  #    outside chapter 76. The tariff applies only to the metal content portion.
+  result <- apply_232_derivatives(rates, products, ch99_data, s232_rates, countries)
+  rates <- result$rates
+  deriv_matched <- result$deriv_matched
 
-  if (!is.null(deriv_products) && nrow(deriv_products) > 0 && s232_rates$has_232) {
-    # Check if derivative Ch99 entries exist in this revision
-    deriv_ch99_codes <- c('9903.85.04', '9903.85.07', '9903.85.08')
-    has_deriv_entries <- any(ch99_data$ch99_code %in% deriv_ch99_codes)
-
-    if (has_deriv_entries) {
-      derivative_rate <- s232_rates$derivative_rate
-      derivative_exempt <- s232_rates$derivative_exempt
-
-      # Match products by prefix (same pattern as heading products)
-      deriv_prefixes <- deriv_products$hts_prefix
-      deriv_pattern <- paste0('^(', paste(deriv_prefixes, collapse = '|'), ')')
-      deriv_matched <- products %>%
-        filter(grepl(deriv_pattern, hts10)) %>%
-        pull(hts10)
-
-      message('  Section 232 derivative coverage: ', length(deriv_matched), ' products')
-
-      if (length(deriv_matched) > 0) {
-        # Build per-country derivative exemption check
-        country_deriv_rate <- tibble(country = countries) %>%
-          mutate(
-            deriv_exempt = map_lgl(country, ~is_232_exempt(.x, derivative_exempt)),
-            deriv_rate = if_else(deriv_exempt, 0, derivative_rate)
-          )
-
-        n_deriv_countries <- sum(country_deriv_rate$deriv_rate > 0)
-        message('  Derivative 232: ', round(derivative_rate * 100), '% for ',
-                n_deriv_countries, ' countries')
-
-        # Update rate_232 for derivative products already in rates
-        rates <- rates %>%
-          left_join(
-            country_deriv_rate %>% select(country, deriv_rate),
-            by = 'country'
-          ) %>%
-          mutate(
-            deriv_rate = coalesce(deriv_rate, 0),
-            rate_232 = if_else(
-              hts10 %in% deriv_matched & deriv_rate > 0,
-              pmax(rate_232, deriv_rate),
-              rate_232
-            )
-          ) %>%
-          select(-deriv_rate)
-
-        # Add rows for derivative products NOT yet in rates
-        deriv_country_codes <- country_deriv_rate %>%
-          filter(deriv_rate > 0) %>%
-          pull(country)
-
-        existing_deriv_pairs <- rates %>%
-          filter(hts10 %in% deriv_matched, country %in% deriv_country_codes) %>%
-          select(hts10, country)
-
-        new_deriv_pairs <- products %>%
-          filter(hts10 %in% deriv_matched) %>%
-          select(hts10, base_rate) %>%
-          mutate(base_rate = coalesce(base_rate, 0)) %>%
-          tidyr::expand_grid(country = deriv_country_codes) %>%
-          anti_join(existing_deriv_pairs, by = c('hts10', 'country')) %>%
-          left_join(
-            country_deriv_rate %>% select(country, deriv_rate),
-            by = 'country'
-          ) %>%
-          mutate(
-            rate_232 = coalesce(deriv_rate, 0),
-            rate_301 = 0, rate_ieepa_recip = 0,
-            rate_ieepa_fent = 0, rate_other = 0
-          ) %>%
-          filter(rate_232 > 0) %>%
-          select(-deriv_rate)
-
-        if (nrow(new_deriv_pairs) > 0) {
-          message('  Adding ', nrow(new_deriv_pairs),
-                  ' product-country pairs for 232 derivative duties')
-          rates <- bind_rows(rates, new_deriv_pairs)
-        }
-      }
-    }
-  }
-
-  # 3a-post. Join metal content shares and scale derivative 232 rates
-  #          For derivative products, rate_232 was set to the full rate above;
-  #          now scale by metal_share so that the rate reflects metal-content-only.
-  metal_cfg <- if (!is.null(.pp)) .pp$metal_content else NULL
-  metal_shares <- load_metal_content(metal_cfg, unique(rates$hts10), deriv_matched)
-  # Drop any existing metal_share (placeholder from earlier stacking) before joining
-  if ('metal_share' %in% names(rates)) {
-    rates <- rates %>% select(-metal_share)
-  }
-  rates <- rates %>%
-    left_join(metal_shares, by = 'hts10') %>%
-    mutate(metal_share = coalesce(metal_share, 1.0))
-
-  # Scale derivative 232 rates by metal_share
-  if (length(deriv_matched) > 0) {
-    rates <- rates %>%
-      mutate(rate_232 = if_else(
-        hts10 %in% deriv_matched & metal_share < 1.0,
-        rate_232 * metal_share,
-        rate_232
-      ))
-
-    n_deriv_with_232 <- sum(rates$hts10 %in% deriv_matched & rates$rate_232 > 0)
-    message('  Derivative 232 after metal scaling: ', n_deriv_with_232,
-            ' product-country pairs')
-  }
-
-  # 3b. Apply Section 301 as blanket tariff for China
+  # 6. Apply Section 301 as blanket tariff for China
   #     301 products are defined by US Note 20/21/31 product lists (Federal Register).
   #     Like 232, these are NOT referenced via product footnotes for most products.
   #     Source: USITC "China Tariffs" reference document (hts.usitc.gov).
@@ -812,7 +802,7 @@ calculate_rates_for_revision <- function(
     }
   }
 
-  # 4. Apply USMCA exemptions
+  # 7. Apply USMCA exemptions
   if (!is.null(usmca) && nrow(usmca) > 0) {
     rates <- rates %>%
       left_join(
@@ -835,17 +825,17 @@ calculate_rates_for_revision <- function(
     rates <- rates %>% mutate(usmca_eligible = FALSE)
   }
 
-  # 5. Re-apply stacking rules with updated IEEPA and 232 rates
+  # 8. Re-apply stacking rules with updated IEEPA and 232 rates
   rates <- apply_stacking_rules(rates, CTY_CHINA)
 
-  # 6. Add revision metadata
+  # 9a. Add revision metadata
   rates <- rates %>%
     mutate(
       revision = revision_id,
       effective_date = as.Date(effective_date)
     )
 
-  # 7. Enforce canonical schema
+  # 9b. Enforce canonical schema
   rates <- enforce_rate_schema(rates)
 
   # Summary

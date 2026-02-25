@@ -579,6 +579,58 @@ is_valid_hts10 <- function(hts_code) {
 
 
 # =============================================================================
+# Blanket Tariff Expansion Helper
+# =============================================================================
+
+#' Add product-country pairs not yet in rates for a blanket tariff
+#'
+#' Common pattern used by fentanyl, 232 derivatives, and other blanket tariffs:
+#' expand covered products x applicable countries, anti-join against existing
+#' rows in rates, assign the blanket rate, and bind to rates.
+#'
+#' @param rates Current rates tibble
+#' @param products Product data with hts10, base_rate columns
+#' @param covered_hts10 Character vector of HTS10 codes subject to this tariff
+#' @param country_rates Tibble with 'country' and 'blanket_rate' columns
+#' @param rate_col Name of the rate column to set (e.g., 'rate_ieepa_fent')
+#' @param label Description for log message (e.g., 'fentanyl-only duties')
+#' @return Updated rates tibble with new pairs added
+add_blanket_pairs <- function(rates, products, covered_hts10, country_rates,
+                              rate_col, label) {
+  applicable <- country_rates %>% filter(blanket_rate > 0) %>% pull(country)
+  if (length(applicable) == 0 || length(covered_hts10) == 0) return(rates)
+
+  existing <- rates %>%
+    filter(hts10 %in% covered_hts10, country %in% applicable) %>%
+    select(hts10, country)
+
+  new_pairs <- products %>%
+    filter(hts10 %in% covered_hts10) %>%
+    select(hts10, base_rate) %>%
+    mutate(base_rate = coalesce(base_rate, 0)) %>%
+    tidyr::expand_grid(country = applicable) %>%
+    anti_join(existing, by = c('hts10', 'country')) %>%
+    left_join(country_rates, by = 'country') %>%
+    mutate(
+      rate_232 = 0, rate_301 = 0, rate_ieepa_recip = 0,
+      rate_ieepa_fent = 0, rate_other = 0
+    )
+
+  new_pairs[[rate_col]] <- new_pairs$blanket_rate
+  new_pairs <- new_pairs %>%
+    filter(blanket_rate > 0) %>%
+    select(-blanket_rate)
+
+  if (nrow(new_pairs) > 0) {
+    message('  Adding ', nrow(new_pairs), ' product-country pairs for ', label)
+    rates <- bind_rows(rates, new_pairs)
+  }
+
+  return(rates)
+}
+
+
+# =============================================================================
 # Section 232 Derivative Products
 # =============================================================================
 
