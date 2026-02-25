@@ -93,13 +93,13 @@ Mutual exclusion between 232 and IEEPA reciprocal (aligned with Tariff-ETRs):
 ```r
 # China with 232:    232 + recip*nonmetal + fentanyl + 301 + s122 + other
 # China without 232: reciprocal + fentanyl + 301 + s122 + other  (10% recip + 10% fent post-Geneva)
-# Others with 232:   232 + (recip + fent)*nonmetal + s122 + other
+# Others with 232:   232 + recip*nonmetal + fentanyl + s122 + other
 # Others without 232: reciprocal + fentanyl + s122 + other
 
 # USMCA (CA/MX): binary exemption — eligible products get IEEPA/fentanyl zeroed out
 ```
 
-Key: 232 takes precedence over IEEPA reciprocal. For base 232 products (metal_share = 1.0), nonmetal_share = 0, preserving the mutual exclusion. For derivative 232 products (metal_share < 1.0), IEEPA reciprocal/fentanyl apply to the non-metal portion of customs value.
+Key: 232 takes precedence over IEEPA reciprocal. For base 232 products (metal_share = 1.0), nonmetal_share = 0, preserving the mutual exclusion. For derivative 232 products (metal_share < 1.0), IEEPA reciprocal applies to the non-metal portion of customs value. Fentanyl stacks on 232 for all countries (separate IEEPA authority, applies to full customs value).
 
 ## Section 232 Coverage
 

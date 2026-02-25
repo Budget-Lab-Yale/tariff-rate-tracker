@@ -430,15 +430,14 @@ enforce_rate_schema <- function(df) {
 #'
 #'   China (232 > 0):  232 + recip*nonmetal + fentanyl + 301 + s122 + other
 #'   China (no 232):   reciprocal + fentanyl + 301 + s122 + other
-#'   Others (232 > 0): 232 + (recip + fent)*nonmetal + s122 + other
+#'   Others (232 > 0): 232 + recip*nonmetal + fentanyl + s122 + other
 #'   Others (no 232):  reciprocal + fentanyl + s122 + other
 #'
 #' Key rules:
 #'   - 232 and IEEPA reciprocal are mutually exclusive (232 takes precedence)
-#'   - For derivative 232 products (metal_share < 1.0), IEEPA applies to
-#'     the non-metal portion of customs value
-#'   - Fentanyl stacks on everything for China, but NOT on 232 for others
-#'     (except on the non-metal portion of derivative products)
+#'   - For derivative 232 products (metal_share < 1.0), IEEPA reciprocal applies
+#'     to the non-metal portion of customs value
+#'   - Fentanyl stacks on 232 for all countries (separate IEEPA authority)
 #'   - Section 301 only applies to China
 #'   - Section 122 stacks on everything
 #'
@@ -475,9 +474,11 @@ apply_stacking_rules <- function(df, cty_china = '5700') {
         country == cty_china ~
           rate_ieepa_recip + rate_ieepa_fent + rate_301 + rate_s122 + rate_other,
 
-        # Others with 232: 232 + (recip + fent)*nonmetal + s122 + other
+        # Others with 232: 232 + recip*nonmetal + fentanyl + s122 + other
+        # Fentanyl stacks on 232 (separate IEEPA authority, applies to full value).
+        # IEEPA reciprocal is mutually exclusive with 232 (applies to nonmetal only).
         rate_232 > 0 ~
-          rate_232 + (rate_ieepa_recip + rate_ieepa_fent) * nonmetal_share + rate_s122 + rate_other,
+          rate_232 + rate_ieepa_recip * nonmetal_share + rate_ieepa_fent + rate_s122 + rate_other,
 
         # Others without 232: reciprocal + fentanyl + s122 + other
         TRUE ~ rate_ieepa_recip + rate_ieepa_fent + rate_s122 + rate_other
