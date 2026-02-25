@@ -20,8 +20,8 @@ See Done section.
 ### 4. EU floor rate residual (~4pp systematic)
 EU countries show 35-42% exact match with ~4pp mean excess. The floor formula `max(0, 15% - base_rate)` is correct, but residual discrepancies remain. Possible causes: TPC using slightly different floor mechanics, base rate parsing differences, or passthrough classification.
 
-### 5. Switzerland IEEPA over-application (+24pp)
-Our rate 39%, TPC 13.6% for 5,543 products. Switzerland has a +39% surcharge (9903.02.58) but TPC shows much lower. May be a rate reduction not yet reflected in our revision data, or different TPC methodology. Not a floor/surcharge selection issue — Switzerland genuinely has only surcharge entries.
+### ~~5. Switzerland IEEPA over-application (+24pp)~~ (Fixed)
+See Done section.
 
 ### 6. USMCA classification mismatch (~2,855 products per direction)
 Our USMCA flag (from HTS `special` field "S"/"S+") disagrees with TPC for ~5,700 CA/MX products:
@@ -62,6 +62,11 @@ Currently new revisions are manually downloaded and added to `config/revision_da
 - Running incremental pipeline on detection
 
 ## Done
+
+### ~~Switzerland IEEPA over-application (+24pp)~~ (Fixed)
+Per [90 FR 59281](https://www.federalregister.gov/documents/2025/12/18/2025-23316) (FR Doc. 2025-23316, Dec 18, 2025): EO 14346 implements the US-Switzerland-Liechtenstein trade framework, effective Nov 14, 2025 (retroactive). Terminates 9903.02.36 (Liechtenstein +15% surcharge) and 9903.02.58 (Switzerland +39% surcharge). New entries 9903.02.82-91 establish a 15% floor structure matching EU/Japan/S. Korea pattern: products with base rate >= 15% get no additional duty; products with base rate < 15% are raised to 15%. Also exempts PTAAP agricultural/natural resources, civil aircraft, and non-patented pharmaceuticals.
+
+Fix: Added Switzerland (4419) and Liechtenstein (4411) to `floor_countries` in `config/policy_params.yaml`. Added override logic in `06_calculate_rates.R` that converts surcharge → floor for countries listed in `floor_countries` when the HTS JSON hasn't yet been updated. Created `docs/active_hts_changes.md` to track Federal Register changes not yet reflected in HTS JSON. Conditional expiry: framework must be finalized by March 31, 2026.
 
 ### ~~China IEEPA reciprocal rate: 34% vs ~20%~~ (Fixed)
 Post-Geneva (rev_17+), 9903.01.63 is marked `[Compiler's note: provision suspended.]` in HTS JSON. Suspension detection in `extract_ieepa_rates()` was not triggering due to encoding/format variation. Added robust secondary regex check (`\\[Compiler.*suspended`). China's Phase 1 rate now correctly caps to the 10% universal baseline. Expected impact: ~17K China products drop from 34% to 10% IEEPA reciprocal.

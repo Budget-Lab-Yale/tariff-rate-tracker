@@ -255,8 +255,8 @@ if (nrow(non_china_ieepa) > 0) {
 
 # ---- Floor countries (EU, Japan, S. Korea) ----
 cat('\n--- Floor Countries Detail ---\n\n')
-floor_countries <- c('4280', '4279', '4759', '5880', '5800')
-floor_names <- c('Germany', 'France', 'Italy', 'Japan', 'S. Korea')
+floor_countries <- c('4280', '4279', '4759', '5880', '5800', '4419', '4411')
+floor_names <- c('Germany', 'France', 'Italy', 'Japan', 'S. Korea', 'Switzerland', 'Liechtenstein')
 
 for (j in seq_along(floor_countries)) {
   cty <- floor_countries[j]

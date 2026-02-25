@@ -76,6 +76,7 @@ rate_timeseries.rds -> import-weighted ETRs (10_weighted_etr.R via get_rates_at_
 - `config/policy_params.yaml`: All policy constants (country codes, authority ranges, 232 chapters, floor rates, 301 rates, etc.)
 - `config/revision_dates.csv`: revision -> effective_date -> tpc_date mapping
 - `config/scenarios.yaml`: Counterfactual scenario definitions
+- `docs/active_hts_changes.md`: Federal Register changes not yet in HTS JSON (manual overrides)
 
 **Shared Infrastructure:**
 - `RATE_SCHEMA` in helpers.R: Canonical column order for rate output (includes `metal_share`, `valid_from`/`valid_until`)

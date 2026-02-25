@@ -426,6 +426,21 @@ calculate_rates_for_revision <- function(
       # are explicitly excluded from reciprocal tariffs by executive order.
       universal_baseline <- attr(ieepa_rates, 'universal_baseline')
       pp <- load_policy_params()
+
+      # Override surcharge -> floor for countries in floor_countries config.
+      # Handles cases where HTS JSON hasn't yet been updated with floor entries
+      # (e.g., Switzerland/Liechtenstein per FR 2025-23316, effective Nov 14, 2025).
+      floor_country_codes <- pp$FLOOR_COUNTRIES
+      if (length(floor_country_codes) > 0) {
+        override_mask <- country_ieepa$census_code %in% floor_country_codes &
+                         country_ieepa$ieepa_type == 'surcharge'
+        if (any(override_mask)) {
+          country_ieepa$ieepa_country_rate[override_mask] <- pp$FLOOR_RATE
+          country_ieepa$ieepa_type[override_mask] <- 'floor'
+          message('  Floor override applied to ', sum(override_mask),
+                  ' countries: ', paste(country_ieepa$census_code[override_mask], collapse = ', '))
+        }
+      }
       recip_exempt <- c(pp$country_codes$CTY_CANADA, pp$country_codes$CTY_MEXICO)
       if (!is.null(universal_baseline) && universal_baseline > 0) {
         unlisted_countries <- setdiff(countries, c(country_ieepa$census_code, recip_exempt))

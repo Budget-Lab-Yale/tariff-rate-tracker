@@ -104,7 +104,7 @@ section_232_headings:
 floor_rates:
   eu_floor: 0.15
   floor_rate: 0.15
-  floor_countries: ['5880', '5800']   # Japan, South Korea
+  floor_countries: ['5880', '5800', '4419', '4411']   # Japan, South Korea, Switzerland, Liechtenstein
 
 # --- Authority name to rate column mapping ---
 authority_columns:
