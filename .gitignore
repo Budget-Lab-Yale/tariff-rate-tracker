@@ -10,6 +10,7 @@ data/timeseries/
 data/tpc/*.csv
 
 # Output files (regenerated)
+output/validation/
 snapshots/
 changes/
 exports/
