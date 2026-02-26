@@ -13,8 +13,8 @@ See Done section.
 ### ~~3. 2026 HTS revision naming convention~~ (Implemented)
 See Done section.
 
-### 4. EU floor rate residual (~4pp systematic)
-EU countries show 35-42% exact match with ~4pp mean excess. The floor formula `max(0, 15% - base_rate)` is correct, but residual discrepancies remain. Possible causes: TPC using slightly different floor mechanics, base rate parsing differences, or passthrough classification.
+### ~~4. EU floor rate residual (~4pp systematic)~~ (Investigated)
+See Done section.
 
 ### ~~5. Switzerland IEEPA over-application (+24pp)~~ (Fixed)
 See Done section.
@@ -107,6 +107,20 @@ Product-specific fentanyl carve-outs for CA (energy/minerals +10%, potash +10%) 
 
 ### ~~2026 HTS revision naming convention~~ (Implemented)
 Added `parse_revision_id()` helper in `helpers.R` that extracts year + revision type from any revision ID (e.g., `'2026_rev_3'` -> `year=2026, rev='rev_3'`; `'rev_32'` -> `year=2025, rev='rev_32'`). Replaced hardcoded 2025/2026 year checks in `resolve_json_path()`, `build_download_url()`, `download_missing_revisions()`, `build_full_timeseries()`, `run_update()`, and `01_scrape_revision_dates.R` cross-reference. All year scanning is now dynamic — derived from `revision_dates.csv` entries. Supports `2026_rev_1`, `2027_basic`, etc. without code changes.
+
+### ~~EU floor rate residual~~ (Investigated — EU-specific exemptions + methodology)
+Diagnostic on rev_32 for 27 EU floor countries + Japan + S. Korea. Floor formula `max(0, 15% - base_rate)` is correctly implemented (all 8,831 Germany floor-active products match expected). Three distinct error patterns identified:
+
+1. **EU-specific product exemptions (~1,600 products/country, ~16% of TPC-matched products)**:
+   Ch99 entries 9903.02.74/75/77 define product categories exempt from the EU floor (agricultural/natural resources, civil aircraft, non-patented pharmaceuticals). These are blanket exemptions — NOT referenced via product footnotes. Product lists are defined in US Notes to Chapter 99, not parseable from HTS JSON API. We incorrectly apply the 15% floor to these products. Consistent across EU countries (82-86% overlap DE-FR-IT). Chapter distribution: ch98 (special provisions, 100% TPC=0), ch61/62 (apparel, ~50-60% TPC=0), ch30 (pharma, ~88% TPC=0). These exempt products are entirely distinct from the ~1,087 general IEEPA Annex A exempt products (zero overlap).
+
+2. **Continuous rate distribution (~2,700 base=0 products with TPC rates between 1-14%)**:
+   For products where we apply the full 15% floor, TPC assigns rates spanning 1-14% — a continuous distribution, not binary (0% or 15%). This mirrors the USMCA utilization rate pattern and suggests TPC uses trade-weighted or other product-level methodology beyond a simple floor formula. Contributes ~3-4pp of average excess.
+
+3. **232 products under-counted (-12pp mean diff, 1,172 products)**:
+   EU 232 products have only 3.2% exact match with -12pp mean diff. Separate issue from the floor — likely related to EU-specific 232 exemption/exclusion patterns.
+
+**Net result**: Germany 41.5% exact match, mean diff +1.55pp. Floor countries range 32-44% exact match. No code fix possible without external data (US Note product lists for EU-specific exemptions). Tariff-ETRs repo also lacks EU-specific product exemption data.
 
 ### ~~US Note 20/31 product lists~~ (Implemented)
 New script `src/12_scrape_us_notes.R` downloads Chapter 99 PDF from USITC, finds "Heading 9903.XX.XX applies to" anchors, extracts HTS subheading codes from each product list section. Covers Note 20 (Lists 1-3 + 4A: 9903.88.01/.02/.03/.15) and Note 31 (Biden acceleration: 9903.91.01-.11). Note 21 doesn't exist as a separate note — List 4A modifications are embedded in Note 20 subdivision (u). Parser found 10,587 codes with 10,132 matching existing CSV (strong validation), adding 296 new entries (mostly List 3). Run with `Rscript src/12_scrape_us_notes.R` (or `--dry-run` to preview). Requires `pdftools` package.
