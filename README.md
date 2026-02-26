@@ -53,17 +53,6 @@ The orchestrator repeats these steps for each HTS revision, producing per-revisi
 | `run_pipeline.R` | Runs steps 1-5 for a single revision. Useful for quick checks. |
 | `test_tpc_comparison.R` | Standalone TPC comparison across all 5 validation dates. Produces detailed diagnostics by revision, country, and discrepancy pattern. |
 
-### Legacy (v1, config-driven)
-
-All v1 files are prefixed with `v1_` and are superseded by the v2 timeseries pipeline.
-
-| File | Purpose |
-|------|---------|
-| `v1_run_daily.R` | Original orchestrator using manual authority mapping. |
-| `v1_ingest_hts.R` - `v1_write_outputs.R` | v1 numbered pipeline steps. |
-| `v1_calculate_rates_v2.R`, `v1_calculate_rates_v3.R`, etc. | Earlier calculator iterations. |
-| `v1_compare_revisions.R` | Standalone revision comparison (functionality now in `00_build_timeseries.R`). |
-
 ## Usage
 
 ```bash
@@ -311,9 +300,6 @@ Where `nonmetal_share = 1 - metal_share` when `rate_232 > 0` and `metal_share < 
 - `config/policy_params.yaml`: All policy constants (country codes, authority ranges, 232 chapter/heading coverage, floor rates, 301 rates). Single source of truth loaded by `helpers.R::load_policy_params()`.
 - `config/revision_dates.csv`: Maps each HTS revision to its effective date and (where applicable) the corresponding TPC validation date. 37 rows covering basic through 2026_basic.
 - `config/scenarios.yaml`: Counterfactual scenario definitions (baseline, no_ieepa, no_301, no_232, pre_2025, etc.). Used by `07_apply_scenarios.R`.
-- `config/authority_mapping.yaml`: Manual mapping of ~28 key Chapter 99 subheadings. Used by v1 pipeline only.
-- `config/country_rules.yaml`: Country groups and stacking rules. Used by v1 pipeline only.
-
 ### Reference
 
 - `resources/census_codes.csv`: 240 Census country codes.

@@ -94,10 +94,6 @@ rate_timeseries.rds -> import-weighted ETRs (10_weighted_etr.R via get_rates_at_
 - `parse_revision_id()`: Extracts year + revision type from any revision ID (e.g., '2026_rev_3' -> year=2026, rev='rev_3')
 - `get_rates_at_date(ts, date)`: Point-in-time rate query (in 11_daily_series.R) — preferred way to get rates at any date
 
-**Legacy (v1, config-driven):**
-- `v1_run_daily.R`, `v1_ingest_hts.R` through `v1_write_outputs.R`
-- `config/authority_mapping.yaml`, `config/country_rules.yaml`
-
 ## Stacking Rules
 
 Mutual exclusion between 232 and IEEPA reciprocal (aligned with Tariff-ETRs):

@@ -30,13 +30,15 @@ See Done section.
 ### 8. USMCA utilization rate adjustment
 USMCA eligibility is binary (from HTS `special` field). Diagnostic confirms TPC uses **product-level utilization rates** — not binary eligibility. For products we mark as USMCA-eligible, TPC's implied utilization rates span 0-100% (median ~55% CA, ~44% MX). This means TPC charges `(1 - utilization_rate) * full_tariff` rather than 0% for USMCA products. The symmetric mismatch (~1,600 CA + 1,270 MX products Type 1; ~1,680 CA + 1,900 MX Type 2) is driven by this methodological difference.
 
-To implement: Requires external USMCA utilization data by HTS product (from CBP or USITC trade data). Would weight USMCA exemption by actual claim rates rather than binary on/off.
+**Data sources for product-level utilization rates:**
+1. **USITC DataWeb API** (recommended): Query HTS-10 imports by program (USMCA vs total) for CA/MX. Free API at `datawebws.usitc.gov/dataweb/api/v2/`. Requires Login.gov account. Monthly data, ~2-month lag.
+2. **Census SPI Databank**: Bulk monthly fixed-width files at HTS-10 level (`census.gov/foreign-trade/data/SPIM.html`). Country subcode "S"/"S+" = USMCA. Parse with `readr::read_fwf()`. Need separate total import pull for denominator.
+3. **CBP FTA Utilization Reports**: Aggregate only (75-88% overall), no product-level breakdown. Useful for validation.
 
-### 9. Clean up legacy v1 pipeline
-The v1 pipeline files (prefixed `v1_*`) are superseded by the v2 timeseries pipeline. Consider:
+**Implementation approach**: For each HTS-8, compute `utilization_rate = usmca_imports / total_imports` from DataWeb. In `06_calculate_rates.R`, replace binary USMCA exemption with weighted: `effective_rate = full_tariff * (1 - utilization_rate)`. Note: USMCA utilization surged from ~25% to ~88% between late 2024 and late 2025 (importers claiming USMCA to avoid IEEPA), so time-varying rates are ideal.
 
-- Removing entirely if no longer referenced
-- Removing `config/authority_mapping.yaml` and `config/country_rules.yaml` (v1 only)
+### ~~9. Clean up legacy v1 pipeline~~ (Done)
+See Done section.
 
 ### 10. Counterfactual scenario validation
 `08_apply_scenarios.R` exists but hasn't been tested against the full timeseries. Verify:
@@ -53,6 +55,9 @@ Currently new revisions are manually downloaded and added to `config/revision_da
 - Running incremental pipeline on detection
 
 ## Done
+
+### ~~Clean up legacy v1 pipeline~~ (Done)
+Removed 11 v1 pipeline scripts (`src/v1_*.R`) and 2 v1-only config files (`config/authority_mapping.yaml`, `config/country_rules.yaml`). Verified zero references from v2 pipeline — v1 files only referenced each other. Updated CLAUDE.md and README.md to remove v1 documentation sections.
 
 ### ~~Map dates of HTS revision updates~~ (Implemented)
 New script `src/13_revision_changelog.R` diffs Ch99 entries across all 35 consecutive revision pairs, detecting additions, removals, rate changes, and suspensions (via description text matching). Outputs `output/changelog/revision_diffs.csv` (467 diff entries) and `output/changelog/revision_summary.csv`. Comprehensive timeline documented in `docs/revision_changelog.md` with key milestones: Liberation Day (rev_7), Phase 1 pause (rev_9), Geneva Agreement (rev_12), 232 doubling (rev_14), Phase 2 (rev_18), floor country frameworks (rev_23/32/2026_basic). Added `policy_event` column to `config/revision_dates.csv` linking each revision to its policy change.
