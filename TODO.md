@@ -25,17 +25,81 @@ See Done section.
 ### ~~7. CA/MX fentanyl product-level carve-outs~~ (Implemented)
 See Done section.
 
+## Tariff-ETRs Alignment (Feb 2026)
+
+Tasks to align tariff-rate-tracker with the updated Tariff-ETRs stacking rules and data architecture (commit b144391).
+
+### 12. Update stacking rules: add S301 to all branches
+**Priority: High**
+
+Tariff-ETRs now treats Section 301 as unconditionally cumulative — it applies to full customs value regardless of 232 status, with no `nonmetal_share` scaling. The current `apply_stacking_rules()` in `helpers.R` (line ~465) omits `rate_301` from non-China branches (Others+232 and Others no-232). While 301 currently only targets China in practice, the formula should be universal for correctness and forward-compatibility.
+
+**Current (helpers.R):**
+```r
+# Others+232: rate_232 + (recip + fent + s122) * nonmetal_share + rate_other
+# Others no-232: recip + fent + s122 + rate_other
+```
+
+**Target (matching Tariff-ETRs calculations.R):**
+```r
+# Others+232: rate_232 + (recip + fent + s122) * nonmetal_share + rate_301 + rate_other
+# Others no-232: recip + fent + s122 + rate_301 + rate_other
+```
+
+Also verify China branches already include `rate_301` correctly (they do).
+
+### 13. Add MFN rate support to rate schema and stacking
+**Priority: High**
+
+Tariff-ETRs now includes MFN as a first-class additive component: `final_rate = mfn_rate + policy_tariffs`. The tariff-rate-tracker uses `base_rate` (from HTS product `general` field) which is functionally equivalent to MFN, but should be verified:
+
+- Confirm `base_rate` in `RATE_SCHEMA` corresponds to `mfn_rate` in Tariff-ETRs
+- Verify `total_rate = base_rate + total_additional` matches `final_rate = mfn_rate + stacked_policy_tariffs`
+- If they diverge (e.g., Tariff-ETRs uses a separate MFN CSV while tracker parses from HTS JSON), document the difference
+
+### 14. Add target_total floor rule support for 232 and reciprocal
+**Priority: Medium** (blocked by #13)
+
+Tariff-ETRs now supports `target_total` in s232.yaml — a country-level "combined duty floor" where `effective_add_on = max(target_total - MFN, 0)`. This is used for EU/Japan/S.Korea 232 floor rates. The tariff-rate-tracker handles floor rates via `extract_floor_rates()` in the IEEPA context but may not apply the same MFN-offset logic for 232.
+
+- Review `06_calculate_rates.R` floor rate handling (step 2)
+- Compare with Tariff-ETRs `target_total_rules` in `load_s232_rates()` return value
+- Ensure floor logic uses `max(floor_rate - base_rate, 0)` consistently
+
+### 15. Align nonmetal_share computation for non-China fentanyl
+**Priority: Medium**
+
+Tariff-ETRs stacking for non-China countries: `(recip + fent + s122) * nonmetal_share` — fentanyl is scaled by nonmetal_share for non-China 232 products. The tariff-rate-tracker correctly does this in `apply_stacking_rules()` (Others+232 branch). Verify this is consistent and document the China exception (fentanyl at full value regardless of 232 status).
+
+### 16. Add MFN exemption shares support (FTA/GSP preferences)
+**Priority: Low** (blocked by #13)
+
+Tariff-ETRs now supports optional MFN exemption shares at HS2×country granularity: `effective_mfn = mfn_rate * (1 - exemption_share)`. This adjusts for FTA/GSP duty-free provisions. The tariff-rate-tracker doesn't have this concept — `base_rate` from HTS JSON is the statutory MFN rate without preference adjustments.
+
+- Determine whether this matters for the tracker's use case (statutory rates vs effective rates)
+- If needed, add optional exemption share loading and application to `base_rate`
+
+### 17. Update CLAUDE.md stacking rules documentation
+**Priority: Low** (blocked by #12, #13, #14)
+
+After implementing the above changes, update the stacking rules section in CLAUDE.md to reflect:
+- S301 in all branches (not just China)
+- MFN as explicit first-class component (if applicable)
+- target_total floor rule for 232
+- Any other formula changes
+
+### 18. Verify import cache compatibility with updated Tariff-ETRs
+**Priority: Low**
+
+`10_weighted_etr.R` reads the Tariff-ETRs import cache at `'../Tariff-ETRs/cache/hs10_by_country_gtap_2024_con.rds'`. After the Tariff-ETRs restructuring:
+- Verify the cache file still exists at the expected path
+- Verify the schema hasn't changed (expected columns: year, month, hs10, cty_code, value, gtap_sector)
+- If Tariff-ETRs cache format changed, update the reader in `10_weighted_etr.R`
+
 ## Low Priority / Future
 
-### 8. USMCA utilization rate adjustment
-USMCA eligibility is binary (from HTS `special` field). Diagnostic confirms TPC uses **product-level utilization rates** — not binary eligibility. For products we mark as USMCA-eligible, TPC's implied utilization rates span 0-100% (median ~55% CA, ~44% MX). This means TPC charges `(1 - utilization_rate) * full_tariff` rather than 0% for USMCA products. The symmetric mismatch (~1,600 CA + 1,270 MX products Type 1; ~1,680 CA + 1,900 MX Type 2) is driven by this methodological difference.
-
-**Data sources for product-level utilization rates:**
-1. **USITC DataWeb API** (recommended): Query HTS-10 imports by program (USMCA vs total) for CA/MX. Free API at `datawebws.usitc.gov/dataweb/api/v2/`. Requires Login.gov account. Monthly data, ~2-month lag.
-2. **Census SPI Databank**: Bulk monthly fixed-width files at HTS-10 level (`census.gov/foreign-trade/data/SPIM.html`). Country subcode "S"/"S+" = USMCA. Parse with `readr::read_fwf()`. Need separate total import pull for denominator.
-3. **CBP FTA Utilization Reports**: Aggregate only (75-88% overall), no product-level breakdown. Useful for validation.
-
-**Implementation approach**: For each HTS-8, compute `utilization_rate = usmca_imports / total_imports` from DataWeb. In `06_calculate_rates.R`, replace binary USMCA exemption with weighted: `effective_rate = full_tariff * (1 - utilization_rate)`. Note: USMCA utilization surged from ~25% to ~88% between late 2024 and late 2025 (importers claiming USMCA to avoid IEEPA), so time-varying rates are ideal.
+### ~~8. USMCA utilization rate adjustment~~ (Implemented)
+See Done section.
 
 ### ~~9. Clean up legacy v1 pipeline~~ (Done)
 See Done section.
@@ -70,6 +134,11 @@ Diagnostic revealed two findings:
 2. **Utilization rate (main cause, ~5,700 products)**: TPC uses product-level USMCA utilization rates, not binary eligibility. For products we mark USMCA-eligible (rate = 0%), TPC charges a fraction of the full tariff: `TPC_rate = (1 - utilization_rate) * full_tariff`. Implied utilization rates span 0-100% (median ~55% CA, ~44% MX). The symmetric mismatch pattern (Type 1: we say 0%, TPC says ~18%; Type 2: we say 35/25%, TPC says 0%) is driven by this methodological difference. Our binary approach is correct per HTS data; improvement requires external USMCA claim rate data. See TODO #8.
 
 CA/MX exact match: 44.3% / 44.5% — primarily limited by the utilization rate issue.
+
+### ~~USMCA utilization rate adjustment~~ (Implemented — Census SPI data)
+Per-product USMCA utilization shares derived from Census IMP_DETL.TXT RATE_PROV field (code 18 = USMCA preferential entry). For each HTS10 x country: `usmca_share = sum(value where RATE_PROV=18) / sum(total_value)`. Applied to all CA/MX products as `rate * (1 - usmca_share)`. Script: `src/compute_usmca_shares.R` reads Census ZIP files (IMDB2401-2412.ZIP), extracts RATE_PROV at positions 21-22 of IMP_DETL.TXT. Output: `resources/usmca_product_shares.csv` (22,449 product-country pairs). Results: CA 44.3%→79.4%, MX 44.5%→83.9% exact match (rev_32). Overall rev_32: 63.6%→66.4%.
+
+Earlier failed approaches: (1) Tariff-ETRs sector-level shares applied blanket (CA→8%), (2) sector shares on eligible-only (CA→38%), (3) derived shares from eligibility + sector + imports (CA→43.5%, 96% capped at 1.0). The breakthrough was discovering RATE_PROV in the Census fixed-width data — the same files we already download contain per-record SPI codes, giving true product-level USMCA claiming rates.
 
 ### ~~Switzerland IEEPA over-application (+24pp)~~ (Fixed)
 Per [90 FR 59281](https://www.federalregister.gov/documents/2025/12/18/2025-23316) (FR Doc. 2025-23316, Dec 18, 2025): EO 14346 implements the US-Switzerland-Liechtenstein trade framework, effective Nov 14, 2025 (retroactive). Terminates 9903.02.36 (Liechtenstein +15% surcharge) and 9903.02.58 (Switzerland +39% surcharge). New entries 9903.02.82-91 establish a 15% floor structure matching EU/Japan/S. Korea pattern: products with base rate >= 15% get no additional duty; products with base rate < 15% are raised to 15%. Also exempts PTAAP agricultural/natural resources, civil aircraft, and non-patented pharmaceuticals.
