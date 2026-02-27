@@ -493,13 +493,14 @@ apply_stacking_rules <- function(df, cty_china = '5700') {
         country == cty_china ~
           rate_ieepa_recip + rate_ieepa_fent + rate_301 + rate_s122 + rate_other,
 
-        # Others with 232: 232 + (recip + fentanyl + s122)*nonmetal + other
+        # Others with 232: 232 + (recip + fentanyl + s122)*nonmetal + 301 + other
         # All non-232 IEEPA authorities apply to non-metal portion only.
+        # S301 is unconditionally cumulative (no nonmetal scaling).
         rate_232 > 0 ~
-          rate_232 + (rate_ieepa_recip + rate_ieepa_fent + rate_s122) * nonmetal_share + rate_other,
+          rate_232 + (rate_ieepa_recip + rate_ieepa_fent + rate_s122) * nonmetal_share + rate_301 + rate_other,
 
-        # Others without 232: reciprocal + fentanyl + s122 + other
-        TRUE ~ rate_ieepa_recip + rate_ieepa_fent + rate_s122 + rate_other
+        # Others without 232: reciprocal + fentanyl + s122 + 301 + other
+        TRUE ~ rate_ieepa_recip + rate_ieepa_fent + rate_s122 + rate_301 + rate_other
       ),
       total_rate = base_rate + total_additional
     ) %>%

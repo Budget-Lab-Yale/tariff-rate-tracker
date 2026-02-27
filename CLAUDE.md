@@ -107,8 +107,8 @@ Mutual exclusion between 232 and IEEPA reciprocal (aligned with Tariff-ETRs):
 ```r
 # China with 232:    232 + recip*nonmetal + fentanyl + 301 + s122*nonmetal + other
 # China without 232: reciprocal + fentanyl + 301 + s122 + other  (10% recip + 10% fent post-Geneva)
-# Others with 232:   232 + (recip + fentanyl + s122)*nonmetal + other
-# Others without 232: reciprocal + fentanyl + s122 + other
+# Others with 232:   232 + (recip + fentanyl + s122)*nonmetal + 301 + other
+# Others without 232: reciprocal + fentanyl + s122 + 301 + other
 
 # USMCA (CA/MX): per-product utilization from Census SPI (RATE_PROV=18)
 # rate * (1 - usmca_share) applied to ALL CA/MX products

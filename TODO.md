@@ -25,76 +25,30 @@ See Done section.
 ### ~~7. CA/MX fentanyl product-level carve-outs~~ (Implemented)
 See Done section.
 
-## Tariff-ETRs Alignment (Feb 2026)
+## ~~Tariff-ETRs Alignment (Feb 2026)~~ (Completed)
 
-Tasks to align tariff-rate-tracker with the updated Tariff-ETRs stacking rules and data architecture (commit b144391).
+Tasks to align tariff-rate-tracker with the updated Tariff-ETRs stacking rules and data architecture (commit b144391). All items investigated/resolved.
 
-### 12. Update stacking rules: add S301 to all branches
-**Priority: High**
+### ~~12. Update stacking rules: add S301 to all branches~~ (Fixed)
+See Done section.
 
-Tariff-ETRs now treats Section 301 as unconditionally cumulative — it applies to full customs value regardless of 232 status, with no `nonmetal_share` scaling. The current `apply_stacking_rules()` in `helpers.R` (line ~465) omits `rate_301` from non-China branches (Others+232 and Others no-232). While 301 currently only targets China in practice, the formula should be universal for correctness and forward-compatibility.
+### ~~13. Add MFN rate support to rate schema and stacking~~ (Verified — already aligned)
+See Done section.
 
-**Current (helpers.R):**
-```r
-# Others+232: rate_232 + (recip + fent + s122) * nonmetal_share + rate_other
-# Others no-232: recip + fent + s122 + rate_other
-```
+### ~~14. Add target_total floor rule support for 232 and reciprocal~~ (N/A)
+See Done section.
 
-**Target (matching Tariff-ETRs calculations.R):**
-```r
-# Others+232: rate_232 + (recip + fent + s122) * nonmetal_share + rate_301 + rate_other
-# Others no-232: recip + fent + s122 + rate_301 + rate_other
-```
+### ~~15. Align nonmetal_share computation for non-China fentanyl~~ (Verified — already aligned)
+See Done section.
 
-Also verify China branches already include `rate_301` correctly (they do).
+### ~~16. Add MFN exemption shares support (FTA/GSP preferences)~~ (N/A)
+See Done section.
 
-### 13. Add MFN rate support to rate schema and stacking
-**Priority: High**
+### ~~17. Update CLAUDE.md stacking rules documentation~~ (Updated)
+See Done section.
 
-Tariff-ETRs now includes MFN as a first-class additive component: `final_rate = mfn_rate + policy_tariffs`. The tariff-rate-tracker uses `base_rate` (from HTS product `general` field) which is functionally equivalent to MFN, but should be verified:
-
-- Confirm `base_rate` in `RATE_SCHEMA` corresponds to `mfn_rate` in Tariff-ETRs
-- Verify `total_rate = base_rate + total_additional` matches `final_rate = mfn_rate + stacked_policy_tariffs`
-- If they diverge (e.g., Tariff-ETRs uses a separate MFN CSV while tracker parses from HTS JSON), document the difference
-
-### 14. Add target_total floor rule support for 232 and reciprocal
-**Priority: Medium** (blocked by #13)
-
-Tariff-ETRs now supports `target_total` in s232.yaml — a country-level "combined duty floor" where `effective_add_on = max(target_total - MFN, 0)`. This is used for EU/Japan/S.Korea 232 floor rates. The tariff-rate-tracker handles floor rates via `extract_floor_rates()` in the IEEPA context but may not apply the same MFN-offset logic for 232.
-
-- Review `06_calculate_rates.R` floor rate handling (step 2)
-- Compare with Tariff-ETRs `target_total_rules` in `load_s232_rates()` return value
-- Ensure floor logic uses `max(floor_rate - base_rate, 0)` consistently
-
-### 15. Align nonmetal_share computation for non-China fentanyl
-**Priority: Medium**
-
-Tariff-ETRs stacking for non-China countries: `(recip + fent + s122) * nonmetal_share` — fentanyl is scaled by nonmetal_share for non-China 232 products. The tariff-rate-tracker correctly does this in `apply_stacking_rules()` (Others+232 branch). Verify this is consistent and document the China exception (fentanyl at full value regardless of 232 status).
-
-### 16. Add MFN exemption shares support (FTA/GSP preferences)
-**Priority: Low** (blocked by #13)
-
-Tariff-ETRs now supports optional MFN exemption shares at HS2×country granularity: `effective_mfn = mfn_rate * (1 - exemption_share)`. This adjusts for FTA/GSP duty-free provisions. The tariff-rate-tracker doesn't have this concept — `base_rate` from HTS JSON is the statutory MFN rate without preference adjustments.
-
-- Determine whether this matters for the tracker's use case (statutory rates vs effective rates)
-- If needed, add optional exemption share loading and application to `base_rate`
-
-### 17. Update CLAUDE.md stacking rules documentation
-**Priority: Low** (blocked by #12, #13, #14)
-
-After implementing the above changes, update the stacking rules section in CLAUDE.md to reflect:
-- S301 in all branches (not just China)
-- MFN as explicit first-class component (if applicable)
-- target_total floor rule for 232
-- Any other formula changes
-
-### 18. Verify import cache compatibility with updated Tariff-ETRs
-**Priority: Low**
-
-`10_weighted_etr.R` reads the Tariff-ETRs import cache at `'../Tariff-ETRs/cache/hs10_by_country_gtap_2024_con.rds'`. After the Tariff-ETRs restructuring:
-- Verify the cache file still exists at the expected path
-- Verify the schema hasn't changed (expected columns: year, month, hs10, cty_code, value, gtap_sector)
-- If Tariff-ETRs cache format changed, update the reader in `10_weighted_etr.R`
+### ~~18. Verify import cache compatibility with updated Tariff-ETRs~~ (Verified — already compatible)
+See Done section.
 
 ## Low Priority / Future
 
@@ -195,3 +149,24 @@ Diagnostic on rev_32 for 27 EU floor countries + Japan + S. Korea. Floor formula
 
 ### ~~US Note 20/31 product lists~~ (Implemented)
 New script `src/12_scrape_us_notes.R` downloads Chapter 99 PDF from USITC, finds "Heading 9903.XX.XX applies to" anchors, extracts HTS subheading codes from each product list section. Covers Note 20 (Lists 1-3 + 4A: 9903.88.01/.02/.03/.15) and Note 31 (Biden acceleration: 9903.91.01-.11). Note 21 doesn't exist as a separate note — List 4A modifications are embedded in Note 20 subdivision (u). Parser found 10,587 codes with 10,132 matching existing CSV (strong validation), adding 296 new entries (mostly List 3). Run with `Rscript src/12_scrape_us_notes.R` (or `--dry-run` to preview). Requires `pdftools` package.
+
+### ~~S301 in all stacking branches~~ (Fixed — #12)
+Added `+ rate_301` to the Others+232 and Others-no-232 branches in `apply_stacking_rules()` (`src/helpers.R`). S301 is unconditionally cumulative — applies to full customs value regardless of 232 status, with no `nonmetal_share` scaling. China branches already included `rate_301` correctly. Currently zero impact for non-China countries (S301 only targets China), but correct for forward-compatibility. No TPC validation change expected.
+
+### ~~MFN rate support~~ (Verified — #13)
+`base_rate` (from HTS JSON product `general` field) is functionally equivalent to `mfn_rate` in Tariff-ETRs (from separate `mfn_rates_2025.csv`). Both are additive: tracker uses `total_rate = base_rate + total_additional`, Tariff-ETRs uses `final_rate = mfn_rate + stacked_policy_tariffs`. Different source granularity (HTS10 vs HS8) but same semantics. No code change needed.
+
+### ~~target_total floor rule for 232~~ (N/A — #14)
+Tracker parses 232 rates from HTS JSON Chapter 99 entries directly, not from config YAML. The `target_total` concept in Tariff-ETRs is a config-level abstraction where `effective_add_on = max(target_total - MFN, 0)`. The tracker doesn't need this — it reads the actual statutory rates from HTS JSON. Floor rates are handled in the IEEPA context (floor country framework), not 232.
+
+### ~~Nonmetal fentanyl alignment~~ (Verified — #15)
+Both systems scale fentanyl by `nonmetal_share` for non-China 232 products: `(recip + fent + s122) * nonmetal_share`. China exception (fentanyl at full value regardless of 232 status) is also aligned. No code change needed.
+
+### ~~MFN exemption shares~~ (N/A — #16)
+Tracker computes statutory rates (not effective preferential rates). MFN exemption shares (`effective_mfn = mfn_rate * (1 - exemption_share)`) are a Tariff-ETRs ETR concept for adjusting FTA/GSP duty-free provisions at HS2×country granularity. Not relevant to statutory rate tracking.
+
+### ~~CLAUDE.md stacking rules~~ (Updated — #17)
+Updated stacking rules comments in CLAUDE.md to show `+ 301` in all 4 branches (Others+232 and Others-no-232 were missing it).
+
+### ~~Import cache compatibility~~ (Verified — #18)
+Cache at `../Tariff-ETRs/cache/hs10_by_country_gtap_2024_con.rds` exists with correct schema: `hs10`, `cty_code`, `gtap_code`, `imports`. No format changes from Tariff-ETRs restructuring.
