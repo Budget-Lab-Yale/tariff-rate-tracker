@@ -282,6 +282,16 @@ load_policy_params <- function(yaml_path = here('config', 'policy_params.yaml'))
   params$FLOOR_RATE <- params$floor_rates$floor_rate
   params$FLOOR_COUNTRIES <- unlist(params$floor_rates$floor_countries)
 
+  # Swiss/Liechtenstein framework (EO 14346)
+  if (!is.null(params$swiss_framework)) {
+    params$SWISS_FRAMEWORK <- list(
+      effective_date = as.Date(params$swiss_framework$effective_date),
+      expiry_date = as.Date(params$swiss_framework$expiry_date),
+      finalized = isTRUE(params$swiss_framework$finalized),
+      countries = unlist(params$swiss_framework$countries)
+    )
+  }
+
   return(params)
 }
 

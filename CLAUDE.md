@@ -173,6 +173,16 @@ exempt products get `rate_ieepa_recip = 0` for their respective country groups.
 
 Country groups: `eu` (27 EU members), `japan`, `korea`, `swiss` (Switzerland + Liechtenstein).
 
+## Swiss/Liechtenstein Framework (EO 14346)
+
+15% floor structure effective Nov 14, 2025 (retroactive). IEEPA extraction range extended to 9903.02.02-91
+to natively parse Swiss floor entries (9903.02.82-91) when present in HTS JSON. Surcharge-to-floor override
+in `06_calculate_rates.R` is date-bounded by `swiss_framework` config in `policy_params.yaml`:
+- `effective_date`: Nov 14, 2025 (start of override window)
+- `expiry_date`: March 31, 2026 (framework must be finalized by this date)
+- `finalized`: set to `true` once deal confirmed (removes expiry constraint)
+- If framework lapses: override stops, surcharge rates resume automatically
+
 ## Census Country Codes
 
 Key codes: 5700 (China), 1220 (Canada), 2010 (Mexico), 4120 (UK), 5880 (Japan), 5820 (Hong Kong)

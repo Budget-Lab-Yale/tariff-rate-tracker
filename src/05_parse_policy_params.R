@@ -240,8 +240,9 @@ extract_ieepa_rates <- function(hts_raw, country_lookup) {
     # Phase 1: 9903.01.43-75 (Liberation Day)
     # Country-specific EOs: 9903.01.76-89 (Brazil EO 14323, India, etc.)
     # Phase 2: 9903.02.02-81 (August 7 reinstatement)
+    # Swiss/Liechtenstein framework: 9903.02.82-91 (EO 14346, 15% floor)
     grepl('^9903\\.01\\.(4[3-9]|[5-8][0-9])$', htsno) ||
-      grepl('^9903\\.02\\.([0-7][0-9]|8[01])$', htsno)
+      grepl('^9903\\.02\\.([0-8][0-9]|9[01])$', htsno)
   }, hts_raw)
 
   message('  IEEPA tier entries found: ', length(ieepa_items))

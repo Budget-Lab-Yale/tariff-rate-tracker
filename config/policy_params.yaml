@@ -76,7 +76,7 @@ authority_ranges:
     end:   '9903.01.75'
   ieepa_phase2_range:
     start: '9903.02.02'
-    end:   '9903.02.81'
+    end:   '9903.02.91'   # Extended from .81 to .91 to cover Swiss/Liechtenstein framework entries
 
 # --- Section 232 covered product prefixes ---
 # Prefix matching: '72' matches all HTS10 starting with 72, '8703' matches 8703xxxx, etc.
@@ -103,11 +103,22 @@ section_232_headings:
     default_rate: 0.25
     usmca_exempt: false
 
-# --- Floor rate structure (EU, Japan, S. Korea) ---
+# --- Floor rate structure (EU, Japan, S. Korea, Switzerland, Liechtenstein) ---
 floor_rates:
   eu_floor: 0.15
   floor_rate: 0.15
   floor_countries: ['5880', '5800', '4419', '4411']   # Japan, South Korea, Switzerland, Liechtenstein
+
+# --- Swiss/Liechtenstein Framework (EO 14346) ---
+# 15% floor structure per FR 2025-23316 (90 FR 59281), effective Nov 14, 2025.
+# The surcharge -> floor override in 06_calculate_rates.R only applies within
+# this date window. If finalized is true, the override has no expiry.
+# Set finalized to true once the agreement is confirmed (removes expiry constraint).
+swiss_framework:
+  effective_date: '2025-11-14'
+  expiry_date: '2026-03-31'
+  finalized: false
+  countries: ['4419', '4411']   # Switzerland, Liechtenstein
 
 # --- Authority name to rate column mapping ---
 authority_columns:

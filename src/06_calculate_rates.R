@@ -454,14 +454,47 @@ calculate_rates_for_revision <- function(
       # Override surcharge -> floor for countries in floor_countries config,
       # but ONLY when the surcharge rate exceeds the floor rate. This avoids
       # overriding countries at baseline (10%) in pre-Phase-2 revisions.
-      # Handles cases where HTS JSON hasn't been updated with floor entries
-      # (e.g., Switzerland/Liechtenstein per FR 2025-23316, effective Nov 14, 2025).
+      #
+      # For Switzerland/Liechtenstein (EO 14346): the override is date-bounded
+      # to the framework window. If the extraction already found native floor
+      # entries (from expanded 9903.02.82-91 range), those win rate selection
+      # and the override is a no-op (checks ieepa_type == 'surcharge').
+      #
+      # Date logic for Swiss framework:
+      #   - Before effective_date (Nov 14, 2025): no override (surcharge applies)
+      #   - Between effective and expiry: override applies (surcharge -> floor)
+      #   - After expiry (March 31, 2026): no override UNLESS finalized = true
+      #   - If finalized: override always applies (no expiry constraint)
       floor_country_codes <- pp$FLOOR_COUNTRIES
       floor_rate <- pp$FLOOR_RATE
+      swiss_fw <- pp$SWISS_FRAMEWORK
+      rev_date <- as.Date(effective_date)
+
+      # Determine which floor countries are eligible for override at this date.
+      # Non-Swiss floor countries (EU, Japan, Korea) always get the override.
+      # Swiss countries are date-bounded by the framework agreement.
+      swiss_override_active <- FALSE
+      if (!is.null(swiss_fw)) {
+        swiss_override_active <- rev_date >= swiss_fw$effective_date &&
+          (swiss_fw$finalized || rev_date <= swiss_fw$expiry_date)
+        if (!swiss_override_active) {
+          message('  Swiss framework override NOT active for ', effective_date,
+                  ' (window: ', swiss_fw$effective_date, ' to ',
+                  if (swiss_fw$finalized) 'permanent' else swiss_fw$expiry_date, ')')
+        }
+      }
+
       if (length(floor_country_codes) > 0 && !is.null(floor_rate)) {
-        override_mask <- country_ieepa$census_code %in% floor_country_codes &
+        # Exclude Swiss countries from override if outside framework window
+        eligible_floor_codes <- if (swiss_override_active) {
+          floor_country_codes
+        } else {
+          setdiff(floor_country_codes, swiss_fw$countries)
+        }
+
+        override_mask <- country_ieepa$census_code %in% eligible_floor_codes &
                          country_ieepa$ieepa_type == 'surcharge' &
-                         country_ieepa$ieepa_country_rate > floor_rate
+                         country_ieepa$ieepa_country_rate >= floor_rate
         if (any(override_mask)) {
           country_ieepa$ieepa_country_rate[override_mask] <- floor_rate
           country_ieepa$ieepa_type[override_mask] <- 'floor'
