@@ -65,12 +65,18 @@ See Done section.
 - `apply_scenario(ts, 'no_ieepa')` zeros IEEPA columns
 - Scenario totals are internally consistent after re-stacking
 
-### 11. Automated HTS revision detection
-Currently new revisions are manually downloaded and added to `config/revision_dates.csv`. Consider:
+### ~~11. Automated HTS revision detection~~ (Partially implemented)
+See Done section.
 
-- Scraping `hts.usitc.gov` for new revision notifications
-- Auto-downloading JSON when new revisions appear
-- Running incremental pipeline on detection
+### 19. Investigate 2026_rev_4 Section 122 Phase 3 (9903.03.01-11)
+Rev_4 (2026-02-25) added 11 new ch99 entries under 9903.03.xx with a 10% blanket on all countries (US Note 2 subdivision (aa)). This appears to be a new Section 122 phase. Need to:
+
+- Verify classification in `classify_authority()` — currently classified as "other"
+- Check if these should be treated as a distinct authority (rate_s122 expansion or new column)
+- Validate stacking behavior with existing IEEPA/232/301
+
+### 20. Swiss framework finalization deadline (March 31, 2026)
+The US-Switzerland-Liechtenstein framework (EO 14346) must be finalized by March 31, 2026. If confirmed, set `swiss_framework.finalized: true` in `policy_params.yaml`. If it lapses, rates revert to surcharges. Monitor Federal Register and USITC revisions around this date.
 
 ## Done
 
@@ -170,3 +176,10 @@ Updated stacking rules comments in CLAUDE.md to show `+ 301` in all 4 branches (
 
 ### ~~Import cache compatibility~~ (Verified — #18)
 Cache at `../Tariff-ETRs/cache/hs10_by_country_gtap_2024_con.rds` exists with correct schema: `hs10`, `cty_code`, `gtap_code`, `imports`. No format changes from Tariff-ETRs restructuring.
+
+### ~~Automated HTS revision detection~~ (Partially implemented — #11)
+USITC deprecated the `hts.usitc.gov/reststop/getJSON` endpoint in early 2026. Discovery now uses two sources:
+1. **Release metadata**: `hts.usitc.gov/reststop/releaseList` returns all releases with effective dates, status, and creator info. Used to detect new 2026 revisions.
+2. **Bulk JSON download**: Files now hosted at `www.usitc.gov/sites/default/files/tata/hts/hts_{year}_{edition}_json.json` (e.g., `hts_2026_revision_4_json.json`).
+
+`02_download_hts.R:build_download_url()` updated to use the new URL pattern. `update_pipeline.R` handles the full check-download-process workflow. Remaining manual step: adding rows to `revision_dates.csv` with effective dates (could be automated from `releaseList` API response).

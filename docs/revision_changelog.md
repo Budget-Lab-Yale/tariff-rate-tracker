@@ -214,6 +214,26 @@ No Chapter 99 changes.
 - Added: 9903.89.01 (301 exclusion, rate = 0%)
 - Suspended: 9903.01.63 (China +34%, re-confirmed suspended)
 
+### `2026_rev_1` — 2026-01-16: Semiconductor Tariffs
+**Semiconductor tariffs (US Note 39)**: New subchapter for semiconductor articles.
+- Added: 9903.79.01 (semiconductor articles, 25%)
+- Added: 9903.79.02-09 (exemptions: transit, USMCA, country-specific)
+- 19 description changes
+
+### `2026_rev_2` — 2026-01-30
+No Chapter 99 changes. +153 product line additions.
+
+### `2026_rev_3` — 2026-02-12: Argentina Beef Quota
+- Added: 9903.54.01 (Argentina beef quota, no rate change)
+- 6 description changes
+- Phase 1 entries grew from 85 to 90 (5 unsuspensions)
+
+### `2026_rev_4` — 2026-02-25: Section 122 Phase 3
+**Section 122 Phase 3** (US Note 2 subdivision (aa)): 10% blanket on all countries.
+- Added: 9903.03.01 (10% blanket on all countries)
+- Added: 9903.03.02-11 (exemptions: transit, IEEPA exempt, civil aircraft, 232, CA/MX, CAFTA-DR, donations, informational materials)
+- 14 description changes
+
 ---
 
 ## Key Policy Milestones
@@ -236,6 +256,9 @@ No Chapter 99 changes.
 | 2025-10-15 | 301 cranes (100%); China fentanyl reduced to 10% | rev_27 |
 | 2025-11-15 | S. Korea floor (15%) | rev_32 |
 | 2026-01-01 | Switzerland/Liechtenstein floor (15%) | 2026_basic |
+| 2026-01-16 | Semiconductor tariffs (25%; 9903.79) | 2026_rev_1 |
+| 2026-02-12 | Argentina beef quota | 2026_rev_3 |
+| 2026-02-25 | **Section 122 Phase 3** (10% blanket; 9903.03) | 2026_rev_4 |
 
 ## Authority Count Evolution
 
@@ -247,6 +270,8 @@ No Chapter 99 changes.
 | rev_18 | 250 | 103 | 3 | 20 | 243 | 619 |
 | rev_32 | 270 | 108 | 4 | 20 | 278 | 680 |
 | 2026_basic | 270 | 109 | 4 | 20 | 288 | 691 |
+| 2026_rev_1 | 270 | 109 | 4 | 20 | 297 | 700 |
+| 2026_rev_4 | 270 | 109 | 4 | 20 | 309 | 712 |
 
 ---
 

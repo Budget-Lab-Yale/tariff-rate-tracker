@@ -31,20 +31,16 @@
 - **Impact**: CA non-USMCA non-232: 51.3% match (7,556 products). MX non-USMCA non-232: 48.9% match (6,254 products).
 - **Fix**: Investigate alternative USMCA classification sources. May require external USMCA utilization data.
 
-### 2. Switzerland IEEPA Over-Application (5,544 products, +24.6pp)
-- **Gap**: Our rate 39%, TPC ~15%
-- **Root cause**: We apply +39% IEEPA surcharge (9903.02.58). TPC shows much lower. Switzerland is EFTA, not EU — not a floor/surcharge selection issue (Switzerland has only surcharge entries). May reflect a rate reduction not yet in our revision data.
-- **Fix**: Check Switzerland (4419) in IEEPA extraction. Verify its Phase 2 rate against executive order text.
+### ~~2. Switzerland IEEPA Over-Application (5,544 products, +24.6pp)~~ (RESOLVED)
+Fixed via Swiss framework implementation (EO 14346). Switzerland (4419) and Liechtenstein (4411) now use 15% floor structure matching EU/Japan/S. Korea. HTS 2026_basic has native floor entries (9903.02.82-91). Surcharge-to-floor override applies to pre-2026 revisions within the framework window (Nov 14, 2025 → March 31, 2026). Product exemptions (PTAAP, civil aircraft, pharma) in `resources/floor_exempt_products.csv`.
 
 ### 3. EU Floor Rate Residual (~4pp systematic, ~33-40% exact match)
 - **Gap**: EU countries average 33-40% exact match with ~3-5pp mean excess
 - **Root cause**: Floor formula `max(0, floor_rate - base_rate)` is correct. Residual gap may be from TPC using slightly different floor mechanics or base rate parsing differences.
 - **Note**: Japan/S. Korea floor selection bug has been **fixed**. S. Korea now at 40.1% exact match, in line with EU countries.
 
-### 4. CA/MX Fentanyl Product-Level Carve-Outs (~1,765 products)
-- **Gap**: ~915 CA + ~850 MX products where TPC shows 0-10% but we apply blanket 35%/25%.
-- **Root cause**: HTS has lower fentanyl rates for energy products (9903.01.13: CA crude oil/natural gas/critical minerals at +10%; 9903.01.04: MX energy) and potash (9903.01.15: +10%). We take the general rate per country instead of product-specific carve-outs.
-- **Fix**: Differentiate fentanyl rates by product category in `extract_ieepa_fentanyl_rates()` instead of taking first entry per country.
+### ~~4. CA/MX Fentanyl Product-Level Carve-Outs (~1,765 products)~~ (RESOLVED)
+Fixed via product-level carve-out implementation. `extract_ieepa_fentanyl_rates()` now returns all entries with `entry_type` column ('general' vs 'carveout'). Product lists in `resources/fentanyl_carveout_products.csv` (308 HTS8 prefixes). Step 3 in `calculate_rates_for_revision()` applies carve-out rates (10%) to matching products, falling back to the general blanket rate (CA 35%, MX 25%).
 
 ## Tier 2: Refinement (product-level accuracy)
 
@@ -64,19 +60,18 @@
 - We generate rates for 240 countries; TPC covers ~209. Products for the ~31 countries TPC doesn't cover contribute to the "extra in ours" count but don't affect match rates.
 - **Fix**: Low priority — our broader coverage is correct by design.
 
-### 8. 2026 HTS Revision Support
-- Pipeline handles `2026_basic` as a special case but has no support for `2026_rev_1`, `2026_rev_2`, etc.
-- `resolve_json_path()` and `list_available_revisions()` need updating before 2026 revisions appear.
+### ~~8. 2026 HTS Revision Support~~ (RESOLVED)
+Pipeline fully supports 2026 revisions via `parse_revision_id()` which dynamically extracts year from revision IDs (e.g., `2026_rev_3` → year=2026, rev=rev_3). All infrastructure (`resolve_json_path`, `list_available_revisions`, `build_download_url`) handles multi-year data. Currently processing 2026_basic + 2026_rev_1-4 (through Feb 25, 2026). USITC API change: `build_download_url()` updated to use `www.usitc.gov/sites/default/files/tata/hts/` after the old `getJSON` endpoint was deprecated.
 
 ## Priority Ordering
 
-| Priority | Item | Est. Impact on rev_32 Exact Match |
-|----------|------|-----------------------------------|
-| P1 | #1 USMCA classification mismatch | +5-8pp CA/MX |
-| P1 | #2 Switzerland | removes false positives |
-| P2 | #3 EU floor residual | +2-3pp |
-| P2 | #4 Fentanyl product carve-outs | +2-3pp CA/MX |
-| P3 | #5-6 Refinements | <0.5pp each |
+| Priority | Item | Status |
+|----------|------|--------|
+| ~~P1~~ | ~~#1 USMCA classification mismatch~~ | Partially resolved (Census SPI: 66.4% match) |
+| ~~P1~~ | ~~#2 Switzerland~~ | RESOLVED |
+| P2 | #3 EU floor residual | Open (patterns B, C) |
+| ~~P2~~ | ~~#4 Fentanyl product carve-outs~~ | RESOLVED |
+| P3 | #5-6 Refinements | Open (<0.5pp each) |
 
 ## Recently Resolved
 
@@ -88,3 +83,7 @@
 - **Section 232 derivative products**: ~130 aluminum-containing articles now covered with metal content scaling.
 - **Floor country IEEPA selection (Japan/S. Korea)**: Fixed tie-breaking to prefer floor over surcharge.
 - **Section 301 blanket coverage and generation stacking**: Expanded from ~10,400 to ~11,000 unique HTS8 codes (~12,200 entries) by adding List 4B (9903.88.16, 1,519 products). Rate aggregation changed from `max()` to generation-based stacking (MAX within generation, SUM across). Added missing ch99 rates: 9903.91.06 (25%), 9903.91.07 (50%), 9903.91.08 (100%), 9903.92.10 (25%). Rev_32 overall improvement: 60.5% → 66.1% exact match; China: 72.4% exact.
+- **Switzerland IEEPA over-application (+24pp)**: Fixed via Swiss framework (EO 14346). 15% floor structure replaces +39% surcharge, with product exemptions. See `docs/active_hts_changes.md`.
+- **CA/MX fentanyl product-level carve-outs**: Implemented via `resources/fentanyl_carveout_products.csv` (308 HTS8 prefixes). Carve-out products get 10% instead of general rate.
+- **2026 HTS revision support**: Pipeline extended through 2026_rev_4 (Feb 25, 2026). USITC download URL updated after `getJSON` deprecation. 4 new policy milestones: semiconductor tariffs (rev_1), Argentina beef quota (rev_3), Section 122 Phase 3 (rev_4).
+- **USMCA utilization rates**: Census SPI product-level shares implemented. Rev_32 overall: 63.6% → 66.4% exact match. CA: 44.3% → 79.4%, MX: 44.5% → 83.9%.

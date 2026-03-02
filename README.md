@@ -1,10 +1,10 @@
 # Tariff Rate Tracker
 
-An R-based system for constructing statutory U.S. tariff rates at the HTS-10 x country level, using the USITC Harmonized Tariff Schedule JSON archives as the primary source. Processes all HTS revisions sequentially to build a time series of tariff rates across 2025. Designed to produce outputs compatible with the Yale Budget Lab Tariff-Model.
+An R-based system for constructing statutory U.S. tariff rates at the HTS-10 x country level, using the USITC Harmonized Tariff Schedule JSON archives as the primary source. Processes all HTS revisions sequentially to build a time series of tariff rates across 2025-2026. Designed to produce outputs compatible with the Yale Budget Lab Tariff-Model.
 
 ## Status
 
-**In development.** The pipeline processes 34 HTS JSON archives (basic + revisions 1-32 + 2026 basic) to build per-revision rate snapshots and a combined time series. All rates are derived from HTS source data -- no external rate inputs. Current validation against TPC benchmark data shows 86% exact match at rev_10 (post-Liberation Day), 66% at rev_32. Best-matching countries (surcharge IEEPA) hit 87-94%. See [Validation Status](#validation-status) and [Known Issues](#known-issues).
+**In development.** The pipeline processes 39 HTS JSON archives (2025 basic + revisions 1-32 + 2026 basic + 2026 revisions 1-4) to build per-revision rate snapshots and a combined time series. All rates are derived from HTS source data -- no external rate inputs. Current validation against TPC benchmark data shows 86% exact match at rev_10 (post-Liberation Day), 66% at rev_32. Best-matching countries (surcharge IEEPA) hit 87-94%. See [Validation Status](#validation-status) and [Known Issues](#known-issues).
 
 ## How It Works
 
@@ -43,8 +43,13 @@ The orchestrator repeats these steps for each HTS revision, producing per-revisi
 | `08_apply_scenarios.R` | Counterfactual scenario system. Zeros out selected authority columns and recomputes totals. Config in `config/scenarios.yaml`. |
 | `09_diagnostics.R` | Validation and debugging utilities: Section 301 coverage gap report, China IEEPA tracking, per-revision summary. |
 | `helpers.R` | Shared utility functions (rate parsing, HTS normalization, footnote extraction, file I/O). |
+| `logging.R` | Structured logging module (`init_logging`, `log_info`/`warn`/`error`/`debug`). |
 | `10_weighted_etr.R` | Import-weighted effective tariff rate analysis. Uses `get_rates_at_date()` from `11_daily_series.R` to query the built timeseries, calculates weighted average ETRs by authority/partner/sector, produces comparison plots with TPC overlays. |
 | `11_daily_series.R` | Daily rate series: `get_rates_at_date(ts, date)` for point-in-time queries, `build_daily_aggregates()` for pre-computed daily ETRs, `expand_to_daily()` for on-demand expansion. |
+| `12_scrape_us_notes.R` | Parses US Note 20/21/31 product lists and floor country exemptions from Chapter 99 PDF. |
+| `13_revision_changelog.R` | Diffs Ch99 entries across all revisions, builds policy timeline. |
+| `update_pipeline.R` | Automated incremental update: detects new revisions, downloads, and processes. |
+| `quality_report.R` | Schema checks, per-revision quality metrics, anomaly detection. |
 
 ### Single-Revision Pipeline
 
@@ -56,11 +61,11 @@ The orchestrator repeats these steps for each HTS revision, producing per-revisi
 ## Usage
 
 ```bash
-# Full backfill: process all 34 HTS revisions
+# Full backfill: process all 38 HTS revisions
 Rscript src/00_build_timeseries.R
 
-# Incremental: process only revisions after rev_31
-Rscript src/00_build_timeseries.R --start-from rev_31
+# Incremental: process only new revisions after 2026_basic
+Rscript src/00_build_timeseries.R --start-from 2026_basic
 
 # Single-revision rate calculation
 Rscript src/run_pipeline.R
@@ -69,14 +74,20 @@ Rscript src/run_pipeline.R
 ### Incremental Update Workflow
 
 ```bash
-# 1. Download new JSON
-# hts.usitc.gov/export?format=json → data/hts_archives/hts_2025_rev_33.json
+# 1. Check for new revisions via USITC API
+curl -s "https://hts.usitc.gov/reststop/releaseList" | head -c 500
 
-# 2. Add row to config/revision_dates.csv
-# rev_33,2025-12-15,
+# 2. Download new JSON (USITC hosts bulk JSON at www.usitc.gov)
+Rscript src/02_download_hts.R --dry-run    # Check what's missing
+Rscript src/02_download_hts.R              # Download missing files
 
-# 3. Run incremental (loads cached state from rev_32, processes only rev_33)
-Rscript src/00_build_timeseries.R --start-from rev_32
+# 3. Add rows to config/revision_dates.csv for new revisions
+
+# 4. Run incremental (processes only revisions after the specified one)
+Rscript src/00_build_timeseries.R --start-from 2026_basic
+
+# Or use the automated update pipeline (steps 1-4 combined)
+Rscript src/update_pipeline.R
 ```
 
 ### Output
@@ -292,13 +303,13 @@ Where `nonmetal_share = 1 - metal_share` when `rate_232 > 0` and `metal_share < 
 
 ### Input
 
-- **HTS JSON archives** (`data/hts_archives/`): Downloaded from `hts.usitc.gov/export?format=json`. Currently holds the 2025 basic edition plus revisions 1-32 and the 2026 basic edition. Not committed to git due to size (~80MB each).
+- **HTS JSON archives** (`data/hts_archives/`): Downloaded from `www.usitc.gov/sites/default/files/tata/hts/` (the old `hts.usitc.gov/reststop/getJSON` endpoint was deprecated in early 2026). Currently holds 39 files: 2025 basic + revisions 1-32 + 2026 basic + 2026 revisions 1-4. ~13-14 MB each, not committed to git.
 - **TPC benchmark data** (`data/tpc/tariff_by_flow_day.csv`): Tariff-Model team's estimated tariff rate changes by HTS-10, country, and date. ~250K rows across 42 countries and 5 snapshot dates (2025-03-17, 2025-04-17, 2025-07-17, 2025-10-17, 2025-11-17). **Used for validation only, never as rate input.** See `data/tpc/tpc_notes.txt` for assumptions (50% metal share for derivatives, 40% generic drug share, USMCA share adjustment for Canada/Mexico).
 
 ### Configuration
 
 - `config/policy_params.yaml`: All policy constants (country codes, authority ranges, 232 chapter/heading coverage, floor rates, 301 rates). Single source of truth loaded by `helpers.R::load_policy_params()`.
-- `config/revision_dates.csv`: Maps each HTS revision to its effective date and (where applicable) the corresponding TPC validation date. 37 rows covering basic through 2026_basic.
+- `config/revision_dates.csv`: Maps each HTS revision to its effective date and (where applicable) the corresponding TPC validation date. 39 rows covering basic through 2026_rev_4.
 - `config/scenarios.yaml`: Counterfactual scenario definitions (baseline, no_ieepa, no_301, no_232, pre_2025, etc.). Used by `07_apply_scenarios.R`.
 ### Reference
 
@@ -395,7 +406,7 @@ Products identified by chapter (72-73 = steel, 76 = aluminum) and heading-level 
 
 ## Data Sources
 
-- **HTS Archives**: [USITC HTS Online](https://hts.usitc.gov/)
+- **HTS Archives**: [USITC HTS Online](https://hts.usitc.gov/) — bulk JSON via [data.gov catalog](https://catalog.data.gov/dataset/harmonized-tariff-schedule-of-the-united-states-2024); release metadata via `hts.usitc.gov/reststop/releaseList`
 - **Census Country Codes**: [Census Bureau](https://www.census.gov/foreign-trade/schedules/b/countrycodes.html)
 - **Federal Register**: Proclamations and executive orders (manual curation)
 

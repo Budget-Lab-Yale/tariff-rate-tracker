@@ -9,11 +9,11 @@ Tariff Rate Tracker - An R-based system for constructing statutory U.S. tariff r
 ## Key Commands
 
 ```bash
-# Full backfill: process all 34 HTS revisions
+# Full backfill: process all 38 HTS revisions
 Rscript src/00_build_timeseries.R
 
-# Incremental: process only new revisions after rev_32
-Rscript src/00_build_timeseries.R --start-from rev_32
+# Incremental: process only new revisions after 2026_basic
+Rscript src/00_build_timeseries.R --start-from 2026_basic
 
 # Automated incremental update (checks for new revisions)
 Rscript src/update_pipeline.R

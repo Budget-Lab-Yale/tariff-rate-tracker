@@ -44,6 +44,8 @@ When USITC publishes an HTS revision incorporating a change listed here, the ove
 
 4. **Product exemptions**: 1,681 exempt products (PTAAP, civil aircraft, pharma) in `resources/floor_exempt_products.csv`, applied in step 2 of rate calculation.
 
+**HTS status (March 2026)**: Native floor entries (9903.02.82-91) are present in HTS JSON starting from `2026_basic` (Jan 1, 2026) and persist through `2026_rev_4` (Feb 25, 2026). The surcharge-to-floor override in `06_calculate_rates.R` is now a no-op for these revisions since the native entries win rate selection. The override remains necessary for `rev_32` (Nov 15, 2025) and earlier revisions within the framework window.
+
 **Conditional expiry**: The Framework agreement must be finalized by March 31, 2026. If not, rates revert to +39% (Switzerland) / +15% (Liechtenstein) surcharges. When confirmed, set `swiss_framework.finalized: true` in `config/policy_params.yaml` to make the floor treatment permanent.
 
 ---

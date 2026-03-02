@@ -22,20 +22,23 @@ library(tidyverse)
 
 #' Build USITC download URL for an HTS revision
 #'
-#' @param revision Revision identifier (e.g., 'basic', 'rev_1')
-#' @param year HTS year (default: 2025)
+#' Uses the static file hosting at www.usitc.gov/sites/default/files/tata/hts/
+#' (the old hts.usitc.gov/reststop/getJSON endpoint was deprecated in early 2026).
+#'
+#' @param revision Revision identifier (e.g., 'basic', 'rev_1', '2026_rev_3')
+#' @param year HTS year (default: 2025, ignored if revision includes year prefix)
 #' @return Character URL
 build_download_url <- function(revision, year = 2025) {
-  base_url <- 'https://hts.usitc.gov/reststop/getJSON'
+  base_url <- 'https://www.usitc.gov/sites/default/files/tata/hts'
   parsed <- parse_revision_id(revision)
   yr <- parsed$year
   rev <- parsed$rev
 
   if (rev == 'basic') {
-    url <- paste0(base_url, '?year=', yr)
+    url <- paste0(base_url, '/hts_', yr, '_basic_edition_json.json')
   } else if (grepl('^rev_', rev)) {
     rev_num <- gsub('rev_', '', rev)
-    url <- paste0(base_url, '?year=', yr, '&revision=', rev_num)
+    url <- paste0(base_url, '/hts_', yr, '_revision_', rev_num, '_json.json')
   } else {
     stop('Unknown revision format: ', revision)
   }

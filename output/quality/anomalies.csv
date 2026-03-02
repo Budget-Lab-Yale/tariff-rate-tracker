@@ -1,0 +1,3 @@
+revision,effective_date,anomaly_type,detail
+rev_1,2025-01-27,product_count_jump,Change of 1627 products (18106 -> 19733)
+rev_7,2025-04-02,rate_level_jump,Mean additional rate changed by -10.2pp
