@@ -13,8 +13,9 @@ The tracker builds a panel of statutory tariff rates from HTS JSON archives. The
 1. **Footnote references** (Section 301, IEEPA fentanyl): Product lines contain footnotes like "See 9903.88.15" that point to Ch99 subheadings specifying the additional duty rate and country scope.
 2. **Chapter-based coverage** (Section 232): Ch99 entries describe which products they cover by referencing HTS notes (e.g., "note 16 to this subchapter") rather than individual product lines. Products are identified by HTS chapter -- Ch. 72-73 for steel, Ch. 76 for aluminum.
 3. **Universal application with country-specific rates** (IEEPA reciprocal/fentanyl): Entries in 9903.01-02.xx apply to all products from a given country. Each entry's description names the countries and the `general` field encodes the rate. Some countries (EU, Japan, South Korea) use a floor structure instead of a surcharge.
+4. **Blanket non-discriminatory tariff** (Section 122): A uniform tariff applied to all products and all countries, with product exemptions from an Annex II list. Gated by a 150-day statutory expiry window (Trade Act §122).
 
-A simple diff of base rates across HTS revisions would miss all three mechanisms.
+A simple diff of base rates across HTS revisions would miss all four mechanisms.
 
 ### Pipeline Steps (per revision)
 
@@ -28,66 +29,98 @@ The orchestrator repeats these steps for each HTS revision, producing per-revisi
 
 ## Code Guide
 
-### Timeseries Pipeline (active)
+### Main Entry Point
 
 | File | Purpose |
 |------|---------|
-| `00_build_timeseries.R` | **Main orchestrator.** Iterates over all HTS revisions, builds per-revision rate snapshots, computes deltas, runs TPC validation, and combines into a long-format time series. Supports incremental updates via `--start-from`. |
+| `00_build_timeseries.R` | **Main orchestrator.** Iterates over all HTS revisions, builds per-revision rate snapshots, computes deltas, runs TPC validation, and combines into a long-format time series. Supports full rebuild (`--full`), incremental (`--start-from`), and auto-update (default). After building, runs downstream scripts (daily series, weighted ETR, quality report) unless `--build-only`. |
+
+### Build Pipeline (sourced by `00_build`)
+
+| File | Purpose |
+|------|---------|
 | `01_scrape_revision_dates.R` | Scrapes USITC for revision effective dates. |
 | `02_download_hts.R` | Downloads missing HTS JSON archives from USITC. |
-| `03_scrape_us_notes.R` | Parses US Note 20/21/31 product lists and floor country exemptions from Chapter 99 PDF. Supports per-revision PDF download and parsing. |
 | `04_parse_chapter99.R` | Parses all Chapter 99 entries from HTS JSON. Extracts rates from the `general` field, infers authority type from the subheading range, and parses country scope from the `description` field. |
 | `05_parse_products.R` | Parses HTS-10 product lines. Extracts base MFN rates and Chapter 99 footnote references. |
 | `06_parse_policy_params.R` | Extracts policy parameters directly from HTS JSON: IEEPA country-specific reciprocal rates (with rate_type classification and EU expansion), IEEPA fentanyl rates, Section 232 rates (including 9903.94 autos), and USMCA eligibility. |
-| `07_calculate_rates.R` | Joins products to Chapter 99 authorities via footnote refs. Applies IEEPA reciprocal/fentanyl as blanket country-level tariffs (with product exemptions). Identifies Section 232 products by chapter and heading prefix. Applies stacking rules. Expands to the country dimension. |
+| `07_calculate_rates.R` | Joins products to Chapter 99 authorities via footnote refs. Applies IEEPA reciprocal/fentanyl as blanket country-level tariffs (with product exemptions). Identifies Section 232 products by chapter and heading prefix. Gates Section 122 on statutory expiry. Applies stacking rules. Expands to the country dimension. |
 | `08_validate_tpc.R` | Compares calculated rates against TPC benchmark data at the HTS-10 x country x date level. Reports match rates and identifies systematic discrepancies. |
-| `09_apply_scenarios.R` | Counterfactual scenario system. Zeros out selected authority columns and recomputes totals. Config in `config/scenarios.yaml`. |
-| `10_diagnostics.R` | Validation and debugging utilities: Section 301 coverage gap report, China IEEPA tracking, per-revision summary. |
-| `helpers.R` | Shared utility functions (rate parsing, HTS normalization, footnote extraction, file I/O). |
-| `logging.R` | Structured logging module (`init_logging`, `log_info`/`warn`/`error`/`debug`). |
-| `11_weighted_etr.R` | Import-weighted effective tariff rate analysis. Uses `get_rates_at_date()` from `12_daily_series.R` to query the built timeseries, calculates weighted average ETRs by authority/partner/sector, produces comparison plots with TPC overlays. |
-| `12_daily_series.R` | Daily rate series: `get_rates_at_date(ts, date)` for point-in-time queries, `build_daily_aggregates()` for pre-computed daily ETRs, `expand_to_daily()` for on-demand expansion. |
-| `13_revision_changelog.R` | Diffs Ch99 entries across all revisions, builds policy timeline. |
-| `update_pipeline.R` | Automated incremental update: detects new revisions, downloads, and processes. |
-| `quality_report.R` | Schema checks, per-revision quality metrics, anomaly detection. |
 
-### Single-Revision Pipeline
+### Downstream (run automatically by `00_build`, or standalone)
 
 | File | Purpose |
 |------|---------|
-| `run_pipeline.R` | Runs steps 1-5 for a single revision. Useful for quick checks. |
+| `11_weighted_etr.R` | Import-weighted effective tariff rate analysis. Uses `get_rates_at_date()` from `helpers.R` to query the built timeseries, calculates weighted average ETRs by authority/partner/sector, produces comparison plots with TPC overlays. Callable via `run_weighted_etr()`. |
+| `12_daily_series.R` | Daily rate series: `build_daily_aggregates()` for pre-computed daily ETRs (with Section 122 expiry interval splitting), `expand_to_daily()` for on-demand expansion. Callable via `run_daily_series()`. |
+| `quality_report.R` | Schema checks, per-revision quality metrics, anomaly detection. Callable via `run_quality_report()`. |
+
+### Shared Infrastructure
+
+| File | Purpose |
+|------|---------|
+| `helpers.R` | Shared utility functions (rate parsing, HTS normalization, footnote extraction, file I/O, policy params, stacking rules, `get_rates_at_date()`). |
+| `logging.R` | Structured logging module (`init_logging`, `log_info`/`warn`/`error`/`debug`). |
+
+### Standalone Tools (not part of build)
+
+| File | Purpose |
+|------|---------|
+| `03_scrape_us_notes.R` | Data-prep tool: parses US Note 20/21/31 product lists and floor country exemptions from Chapter 99 PDF. Generates static resource files consumed by the build. Run manually when USITC updates PDFs. |
+| `09_apply_scenarios.R` | Counterfactual scenario system. Zeros out selected authority columns and recomputes totals. Config in `config/scenarios.yaml`. |
+| `10_diagnostics.R` | Validation and debugging utilities: Section 301 coverage gap report, China IEEPA tracking, per-revision summary. |
+| `13_revision_changelog.R` | Diffs Ch99 entries across all revisions, builds policy timeline. |
 | `test_tpc_comparison.R` | Standalone TPC comparison across all 5 validation dates. Produces detailed diagnostics by revision, country, and discrepancy pattern. |
+
+### Deprecated
+
+| File | Purpose |
+|------|---------|
+| `run_pipeline.R` | Single-revision orchestrator. **Deprecated** — use `00_build_timeseries.R`. |
+| `update_pipeline.R` | Automated incremental update. **Deprecated** — auto-detect logic folded into `00_build_timeseries.R`. |
 
 ## Usage
 
 ```bash
-# Full backfill: process all 38 HTS revisions
+# Auto-update (default): detect new revisions → download → build → daily → ETR → quality
 Rscript src/00_build_timeseries.R
 
-# Incremental: process only new revisions after 2026_basic
-Rscript src/00_build_timeseries.R --start-from 2026_basic
+# Full rebuild from scratch
+Rscript src/00_build_timeseries.R --full
 
-# Single-revision rate calculation
-Rscript src/run_pipeline.R
+# Incremental from a specific revision
+Rscript src/00_build_timeseries.R --start-from rev_25
+
+# Build only (skip downstream: daily series, ETR, quality report)
+Rscript src/00_build_timeseries.R --build-only
+
+# Standalone downstream scripts (also run automatically by 00_build)
+Rscript src/12_daily_series.R
+Rscript src/11_weighted_etr.R
+Rscript src/quality_report.R
 ```
 
-### Incremental Update Workflow
+The default mode (`Rscript src/00_build_timeseries.R` with no flags) checks for a previous build, identifies new revisions, downloads missing JSON, builds the timeseries incrementally, and then runs all downstream scripts. Use `--full` for a clean rebuild or `--build-only` to skip downstream steps.
+
+### Manual Data-Prep Workflow
+
+When USITC publishes new Chapter 99 PDFs, regenerate the static resource files before building:
 
 ```bash
 # 1. Check for new revisions via USITC API
 curl -s "https://hts.usitc.gov/reststop/releaseList" | head -c 500
 
-# 2. Download new JSON (USITC hosts bulk JSON at www.usitc.gov)
+# 2. Download new JSON
 Rscript src/02_download_hts.R --dry-run    # Check what's missing
 Rscript src/02_download_hts.R              # Download missing files
 
-# 3. Add rows to config/revision_dates.csv for new revisions
+# 3. Regenerate 301 product lists and floor exemptions from Ch99 PDF
+Rscript src/03_scrape_us_notes.R --all
 
-# 4. Run incremental (processes only revisions after the specified one)
-Rscript src/00_build_timeseries.R --start-from 2026_basic
+# 4. Add rows to config/revision_dates.csv for new revisions
 
-# Or use the automated update pipeline (steps 1-4 combined)
-Rscript src/update_pipeline.R
+# 5. Run full pipeline
+Rscript src/00_build_timeseries.R
 ```
 
 ### Output
@@ -104,6 +137,24 @@ data/timeseries/
   ch99_rev_32.rds             # Cached parse state (for incremental)
   products_rev_32.rds
   validation_rev_6.rds        # TPC comparison at matched dates
+
+output/daily/                   # From 12_daily_series.R
+  daily_overall.csv             # Per-day aggregate ETRs
+  daily_by_country.csv          # Per-day x country ETRs
+  daily_by_authority.csv        # Per-day x authority ETRs
+  daily_aggregates.rds          # All daily aggregates (list)
+
+output/etr/                     # From 11_weighted_etr.R
+  etr_overall.csv               # Import-weighted ETR by policy date
+  etr_by_partner.csv            # ETR by partner group
+  etr_by_authority.csv          # Authority decomposition
+  etr_by_gtap.csv               # ETR by GTAP sector
+  etr_*.png                     # Comparison plots with TPC overlay
+
+output/quality/                 # From quality_report.R
+  schema_check.csv              # Column presence and NA counts
+  revision_quality.csv          # Per-revision stats
+  anomalies.csv                 # Suspicious jumps or values
 ```
 
 ### Rate Schema
@@ -121,7 +172,6 @@ Each snapshot/timeseries row contains:
 | `rate_ieepa_fent` | dbl | IEEPA fentanyl |
 | `rate_s122` | dbl | Section 122 |
 | `rate_other` | dbl | Other (Section 201, etc.) |
-| `rate_section_201` | dbl | Section 201 safeguards |
 | `metal_share` | dbl | Metal content share (1.0 for non-derivatives) |
 | `total_additional` | dbl | After stacking |
 | `total_rate` | dbl | base + additional |
@@ -148,7 +198,10 @@ Each snapshot/timeseries row contains:
 | **IEEPA reciprocal (Phase 1)** | `rate_ieepa_recip` | ~60 countries | rev_7 (Apr 2) to ~rev_18 (Aug 7) | Country-specific: 10-50% |
 | **IEEPA reciprocal (China)** | `rate_ieepa_recip` | China | From rev_7 (Apr 2); never terminated | +34% (9903.01.63) |
 | **IEEPA reciprocal (Phase 2)** | `rate_ieepa_recip` | ~60 countries | From rev_18 (Aug 7) | Country-specific surcharges/floors |
+| **Section 122 (blanket)** | `rate_s122` | All (Annex II exempt) | From 2026-02-25; **expires 2026-07-25** (150-day statutory limit) | 25% (from HTS 9903.03.xx) |
 | **Section 201 (safeguards)** | `rate_other` | Varies | Entire year; predates 2025 | Varies (washing machines, solar) |
+
+**Section 122 expiry:** The Trade Act §122 limits blanket tariffs to 150 days. The `section_122` config in `policy_params.yaml` encodes the effective/expiry window and a `finalized` flag. When `finalized: false`, revisions after the expiry date get `rate_s122 = 0`, daily aggregates split at the expiry boundary, and `get_rates_at_date()` zeroes s122 for post-expiry queries. Set `finalized: true` if Congress extends the authority.
 
 **Key transitions visible across revisions:**
 - `basic` -> `rev_6`: Only 232, 301, and early fentanyl entries. No IEEPA reciprocal yet.
@@ -239,15 +292,11 @@ Each authority has a different mechanism for linking Ch99 entries to products:
 
 #### Stacking Rules
 
-| Rule | Location | Logic | Notes |
-|------|----------|-------|-------|
-| 232/IEEPA mutual exclusion | `helpers.R:apply_stacking_rules()` | 232 > 0 → use 232, else use IEEPA recip | 232 takes precedence; for derivatives, IEEPA applies to non-metal portion |
-| China stacking | `helpers.R:apply_stacking_rules()` | `232 + recip*nonmetal + fent + 301 + s122 + other` (or `recip + fent + 301 + s122 + other`) | Only China gets 301 added to stack |
-| Others stacking (with 232) | `helpers.R:apply_stacking_rules()` | `232 + (recip + fent)*nonmetal + s122 + other` | IEEPA/fentanyl apply to non-metal portion of derivatives |
-| Others stacking (no 232) | `helpers.R:apply_stacking_rules()` | `recip + fent + s122 + other` | Full IEEPA stack applies |
-| USMCA exemption | `07_calculate_rates.R` | CA/MX USMCA products: `rate_ieepa_recip = 0`, `rate_ieepa_fent = 0` | 232 still applies to USMCA products |
-| IEEPA product exemptions | `07_calculate_rates.R` | ~1,087 products exempt from IEEPA reciprocal | From `resources/ieepa_exempt_products.csv` (Annex A) |
-| China fentanyl exclusion | `07_calculate_rates.R` | China/HK excluded from blanket fentanyl | 9903.90.xx rates already incorporate fentanyl |
+See the standalone [Stacking Rules](#stacking-rules) section below for full formulas. Key rules implemented in `helpers.R:apply_stacking_rules()` and `07_calculate_rates.R`:
+- 232/IEEPA mutual exclusion (232 takes precedence; IEEPA applies to non-metal portion for derivatives)
+- USMCA exemption (CA/MX USMCA products: IEEPA recip and fentanyl zeroed; 232 still applies)
+- IEEPA product exemptions (~1,087 Annex A products from `resources/ieepa_exempt_products.csv`)
+- China fentanyl exclusion (China/HK excluded from blanket fentanyl; 9903.90.xx already incorporates it)
 
 #### Phase/Rate Selection
 
@@ -308,9 +357,10 @@ Where `nonmetal_share = 1 - metal_share` when `rate_232 > 0` and `metal_share < 
 
 ### Configuration
 
-- `config/policy_params.yaml`: All policy constants (country codes, authority ranges, 232 chapter/heading coverage, floor rates, 301 rates). Single source of truth loaded by `helpers.R::load_policy_params()`.
+- `config/policy_params.yaml`: All policy constants (country codes, authority ranges, 232 chapter/heading coverage, floor rates, 301 rates, Section 122 expiry). Single source of truth loaded by `helpers.R::load_policy_params()`.
 - `config/revision_dates.csv`: Maps each HTS revision to its effective date and (where applicable) the corresponding TPC validation date. 39 rows covering basic through 2026_rev_4.
-- `config/scenarios.yaml`: Counterfactual scenario definitions (baseline, no_ieepa, no_301, no_232, pre_2025, etc.). Used by `07_apply_scenarios.R`.
+- `config/scenarios.yaml`: Counterfactual scenario definitions (baseline, no_ieepa, no_301, no_232, pre_2025, etc.). Used by `09_apply_scenarios.R`.
+
 ### Reference
 
 - `resources/census_codes.csv`: 240 Census country codes.
@@ -358,11 +408,11 @@ Some 9903.89.xx exclusions reference US Note product lists and are not captured 
 
 China's IEEPA reciprocal is parsed from 9903.01.63 (Phase 1, +34%). TPC data implies a 25% rate. The discrepancy likely reflects the May 2025 US-China bilateral agreement that reduced the effective rate. The HTS Rev 32 still encodes the pre-negotiation statutory rate.
 
-### 3. EU floor rate residual (~4pp systematic)
+### 4. EU floor rate residual (~4pp systematic)
 
 EU, Japan, and South Korea use a floor rate structure (15% minimum). Japan and South Korea floor selection was fixed (previously mis-selected as surcharge). EU countries show ~35-42% exact match with ~4pp mean excess -- the floor formula is correct but residual discrepancies remain, possibly from TPC using slightly different floor mechanics or base rate differences.
 
-### 4. USMCA eligibility is binary, not utilization-adjusted
+### 5. USMCA eligibility is binary, not utilization-adjusted
 
 USMCA eligibility from the HTS `special` field gives a binary flag. In practice, not all trade in an eligible product claims USMCA preference. A utilization-rate adjustment would improve accuracy for Canada/Mexico.
 

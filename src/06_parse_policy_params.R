@@ -687,6 +687,39 @@ extract_section232_rates <- function(ch99_data) {
 }
 
 
+# =============================================================================
+# Section 122 Rate Extraction
+# =============================================================================
+
+#' Extract Section 122 blanket rate from Chapter 99 data
+#'
+#' Section 122 (Trade Act of 1974) tariffs are non-discriminatory (single rate,
+#' all countries). Applied after SCOTUS invalidated IEEPA authority.
+#'
+#' Parses 9903.03.01 for the base 10% rate. Product exemptions (Annex II)
+#' are handled separately via resources/s122_exempt_products.csv.
+#'
+#' @param ch99_data Parsed Chapter 99 data from parse_chapter99()
+#' @return List with s122_rate (numeric) and has_s122 (logical)
+extract_section122_rates <- function(ch99_data) {
+  message('Extracting Section 122 rates...')
+
+  # Look for 9903.03.01 (base Section 122 duty)
+  s122_entries <- ch99_data %>%
+    filter(grepl('^9903\\.03\\.01$', ch99_code), !is.na(rate))
+
+  if (nrow(s122_entries) == 0) {
+    message('  No Section 122 entries found')
+    return(list(s122_rate = 0, has_s122 = FALSE))
+  }
+
+  s122_rate <- max(s122_entries$rate)
+  message('  Section 122 base rate (9903.03.01): ', round(s122_rate * 100), '%')
+
+  return(list(s122_rate = s122_rate, has_s122 = TRUE))
+}
+
+
 #' Check if a Census country code is exempt from Section 232
 #'
 #' Handles ISO codes, group codes ('EU'), and Census codes in the exempt list.

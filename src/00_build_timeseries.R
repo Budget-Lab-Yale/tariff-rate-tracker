@@ -3,11 +3,14 @@
 # =============================================================================
 #
 # Main orchestrator: iteratively processes HTS revisions to build a time series
-# of tariff rates. Supports full backfill and incremental updates.
+# of tariff rates. Supports full backfill, incremental updates, and auto-update.
+# After building, runs downstream scripts (daily series, ETR, quality report).
 #
 # Usage:
-#   Rscript src/00_build_timeseries.R                  # Full backfill
-#   Rscript src/00_build_timeseries.R --start-from rev_25  # Incremental
+#   Rscript src/00_build_timeseries.R              # Auto-update (default)
+#   Rscript src/00_build_timeseries.R --full        # Full rebuild from scratch
+#   Rscript src/00_build_timeseries.R --start-from rev_25  # Explicit incremental
+#   Rscript src/00_build_timeseries.R --build-only  # Skip downstream (daily/ETR/quality)
 #
 # Storage layout:
 #   data/timeseries/
@@ -375,27 +378,131 @@ print_timeseries_summary <- function(timeseries_path = 'data/timeseries/rate_tim
 
 
 # =============================================================================
+# Auto-Update Detection
+# =============================================================================
+
+#' Detect incremental start revision from previous build metadata
+#'
+#' Reads metadata from last build, checks for new revisions available.
+#' Returns the last processed revision (for incremental start), or NULL
+#' if no previous build exists (triggers full backfill).
+#'
+#' @param output_dir Directory containing metadata.rds
+#' @param archive_dir Directory containing HTS JSON files
+#' @param revision_dates_path Path to revision_dates.csv
+#' @return Character revision ID to start from, or NULL for full backfill
+detect_incremental_start <- function(
+  output_dir = 'data/timeseries',
+  archive_dir = 'data/hts_archives',
+  revision_dates_path = 'config/revision_dates.csv'
+) {
+  metadata_path <- file.path(output_dir, 'metadata.rds')
+  if (!file.exists(metadata_path)) {
+    message('No previous build found — full backfill')
+    return(NULL)
+  }
+
+  metadata <- readRDS(metadata_path)
+  last_rev <- metadata$last_revision
+  message('Last build: ', metadata$last_build_time, ' (', last_rev, ')')
+
+  # Check for new revisions after last_rev
+  rev_dates <- load_revision_dates(revision_dates_path)
+  all_revisions <- rev_dates$revision
+
+  years_needed <- unique(map_int(all_revisions, ~ parse_revision_id(.)$year))
+  available <- character()
+  for (yr in years_needed) {
+    yr_revisions <- list_available_revisions(archive_dir, year = yr)
+    if (yr != 2025) yr_revisions <- paste0(yr, '_', yr_revisions)
+    available <- c(available, yr_revisions)
+  }
+
+  revisions_available <- all_revisions[all_revisions %in% available]
+  last_idx <- which(revisions_available == last_rev)
+
+  if (length(last_idx) == 0) {
+    message('Last revision ', last_rev, ' not found — full backfill')
+    return(NULL)
+  }
+
+  if (last_idx >= length(revisions_available)) {
+    message('No new revisions — rebuilding from ', last_rev)
+    return(last_rev)
+  }
+
+  new_revs <- revisions_available[(last_idx + 1):length(revisions_available)]
+  message('New revisions: ', paste(new_revs, collapse = ', '))
+  return(last_rev)
+}
+
+
+# =============================================================================
 # Main Execution
 # =============================================================================
 
 if (sys.nframe() == 0) {
   library(here)
 
-  # Parse command line arguments
+  # Parse CLI args: --full, --start-from REV, --build-only
   args <- commandArgs(trailingOnly = TRUE)
-
+  full_rebuild <- '--full' %in% args
+  build_only <- '--build-only' %in% args
   start_from <- NULL
   for (i in seq_along(args)) {
-    if (args[i] == '--start-from' && i < length(args)) {
-      start_from <- args[i + 1]
-    }
+    if (args[i] == '--start-from' && i < length(args)) start_from <- args[i + 1]
   }
 
-  # Run pipeline
+  # --- Step A: Determine build mode ---
+  if (full_rebuild) {
+    start_from <- NULL
+    message('Mode: Full rebuild (--full)')
+  } else if (!is.null(start_from)) {
+    message('Mode: Incremental from ', start_from)
+  } else {
+    start_from <- detect_incremental_start()  # NULL = full backfill
+  }
+
+  # --- Step B: Download missing JSON ---
+  tryCatch(
+    download_missing_revisions(),
+    error = function(e) message('Download check failed: ', conditionMessage(e))
+  )
+
+  # --- Step C: Build timeseries ---
   result <- build_full_timeseries(start_from = start_from)
 
-  # Print summary
+  # --- Step D: Summary ---
   if (!is.null(result)) {
     print_timeseries_summary(result$timeseries_path)
+  }
+
+  # --- Step E: Downstream (unless --build-only) ---
+  if (!build_only && !is.null(result)) {
+    source(here('src', '12_daily_series.R'))
+    source(here('src', '11_weighted_etr.R'))
+    source(here('src', 'quality_report.R'))
+
+    ts <- readRDS(result$timeseries_path)
+    pp <- load_policy_params()
+
+    message('\n', strrep('=', 70))
+    message('POST-BUILD: Daily series, ETR, quality report')
+    message(strrep('=', 70))
+
+    tryCatch(
+      run_daily_series(ts, policy_params = pp),
+      error = function(e) message('Daily series failed: ', conditionMessage(e))
+    )
+
+    tryCatch(
+      run_weighted_etr(ts, policy_params = pp),
+      error = function(e) message('Weighted ETR failed: ', conditionMessage(e))
+    )
+
+    tryCatch(
+      run_quality_report(result$timeseries_path),
+      error = function(e) message('Quality report failed: ', conditionMessage(e))
+    )
   }
 }

@@ -259,6 +259,21 @@ tpc_excluded_countries:
 #   'nonzero_base_only' = skip duty-free products (matches TPC methodology)
 ieepa_duty_free_treatment: 'all'
 
+# --- IEEPA invalidation (SCOTUS ruling) ---
+# Date when IEEPA tariff authority was invalidated by the Supreme Court.
+# All revisions with effective_date >= this date have IEEPA rates zeroed out.
+# Set to null to disable (all revisions keep IEEPA rates as parsed).
+ieepa_invalidation_date: '2026-02-24'
+
+# --- Section 122 (Trade Act §122, 150-day statutory limit) ---
+# Blanket tariff replacing IEEPA after SCOTUS invalidation.
+# Effective 2026-02-25; expires after 150 days unless Congress extends.
+# Set finalized to true if Congress extends (removes expiry constraint).
+section_122:
+  effective_date: '2026-02-25'
+  expiry_date: '2026-07-25'    # 150 days from effective
+  finalized: false              # set true if Congress extends
+
 # --- Validation thresholds ---
 validation_thresholds:
   exact: 0.005

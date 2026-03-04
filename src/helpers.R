@@ -282,6 +282,13 @@ load_policy_params <- function(yaml_path = here('config', 'policy_params.yaml'))
   params$FLOOR_RATE <- params$floor_rates$floor_rate
   params$FLOOR_COUNTRIES <- unlist(params$floor_rates$floor_countries)
 
+  # IEEPA invalidation date (SCOTUS ruling)
+  if (!is.null(params$ieepa_invalidation_date)) {
+    params$IEEPA_INVALIDATION_DATE <- as.Date(params$ieepa_invalidation_date)
+  } else {
+    params$IEEPA_INVALIDATION_DATE <- NULL
+  }
+
   # Swiss/Liechtenstein framework (EO 14346)
   if (!is.null(params$swiss_framework)) {
     params$SWISS_FRAMEWORK <- list(
@@ -289,6 +296,15 @@ load_policy_params <- function(yaml_path = here('config', 'policy_params.yaml'))
       expiry_date = as.Date(params$swiss_framework$expiry_date),
       finalized = isTRUE(params$swiss_framework$finalized),
       countries = unlist(params$swiss_framework$countries)
+    )
+  }
+
+  # Section 122 (Trade Act §122, 150-day statutory limit)
+  if (!is.null(params$section_122)) {
+    params$SECTION_122 <- list(
+      effective_date = as.Date(params$section_122$effective_date),
+      expiry_date = as.Date(params$section_122$expiry_date),
+      finalized = isTRUE(params$section_122$finalized)
     )
   }
 
@@ -612,7 +628,7 @@ parse_ch99_rate <- function(general_text) {
 #' Classify Chapter 99 code into authority buckets
 #'
 #' Unified classifier that uses normalized authority names:
-#'   section_232, section_301, ieepa_reciprocal, section_201, other
+#'   section_122, section_232, section_301, ieepa_reciprocal, section_201, other
 #'
 #' @param ch99_code Chapter 99 subheading (e.g., "9903.88.15")
 #' @return Authority bucket name
@@ -623,6 +639,12 @@ classify_authority <- function(ch99_code) {
   if (length(parts) < 2) return('unknown')
 
   middle <- as.integer(parts[2])
+
+  # Section 122: 9903.03.xx (Phase 3, post-SCOTUS blanket)
+  # Note: 9903.76.xx is NOT Section 122 — it's Canadian lumber/furniture (US Note 37)
+  if (middle == 3) {
+    return('section_122')
+  }
 
   # Section 232: 9903.80-85 (steel, aluminum, autos) + 9903.94 (auto tariffs)
   if ((middle >= 80 && middle <= 85) || middle == 94) {
@@ -697,7 +719,7 @@ add_blanket_pairs <- function(rates, products, covered_hts10, country_rates,
     left_join(country_rates, by = 'country') %>%
     mutate(
       rate_232 = 0, rate_301 = 0, rate_ieepa_recip = 0,
-      rate_ieepa_fent = 0, rate_other = 0
+      rate_ieepa_fent = 0, rate_s122 = 0, rate_other = 0
     )
 
   new_pairs[[rate_col]] <- new_pairs$blanket_rate
@@ -947,4 +969,57 @@ load_metal_content <- function(metal_cfg = NULL, hts10_codes = character(0),
   }
 
   return(result)
+}
+
+
+# =============================================================================
+# Point-in-Time Rate Query
+# =============================================================================
+
+#' Get rate snapshot at a specific date
+#'
+#' Filters the interval-encoded timeseries to rows where
+#' valid_from <= query_date <= valid_until. Returns one revision's
+#' worth of data (same shape as a single snapshot).
+#'
+#' If policy_params is provided and contains SECTION_122 with finalized=FALSE,
+#' rates are adjusted for dates after the s122 expiry: rate_s122 is zeroed
+#' and total_additional / total_rate are recomputed.
+#'
+#' @param ts Timeseries tibble with valid_from/valid_until columns
+#' @param query_date Date (or character coercible to Date)
+#' @param policy_params Optional policy params list (from load_policy_params())
+#' @return Tibble — one snapshot for the active revision at query_date
+get_rates_at_date <- function(ts, query_date, policy_params = NULL) {
+  query_date <- as.Date(query_date)
+
+  stopifnot(
+    'valid_from' %in% names(ts),
+    'valid_until' %in% names(ts)
+  )
+
+  snapshot <- ts %>%
+    filter(valid_from <= query_date, valid_until >= query_date)
+
+  if (nrow(snapshot) == 0) {
+    warning('No rates found for date: ', query_date,
+            '. Date range in timeseries: ',
+            min(ts$valid_from), ' to ', max(ts$valid_until))
+  }
+
+  # Zero out s122 if past expiry and not finalized (Congress hasn't extended)
+  if (!is.null(policy_params$SECTION_122) &&
+      !policy_params$SECTION_122$finalized &&
+      query_date > policy_params$SECTION_122$expiry_date &&
+      'rate_s122' %in% names(snapshot) &&
+      nrow(snapshot) > 0) {
+    snapshot <- snapshot %>%
+      mutate(
+        total_additional = total_additional - rate_s122,
+        total_rate = total_rate - rate_s122,
+        rate_s122 = 0
+      )
+  }
+
+  return(snapshot)
 }

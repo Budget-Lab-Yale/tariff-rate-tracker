@@ -18,6 +18,10 @@ no_232:
   description: 'Remove Section 232 (steel/aluminum)'
   disable: [section_232]
 
+no_s122:
+  description: 'Remove Section 122 tariffs'
+  disable: [section_122]
+
 pre_2025:
   description: 'Only pre-2025 tariffs (232 + legacy 301)'
   disable: [ieepa_reciprocal, ieepa_fentanyl]

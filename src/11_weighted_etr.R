@@ -42,7 +42,8 @@ POLICY_DATES <- tribble(
   '2025-04-17',  'Liberation Day',
   '2025-07-17',  'S232 increase',
   '2025-10-17',  'Phase 2',
-  '2025-11-17',  'Current'
+  '2025-11-17',  'Nov 2025',
+  '2026-02-25',  'Current'
 )
 
 # Section 301 + Biden acceleration rates
@@ -707,11 +708,19 @@ plot_etrs <- function(etrs, tpc_etrs, output_dir) {
 # Main
 # =============================================================================
 
-if (sys.nframe() == 0) {
-  library(here)
-  source(here('src', 'helpers.R'))
-  source(here('src', '12_daily_series.R'))
+# =============================================================================
+# Reusable Wrapper (called by 00_build_timeseries.R post-build)
+# =============================================================================
 
+#' Run full weighted ETR pipeline
+#'
+#' Loads data, computes weighted ETRs, generates TPC comparison, saves outputs.
+#' Called by 00_build_timeseries.R post-build and usable standalone.
+#'
+#' @param ts Timeseries tibble (unused currently — compute_weighted_etrs loads its own)
+#' @param policy_params Optional policy params list (from load_policy_params())
+#' @return ETR results (invisible)
+run_weighted_etr <- function(ts = NULL, policy_params = NULL) {
   data <- load_data(
     products_path = 'data/processed/products_raw.csv',
     ieepa_path    = 'data/processed/ieepa_country_rates.csv',
@@ -764,4 +773,19 @@ if (sys.nframe() == 0) {
     'output/etr/etr_by_gtap.csv'
   )
   message('\nAll ETR outputs saved to output/etr/')
+
+  return(invisible(etrs))
+}
+
+
+# =============================================================================
+# Main
+# =============================================================================
+
+if (sys.nframe() == 0) {
+  library(here)
+  source(here('src', 'helpers.R'))
+
+  pp <- load_policy_params()
+  run_weighted_etr(policy_params = pp)
 }

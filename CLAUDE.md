@@ -9,48 +9,42 @@ Tariff Rate Tracker - An R-based system for constructing statutory U.S. tariff r
 ## Key Commands
 
 ```bash
-# Full backfill: process all 38 HTS revisions
+# Full pipeline (auto-update: detect new → download → build → daily → ETR → quality)
 Rscript src/00_build_timeseries.R
 
-# Incremental: process only new revisions after 2026_basic
-Rscript src/00_build_timeseries.R --start-from 2026_basic
+# Full rebuild from scratch
+Rscript src/00_build_timeseries.R --full
 
-# Automated incremental update (checks for new revisions)
-Rscript src/update_pipeline.R
+# Incremental from specific revision
+Rscript src/00_build_timeseries.R --start-from rev_25
 
-# Single-revision pipeline (quick check)
-Rscript src/run_pipeline.R
+# Build only (skip downstream: daily, ETR, quality)
+Rscript src/00_build_timeseries.R --build-only
 
 # TPC validation across all 5 dates (saves to output/validation/)
 Rscript test_tpc_comparison.R
 
-# Quality report (saves to output/quality/)
-Rscript src/quality_report.R
-
 # Diagnostics (saves to output/diagnostics/)
 Rscript src/10_diagnostics.R
-
-# Daily rate series (saves to output/daily/)
-Rscript src/12_daily_series.R
-
-# Import-weighted ETRs (requires built timeseries; saves to output/etr/)
-Rscript src/11_weighted_etr.R
 
 # Revision changelog (diffs Ch99 across all revisions; saves to output/changelog/)
 Rscript src/13_revision_changelog.R
 
-# Parse US Note 301 product lists from Chapter 99 PDF
+# Standalone downstream scripts (also run automatically by 00_build)
+Rscript src/12_daily_series.R
+Rscript src/11_weighted_etr.R
+Rscript src/quality_report.R
+
+# Data-prep/maintenance tools (NOT part of the build pipeline)
+# These generate static resource files consumed by the build.
+# Run manually when USITC updates Chapter 99 PDFs.
 Rscript src/03_scrape_us_notes.R
 Rscript src/03_scrape_us_notes.R --dry-run    # Report without writing
-
-# Parse floor country product exemptions from Chapter 99 PDF
 Rscript src/03_scrape_us_notes.R --floor-exemptions
 Rscript src/03_scrape_us_notes.R --all        # Both 301 + floor exemptions
-
-# Per-revision Chapter 99 PDF operations
-Rscript src/03_scrape_us_notes.R --download-pdfs [--dry-run]  # Download all revision PDFs
-Rscript src/03_scrape_us_notes.R --revision rev_18            # Parse floor exemptions for one revision
-Rscript src/03_scrape_us_notes.R --all-revisions [--dry-run]  # Parse all revisions from rev_18+
+Rscript src/03_scrape_us_notes.R --download-pdfs [--dry-run]
+Rscript src/03_scrape_us_notes.R --revision rev_18
+Rscript src/03_scrape_us_notes.R --all-revisions [--dry-run]
 ```
 
 ## Architecture
@@ -64,26 +58,32 @@ rate_timeseries.rds -> import-weighted ETRs (11_weighted_etr.R via get_rates_at_
 ```
 
 **Active Pipeline (v2 timeseries):**
-- `helpers.R`: Shared utilities (rate parsing, HTS codes, schema enforcement, stacking rules, policy params loader)
+- `helpers.R`: Shared utilities (rate parsing, HTS codes, schema enforcement, stacking rules, policy params loader, `get_rates_at_date()`)
 - `logging.R`: Structured logging module (init_logging, log_info/warn/error/debug)
-- `00_build_timeseries.R`: Multi-revision orchestrator with error recovery
-- `run_pipeline.R`: Single-revision orchestrator
-- `update_pipeline.R`: Automated incremental update (detects new revisions)
+- `00_build_timeseries.R`: Main entry point — build + auto-update + downstream (daily/ETR/quality)
+- `run_pipeline.R`: DEPRECATED — single-revision orchestrator (use `00_build_timeseries.R`)
+- `update_pipeline.R`: DEPRECATED — auto-detect logic folded into `00_build_timeseries.R`
 - `quality_report.R`: Schema checks, per-revision quality, anomaly detection
 
+**Build pipeline (sourced by 00_build):**
 1. `01_scrape_revision_dates.R`: Scrape USITC for revision effective dates
 2. `02_download_hts.R`: Download missing HTS JSON archives from USITC
-3. `03_scrape_us_notes.R`: Parse US Note 20/21/31 product lists and floor exemptions from Chapter 99 PDF
-4. `04_parse_chapter99.R`: Extract Ch99 entries (rates, authority, countries)
-5. `05_parse_products.R`: Extract product lines (base rates, footnote refs)
-6. `06_parse_policy_params.R`: Extract IEEPA, fentanyl, 232, USMCA from JSON
-7. `07_calculate_rates.R`: Join products to authorities, apply stacking
-8. `08_validate_tpc.R`: TPC benchmark comparison
-9. `09_apply_scenarios.R`: Counterfactual scenarios (zero out authorities)
-10. `10_diagnostics.R`: Debugging and validation utilities
-11. `11_weighted_etr.R`: Import-weighted effective tariff rates (uses timeseries via `get_rates_at_date()`)
-12. `12_daily_series.R`: Daily rate series, point-in-time queries, daily aggregates
-13. `13_revision_changelog.R`: Diff Ch99 entries across all revisions, build policy timeline
+3. `04_parse_chapter99.R`: Extract Ch99 entries (rates, authority, countries)
+4. `05_parse_products.R`: Extract product lines (base rates, footnote refs)
+5. `06_parse_policy_params.R`: Extract IEEPA, fentanyl, 232, USMCA from JSON
+6. `07_calculate_rates.R`: Join products to authorities, apply stacking
+7. `08_validate_tpc.R`: TPC benchmark comparison
+8. `09_apply_scenarios.R`: Counterfactual scenarios (zero out authorities)
+
+**Downstream (run automatically by 00_build, or standalone):**
+9. `11_weighted_etr.R`: Import-weighted effective tariff rates (`run_weighted_etr()`)
+10. `12_daily_series.R`: Daily rate series, daily aggregates (`run_daily_series()`)
+11. `quality_report.R`: Quality checks (`run_quality_report()`)
+
+**Standalone tools (not part of build):**
+12. `03_scrape_us_notes.R`: Parse US Note 20/21/31 product lists and floor exemptions from Chapter 99 PDF (data-prep tool, generates static resource files)
+13. `10_diagnostics.R`: Debugging and validation utilities
+14. `13_revision_changelog.R`: Diff Ch99 entries across all revisions, build policy timeline
 
 **Key Configuration:**
 - `config/policy_params.yaml`: All policy constants (country codes, authority ranges, 232 chapters, floor rates, 301 rates, etc.)
@@ -103,7 +103,7 @@ rate_timeseries.rds -> import-weighted ETRs (11_weighted_etr.R via get_rates_at_
 - `load_usmca_product_shares()`: Reads per-HTS10 x country USMCA utilization shares from Census SPI data
 - `load_metal_content()`: Computes per-product metal shares (flat/CBO/BEA methods)
 - `parse_revision_id()`: Extracts year + revision type from any revision ID (e.g., '2026_rev_3' -> year=2026, rev='rev_3')
-- `get_rates_at_date(ts, date)`: Point-in-time rate query (in 12_daily_series.R) — preferred way to get rates at any date
+- `get_rates_at_date(ts, date, policy_params)`: Point-in-time rate query (in helpers.R) — preferred way to get rates at any date; adjusts for s122 expiry when policy_params provided
 
 ## Stacking Rules
 
@@ -201,6 +201,19 @@ in `07_calculate_rates.R` is date-bounded by `swiss_framework` config in `policy
 - `expiry_date`: March 31, 2026 (framework must be finalized by this date)
 - `finalized`: set to `true` once deal confirmed (removes expiry constraint)
 - If framework lapses: override stops, surcharge rates resume automatically
+
+## Section 122 Expiry (Trade Act §122)
+
+Section 122 blanket tariff (9903.03.xx) has a 150-day statutory limit. Configured in
+`section_122` block of `policy_params.yaml`:
+- `effective_date`: 2026-02-25
+- `expiry_date`: 2026-07-25 (150 days)
+- `finalized`: set to `true` if Congress extends (removes expiry constraint)
+
+Enforced at three levels:
+1. **07_calculate_rates.R**: Revisions with effective_date after expiry get `rate_s122 = 0`
+2. **12_daily_series.R**: Revision intervals spanning the expiry are split; dates after expiry use zeroed s122
+3. **helpers.R `get_rates_at_date()`**: Point-in-time queries after expiry return `rate_s122 = 0`
 
 ## Census Country Codes
 

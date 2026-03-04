@@ -16,11 +16,13 @@
 #
 # Pipeline steps inside calculate_rates_for_revision():
 #   1. Footnote-based rates (301, fentanyl, other via Ch99 refs)
+#   1b. IEEPA invalidation check (SCOTUS ruling cutoff)
 #   2. IEEPA reciprocal (blanket, country-level)
 #   3. IEEPA fentanyl (blanket, CA/MX/CN)
 #   4. Section 232 base (blanket, chapter/heading)
 #   5. Section 232 derivatives (blanket, product list + metal scaling)
 #   6. Section 301 (blanket, China product list)
+#   6b. Section 122 (blanket, all countries, Annex II exempt)
 #   7. USMCA exemptions (CA/MX eligible products)
 #   8. Stacking rules (mutual exclusion, nonmetal share)
 #   9. Schema enforcement + metadata
@@ -149,7 +151,7 @@ calculate_rates_fast <- function(products, ch99_data, countries, stacking_method
 
   # Ensure all columns exist
   for (col in c('rate_section_232', 'rate_section_301', 'rate_ieepa_reciprocal',
-                'rate_ieepa_fentanyl', 'rate_other')) {
+                'rate_ieepa_fentanyl', 'rate_section_122', 'rate_other')) {
     if (!(col %in% names(rates_wide))) {
       rates_wide[[col]] <- 0
     }
@@ -169,7 +171,8 @@ calculate_rates_fast <- function(products, ch99_data, countries, stacking_method
       rate_232 = rate_section_232,
       rate_301 = rate_section_301,
       rate_ieepa_recip = rate_ieepa_reciprocal,
-      rate_ieepa_fent = rate_ieepa_fentanyl
+      rate_ieepa_fent = rate_ieepa_fentanyl,
+      rate_s122 = rate_section_122
     )
 
   # Apply stacking rules (vectorized, from helpers.R)
@@ -355,6 +358,17 @@ calculate_rates_for_revision <- function(
   if (nrow(rates) == 0) {
     message('  No rates calculated for ', revision_id)
     return(enforce_rate_schema(tibble()))
+  }
+
+  # 1b. Check IEEPA invalidation (SCOTUS ruling in Learning Resources v. Trump)
+  #     If this revision's effective_date is on or after the invalidation date,
+  #     IEEPA tariff authority is void — zero out reciprocal and fentanyl.
+  ieepa_invalidation <- .pp$IEEPA_INVALIDATION_DATE
+  if (!is.null(ieepa_invalidation) && as.Date(effective_date) >= ieepa_invalidation) {
+    message('  IEEPA invalidated as of ', ieepa_invalidation,
+            ' — zeroing reciprocal and fentanyl for ', revision_id)
+    ieepa_rates <- NULL
+    fentanyl_rates <- NULL
   }
 
   # 2. Apply IEEPA reciprocal (blanket, country-level)
@@ -613,7 +627,7 @@ calculate_rates_for_revision <- function(
 
       new_pairs <- new_pairs %>%
         mutate(
-          rate_232 = 0, rate_301 = 0, rate_ieepa_fent = 0, rate_other = 0,
+          rate_232 = 0, rate_301 = 0, rate_ieepa_fent = 0, rate_s122 = 0, rate_other = 0,
           rate_ieepa_recip = case_when(
             floor_exempt ~ 0,                             # floor country product exemption
             ieepa_type == 'surcharge' ~ ieepa_country_rate,
@@ -908,7 +922,7 @@ calculate_rates_for_revision <- function(
           heading_rate_adj > 0 ~ heading_rate_adj,
           TRUE ~ 0
         ),
-        rate_301 = 0, rate_ieepa_recip = 0, rate_ieepa_fent = 0, rate_other = 0
+        rate_301 = 0, rate_ieepa_recip = 0, rate_ieepa_fent = 0, rate_s122 = 0, rate_other = 0
       ) %>%
       filter(rate_232 > 0) %>%
       select(-steel_rate_232, -alum_rate_232, -chapter,
@@ -1015,7 +1029,7 @@ calculate_rates_for_revision <- function(
             left_join(s301_lookup, by = 'hts8') %>%
             mutate(
               rate_232 = 0, rate_ieepa_recip = 0,
-              rate_ieepa_fent = 0, rate_other = 0,
+              rate_ieepa_fent = 0, rate_s122 = 0, rate_other = 0,
               rate_301 = coalesce(blanket_301, 0)
             ) %>%
             filter(rate_301 > 0) %>%
@@ -1033,6 +1047,65 @@ calculate_rates_for_revision <- function(
                 n_301_total, ' China product-country pairs with 301 rate')
       }
     }
+  }
+
+  # 6b. Apply Section 122 blanket tariff (non-discriminatory, all countries)
+  #     Section 122 (Trade Act of 1974) is a uniform tariff applied after SCOTUS
+  #     invalidated IEEPA. Product exemptions from Annex II list; 232 mutual
+  #     exclusion handled by apply_stacking_rules().
+  #     Section 122 has a 150-day statutory limit; gate on expiry unless finalized.
+  s122_rates <- extract_section122_rates(ch99_data)
+
+  s122_in_force <- TRUE
+  if (!is.null(.pp$SECTION_122) && !.pp$SECTION_122$finalized) {
+    s122_in_force <- (as.Date(effective_date) >= .pp$SECTION_122$effective_date &&
+                      as.Date(effective_date) <= .pp$SECTION_122$expiry_date)
+  }
+
+  if (s122_rates$has_s122 && !s122_in_force) {
+    message('  Section 122 expired (', .pp$SECTION_122$expiry_date, ') — not applied')
+  }
+
+  if (s122_rates$has_s122 && s122_in_force) {
+    s122_rate <- s122_rates$s122_rate
+
+    # Load product exemptions (Annex II)
+    s122_exempt_path <- here('resources', 's122_exempt_products.csv')
+    s122_exempt_hts8 <- if (file.exists(s122_exempt_path)) {
+      read_csv(s122_exempt_path, col_types = cols(hts8 = col_character()))$hts8
+    } else {
+      message('  WARNING: s122_exempt_products.csv not found — no exemptions applied')
+      character(0)
+    }
+    if (length(s122_exempt_hts8) > 0) {
+      message('  Section 122 exempt products: ', length(s122_exempt_hts8), ' HTS8 codes')
+    }
+
+    # Set rate_s122 for all existing rows
+    rates <- rates %>%
+      mutate(
+        rate_s122 = if_else(
+          substr(hts10, 1, 8) %in% s122_exempt_hts8,
+          0, s122_rate
+        )
+      )
+
+    # Add s122-only rows for products not yet in rates
+    s122_country_rates <- tibble(
+      country = countries,
+      blanket_rate = s122_rate
+    )
+    # All products are covered (non-exempt)
+    non_exempt_hts10 <- products %>%
+      filter(!substr(hts10, 1, 8) %in% s122_exempt_hts8) %>%
+      pull(hts10)
+    rates <- add_blanket_pairs(rates, products, non_exempt_hts10, s122_country_rates,
+                               'rate_s122', 'Section 122 duties')
+
+    n_with_s122 <- sum(rates$rate_s122 > 0)
+    message('  Section 122: ', round(s122_rate * 100), '% on ',
+            n_with_s122, ' product-country pairs (',
+            length(s122_exempt_hts8), ' HTS8 exempt)')
   }
 
   # 7. Apply USMCA exemptions
@@ -1063,7 +1136,8 @@ calculate_rates_for_revision <- function(
           ),
           base_rate = base_rate * (1 - usmca_share),
           rate_ieepa_recip = rate_ieepa_recip * (1 - usmca_share),
-          rate_ieepa_fent = rate_ieepa_fent * (1 - usmca_share)
+          rate_ieepa_fent = rate_ieepa_fent * (1 - usmca_share),
+          rate_s122 = rate_s122 * (1 - usmca_share)
         ) %>%
         select(-usmca_share)
     } else {
@@ -1077,6 +1151,10 @@ calculate_rates_for_revision <- function(
           rate_ieepa_fent = if_else(
             country %in% c(CTY_CANADA, CTY_MEXICO) & usmca_eligible,
             0, rate_ieepa_fent
+          ),
+          rate_s122 = if_else(
+            country %in% c(CTY_CANADA, CTY_MEXICO) & usmca_eligible,
+            0, rate_s122
           )
         )
     }
@@ -1101,11 +1179,13 @@ calculate_rates_for_revision <- function(
   n_with_ieepa <- sum(rates$rate_ieepa_recip > 0)
   n_with_232 <- sum(rates$rate_232 > 0)
   n_with_301 <- sum(rates$rate_301 > 0)
+  n_with_s122 <- sum(rates$rate_s122 > 0)
   n_usmca <- sum(rates$usmca_eligible)
   message('  Products-countries: ', nrow(rates))
   message('  With IEEPA reciprocal: ', n_with_ieepa)
   message('  With Section 232: ', n_with_232)
   message('  With Section 301: ', n_with_301)
+  message('  With Section 122: ', n_with_s122)
   message('  USMCA eligible: ', n_usmca)
 
   return(rates)

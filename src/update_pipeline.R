@@ -1,3 +1,7 @@
+# DEPRECATED: Use src/00_build_timeseries.R instead.
+# This script is retained for backward compatibility.
+# See CLAUDE.md for updated usage.
+#
 # =============================================================================
 # Update Pipeline
 # =============================================================================

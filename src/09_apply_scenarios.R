@@ -25,6 +25,7 @@ AUTHORITY_COLUMNS <- if (!is.null(.pp_08)) .pp_08$AUTHORITY_COLUMNS else c(
   'section_301'      = 'rate_301',
   'ieepa_reciprocal' = 'rate_ieepa_recip',
   'ieepa_fentanyl'   = 'rate_ieepa_fent',
+  'section_122'      = 'rate_s122',
   'other'            = 'rate_other'
 )
 
