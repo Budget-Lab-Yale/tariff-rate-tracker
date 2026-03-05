@@ -289,8 +289,14 @@ build_full_timeseries <- function(
   all_snapshot_files <- list.files(output_dir, pattern = '^snapshot_.*\\.rds$', full.names = TRUE)
 
   timeseries <- map_dfr(all_snapshot_files, function(f) {
-    tryCatch(readRDS(f), error = function(e) NULL)
+    tryCatch(readRDS(f), error = function(e) {
+      warning('Failed to read snapshot: ', f, ' -- ', e$message)
+      NULL
+    })
   })
+
+  # Enforce schema consistency (old snapshots may lack newer columns)
+  timeseries <- enforce_rate_schema(timeseries)
 
   # Sort by effective_date, then revision
   timeseries <- timeseries %>%

@@ -338,7 +338,7 @@ compute_net_authority_contributions <- function(df, stacking_method = 'mutual_ex
 # Main Pipeline
 # =============================================================================
 
-compute_weighted_etrs <- function(data) {
+compute_weighted_etrs <- function(data, policy_params = NULL) {
   message('\nLoading rate timeseries...')
 
   ts_path <- here('data', 'timeseries', 'rate_timeseries.rds')
@@ -373,9 +373,11 @@ compute_weighted_etrs <- function(data) {
 
   results <- POLICY_DATES %>%
     pmap_dfr(function(date, label) {
-      snapshot <- get_rates_at_date(ts, date)
+      snapshot <- get_rates_at_date(ts, date, policy_params = policy_params)
 
       # Compute net authority contributions from snapshot rate columns
+      # Note: rename total_additional -> total_rate because ETR measures
+      # additional tariffs only (excludes MFN base_rate)
       snapshot_net <- snapshot %>%
         compute_net_authority_contributions() %>%
         select(hts10, country, total_rate = total_additional,
@@ -729,7 +731,7 @@ run_weighted_etr <- function(ts = NULL, policy_params = NULL) {
     partner_path  = 'resources/country_partner_mapping.csv'
   )
 
-  etr_data <- compute_weighted_etrs(data)
+  etr_data <- compute_weighted_etrs(data, policy_params = policy_params)
   etrs <- aggregate_etrs(
     etr_data$results, data$imports_gtap,
     etr_data$total_imports, etr_data$partner_totals

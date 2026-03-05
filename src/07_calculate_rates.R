@@ -508,6 +508,9 @@ calculate_rates_for_revision <- function(
       # Swiss countries are date-bounded by the framework agreement.
       swiss_override_active <- FALSE
       if (!is.null(swiss_fw)) {
+        # Note: <= for expiry_date is intentional — override is active through
+        # the expiry date inclusive ("effective through March 31"). Compare with
+        # s122 in get_rates_at_date() which uses > (zeroed after expiry day).
         swiss_override_active <- rev_date >= swiss_fw$effective_date &&
           (swiss_fw$finalized || rev_date <= swiss_fw$expiry_date)
         if (!swiss_override_active) {

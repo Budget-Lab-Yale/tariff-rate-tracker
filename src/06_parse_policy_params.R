@@ -242,7 +242,7 @@ extract_ieepa_rates <- function(hts_raw, country_lookup) {
     # Phase 2: 9903.02.02-81 (August 7 reinstatement)
     # Swiss/Liechtenstein framework: 9903.02.82-91 (EO 14346, 15% floor)
     grepl('^9903\\.01\\.(4[3-9]|[5-8][0-9])$', htsno) ||
-      grepl('^9903\\.02\\.([0-8][0-9]|9[01])$', htsno)
+      grepl('^9903\\.02\\.(0[2-9]|[1-8][0-9]|9[01])$', htsno)
   }, hts_raw)
 
   message('  IEEPA tier entries found: ', length(ieepa_items))
