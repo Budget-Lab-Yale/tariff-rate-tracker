@@ -146,11 +146,10 @@ load_data <- function(products_path, ieepa_path, usmca_path,
     rename(cty_code = census_code, ieepa_surcharge = rate)
 
   # China's Phase 1 reciprocal
-  china_reciprocal <- ieepa_all %>%
+  china_reciprocal_vec <- ieepa_all %>%
     filter(census_code == CTY_CHINA, rate_type == 'surcharge') %>%
-    pull(rate) %>%
-    max()
-  china_ieepa <- if (is.finite(china_reciprocal)) china_reciprocal else 0
+    pull(rate)
+  china_ieepa <- if (length(china_reciprocal_vec) > 0) max(china_reciprocal_vec) else 0
   message('  China IEEPA reciprocal: ', china_ieepa * 100, '%')
   message('  Surcharge countries: ', nrow(ieepa_surcharge))
 
@@ -724,11 +723,11 @@ plot_etrs <- function(etrs, tpc_etrs, output_dir) {
 #' @return ETR results (invisible)
 run_weighted_etr <- function(ts = NULL, policy_params = NULL) {
   data <- load_data(
-    products_path = 'data/processed/products_raw.csv',
-    ieepa_path    = 'data/processed/ieepa_country_rates.csv',
-    usmca_path    = 'data/processed/usmca_products.csv',
-    imports_path  = '../Tariff-ETRs/cache/hs10_by_country_gtap_2024_con.rds',
-    partner_path  = 'resources/country_partner_mapping.csv'
+    products_path = here('data', 'processed', 'products_raw.csv'),
+    ieepa_path    = here('data', 'processed', 'ieepa_country_rates.csv'),
+    usmca_path    = here('data', 'processed', 'usmca_products.csv'),
+    imports_path  = here('..', 'Tariff-ETRs', 'cache', 'hs10_by_country_gtap_2024_con.rds'),
+    partner_path  = here('resources', 'country_partner_mapping.csv')
   )
 
   etr_data <- compute_weighted_etrs(data, policy_params = policy_params)
@@ -739,8 +738,8 @@ run_weighted_etr <- function(ts = NULL, policy_params = NULL) {
 
   # Load TPC comparison
   tpc_weighted <- load_tpc_data(
-    tpc_path         = 'data/tpc/tariff_by_flow_day.csv',
-    census_codes_path = 'resources/census_codes.csv',
+    tpc_path         = here('data', 'tpc', 'tariff_by_flow_day.csv'),
+    census_codes_path = here('resources', 'census_codes.csv'),
     imports_agg      = data$imports_agg,
     imports_gtap     = data$imports_gtap,
     partners         = data$partners
@@ -755,24 +754,24 @@ run_weighted_etr <- function(ts = NULL, policy_params = NULL) {
     print()
 
   # Plot with TPC overlay
-  plots <- plot_etrs(etrs, tpc_etrs, 'output/etr')
+  plots <- plot_etrs(etrs, tpc_etrs, here('output', 'etr'))
 
   # Save CSVs with TPC columns
   write_csv(
     etrs$overall %>% left_join(tpc_etrs$overall, by = 'date'),
-    'output/etr/etr_overall.csv'
+    here('output', 'etr', 'etr_overall.csv')
   )
   write_csv(
     etrs$by_partner %>% left_join(tpc_etrs$by_partner, by = c('date', 'partner')),
-    'output/etr/etr_by_partner.csv'
+    here('output', 'etr', 'etr_by_partner.csv')
   )
   write_csv(
     etrs$by_authority %>% left_join(tpc_etrs$overall, by = 'date'),
-    'output/etr/etr_by_authority.csv'
+    here('output', 'etr', 'etr_by_authority.csv')
   )
   write_csv(
     etrs$by_gtap %>% left_join(tpc_etrs$by_gtap, by = c('date', 'gtap_code')),
-    'output/etr/etr_by_gtap.csv'
+    here('output', 'etr', 'etr_by_gtap.csv')
   )
   message('\nAll ETR outputs saved to output/etr/')
 

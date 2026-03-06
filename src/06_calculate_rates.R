@@ -1,5 +1,5 @@
 # =============================================================================
-# Step 07: Calculate Total Tariff Rates
+# Step 06: Calculate Total Tariff Rates
 # =============================================================================
 #
 # Calculates total effective tariff rate for each HTS10 x country combination
@@ -7,7 +7,7 @@
 #
 # PUBLIC API:
 #   calculate_rates_for_revision() — Entry point for per-revision rate calculation.
-#     Called by 00_build_timeseries.R and run_pipeline.R.
+#     Called by 00_build_timeseries.R.
 #
 # INTERNAL:
 #   calculate_rates_fast() — Footnote-based rate calculation (vectorized)
@@ -62,7 +62,7 @@ ISO_TO_CENSUS <- if (!is.null(.pp)) .pp$ISO_TO_CENSUS else c(
   'CN' = '5700', 'CA' = '1220', 'MX' = '2010',
   'JP' = '5880', 'UK' = '4120', 'GB' = '4120',
   'AU' = '6021', 'KR' = '5800', 'RU' = '4621',
-  'AR' = '3570', 'BR' = '3510', 'UA' = '4622'
+  'AR' = '3570', 'BR' = '3510', 'UA' = '4623'
 )
 
 

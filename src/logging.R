@@ -15,10 +15,12 @@
 # =============================================================================
 
 # Module-local environment for logging state
-.log_env <- new.env(parent = emptyenv())
-.log_env$log_file <- NULL
-.log_env$log_level <- 'info'
-.log_env$initialized <- FALSE
+if (!exists('.log_env') || !is.environment(.log_env)) {
+  .log_env <- new.env(parent = emptyenv())
+  .log_env$log_file <- NULL
+  .log_env$log_level <- 'info'
+  .log_env$initialized <- FALSE
+}
 
 # Numeric log levels for comparison
 .LOG_LEVELS <- c(debug = 1L, info = 2L, warn = 3L, error = 4L)
@@ -79,13 +81,7 @@ init_logging <- function(log_file = NULL, level = 'info') {
   formatted <- paste0('[', timestamp, '] [', tag, '] ', msg_body)
 
   # Console output
-  if (level == 'error') {
-    message(formatted)
-  } else if (level == 'warn') {
-    message(formatted)
-  } else {
-    message(formatted)
-  }
+  message(formatted)
 
   # File output
   if (!is.null(.log_env$log_file)) {

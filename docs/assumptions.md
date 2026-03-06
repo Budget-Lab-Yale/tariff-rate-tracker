@@ -40,7 +40,7 @@ This document catalogs methodological assumptions derived from non-official sour
 
 **Why non-official:** Census RATE_PROV coding is administrative, not statutory. Product-level utilization is an empirical estimate, not a legal determination. Falls back to binary HTS `special` field eligibility (S/S+) when shares are unavailable.
 
-**Implementation:** `src/compute_usmca_shares.R`, `resources/usmca_product_shares.csv`, applied in `src/07_calculate_rates.R`.
+**Implementation:** `src/compute_usmca_shares.R`, `resources/usmca_product_shares.csv`, applied in `src/06_calculate_rates.R`.
 
 ---
 
@@ -74,7 +74,7 @@ This document catalogs methodological assumptions derived from non-official sour
 
 **Source:** Executive orders (official policy), but the product list is maintained as an external resource file because the HTS JSON API does not provide US Notes text.
 
-**Implementation:** `resources/ieepa_exempt_products.csv`, applied in `src/07_calculate_rates.R`.
+**Implementation:** `resources/ieepa_exempt_products.csv`, applied in `src/06_calculate_rates.R`.
 
 ---
 
@@ -82,7 +82,7 @@ This document catalogs methodological assumptions derived from non-official sour
 
 **Assumption:** ~1,697 products are exempt from the 15% tariff floor for EU, Japan, South Korea, and Switzerland/Liechtenstein. Categories: PTAAP, civil aircraft, non-patented pharmaceuticals, particular articles.
 
-**Source:** Scraped from Chapter 99 PDF via `src/03_scrape_us_notes.R --floor-exemptions`. Defined in US Note 2 subdivisions (v)(xx)-(xxiv) and Note 3, which are not machine-readable via HTS API.
+**Source:** Scraped from Chapter 99 PDF via `src/scrape_us_notes.R --floor-exemptions`. Defined in US Note 2 subdivisions (v)(xx)-(xxiv) and Note 3, which are not machine-readable via HTS API.
 
 **Implementation:** `resources/floor_exempt_products.csv`, loaded by `src/helpers.R:load_floor_exempt_products()`.
 
@@ -94,13 +94,13 @@ This document catalogs methodological assumptions derived from non-official sour
 
 **Source:** Two non-HTS-JSON sources:
 1. USITC "China Tariffs" reference document (~10,400 codes)
-2. Chapter 99 PDF US Notes 20/31, scraped via `src/03_scrape_us_notes.R`
+2. Chapter 99 PDF US Notes 20/31, scraped via `src/scrape_us_notes.R`
 
 Generation-based stacking logic comes from Tariff-ETRs methodology, not explicit Federal Register language.
 
 **Known gap:** 9903.89.xx US Note exclusions not captured (excluded products may incorrectly receive 301 rate).
 
-**Implementation:** `resources/s301_product_lists.csv`, `config/policy_params.yaml` (SECTION_301_RATES), `src/07_calculate_rates.R`.
+**Implementation:** `resources/s301_product_lists.csv`, `config/policy_params.yaml` (SECTION_301_RATES), `src/06_calculate_rates.R`.
 
 ---
 
@@ -118,7 +118,7 @@ Within a phase, priority is floor > surcharge > highest rate. Across phases (Pha
 
 **Source:** Reverse-engineered from HTS JSON text conventions. Rate type distinctions and priority rules are not official HTS terminology — they are implementation choices for handling different Ch99 encoding patterns.
 
-**Implementation:** `src/06_parse_policy_params.R:extract_ieepa_rates()`.
+**Implementation:** `src/05_parse_policy_params.R:extract_ieepa_rates()`.
 
 ---
 
@@ -137,7 +137,7 @@ Phase classification determines stacking behavior — country_eo rates stack add
 
 **Source:** Reverse-engineered from Ch99 code ranges and Federal Register executive order numbering. Range boundaries (especially the .91 extension for Swiss framework) are implementation assumptions.
 
-**Implementation:** `src/06_parse_policy_params.R`, `config/policy_params.yaml` (authority ranges).
+**Implementation:** `src/05_parse_policy_params.R`, `config/policy_params.yaml` (authority ranges).
 
 ---
 
@@ -147,7 +147,7 @@ Phase classification determines stacking behavior — country_eo rates stack add
 
 **Source:** Federal Register (90 FR 59281) and Executive Order 14346. The conditional expiry logic and finalization flag are implementation assumptions for handling a potentially lapsing agreement — not encoded in HTS JSON.
 
-**Implementation:** `config/policy_params.yaml` (`swiss_framework` block), `src/07_calculate_rates.R`.
+**Implementation:** `config/policy_params.yaml` (`swiss_framework` block), `src/06_calculate_rates.R`.
 
 ---
 
@@ -169,4 +169,4 @@ Phase classification determines stacking behavior — country_eo rates stack add
 
 **Source:** Reverse-engineered from TPC validation data. The executive order text applies reciprocal tariffs to "articles imported into the United States" with no explicit carve-out for duty-free products, supporting the `'all'` interpretation. However, TPC's exclusion of duty-free products is a reasonable economic interpretation since the tariff base is zero.
 
-**Implementation:** `config/policy_params.yaml` (`ieepa_duty_free_treatment`), applied in `src/07_calculate_rates.R` step 2 (existing products and new IEEPA-only pair expansion).
+**Implementation:** `config/policy_params.yaml` (`ieepa_duty_free_treatment`), applied in `src/06_calculate_rates.R` step 2 (existing products and new IEEPA-only pair expansion).

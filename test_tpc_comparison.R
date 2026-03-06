@@ -11,10 +11,9 @@ stacking_method <- if ('--tpc-stacking' %in% args) 'tpc_additive' else 'mutual_e
 cat('Stacking method:', stacking_method, '\n')
 
 # ---- Config ----
-tpc_revisions <- c('rev_6', 'rev_10', 'rev_17', 'rev_18', 'rev_32')
-
 # Load revision dates to get TPC date mapping
 rev_dates <- load_revision_dates(here('config', 'revision_dates.csv'))
+tpc_revisions <- rev_dates %>% filter(!is.na(tpc_date)) %>% pull(revision)
 tpc_map <- rev_dates %>% filter(!is.na(tpc_date)) %>% select(revision, effective_date, tpc_date)
 cat('TPC validation dates:\n')
 print(tpc_map)
@@ -140,7 +139,7 @@ write_csv(rev_summary, file.path(val_dir, 'tpc_summary_by_revision.csv'))
 
 # ---- By country (top 20 countries by product count) ----
 cat('\n--- By Country (top 20, latest revision) ---\n\n')
-latest <- combined %>% filter(revision == 'rev_32')
+latest <- combined %>% filter(revision == tpc_revisions[length(tpc_revisions)])
 
 # Get country names
 cty_names <- setNames(census_codes$Name, census_codes$Code)

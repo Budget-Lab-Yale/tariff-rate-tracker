@@ -30,7 +30,7 @@ iso_to_census:
   RU: '4621'
   AR: '3570'
   BR: '3510'
-  UA: '4622'
+  UA: '4623'
 
 # --- EU-27 member state Census codes ---
 eu27_codes:
@@ -64,9 +64,9 @@ eu27_codes:
 
 # --- Authority classification ranges (9903.xx) ---
 authority_ranges:
-  section_232:      [80, 81, 82, 83, 84, 85, 94]
+  section_232:      [80, 81, 82, 83, 84, 85, 94, 74, 78]
   section_301:      [86, 87, 88, 89, 91, 92]
-  ieepa_reciprocal: [90, 93, 95, 96]
+  ieepa_reciprocal: [90, 93, 95, 96]  # Legacy ranges only; Phase 1/2 use ieepa_phase1_range/ieepa_phase2_range
   section_201:      [40, 41, 42, 43, 44, 45]
   ieepa_fentanyl_range:
     start: '9903.01.01'
@@ -206,7 +206,7 @@ floor_rates:
 
 # --- Swiss/Liechtenstein Framework (EO 14346) ---
 # 15% floor structure per FR 2025-23316 (90 FR 59281), effective Nov 14, 2025.
-# The surcharge -> floor override in 07_calculate_rates.R only applies within
+# The surcharge -> floor override in 06_calculate_rates.R only applies within
 # this date window. If finalized is true, the override has no expiry.
 # Set finalized to true once the agreement is confirmed (removes expiry constraint).
 swiss_framework:
@@ -225,7 +225,7 @@ authority_columns:
   other:            rate_other
 
 # --- Section 301 rates (Ch99 pattern -> rate) ---
-# Used by 11_weighted_etr.R for direct rate lookup
+# Used by 06_calculate_rates.R and 08_weighted_etr.R
 section_301_rates:
   - ch99_pattern: '9903.88.01'
     s301_rate: 0.25
@@ -344,6 +344,7 @@ section_122:
   effective_date: '2026-02-25'
   expiry_date: '2026-07-25'    # 150 days from effective
   finalized: false              # set true if Congress extends
+  exempt_products: 'resources/s122_exempt_products.csv'
 
 # --- Validation thresholds ---
 validation_thresholds:

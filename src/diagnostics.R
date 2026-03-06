@@ -1,5 +1,5 @@
 # =============================================================================
-# Step 10: Diagnostics
+# Diagnostics
 # =============================================================================
 #
 # Diagnostic reports for the tariff rate time series:
@@ -34,7 +34,7 @@ CTY_CHINA <- if (!is.null(.pp_09)) .pp_09$CTY_CHINA else '5700'
 report_301_coverage_gap <- function(our_rates, tpc_path, census_codes, target_date = NULL) {
   message('\n=== Section 301 Coverage Gap Analysis ===\n')
 
-  source('src/08_validate_tpc.R', local = TRUE)
+  source(here('src', '07_validate_tpc.R'), local = TRUE)
 
   name_to_code <- create_country_name_map(census_codes)
   tpc_data <- load_tpc_data(tpc_path, name_to_code)
@@ -362,10 +362,10 @@ decompose_tpc_discrepancies <- function(comparison_path, revision_filter = NULL)
       chapter = substr(hts10, 1, 2),
       is_floor_country = country %in% floor_countries,
       is_eu = country %in% eu_codes,
-      is_japan = country == pp$country_codes$CTY_JAPAN,
-      is_korea = country == pp$country_codes$CTY_SKOREA,
-      is_swiss = country %in% c(pp$country_codes$CTY_SWITZERLAND,
-                                 pp$country_codes$CTY_LIECHTENSTEIN),
+      is_japan = country == pp$CTY_JAPAN,
+      is_korea = country == pp$CTY_SKOREA,
+      is_swiss = country %in% c(pp$CTY_SWITZERLAND,
+                                 pp$CTY_LIECHTENSTEIN),
       is_china = country == pp$CTY_CHINA,
       is_ca_mx = country %in% c(pp$CTY_CANADA, pp$CTY_MEXICO),
       # Mismatch direction

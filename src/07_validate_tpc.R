@@ -1,5 +1,5 @@
 # =============================================================================
-# Step 08: Validate Against TPC Data
+# Step 07: Validate Against TPC Data
 # =============================================================================
 #
 # Compares calculated tariff rates against TPC (Tax Policy Center) estimates.
@@ -296,7 +296,7 @@ validate_revision_against_tpc <- function(revision_rates, tpc_path, tpc_date, ce
   # Our rates: use total_additional as the rate change from zero baseline
   our_rates <- revision_rates %>%
     select(hts10, country, total_additional,
-           rate_232, rate_301, rate_ieepa_recip, rate_ieepa_fent, rate_other)
+           rate_232, rate_301, rate_ieepa_recip, rate_ieepa_fent, rate_s122, rate_other)
 
   if (length(tpc_excluded) > 0) {
     our_rates <- our_rates %>% filter(!country %in% tpc_excluded)
@@ -386,7 +386,8 @@ run_validation <- function(our_rates, tpc_path, census_codes, output_dir = 'outp
   # Run comparison for each date
   all_comparisons <- list()
 
-  for (d in dates) {
+  for (i in seq_along(dates)) {
+    d <- dates[i]
     cat('\n--- Date:', as.character(d), '---\n')
     comparison <- compare_to_tpc(our_rates, tpc_data, d)
     all_comparisons[[as.character(d)]] <- comparison

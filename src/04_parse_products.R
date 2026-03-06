@@ -1,5 +1,5 @@
 # =============================================================================
-# Step 05: Parse Product Data from HTS JSON
+# Step 04: Parse Product Data from HTS JSON
 # =============================================================================
 #
 # Extracts HTS10 product data:
@@ -92,7 +92,8 @@ parse_all_revisions <- function(revisions, archive_dir = 'data/hts_archives') {
   results <- list()
 
   for (rev in revisions) {
-    filename <- paste0('hts_2025_', rev, '.json')
+    parsed <- parse_revision_id(rev)
+    filename <- paste0('hts_', parsed$year, '_', parsed$rev, '.json')
     filepath <- file.path(archive_dir, filename)
 
     if (!file.exists(filepath)) {

@@ -32,7 +32,7 @@ args <- commandArgs(trailingOnly = TRUE)
 import_data_path <- if ('--import-path' %in% args) {
   args[which(args == '--import-path') + 1]
 } else {
-  'C:/Users/ji252/Downloads'
+  here('data', 'raw')
 }
 year <- 2024
 

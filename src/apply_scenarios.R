@@ -1,5 +1,5 @@
 # =============================================================================
-# Step 09: Apply Tariff Scenarios
+# Apply Tariff Scenarios
 # =============================================================================
 #
 # Zeros out disabled authorities and re-applies stacking rules to produce

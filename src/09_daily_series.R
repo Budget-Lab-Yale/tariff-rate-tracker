@@ -1,5 +1,5 @@
 # =============================================================================
-# Step 12: Daily Rate Series
+# Step 09: Daily Rate Series
 # =============================================================================
 #
 # Provides pre-computed daily aggregates and on-demand expansion.
@@ -7,7 +7,7 @@
 # by 00_build_timeseries.R -- rates only change at revision boundaries, so
 # we compute one aggregate per revision and broadcast across calendar days.
 #
-# Note: get_rates_at_date() is defined in helpers.R (shared with 11_weighted_etr.R).
+# Note: get_rates_at_date() is defined in helpers.R (shared with 08_weighted_etr.R).
 #
 # Core functions:
 #   build_daily_aggregates(ts, date_range, imports, policy_params) - daily ETRs
@@ -16,13 +16,13 @@
 #
 # Usage:
 #   # As library (source into other scripts):
-#   source('src/12_daily_series.R')
+#   source('src/09_daily_series.R')
 #   source('src/helpers.R')
 #   ts <- readRDS('data/timeseries/rate_timeseries.rds')
 #   snapshot <- get_rates_at_date(ts, as.Date('2025-06-15'))
 #
 #   # Standalone:
-#   Rscript src/12_daily_series.R
+#   Rscript src/09_daily_series.R
 #
 # =============================================================================
 
@@ -93,7 +93,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   if (!is.null(policy_params$SECTION_122) &&
       !policy_params$SECTION_122$finalized &&
       'rate_s122' %in% names(ts)) {
-    s122_expiry <- policy_params$SECTION_122$expiry_date
+    s122_expiry <- as.Date(policy_params$SECTION_122$expiry_date)
   }
 
   # Helper: compute aggregates for one revision interval (or sub-interval)

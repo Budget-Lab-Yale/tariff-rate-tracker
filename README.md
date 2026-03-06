@@ -2,7 +2,7 @@
 
 Daily statutory U.S. tariff rates at the HTS-10 × country level, built from USITC Harmonized Tariff Schedule JSON archives. Produced by [The Budget Lab at Yale](https://budgetlab.yale.edu/).
 
-The tracker processes 39 HTS revisions (January 2025 through March 2026) to construct a panel of ~4.5 million product-country tariff rates per revision. This process uses HTS data sources, combined with ancillary data and economic assumptions detailed below, to estimate tariff rates. Outputs are designed for use with The Budget Lab at Yale [Tariff-Model](https://github.com/Budget-Lab-Yale/Tariff-Model).
+The tracker processes 39 HTS revisions (January 2025 through February 2026) to construct a panel of ~4.5 million product-country tariff rates per revision. This process uses HTS data sources, combined with ancillary data and economic assumptions detailed below, to estimate tariff rates. Outputs are designed for use with The Budget Lab at Yale [Tariff-Model](https://github.com/Budget-Lab-Yale/Tariff-Model).
 
 ---
 
@@ -93,7 +93,7 @@ Section 232 and Section 301 tariffs are unaffected by the SCOTUS ruling (separat
 | 232 derivative products | `resources/s232_derivative_products.csv` | ~129 aluminum-containing article prefixes | [Tariff-ETRs](https://github.com/Budget-Lab-Yale/Tariff-ETRs) |
 | MFN exemption shares | `resources/mfn_exemption_shares.csv` | 4,695 HS2 × country FTA/GSP preference shares | [Tariff-ETRs](https://github.com/Budget-Lab-Yale/Tariff-ETRs) |
 | Fentanyl carve-outs | `resources/fentanyl_carveout_products.csv` | 308 HTS-8 prefixes (energy/minerals/potash) | [Tariff-ETRs](https://github.com/Budget-Lab-Yale/Tariff-ETRs) |
-| Floor exemptions | `resources/floor_exemptions/` | Per-revision country-product floor exemptions | [USITC](https://hts.usitc.gov/) |
+| Floor exemptions | `data/us_notes/floor_exempt_{revision}.csv` (fallback: `resources/floor_exempt_products.csv`) | Per-revision country-product floor exemptions | [USITC](https://hts.usitc.gov/) |
 | CBO metal content | `resources/cbo/` | Product-level metal content buckets | [CBO](https://www.cbo.gov/) |
 
 ### Configuration
@@ -359,7 +359,7 @@ Configurable via `ieepa_duty_free_treatment` in `policy_params.yaml`. Options: `
 
 ### Floor Country Product Exemptions
 
-Per-revision floor exemptions loaded via `load_revision_floor_exemptions()` in `helpers.R`, with fallback for revisions without specific exemption files. Stored in `resources/floor_exemptions/`.
+Per-revision floor exemptions loaded via `load_revision_floor_exemptions()` in `helpers.R`, with fallback for revisions without specific exemption files. Stored in `data/us_notes/floor_exempt_{revision}.csv` (with fallback to `resources/floor_exempt_products.csv`).
 
 ### Swiss Framework Override
 

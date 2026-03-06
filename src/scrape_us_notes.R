@@ -1,5 +1,5 @@
 # =============================================================================
-# Step 03: Parse US Note Product Lists from Chapter 99 PDF
+# Parse US Note Product Lists from Chapter 99 PDF
 # =============================================================================
 #
 # Extracts product lists from US Notes in the USITC Chapter 99 PDF:
@@ -17,13 +17,13 @@
 # resources/floor_exempt_products.csv.
 #
 # Usage:
-#   Rscript src/03_scrape_us_notes.R                    # Section 301 only
-#   Rscript src/03_scrape_us_notes.R --floor-exemptions # Floor exemptions only
-#   Rscript src/03_scrape_us_notes.R --all              # Both 301 + floor
-#   Rscript src/03_scrape_us_notes.R --dry-run          # Report without writing
-#   Rscript src/03_scrape_us_notes.R --download-pdfs [--dry-run]  # Download all revision PDFs
-#   Rscript src/03_scrape_us_notes.R --revision rev_18            # Parse single revision
-#   Rscript src/03_scrape_us_notes.R --all-revisions [--dry-run]  # Parse all revisions
+#   Rscript src/scrape_us_notes.R                    # Section 301 only
+#   Rscript src/scrape_us_notes.R --floor-exemptions # Floor exemptions only
+#   Rscript src/scrape_us_notes.R --all              # Both 301 + floor
+#   Rscript src/scrape_us_notes.R --dry-run          # Report without writing
+#   Rscript src/scrape_us_notes.R --download-pdfs [--dry-run]  # Download all revision PDFs
+#   Rscript src/scrape_us_notes.R --revision rev_18            # Parse single revision
+#   Rscript src/scrape_us_notes.R --all-revisions [--dry-run]  # Parse all revisions
 #
 # Dependencies: pdftools
 #

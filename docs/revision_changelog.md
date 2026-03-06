@@ -1,6 +1,6 @@
 # HTS Revision Changelog
 
-Verified timeline of Chapter 99 policy changes across all 35 HTS revision points (2025 basic through 2026 basic). Generated from `src/13_revision_changelog.R`, which diffs Ch99 entries between consecutive revisions to identify additions, removals, rate changes, and suspensions. Full diff data in `output/changelog/revision_diffs.csv`.
+Verified timeline of Chapter 99 policy changes across all 39 HTS revision points (2025 basic through 2026_rev_4). Generated from `src/revision_changelog.R`, which diffs Ch99 entries between consecutive revisions to identify additions, removals, rate changes, and suspensions. Full diff data in `output/changelog/revision_diffs.csv`.
 
 ---
 
@@ -283,6 +283,6 @@ No Chapter 99 changes. +153 product line additions.
 
 3. **Floor country pattern**: EU (rev_18/24), Japan (rev_23), S. Korea (rev_32), Switzerland/Liechtenstein (2026_basic). Each gets passthrough (base >= 15%) + floor (base < 15% → 15%) + exemption entries.
 
-4. **"Other" authority**: The `classify_authority()` function classifies IEEPA Phase 1 (9903.01.xx) and Phase 2 (9903.02.xx) entries as "other" rather than "ieepa_reciprocal". The IEEPA reciprocal count reflects only 9903.90/93/95/96 entries, not the full IEEPA range. The extraction pipeline (`06_parse_policy_params.R`) correctly handles the full ranges.
+4. **"Other" authority**: The `classify_authority()` function classifies IEEPA Phase 1 (9903.01.xx) and Phase 2 (9903.02.xx) entries as "other" rather than "ieepa_reciprocal". The IEEPA reciprocal count reflects only 9903.90/93/95/96 entries, not the full IEEPA range. The extraction pipeline (`05_parse_policy_params.R`) correctly handles the full ranges.
 
 5. **TPC date gaps**: rev_18 (effective 2025-08-07) is validated against TPC date 2025-10-17 — a 2+ month gap. Policy changes between these dates (revisions 19-27) may cause discrepancies. See `config/revision_dates.csv` for the full date mapping.

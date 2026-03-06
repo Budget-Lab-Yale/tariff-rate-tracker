@@ -35,11 +35,11 @@ source(here('src', 'logging.R'))
 source(here('src', 'helpers.R'))
 source(here('src', '01_scrape_revision_dates.R'))
 source(here('src', '02_download_hts.R'))
-source(here('src', '04_parse_chapter99.R'))
-source(here('src', '05_parse_products.R'))
-source(here('src', '06_parse_policy_params.R'))
-source(here('src', '07_calculate_rates.R'))
-source(here('src', '08_validate_tpc.R'))
+source(here('src', '03_parse_chapter99.R'))
+source(here('src', '04_parse_products.R'))
+source(here('src', '05_parse_policy_params.R'))
+source(here('src', '06_calculate_rates.R'))
+source(here('src', '07_validate_tpc.R'))
 
 
 # =============================================================================
@@ -79,7 +79,7 @@ build_full_timeseries <- function(
   message(strrep('=', 70), '\n')
 
   # ---- Initialize logging ----
-  log_dir <- file.path(output_dir, '..', '..', 'output', 'logs')
+  log_dir <- here('output', 'logs')
   init_logging(
     log_file = file.path(ensure_dir(log_dir),
                          paste0('build_', format(start_time, '%Y%m%d_%H%M%S'), '.log')),
@@ -105,16 +105,7 @@ build_full_timeseries <- function(
   all_revisions <- rev_dates$revision
 
   # Filter to revisions that have JSON files available
-  years_needed <- unique(map_int(all_revisions, ~ parse_revision_id(.)$year))
-
-  available <- character()
-  for (yr in years_needed) {
-    yr_revisions <- list_available_revisions(archive_dir, year = yr)
-    if (yr != 2025) {
-      yr_revisions <- paste0(yr, '_', yr_revisions)
-    }
-    available <- c(available, yr_revisions)
-  }
+  available <- get_available_revisions_all_years(all_revisions, archive_dir)
 
   revisions_to_process <- all_revisions[all_revisions %in% available]
   missing <- all_revisions[!all_revisions %in% available]
@@ -310,7 +301,7 @@ build_full_timeseries <- function(
       valid_from = effective_date,
       valid_until = lead(effective_date) - 1
     ) %>%
-    mutate(valid_until = if_else(is.na(valid_until), as.Date('2026-12-31'), valid_until)) %>%
+    mutate(valid_until = if_else(is.na(valid_until), Sys.Date(), valid_until)) %>%
     select(revision, valid_from, valid_until)
 
   timeseries <- timeseries %>%
@@ -324,7 +315,11 @@ build_full_timeseries <- function(
   message('Saved time series: ', ts_path)
   message('  Total rows: ', nrow(timeseries))
   message('  Revisions: ', n_distinct(timeseries$revision))
-  message('  Date range: ', min(timeseries$effective_date), ' to ', max(timeseries$effective_date))
+  if (nrow(timeseries) > 0) {
+    message('  Date range: ', min(timeseries$effective_date), ' to ', max(timeseries$effective_date))
+  } else {
+    warning('Timeseries is empty — all revisions may have failed')
+  }
 
   # ---- Save metadata ----
   metadata <- list(
@@ -416,13 +411,7 @@ detect_incremental_start <- function(
   rev_dates <- load_revision_dates(revision_dates_path)
   all_revisions <- rev_dates$revision
 
-  years_needed <- unique(map_int(all_revisions, ~ parse_revision_id(.)$year))
-  available <- character()
-  for (yr in years_needed) {
-    yr_revisions <- list_available_revisions(archive_dir, year = yr)
-    if (yr != 2025) yr_revisions <- paste0(yr, '_', yr_revisions)
-    available <- c(available, yr_revisions)
-  }
+  available <- get_available_revisions_all_years(all_revisions, archive_dir)
 
   revisions_available <- all_revisions[all_revisions %in% available]
   last_idx <- which(revisions_available == last_rev)
@@ -485,8 +474,8 @@ if (sys.nframe() == 0) {
 
   # --- Step E: Downstream (unless --build-only) ---
   if (!build_only && !is.null(result)) {
-    source(here('src', '12_daily_series.R'))
-    source(here('src', '11_weighted_etr.R'))
+    source(here('src', '09_daily_series.R'))
+    source(here('src', '08_weighted_etr.R'))
     source(here('src', 'quality_report.R'))
 
     ts <- readRDS(result$timeseries_path)

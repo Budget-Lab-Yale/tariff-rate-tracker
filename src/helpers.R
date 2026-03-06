@@ -41,8 +41,10 @@ parse_rate <- function(rate_string) {
     return(value / 100)
   }
 
-  # Percentage with decimals but no % sign (rare)
+  # Percentage with decimals but no % sign (rare, treat as fraction e.g. 0.25 = 25%)
   if (grepl('^[0-9]+\\.[0-9]+$', rate_string) && as.numeric(rate_string) < 1) {
+    warning('parse_rate: interpreting "', rate_string, '" as fraction (not percentage). ',
+            'Add % suffix to rate strings for clarity.')
     return(as.numeric(rate_string))
   }
 
@@ -476,6 +478,26 @@ resolve_json_path <- function(revision, archive_dir = here('data', 'hts_archives
 }
 
 
+#' Get available revisions across all years
+#'
+#' Scans the archive directory for all years present in a revision list
+#' and returns full revision identifiers (with year prefix for non-2025).
+#'
+#' @param all_revisions Character vector of revision IDs from revision_dates.csv
+#' @param archive_dir Path to HTS archive directory
+#' @return Character vector of available revision identifiers
+get_available_revisions_all_years <- function(all_revisions, archive_dir = here('data', 'hts_archives')) {
+  years_needed <- unique(map_int(all_revisions, ~ parse_revision_id(.)$year))
+  available <- character()
+  for (yr in years_needed) {
+    yr_revisions <- list_available_revisions(archive_dir, year = yr)
+    if (yr != 2025) yr_revisions <- paste0(yr, '_', yr_revisions)
+    available <- c(available, yr_revisions)
+  }
+  return(available)
+}
+
+
 # =============================================================================
 # Rate Schema
 # =============================================================================
@@ -801,7 +823,7 @@ load_232_derivative_products <- function(path = here('resources', 's232_derivati
 #' Products exempt from the 15% tariff floor for EU, Japan, S. Korea,
 #' Switzerland/Liechtenstein. Categories: PTAAP (agricultural/natural
 #' resources), civil aircraft, non-patented pharmaceuticals. Parsed from
-#' US Notes to Chapter 99 by 03_scrape_us_notes.R --floor-exemptions.
+#' US Notes to Chapter 99 by scrape_us_notes.R --floor-exemptions.
 #'
 #' @param path Path to floor_exempt_products.csv
 #' @return Tibble with hts8, category, country_group, ch99_code; or empty tibble if missing
@@ -1071,11 +1093,8 @@ get_rates_at_date <- function(ts, query_date, policy_params = NULL) {
       'rate_s122' %in% names(snapshot) &&
       nrow(snapshot) > 0) {
     snapshot <- snapshot %>%
-      mutate(
-        total_additional = total_additional - rate_s122,
-        total_rate = total_rate - rate_s122,
-        rate_s122 = 0
-      )
+      mutate(rate_s122 = 0)
+    snapshot <- apply_stacking_rules(snapshot)
   }
 
   return(snapshot)

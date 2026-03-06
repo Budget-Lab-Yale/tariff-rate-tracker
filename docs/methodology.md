@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Tariff Rate Tracker constructs statutory U.S. tariff rates at the HTS-10 x country level by parsing Harmonized Tariff Schedule (HTS) JSON archives published by the U.S. International Trade Commission (USITC). It processes all 34 HTS revisions from January 2025 through January 2026 to build a complete time series of tariff rates, then aggregates these into import-weighted effective tariff rates (ETRs) using 2024 Census trade data. Tax Policy Center (TPC) benchmark data is used for validation only — never as a rate input.
+The Tariff Rate Tracker constructs statutory U.S. tariff rates at the HTS-10 x country level by parsing Harmonized Tariff Schedule (HTS) JSON archives published by the U.S. International Trade Commission (USITC). It processes all 39 HTS revisions from January 2025 through January 2026 to build a complete time series of tariff rates, then aggregates these into import-weighted effective tariff rates (ETRs) using 2024 Census trade data. Tax Policy Center (TPC) benchmark data is used for validation only — never as a rate input.
 
 The system produces ~4.5 million product-country rate observations per revision snapshot, covering ~19,768 HTS-10 products across 240 countries.
 
@@ -12,8 +12,8 @@ The system produces ~4.5 million product-country rate observations per revision 
 
 | Source | Description | Coverage |
 |--------|-------------|----------|
-| **USITC HTS JSON** | Official tariff schedule; base MFN rates, Chapter 99 additional duties, product footnotes, special program codes | 34 revisions (basic through 2026_basic), ~35,500 items per revision |
-| **USITC Chapter 99 PDF** | US Notes text enumerating product lists for Section 301, floor country exemptions | 767 pages; parsed by `03_scrape_us_notes.R` |
+| **USITC HTS JSON** | Official tariff schedule; base MFN rates, Chapter 99 additional duties, product footnotes, special program codes | 39 revisions (basic through 2026_rev_4), ~35,500 items per revision |
+| **USITC Chapter 99 PDF** | US Notes text enumerating product lists for Section 301, floor country exemptions | 767 pages; parsed by `scrape_us_notes.R` |
 | **Census 2024 Import Data** | Import values by HTS-10 x country x GTAP sector | ~$2.9 trillion total; used for ETR weighting |
 | **Tariff-ETRs USMCA Shares** | GTAP sector-level USMCA utilization fractions for CA/MX | 47 GTAP sectors; used for weighted USMCA exemption |
 | **TPC Benchmark** | HTS-10 x country tariff rates at 5 snapshot dates | ~339K rows; validation only |
@@ -86,7 +86,7 @@ USMCA exemption: For Canadian and Mexican products, IEEPA reciprocal and fentany
 
 ### Calculation Pipeline
 
-For each of the 34 HTS revisions:
+For each of the 39 HTS revisions:
 
 1. Parse Chapter 99 entries (rates, authority classification, country scope)
 2. Parse product lines (base MFN rates, Chapter 99 footnote references)

@@ -1,5 +1,5 @@
 # =============================================================================
-# Step 04: Parse Chapter 99 Entries
+# Step 03: Parse Chapter 99 Entries
 # =============================================================================
 #
 # Extracts Chapter 99 subheadings from HTS JSON and parses:
@@ -96,10 +96,14 @@ extract_country_names <- function(text) {
   country_map <- c(
     'australia' = 'AU', 'argentina' = 'AR', 'brazil' = 'BR',
     'canada' = 'CA', 'mexico' = 'MX', 'china' = 'CN',
+    'people\'s republic of china' = 'CN',
     'south korea' = 'KR', 'korea' = 'KR',
     'japan' = 'JP', 'united kingdom' = 'UK', 'uk' = 'UK',
     'european union' = 'EU', 'eu' = 'EU',
-    'ukraine' = 'UA', 'russia' = 'RU', 'russian federation' = 'RU'
+    'ukraine' = 'UA', 'russia' = 'RU', 'russian federation' = 'RU',
+    'india' = 'IN', 'switzerland' = 'CH', 'liechtenstein' = 'LI',
+    'thailand' = 'TH', 'vietnam' = 'VN', 'viet nam' = 'VN',
+    'taiwan' = 'TW', 'indonesia' = 'ID'
   )
 
   text_lower <- tolower(text)

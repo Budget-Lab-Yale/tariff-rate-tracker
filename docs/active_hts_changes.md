@@ -38,13 +38,13 @@ When USITC publishes an HTS revision incorporating a change listed here, the ove
 
 1. **Extraction range expanded**: `extract_ieepa_rates()` range extended from 9903.02.02-81 to 9903.02.02-91, so native Swiss floor entries (9903.02.82-91) are parsed when present in HTS JSON. Confirmed present in `2026_basic`.
 
-2. **Surcharge-to-floor override**: Switzerland (4419) and Liechtenstein (4411) in `floor_countries` config. Override in `07_calculate_rates.R` converts surcharge → floor for revisions where the HTS JSON only has the old surcharge entries (.02.36/.58). When native floor entries exist (and win rate selection over surcharges), the override is a no-op.
+2. **Surcharge-to-floor override**: Switzerland (4419) and Liechtenstein (4411) in `floor_countries` config. Override in `06_calculate_rates.R` converts surcharge → floor for revisions where the HTS JSON only has the old surcharge entries (.02.36/.58). When native floor entries exist (and win rate selection over surcharges), the override is a no-op.
 
 3. **Date-bounded**: Override governed by `swiss_framework` config in `policy_params.yaml`. Only applies when revision effective_date is within the framework window (Nov 14, 2025 → March 31, 2026). If `finalized: true`, no expiry constraint. If framework lapses, override automatically stops — surcharge rates resume.
 
 4. **Product exemptions**: 1,681 exempt products (PTAAP, civil aircraft, pharma) in `resources/floor_exempt_products.csv`, applied in step 2 of rate calculation.
 
-**HTS status (March 2026)**: Native floor entries (9903.02.82-91) are present in HTS JSON starting from `2026_basic` (Jan 1, 2026) and persist through `2026_rev_4` (Feb 25, 2026). The surcharge-to-floor override in `07_calculate_rates.R` is now a no-op for these revisions since the native entries win rate selection. The override remains necessary for `rev_32` (Nov 15, 2025) and earlier revisions within the framework window.
+**HTS status (March 2026)**: Native floor entries (9903.02.82-91) are present in HTS JSON starting from `2026_basic` (Jan 1, 2026) and persist through `2026_rev_4` (Feb 25, 2026). The surcharge-to-floor override in `06_calculate_rates.R` is now a no-op for these revisions since the native entries win rate selection. The override remains necessary for `rev_32` (Nov 15, 2025) and earlier revisions within the framework window.
 
 **Conditional expiry**: The Framework agreement must be finalized by March 31, 2026. If not, rates revert to +39% (Switzerland) / +15% (Liechtenstein) surcharges. When confirmed, set `swiss_framework.finalized: true` in `config/policy_params.yaml` to make the floor treatment permanent.
 

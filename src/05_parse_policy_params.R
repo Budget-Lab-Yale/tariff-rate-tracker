@@ -1,5 +1,5 @@
 # =============================================================================
-# Step 06: Parse Policy Parameters from HTS JSON
+# Step 05: Parse Policy Parameters from HTS JSON
 # =============================================================================
 #
 # Extracts tariff policy parameters directly from the HTS source data:
@@ -30,7 +30,7 @@ ISO_TO_CENSUS <- if (!is.null(.pp_05)) .pp_05$ISO_TO_CENSUS else c(
   'CN' = '5700', 'CA' = '1220', 'MX' = '2010',
   'JP' = '5880', 'UK' = '4120', 'GB' = '4120',
   'AU' = '6021', 'KR' = '5800', 'RU' = '4621',
-  'AR' = '3570', 'BR' = '3510', 'UA' = '4622'
+  'AR' = '3570', 'BR' = '3510', 'UA' = '4623'
 )
 
 EU27_NAMES <- if (!is.null(.pp_05)) .pp_05$EU27_NAMES else c(
@@ -622,7 +622,7 @@ extract_section232_rates <- function(ch99_data) {
 
   # --- Aluminum derivatives (9903.85.04/.07/.08) ---
   # These entries cover aluminum-containing articles outside chapter 76.
-  # Extract derivative rate for use in 07_calculate_rates.R step 3a.
+  # Extract derivative rate for use in 06_calculate_rates.R step 3a.
   alum_deriv <- aluminum_entries %>%
     filter(ch99_code %in% c('9903.85.04', '9903.85.07', '9903.85.08'))
   derivative_rate <- if (nrow(alum_deriv) > 0) max(alum_deriv$rate) else aluminum_rate

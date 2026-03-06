@@ -77,14 +77,17 @@ download_hts_json <- function(url, dest_path, min_size_mb = 1) {
     # Quick JSON validation: try to parse first few bytes
     tryCatch({
       con <- file(dest_path, 'r')
+      on.exit(close(con), add = TRUE)
       first_char <- readChar(con, 1)
       close(con)
+      on.exit(NULL)
       if (!first_char %in% c('{', '[')) {
         warning('File does not start with JSON: ', first_char)
         return(FALSE)
       }
     }, error = function(e) {
       warning('Could not validate JSON: ', conditionMessage(e))
+      return(FALSE)
     })
 
     message('  Success!')
@@ -157,7 +160,7 @@ download_missing_revisions <- function(
     rev <- missing[i]
     message('\n[', i, '/', length(missing), '] Downloading ', rev, '...')
 
-    url <- build_download_url(rev, year)
+    url <- build_download_url(rev)
 
     parsed <- parse_revision_id(rev)
     dest <- file.path(archive_dir, paste0('hts_', parsed$year, '_', parsed$rev, '.json'))
