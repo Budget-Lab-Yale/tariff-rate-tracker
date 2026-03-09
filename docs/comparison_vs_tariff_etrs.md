@@ -15,16 +15,17 @@
 | T1 | **Apply product-level USMCA shares to 232 auto/MHD** — replace binary exemption (`heading_usmca_exempt → rate=0` for CA/MX) with `rate_232 * (1 - usmca_share)` using Census SPI shares from `usmca_product_shares.csv` | `06_calculate_rates.R` step 4 | **+3-4pp Mexico**, resolves largest single discrepancy | [#7](#issue-7-232-usmca-automhd-exemption--binary-vs-share-based-mexico--3-to--4pp) |
 | T2 | **Implement 232 auto deal rates** (Notes 33(h)-(k)) — Japan/Korea/EU autos at 15% floor, UK autos at 7.5% surcharge, UK auto parts at 10% floor, Japan/Korea/EU auto parts at 15% floor | `06_calculate_rates.R` step 4c, `policy_params.yaml` | **-1-2pp Japan/EU/UK** | [#5](#issue-5-232-auto-deal-rates-japan--05pp-eu--05pp-uk--1pp), [#11](#issue-11-japaneu-auto-deal-rates-under-232-japan--11pp-eu-implicit) |
 | T3 | **Expand IEEPA product exemptions** — add Brazil EO-specific agricultural/energy exemptions and other country-specific carve-outs to `ieepa_exempt_products.csv` | `resources/ieepa_exempt_products.csv` | **-0.5-1pp overall** | [#3](#issue-3-ieepa-product-exemptions-overall--05-to--1pp-for-etrs) |
-| T4 | **Fix Brazil/country EO stacking** — ensure country-specific EO rates (e.g., Brazil +40% from 9903.01.77) stack with the universal 10% baseline (9903.01.25) rather than replacing it | `05_parse_policy_params.R`, `06_calculate_rates.R` step 2 | **+0.5pp Brazil** | [#6](#issue-6-brazilindia-country-eo-classification-minimal-net-impact) |
-| T5 | **Narrow 232 auto/MHD parts prefix matching** — audit `s232_auto_parts.txt` (136 prefixes) and `s232_mhd_parts.txt` (182 prefixes) against proclamation HTS10 lists; remove overly broad prefixes like '8471' | `resources/s232_auto_parts.txt`, `resources/s232_mhd_parts.txt` | **-0.5-1pp scattered** | [#4](#issue-4-section-232-automhd-parts-coverage-japan-05-1pp-others-smaller) |
-| T6 | **Add 15 missing S122 exempt products** — reconcile `s122_exempt_products.csv` (1,656) against ETRs list (1,671) | `resources/s122_exempt_products.csv` | **~0.1pp** | [#10](#issue-10-s122-product-exemptions-minimal--01pp) |
+| T4 | **Fix Brazil/India country EO stacking** — ensure country-specific EO rates (e.g., Brazil +40% from 9903.01.77, India +25% from 9903.01.84) stack with the universal 10% baseline (9903.01.25) rather than replacing it. **TPC validates**: Brazil TPC mean=43.1% vs tracker 10.0% (-33pp); India TPC mean=44.2% vs tracker 25.0% (-19pp) | `05_parse_policy_params.R`, `06_calculate_rates.R` step 2 | **+30pp Brazil, +19pp India** (country-specific) | [#6](#issue-6-brazilindia-country-eo-classification-minimal-net-impact), [TPC validation](#country-level-tpc-mean-rates-vs-tracker-vs-etrs-nov-2025-unweighted-product-mean) |
+| T5 | **Expand IEEPA product exemptions** — add Brazil EO-specific agricultural/energy exemptions and other country-specific carve-outs to `ieepa_exempt_products.csv`. TPC exempts 22% of Japan products vs tracker ~1%; EU similar gap. | `resources/ieepa_exempt_products.csv` | **-0.5-1pp overall** | [#3](#issue-3-ieepa-product-exemptions-overall--05-to--1pp-for-etrs), [TPC validation](#floor-rates-tpc-confirms-floor--product-exemptions) |
+| T6 | **Narrow 232 auto/MHD parts prefix matching** — audit `s232_auto_parts.txt` (136 prefixes) and `s232_mhd_parts.txt` (182 prefixes) against proclamation HTS10 lists; remove overly broad prefixes like '8471' | `resources/s232_auto_parts.txt`, `resources/s232_mhd_parts.txt` | **-0.5-1pp scattered** | [#4](#issue-4-section-232-automhd-parts-coverage-japan-05-1pp-others-smaller) |
+| T7 | **Add 15 missing S122 exempt products** — reconcile `s122_exempt_products.csv` (1,656) against ETRs list (1,671) | `resources/s122_exempt_products.csv` | **~0.1pp** | [#10](#issue-10-s122-product-exemptions-minimal--01pp) |
 
 ### Tariff-ETRs changes
 
 | # | Change | Target | Est. Impact | Issues |
 |---|--------|--------|-------------|--------|
-| E1 | **Replace GTAP-level USMCA shares with product-level Census SPI data** — current 47-row GTAP file (`usmca_shares.csv`) systematically over-exempts; adopt HTS10-level shares from Census SPI (same source as tracker) | `resources/usmca_shares.csv`, `calculations.R` | **+4-8pp Canada, +2-3pp Mexico** (pre-S122) | [#1](#issue-1-usmca-exemption-granularity--magnitude-canada-87pp-mexico-19pp), [#8](#issue-8-s122-usmca-reduction--product-level-vs-gtap-shares-mexico-1-to-2pp-partially-offsetting-issue-7) |
-| E2 | **Implement 301 generation-based stacking** — currently assigns each product one flat rate; should SUM across Trump/Biden generations (MAX within each) per legal structure | `config/2-21_temp/*/s301.yaml` generation, `config_parsing.R` or manual yaml rebuild | **+2-3pp China** | [#2](#issue-2-section-301-rate-stacking-china-2-3pp), [#9](#issue-9-china-301-stacking-persistent-from-pre-s122-317pp) |
+| E1 | **Replace GTAP-level USMCA shares with product-level Census SPI data** — current 47-row GTAP file (`usmca_shares.csv`) systematically over-exempts; adopt HTS10-level shares from Census SPI (same source as tracker). **TPC validates**: TPC implied USMCA shares (CA=45.5%, MX=50.7%) match tracker SPI shares closely, not ETRs GTAP shares (~85-90%) | `resources/usmca_shares.csv`, `calculations.R` | **+4-8pp Canada, +2-3pp Mexico** (pre-S122) | [#1](#issue-1-usmca-exemption-granularity--magnitude-canada-87pp-mexico-19pp), [#8](#issue-8-s122-usmca-reduction--product-level-vs-gtap-shares-mexico-1-to-2pp-partially-offsetting-issue-7), [TPC validation](#usmca-tpc-confirms-continuous-product-level-shares) |
+| E2 | **Implement 301 generation-based stacking** — currently assigns each product one flat rate; should SUM across Trump/Biden generations (MAX within each) per legal structure. **TPC validates**: China products at 85-95% only possible with generation stacking (25%+50%/100%) | `config/2-21_temp/*/s301.yaml` generation, `config_parsing.R` or manual yaml rebuild | **+2-3pp China** | [#2](#issue-2-section-301-rate-stacking-china-2-3pp), [#9](#issue-9-china-301-stacking-persistent-from-pre-s122-317pp), [TPC validation](#section-301-tpc-confirms-generation-stacking) |
 
 ### Joint verification needed
 
@@ -63,6 +64,65 @@
 | Mexico | 4.02% | 9.29% | **-5.27** |
 | Japan | 10.75% | 11.85% | **-1.10** |
 | UK | 6.15% | 6.72% | **-0.57** |
+
+---
+
+## TPC Product-Level Rate Validation (Pre-S122)
+
+TPC benchmark data (`data/tpc/tariff_by_flow_day.csv`) provides product-level rates at 5 pre-S122 dates for ~240 countries x ~19,800 products. Comparing TPC's product-level rates against both the tracker and Tariff-ETRs clarifies which repo is closer to correct on each issue.
+
+### USMCA: TPC Confirms Continuous Product-Level Shares
+
+TPC uses **continuous product-level USMCA utilization shares**, producing a smooth distribution of rates between 0% and the headline fentanyl rate. This is visible in the Canada rate distribution at rev_32 (Nov 2025): products are spread across every percentage point from 0% to 35%, not clustered at binary 0%/35%.
+
+**Implied TPC USMCA utilization shares (from product-level rates):**
+
+| Country | TPC Implied | Tracker Census SPI | ETRs GTAP Sectors |
+|---------|------------|-------------------|-------------------|
+| Canada | **45.5%** (mean, 10,667 products) | 41.2% (12,251 pairs) | ~85-90% |
+| Mexico | **50.7%** (mean, 8,792 products) | 47.3% (10,423 pairs) | ~75-85% |
+
+**Verdict:** The tracker's Census SPI shares (41-47%) closely match TPC's implied shares (45-51%). The ETRs GTAP sector shares (75-90%) are roughly **double** what TPC uses, confirming ETRs systematically over-exempts CA/MX. This is the strongest validation that the tracker's USMCA approach is correct and ETRs needs to adopt product-level shares (proposed change E1).
+
+### Floor Rates: TPC Confirms Floor + Product Exemptions
+
+TPC rate distributions for floor-rate countries (Nov 2025):
+
+| Country | 0% (exempt) | ~10% (baseline) | ~15% (floor) | ~25% (reciprocal) | ~50% (232) |
+|---------|------------|-----------------|-------------|-------------------|------------|
+| Japan | 22% | 27% | 30% | 9% | — |
+| S. Korea | 20% | 11% | 53% | — | 7% |
+| EU avg | 23% | — | 25% | — | 6% |
+
+The tracker also clusters Japan at 15% (73% of products), confirming floor rates ARE implemented. However, TPC exempts 22% of Japan products (rate=0%) vs the tracker's ~1%. These are likely Annex A exempt products and/or duty-free products that TPC excludes from IEEPA. **This product exemption gap — not missing floor logic — is the main Japan/EU discrepancy driver** (see Issue 3).
+
+### Section 301: TPC Confirms Generation Stacking
+
+China product rates in TPC go well above 60%, confirming generation-based stacking:
+
+| TPC Rate | Count | Likely Decomposition |
+|----------|-------|---------------------|
+| ~35% | 9,290 (64%) | fentanyl(10%) + 301_Trump(25%) |
+| ~60% | 3,982 (28%) | 232(25%) + fentanyl(10%) + 301(25%) |
+| ~85% | 421 (3%) | fentanyl(10%) + 301_Trump(25%) + 301_Biden(50%) |
+| ~95% | 528 (4%) | recip(10%) + fentanyl(10%) + 301_Trump(25%) + 301_Biden(50%) |
+
+The 85% and 95% rates are **only possible with generation stacking** (25% Trump + 50% Biden = 75%, plus fentanyl). This validates the tracker's approach (Issue 2) and confirms ETRs should implement it (proposed change E2).
+
+Note: TPC rates of 95% also confirm TPC stacks IEEPA reciprocal on 232 (no mutual exclusion) — a known methodological difference from both the tracker and ETRs.
+
+### Country-Level TPC Mean Rates vs Tracker vs ETRs (Nov 2025, unweighted product mean)
+
+| Country | TPC Mean | Tracker Mean | Diff (T-TPC) | ETRs Level (Jan 1) | Notes |
+|---------|----------|-------------|-------------|-------------------|-------|
+| China | 41.5% | 42.0% | **+0.5pp** | 32.8% | Tracker ≈ TPC; ETRs too low (301 stacking) |
+| Canada | 22.6% | 25.0% | +2.4pp | 7.2% | Tracker close; ETRs way too low (USMCA) |
+| Mexico | 16.8% | 25.0% | +8.2pp | 11.4% | Tracker too high (stale comparison?); ETRs closer |
+| Japan | 12.4% | 25.0% | +12.6pp | 13.6% | ETRs ≈ TPC; Tracker too high (product exemptions) |
+| Brazil | 43.1% | 10.0% | -33.1pp | N/A | Tracker missing Brazil +40% EO rate |
+| India | 44.2% | 25.0% | -19.2pp | N/A | Tracker missing India +25% EO stacking |
+
+*Note: Unweighted product means differ from import-weighted ETRs. The Mexico/Japan tracker means may reflect stale comparison data (pre-fix code).*
 
 ---
 
@@ -158,26 +218,35 @@
 
 **Impact:** The tracker may apply the full 25% 232 auto rate to Japan/EU/UK instead of the lower deal rates, explaining part of the Japan +1.8pp and UK +3.8pp gaps.
 
+**TPC validation:** TPC rate distributions for Japan show 30% of products at exactly 15% (floor), confirming deal rates are standard practice. The tracker also clusters 73% of Japan products at 15%, suggesting floor rates ARE partially implemented for IEEPA reciprocal. The gap is specifically in 232 auto deal rates, where the tracker uses the default 25% instead of the 15% floor for Japan/Korea/EU.
+
 **Which is more right:** **ETRs is more right.** The auto deals (Notes 33(h)-(k) to Chapter 99) provide specific negotiated rates for these partners that are lower than the default 25%. The tracker should implement these deal rates.
 
 ---
 
-### Issue 6: Brazil/India Country EO Classification (Minimal net impact)
+### Issue 6: Brazil/India Country EO Stacking (MAJOR — validated by TPC)
 
 **Tariff-Rate-Tracker:**
 - Brazil +40% (9903.01.77) classified as **reciprocal** (country_eo range 9903.01.76-89)
 - India +25% (9903.01.84) classified as **reciprocal**
 - Universal 10% baseline (9903.01.25) classified as **reciprocal**
+- Within Phase 1 reciprocal, the tracker picks the MAX entry — so Brazil gets 40% (not 40% + 10% = 50%)
 
 **Tariff-ETRs:**
-- Brazil +40% classified as **fentanyl**
-- India +25% not in fentanyl yaml (likely in reciprocal)
-- Universal 10% in **reciprocal** yaml (default: 0.10)
-- China fentanyl: 10% (separate from reciprocal 10%)
+- Brazil +40% classified as **fentanyl** + reciprocal default 10%
+- India +25% in reciprocal with headline 15%
+- Both stack because they're in separate IEEPA yaml files (reciprocal + fentanyl)
 
-**Impact:** For non-China countries, the stacking formula treats `(recip + fent)` identically, so classification doesn't affect rates. For Brazil with 232: ETRs computes `(10% recip + 40% fent) x nonmetal` while tracker computes `(40% recip + 0% fent) x nonmetal` — i.e. 50% vs 40% on nonmetal. ETRs gives Brazil 50% IEEPA on non-metal portion; tracker gives 40%.
+**TPC validation (Nov 2025):**
+- **Brazil**: TPC mean = **43.1%**, Tracker mean = **10.0%** (-33pp gap!)
+- **India**: TPC mean = **44.2%**, Tracker mean = **25.0%** (-19pp gap!)
+- These are the largest country-level gaps in the entire comparison
 
-**Which is more right:** **ETRs is more right for Brazil.** Brazil's 40% (EO 14323) + universal 10% baseline should stack if they're separate authorities. The tracker treating the Brazil EO as replacing (rather than adding to) the universal baseline underestimates Brazil's effective rate by ~10% x nonmetal.
+**Root cause:** The tracker treats Brazil's +40% as replacing the universal 10% baseline (MAX within Phase 1), giving Brazil only 40%. TPC gives Brazil ~43% (40% country EO + ~3% from other authorities). The tracker also appears to be computing Brazil's rate far below even 40% — the 10% mean suggests the Brazil EO rate isn't being extracted at all, or is being misclassified.
+
+**Impact:** For Brazil with 232: ETRs computes `(10% recip + 40% fent) x nonmetal` while tracker computes `(40% recip + 0% fent) x nonmetal` — i.e. 50% vs 40% on nonmetal. But the TPC data suggests the overall gap is much larger than this classification difference alone.
+
+**Which is more right:** **ETRs is more right, and the tracker has a likely bug.** Brazil's TPC mean of 43.1% vs tracker's 10.0% indicates the tracker is NOT applying the Brazil +40% EO rate at all for most products. This needs urgent investigation — the Brazil EO extraction or application may be broken.
 
 ---
 
@@ -190,9 +259,9 @@
 | 3. IEEPA product exemptions | **-0.5 to -1pp** (overall) | **ETRs** (more complete) |
 | 4. 232 auto/MHD parts scope | **+0.5-1pp** (scattered) | **ETRs** (explicit HTS10 lists) |
 | 5. Auto deal rates | **+1-2pp** (Japan/EU/UK) | **ETRs** (negotiated deals) |
-| 6. Brazil EO classification | **-0.5pp** (Brazil only) | **ETRs** (separate authorities) |
+| 6. Brazil/India EO stacking | **-30pp Brazil, -19pp India** (country-specific); ~0.5pp overall | **ETRs** (likely tracker bug) |
 
-The overall +4.1pp gap is primarily driven by Issues 1 (USMCA) and 2 (301 stacking) pushing the tracker higher, partially offset by Issues 3-5 where ETRs has more complete implementation.
+The overall +4.1pp gap is primarily driven by Issues 1 (USMCA) and 2 (301 stacking) pushing the tracker higher, partially offset by Issues 3-5 where ETRs has more complete implementation. Issue 6 (Brazil/India) is the largest country-specific gap but has small overall impact due to low import shares. TPC product-level data strongly validates the tracker on USMCA (Issue 1) and 301 stacking (Issue 2), while flagging Brazil/India as a likely tracker bug.
 
 ---
 
