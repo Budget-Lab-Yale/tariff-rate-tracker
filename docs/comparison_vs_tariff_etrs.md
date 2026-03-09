@@ -13,7 +13,7 @@
 | # | Change | Target | Est. Impact | Issues |
 |---|--------|--------|-------------|--------|
 | T1 | **Apply product-level USMCA shares to 232 auto/MHD** — replace binary exemption (`heading_usmca_exempt → rate=0` for CA/MX) with `rate_232 * (1 - usmca_share)` using Census SPI shares from `usmca_product_shares.csv` | `06_calculate_rates.R` step 4 | **+3-4pp Mexico**, resolves largest single discrepancy | [#7](#issue-7-232-usmca-automhd-exemption--binary-vs-share-based-mexico--3-to--4pp) |
-| T2 | **Implement 232 auto deal rates** (Notes 33(h)-(k)) — Japan/Korea/EU autos at 15% floor, UK autos at 7.5% surcharge, UK auto parts at 10% floor, Japan/Korea/EU auto parts at 15% floor | `06_calculate_rates.R` step 4c, `policy_params.yaml` | **-1-2pp Japan/EU/UK** | [#5](#issue-5-232-auto-deal-rates-japan--05pp-eu--05pp-uk--1pp), [#11](#issue-11-japaneu-auto-deal-rates-under-232-japan--11pp-eu-implicit) |
+| ~~T2~~ | ~~**Implement 232 auto deal rates**~~ — **DONE**: Fixed ch99 parser to detect country-specific deal entries (broadened "of [country]" pattern), fixed program classification (vehicles vs parts), fixed step 4c vehicle/parts product separation. Now extracts 12 deal entries: UK +7.5% surcharge (vehicles), UK 10% floor (parts), JP/EU/KR 15% floor (vehicles + parts). | `03_parse_chapter99.R`, `05_parse_policy_params.R`, `06_calculate_rates.R` | **-1-2pp Japan/EU/UK** | [#5](#issue-5-232-auto-deal-rates-japan--05pp-eu--05pp-uk--1pp), [#11](#issue-11-japaneu-auto-deal-rates-under-232-japan--11pp-eu-implicit) |
 | ~~T3~~ | ~~**Expand IEEPA product exemptions**~~ — **DONE**: merged ETRs exempt products into tracker. Expanded from 1,087 to 2,172 HTS10 codes (1,085 new from ETRs `ieepa_reciprocal.yaml` product_rates with rate=0). | `resources/ieepa_exempt_products.csv` | **-0.5-1pp overall** | [#3](#issue-3-ieepa-product-exemptions-overall--05-to--1pp-for-etrs) |
 | ~~T4~~ | ~~**Fix Brazil/India country EO stacking**~~ — **RESOLVED**: investigation confirmed the tracker already correctly stacks country_eo + Phase 2 rates (Brazil: 40%+10%=50%, India: 25%+25%=50%). Original comparison used stale data. Tracker mean at rev_32: Brazil=48.0%, India=48.0% (vs TPC 43.1%/44.2% — tracker slightly higher due to fewer product exemptions). | N/A | **No change needed** | [#6](#issue-6-brazilindia-country-eo-classification-minimal-net-impact) |
 | ~~T5~~ | ~~**Expand IEEPA product exemptions**~~ — **DONE** (same as T3). Merged with ETRs list. | N/A | **(see T3)** | [#3](#issue-3-ieepa-product-exemptions-overall--05-to--1pp-for-etrs) |
@@ -356,7 +356,7 @@ The overall -0.96pp gap is the net result of: China's persistent +3.2pp (301 sta
 
 1. **USMCA shares for 232**: The tracker should apply product-level Census SPI utilization shares to 232 auto/MHD rates (not binary), matching how it already handles IEEPA/S122. This would resolve the largest post-S122 discrepancy.
 
-2. **Auto deal rates**: The tracker should implement Note 33(h)-(k) deal rates for Japan/Korea/EU/UK autos and auto parts (15% floor for Japan/Korea/EU, 7.5%/10% for UK).
+2. ~~**Auto deal rates**~~: **DONE** — ch99 parser now detects 12 country-specific deal entries (UK/JP/EU/KR vehicles + parts). Step 4c applies floor/surcharge rates correctly.
 
 3. **301 generation stacking**: Verify legal interpretation — do Biden 301 modifications replace or supplement Trump rates on overlapping products? Both repos should agree on the treatment.
 

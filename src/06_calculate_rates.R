@@ -1096,11 +1096,11 @@ calculate_rates_for_revision <- function(
       if (length(census_codes) == 0) next
 
       # Determine which products this deal covers (vehicles vs parts)
+      # Split auto_products into vehicles and parts using heading config prefixes
+      auto_vehicles_cfg <- s232_headings[grepl('passenger|light_truck', names(s232_headings), ignore.case = TRUE)]
+      vehicle_prefixes <- unlist(lapply(auto_vehicles_cfg, function(x) x$prefixes))
       deal_products <- if (deal$program == 'auto_parts') {
         # Parts: products NOT in passenger vehicle/light truck prefixes
-        # For now, use all auto_products minus vehicle prefixes
-        auto_vehicles_cfg <- s232_headings[grepl('passenger|light_truck', names(s232_headings), ignore.case = TRUE)]
-        vehicle_prefixes <- unlist(lapply(auto_vehicles_cfg, function(x) x$prefixes))
         if (length(vehicle_prefixes) > 0) {
           veh_pattern <- paste0('^(', paste(vehicle_prefixes, collapse = '|'), ')')
           auto_products[!grepl(veh_pattern, auto_products)]
@@ -1108,7 +1108,13 @@ calculate_rates_for_revision <- function(
           auto_products
         }
       } else {
-        auto_products
+        # Vehicles: only passenger vehicle/light truck prefix products
+        if (length(vehicle_prefixes) > 0) {
+          veh_pattern <- paste0('^(', paste(vehicle_prefixes, collapse = '|'), ')')
+          auto_products[grepl(veh_pattern, auto_products)]
+        } else {
+          auto_products
+        }
       }
 
       if (deal$rate_type == 'floor') {

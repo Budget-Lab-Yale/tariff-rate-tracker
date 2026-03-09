@@ -734,9 +734,10 @@ extract_section232_rates <- function(ch99_data) {
           TRUE ~ 'surcharge'
         ),
         # Classify program: vehicles vs parts based on description
+        # "automobile parts" or "parts of passenger vehicles" = auto_parts
+        # "passenger vehicles" without preceding "parts of" = auto_vehicles
         program = case_when(
-          grepl('(?:part|parts)\\b', description, ignore.case = TRUE) &
-            !grepl('passenger vehicles and light trucks', description, ignore.case = TRUE) ~ 'auto_parts',
+          grepl('automobile parts|parts of passenger|parts of.*vehicles', description, ignore.case = TRUE) ~ 'auto_parts',
           TRUE ~ 'auto_vehicles'
         )
       ) %>%
