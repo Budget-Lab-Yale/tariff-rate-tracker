@@ -971,10 +971,10 @@ calculate_rates_for_revision <- function(
       ) %>%
       mutate(
         chapter = substr(hts10, 1, 2),
-        # For heading-level products, zero out rate for USMCA-exempt CA/MX
+        # Heading-level 232 rate (auto/MHD/copper/wood). USMCA share-based
+        # reduction for CA/MX applied later in step 7, not zeroed here.
         heading_rate_adj = case_when(
           is.na(heading_232_rate) | heading_232_rate == 0 ~ 0,
-          heading_usmca_exempt & country %in% c(CTY_CANADA, CTY_MEXICO) ~ 0,
           TRUE ~ heading_232_rate
         ),
         blanket_232 = case_when(
@@ -983,7 +983,9 @@ calculate_rates_for_revision <- function(
           heading_rate_adj > 0 ~ heading_rate_adj,
           TRUE ~ 0
         ),
-        rate_232 = pmax(rate_232, blanket_232)
+        rate_232 = pmax(rate_232, blanket_232),
+        # Track which products have USMCA-eligible 232 headings (for step 7)
+        s232_usmca_eligible = coalesce(heading_usmca_exempt, FALSE) & heading_rate_adj > 0
       ) %>%
       select(-steel_rate_232, -alum_rate_232, -chapter, -blanket_232,
              -heading_232_rate, -heading_usmca_exempt, -heading_rate_adj)
@@ -1024,7 +1026,6 @@ calculate_rates_for_revision <- function(
         chapter = substr(hts10, 1, 2),
         heading_rate_adj = case_when(
           is.na(heading_232_rate) | heading_232_rate == 0 ~ 0,
-          heading_usmca_exempt & country %in% c(CTY_CANADA, CTY_MEXICO) ~ 0,
           TRUE ~ heading_232_rate
         ),
         rate_232 = case_when(
@@ -1033,6 +1034,7 @@ calculate_rates_for_revision <- function(
           heading_rate_adj > 0 ~ heading_rate_adj,
           TRUE ~ 0
         ),
+        s232_usmca_eligible = coalesce(heading_usmca_exempt, FALSE) & heading_rate_adj > 0,
         rate_301 = 0, rate_ieepa_recip = 0, rate_ieepa_fent = 0, rate_s122 = 0, rate_other = 0
       ) %>%
       filter(rate_232 > 0) %>%
@@ -1402,6 +1404,7 @@ calculate_rates_for_revision <- function(
   # If Census SPI shares available (from compute_usmca_shares.R), apply to ALL
   # CA/MX products — the share naturally handles eligibility (products that never
   # enter under USMCA have share ≈ 0, fully-claiming products have share ≈ 1).
+  # Also applies to 232 auto/MHD products flagged s232_usmca_eligible (T1 fix).
   # Falls back to binary eligibility (S/S+ → zero rate) if shares not available.
   if (!is.null(usmca) && nrow(usmca) > 0) {
     rates <- rates %>%
@@ -1426,7 +1429,14 @@ calculate_rates_for_revision <- function(
           base_rate = base_rate * (1 - usmca_share),
           rate_ieepa_recip = rate_ieepa_recip * (1 - usmca_share),
           rate_ieepa_fent = rate_ieepa_fent * (1 - usmca_share),
-          rate_s122 = rate_s122 * (1 - usmca_share)
+          rate_s122 = rate_s122 * (1 - usmca_share),
+          # Apply USMCA shares to 232 auto/MHD (heading products with usmca_exempt flag)
+          # Steel/aluminum 232 are NOT USMCA-eligible — only heading-level tariffs
+          rate_232 = if_else(
+            coalesce(s232_usmca_eligible, FALSE) & country %in% c(CTY_CANADA, CTY_MEXICO),
+            rate_232 * (1 - usmca_share),
+            rate_232
+          )
         ) %>%
         select(-usmca_share)
     } else {
@@ -1444,12 +1454,21 @@ calculate_rates_for_revision <- function(
           rate_s122 = if_else(
             country %in% c(CTY_CANADA, CTY_MEXICO) & usmca_eligible,
             0, rate_s122
+          ),
+          # Binary fallback: zero 232 for USMCA-eligible CA/MX auto/MHD
+          rate_232 = if_else(
+            coalesce(s232_usmca_eligible, FALSE) &
+              country %in% c(CTY_CANADA, CTY_MEXICO) & usmca_eligible,
+            0, rate_232
           )
         )
     }
   } else {
     rates <- rates %>% mutate(usmca_eligible = FALSE)
   }
+
+  # Clean up intermediate flag
+  rates$s232_usmca_eligible <- NULL
 
   # 8. Re-apply stacking rules with updated IEEPA and 232 rates
   rates <- apply_stacking_rules(rates, CTY_CHINA, stacking_method = stacking_method)

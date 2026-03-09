@@ -14,11 +14,11 @@
 |---|--------|--------|-------------|--------|
 | T1 | **Apply product-level USMCA shares to 232 auto/MHD** — replace binary exemption (`heading_usmca_exempt → rate=0` for CA/MX) with `rate_232 * (1 - usmca_share)` using Census SPI shares from `usmca_product_shares.csv` | `06_calculate_rates.R` step 4 | **+3-4pp Mexico**, resolves largest single discrepancy | [#7](#issue-7-232-usmca-automhd-exemption--binary-vs-share-based-mexico--3-to--4pp) |
 | T2 | **Implement 232 auto deal rates** (Notes 33(h)-(k)) — Japan/Korea/EU autos at 15% floor, UK autos at 7.5% surcharge, UK auto parts at 10% floor, Japan/Korea/EU auto parts at 15% floor | `06_calculate_rates.R` step 4c, `policy_params.yaml` | **-1-2pp Japan/EU/UK** | [#5](#issue-5-232-auto-deal-rates-japan--05pp-eu--05pp-uk--1pp), [#11](#issue-11-japaneu-auto-deal-rates-under-232-japan--11pp-eu-implicit) |
-| T3 | **Expand IEEPA product exemptions** — add Brazil EO-specific agricultural/energy exemptions and other country-specific carve-outs to `ieepa_exempt_products.csv` | `resources/ieepa_exempt_products.csv` | **-0.5-1pp overall** | [#3](#issue-3-ieepa-product-exemptions-overall--05-to--1pp-for-etrs) |
+| ~~T3~~ | ~~**Expand IEEPA product exemptions**~~ — **DONE**: merged ETRs exempt products into tracker. Expanded from 1,087 to 2,172 HTS10 codes (1,085 new from ETRs `ieepa_reciprocal.yaml` product_rates with rate=0). | `resources/ieepa_exempt_products.csv` | **-0.5-1pp overall** | [#3](#issue-3-ieepa-product-exemptions-overall--05-to--1pp-for-etrs) |
 | ~~T4~~ | ~~**Fix Brazil/India country EO stacking**~~ — **RESOLVED**: investigation confirmed the tracker already correctly stacks country_eo + Phase 2 rates (Brazil: 40%+10%=50%, India: 25%+25%=50%). Original comparison used stale data. Tracker mean at rev_32: Brazil=48.0%, India=48.0% (vs TPC 43.1%/44.2% — tracker slightly higher due to fewer product exemptions). | N/A | **No change needed** | [#6](#issue-6-brazilindia-country-eo-classification-minimal-net-impact) |
-| T5 | **Expand IEEPA product exemptions** — add Brazil EO-specific agricultural/energy exemptions and other country-specific carve-outs to `ieepa_exempt_products.csv`. TPC exempts 22% of Japan products vs tracker ~1%; EU similar gap. | `resources/ieepa_exempt_products.csv` | **-0.5-1pp overall** | [#3](#issue-3-ieepa-product-exemptions-overall--05-to--1pp-for-etrs), [TPC validation](#floor-rates-tpc-confirms-floor--product-exemptions) |
+| ~~T5~~ | ~~**Expand IEEPA product exemptions**~~ — **DONE** (same as T3). Merged with ETRs list. | N/A | **(see T3)** | [#3](#issue-3-ieepa-product-exemptions-overall--05-to--1pp-for-etrs) |
 | T6 | **Narrow 232 auto/MHD parts prefix matching** — audit `s232_auto_parts.txt` (136 prefixes) and `s232_mhd_parts.txt` (182 prefixes) against proclamation HTS10 lists; remove overly broad prefixes like '8471' | `resources/s232_auto_parts.txt`, `resources/s232_mhd_parts.txt` | **-0.5-1pp scattered** | [#4](#issue-4-section-232-automhd-parts-coverage-japan-05-1pp-others-smaller) |
-| T7 | **Add 15 missing S122 exempt products** — reconcile `s122_exempt_products.csv` (1,656) against ETRs list (1,671) | `resources/s122_exempt_products.csv` | **~0.1pp** | [#10](#issue-10-s122-product-exemptions-minimal--01pp) |
+| ~~T7~~ | ~~**Add 15 missing S122 exempt products**~~ — **RESOLVED**: both repos have identical 1,656 HTS8 codes. Original count of 1,671 in ETRs was incorrect. | N/A | **No change needed** | [#10](#issue-10-s122-product-exemptions-minimal--01pp) |
 
 ### Tariff-ETRs changes
 
@@ -322,11 +322,9 @@ Same as Issue 2 — the generation-based SUM vs flat rate difference persists be
 
 **Tariff-Rate-Tracker:** 1,656 HTS8 codes exempt (Annex II list from `resources/s122_exempt_products.csv`)
 
-**Tariff-ETRs:** 1,671 HTS8 codes exempt (built into `product_rates` section of s122.yaml with rate = 0)
+**Tariff-ETRs:** 1,656 HTS8 codes exempt (built into `product_rates` section of s122.yaml with rate = 0)
 
-**Impact:** The 15-product difference is negligible. Both repos source from the same Annex II proclamation text. Minor discrepancies likely reflect different parsing/rounding of edge cases.
-
-**Which is more right:** **ETRs has 15 more exempt products** — the tracker should verify its list is complete.
+**Status:** **RESOLVED.** Both repos have identical S122 exempt product lists (1,656 HTS8 codes). The original claim of 1,671 in ETRs was incorrect — upon comparison, the lists match exactly.
 
 ---
 
@@ -362,8 +360,8 @@ The overall -0.96pp gap is the net result of: China's persistent +3.2pp (301 sta
 
 3. **301 generation stacking**: Verify legal interpretation — do Biden 301 modifications replace or supplement Trump rates on overlapping products? Both repos should agree on the treatment.
 
-4. **IEEPA product exemptions**: The tracker's Annex A file (1,087 HTS8) should be expanded to include Brazil EO-specific exemptions and any additional carve-outs.
+4. ~~**IEEPA product exemptions**~~: **DONE** — expanded from 1,087 to 2,172 HTS10 codes by merging ETRs `ieepa_reciprocal.yaml` exempt products.
 
-5. **S122 exempt products**: The tracker should add the 15 missing exempt products to align with ETRs.
+5. ~~**S122 exempt products**~~: **RESOLVED** — both repos have identical 1,656 exempt HTS8 codes.
 
 6. ~~**Brazil/country EO stacking**~~: **RESOLVED** — tracker correctly stacks country_eo (40%/25%) + Phase 2 (10%/25%) = 50% for both Brazil and India. Original comparison used stale data.
