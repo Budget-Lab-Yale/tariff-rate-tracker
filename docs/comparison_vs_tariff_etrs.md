@@ -1,8 +1,8 @@
 # Tariff-Rate-Tracker vs Tariff-ETRs Comparison
 
-**Date:** 2026-03-10 (updated after full pipeline rebuild + IEEPA invalidation fix)
+**Date:** 2026-03-10 (post S122 timing alignment + IEEPA invalidation fix)
 **Tariff-ETRs scenario:** 2-21_temp (3 dates: 2026-01-01, 2026-02-24, 2026-07-24)
-**Tracker commit:** post T1-T3 + T6a/T6b + IEEPA invalidation fix in compare_etrs.R
+**Tracker:** S122 effective 2026-02-24, expiry 2026-07-23 (aligned with ETRs)
 
 ---
 
@@ -87,7 +87,7 @@ Note: ETRs scenario `2-21_temp` uses `2026-02-24` and `2026-07-24` dates; tracke
 | Mexico | 13.00% | 11.37% | **+1.62** |
 | Japan | 16.03% | 13.60% | **+2.42** |
 | UK | 10.45% | 6.29% | **+4.16** |
-| EU | 16.78% | 11.78% | **+5.00** |
+| EU | 16.70% | 10.57% | **+6.13** |
 
 ### 2026-02-24 (S122 active, IEEPA zeroed)
 
@@ -113,7 +113,9 @@ Near-perfect alignment for most countries. China gap (+4.78pp) is 301 generation
 | UK | 0.74% | 3.35% | **-2.61** |
 | EU | 2.55% | 4.19% | **-1.64** |
 
-With S122 expired and IEEPA zeroed, only 232 + 301 + MFN remain. Tracker is lower than ETRs for most countries, suggesting ETRs retains some tariff authority the tracker does not apply in this period (possibly residual S122 or different 232/301 scope). China gap (+3.81pp) is 301 stacking.
+With S122 expired and IEEPA zeroed, only 232 + 301 + MFN remain. Confirmed: ETRs period 3 config also has only 232+301+MFN (IEEPA/fentanyl zeroed, no S122). Yet the tracker is systematically lower for 106 of 130 countries. This is a **MFN baseline/preference methodology difference** — tracker applies Census-based MFN exemption shares (`mfn_exemption_shares.csv`) that reduce applied MFN rates for countries with FTA/GSP preferences. ETRs likely uses less aggressive preference adjustments (GTAP-level), yielding higher effective MFN rates.
+
+Examples: Bangladesh shows 0.55% tracker vs 15.22% ETRs (no 232/301 exposure — pure MFN gap); Japan 3.80% vs 8.23%; UK 0.74% vs 3.35%. China gap (+3.81pp) is 301 generation stacking.
 
 ---
 
@@ -169,11 +171,15 @@ The 85%+ rates are only possible with generation stacking. Validates tracker app
 
 Both lists verified against live HTSUS US Notes (Chapter 99, 2026_rev_4 PDF). Auto parts (130 codes) match Note 33 subdivision (g) exactly; MHD parts (182 codes) match Note 34 subdivision (i) exactly. Note: '8471' confirmed as official auto parts prefix. The 7 codes removed from auto parts (8708.99.03/.06/.23/.27/.31/.41, 8708.99.4850) correctly appear only in the MHD list.
 
-### 4. Gulf State / Middle East IEEPA Rates (minor)
+### 4. MFN Preference Methodology (newly identified)
+
+Tracker applies Census-based MFN exemption shares (`mfn_exemption_shares.csv`, 4,695 HS2 x country pairs) that reduce applied MFN rates for FTA/GSP-eligible trade. ETRs uses GTAP-level trade preferences. The tracker's approach produces lower effective MFN rates, most visible at 2026-07-24 when only 232+301+MFN are active. Bangladesh: tracker 0.55% vs ETRs 15.22%; Vietnam: tracker 4.88% vs 8.49%. Affects 106 of 130 countries. Import-weighted impact: ~3-5pp when MFN is the dominant rate component.
+
+### 5. Gulf State / Middle East IEEPA Rates (minor)
 
 Several Middle East countries show TPC systematically 2-3pp higher (Oman, Qatar, UAE). Small overall impact (~0.5pp).
 
-### 5. China Non-301 Product Coverage (negligible)
+### 6. China Non-301 Product Coverage (negligible)
 
 ~170 China products where TPC shows ~20% but we show ~10-17%. Likely 10-digit specificity not captured by 8-digit matching.
 
@@ -205,10 +211,11 @@ S122 timing now aligned (both effective Feb 24). Residual gap is ~0pp overall. C
 
 | Issue | Impact on Gap | More Right |
 |-------|--------------|------------|
+| MFN preference methodology | **-3 to -5pp** (broad, 106 countries) | **Needs investigation** — tracker uses Census MFN exemption shares; ETRs uses GTAP-level preferences. Tracker shows lower applied MFN across most countries. |
 | 301 generation stacking | **+3.8pp** (China) | **Tracker** (legally correct sum; TPC validates) |
-| Canada | **-1.82pp** | ETRs higher (USMCA share differences at GTAP level) |
-| Mexico | **-3.63pp** | ETRs higher (USMCA granularity; E1 pending) |
-| Japan/EU/UK | **-2.6 to -4.4pp** | ETRs higher — likely residual IEEPA or broader 232 scope in ETRs |
+| USMCA granularity | **-1.8pp** (Canada), **-3.6pp** (Mexico) | **Tracker** (product-level SPI; TPC validates) — but E1 pending in ETRs |
+
+At this date, both repos have identical authority configurations (232+301+MFN only). The -1.43pp overall gap is driven by different MFN preference methodologies, partially offset by tracker's higher China 301 rates from generation stacking.
 
 ---
 
