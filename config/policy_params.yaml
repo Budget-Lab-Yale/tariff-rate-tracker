@@ -384,11 +384,11 @@ ieepa_invalidation_date: '2026-02-24'
 
 # --- Section 122 (Trade Act §122, 150-day statutory limit) ---
 # Blanket tariff replacing IEEPA after SCOTUS invalidation.
-# Effective 2026-02-25; expires after 150 days unless Congress extends.
+# Effective 2026-02-24; expires after 150 days unless Congress extends.
 # Set finalized to true if Congress extends (removes expiry constraint).
 section_122:
-  effective_date: '2026-02-25'
-  expiry_date: '2026-07-25'    # 150 days from effective
+  effective_date: '2026-02-24'
+  expiry_date: '2026-07-23'    # 150 days from effective (last active day)
   finalized: false              # set true if Congress extends
   exempt_products: 'resources/s122_exempt_products.csv'
 
