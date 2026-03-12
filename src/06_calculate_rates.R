@@ -1103,6 +1103,7 @@ calculate_rates_for_revision <- function(
   auto_rebate_cfg <- if (!is.null(.pp)) .pp$auto_rebate else NULL
   rebate_rate <- if (!is.null(auto_rebate_cfg)) auto_rebate_cfg$rebate_rate %||% 0 else 0
   assembly_share <- if (!is.null(auto_rebate_cfg)) auto_rebate_cfg$us_assembly_share %||% 0 else 0
+  us_auto_content_share <- if (!is.null(auto_rebate_cfg)) auto_rebate_cfg$us_auto_content_share %||% 1 else 1
   rebate_deduction <- rebate_rate * assembly_share
 
   if (rebate_deduction > 0 && length(auto_products) > 0) {
@@ -1116,7 +1117,9 @@ calculate_rates_for_revision <- function(
       )
     n_rebated <- sum(rates$hts10 %in% auto_products & rates$rate_232 > 0)
     message('  Auto rebate: -', round(rebate_deduction * 100, 2),
-            'pp on ', n_rebated, ' auto product-country pairs')
+            'pp on ', n_rebated, ' auto product-country pairs',
+            if (us_auto_content_share < 1) paste0(
+              '; USMCA content share: ', us_auto_content_share * 100, '%') else '')
   }
 
   # 4c. Apply country-specific 232 deal rates (floor/surcharge)
@@ -1484,9 +1487,15 @@ calculate_rates_for_revision <- function(
           rate_s122 = rate_s122 * (1 - usmca_share),
           # Apply USMCA shares to 232 auto/MHD (heading products with usmca_exempt flag)
           # Steel/aluminum 232 are NOT USMCA-eligible — only heading-level tariffs
+          # Auto/MHD products use adjusted USMCA share: usmca_share * us_auto_content_share
+          # (only ~40% of USMCA-eligible vehicle value is US/USMCA-origin content)
           rate_232 = if_else(
             coalesce(s232_usmca_eligible, FALSE) & country %in% c(CTY_CANADA, CTY_MEXICO),
-            rate_232 * (1 - usmca_share),
+            if_else(
+              hts10 %in% c(auto_products, mhd_products),
+              rate_232 * (1 - usmca_share * us_auto_content_share),
+              rate_232 * (1 - usmca_share)
+            ),
             rate_232
           )
         ) %>%
@@ -1507,11 +1516,17 @@ calculate_rates_for_revision <- function(
             country %in% c(CTY_CANADA, CTY_MEXICO) & usmca_eligible,
             0, rate_s122
           ),
-          # Binary fallback: zero 232 for USMCA-eligible CA/MX auto/MHD
+          # Binary fallback: 232 for USMCA-eligible CA/MX auto/MHD
+          # Auto/MHD: scale by (1 - us_auto_content_share); others: zero
           rate_232 = if_else(
             coalesce(s232_usmca_eligible, FALSE) &
               country %in% c(CTY_CANADA, CTY_MEXICO) & usmca_eligible,
-            0, rate_232
+            if_else(
+              hts10 %in% c(auto_products, mhd_products),
+              rate_232 * (1 - us_auto_content_share),
+              0
+            ),
+            rate_232
           )
         )
     }

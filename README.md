@@ -401,7 +401,7 @@ total = rate_ieepa_recip + rate_ieepa_fent + rate_s122 + rate_301 + rate_section
 
 Where `nonmetal_share = 1 - metal_share` when `rate_232 > 0` and `metal_share < 1.0`, else `0`. For base 232 products (steel, aluminum, autos, copper), `metal_share = 1.0` so `nonmetal_share = 0`, preserving the mutual exclusion. For derivative products (~130 aluminum-containing articles), `metal_share < 1.0` (default 0.50) so IEEPA/fentanyl apply to the remaining portion.
 
-**USMCA exemption:** Products with "S"/"S+" in `special` field get IEEPA reciprocal and fentanyl zeroed out. Section 232 still applies regardless of USMCA status.
+**USMCA exemption:** Products with "S"/"S+" in `special` field get IEEPA reciprocal and fentanyl zeroed out. For 232 auto/MHD products, the USMCA share is scaled by `us_auto_content_share` (0.40) — reflecting that only ~40% of a USMCA-eligible vehicle's value is US/USMCA-origin content. Non-auto 232 products (steel, aluminum) are NOT USMCA-exempt.
 
 **China fentanyl exclusion:** China/Hong Kong are excluded from blanket fentanyl application because their 9903.90.xx footnote rates already incorporate fentanyl — adding it would double-count ~10pp.
 
@@ -411,7 +411,7 @@ Where `nonmetal_share = 1 - metal_share` when `rate_232 > 0` and `metal_share < 
 |--------------|-----------|----------------|----------|
 | Steel (Ch. 72–73) | 9903.80–82.xx | Blanket chapter match | ~1,800 products |
 | Aluminum (Ch. 76) | 9903.85.xx | Blanket chapter match | ~600 products |
-| Autos (heading 8703 + light trucks) | 9903.94.xx | Heading-level prefix match (17 prefixes) | USMCA-exempt |
+| Autos (heading 8703 + light trucks) | 9903.94.xx | Heading-level prefix match (17 prefixes) | USMCA-exempt (scaled by 40% content share) |
 | Copper (ch74 + ch8544) | 9903.78.xx | 80 HTS10 codes from US Note 36(b) via `s232_copper_products.csv` | Not USMCA-exempt |
 | Aluminum derivatives (~130 products) | 9903.85.04/.07/.08 | Blanket product match from `s232_derivative_products.csv` | Metal content share applies |
 
@@ -562,7 +562,7 @@ Import-weighted effective tariff rates compared against [Tariff-ETRs](https://gi
 - **Duty-free treatment (configurable, ~38% of gap rows):** The tracker defaults to `ieepa_duty_free_treatment: 'all'` — applying IEEPA reciprocal to all products including those with 0% MFN base rate. TPC excludes duty-free products. Setting `nonzero_base_only` in `policy_params.yaml` eliminates this component and improves match rates materially. The legal text supports either interpretation; the current default follows the stricter reading.
 - **Continuous rate residual (~62% of gap rows):** For products where the tracker applies the full 15% floor, TPC assigns rates spanning 1–14% — a continuous distribution suggesting product-level methodology beyond the simple floor formula. This portion remains unexplained.
 
-**3. Ch87 (autos) gap vs Tariff-ETRs (~12pp).** Chapter 87 shows ETRs substantially higher than the tracker. Likely driven by differences in auto parts coverage or USMCA share treatment for CA/MX auto products. Needs a focused reconciliation table broken out by vehicle type, parts, and USMCA partner.
+**3. Ch87 (autos) gap vs Tariff-ETRs (was ~12pp, now reduced).** Previously driven by the tracker applying full USMCA shares to 232 auto products, while ETRs scaled by `us_auto_content_share = 0.4`. The tracker now applies the same scaling (added March 2026), which should substantially close the gap. Any remaining difference reflects product-level USMCA share granularity (Census SPI vs GTAP sectors).
 
 **4. Section 122 expiry uncertainty.** The 150-day statutory limit expires approximately July 23, 2026. Whether Congress extends the authority or the administration shifts to an alternative legal basis is unknown. The `finalized` flag in `policy_params.yaml` controls behavior; the projection horizon extends to 2026-12-31 with S122 zeroed after expiry.
 

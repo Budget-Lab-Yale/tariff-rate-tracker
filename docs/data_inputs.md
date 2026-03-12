@@ -47,7 +47,7 @@ Complete inventory of all input files, configuration, and external data used by 
 
 | File | Purpose | Required |
 |------|---------|----------|
-| `config/policy_params.yaml` | All policy constants: country codes, authority ranges, 232 coverage/rates, floor rates, 301 rates, fentanyl rates, Section 122 expiry, USMCA config, metal content method, stacking method, duty-free treatment, series horizon. Single source of truth for anything that affects the meaning of the tariff series. | Yes |
+| `config/policy_params.yaml` | All policy constants: country codes, authority ranges, 232 coverage/rates (including `us_auto_content_share` for USMCA scaling on autos), floor rates, 301 rates, fentanyl rates, Section 122 expiry, USMCA config, metal content method, stacking method, duty-free treatment, series horizon. Single source of truth for anything that affects the meaning of the tariff series. | Yes |
 | `config/revision_dates.csv` | Maps HTS revisions to effective dates and TPC validation dates. Columns: `revision`, `effective_date`, `tpc_date`, `policy_event`, `tpc_policy_revision` (optional override — when set, the weighted ETR TPC comparison uses this revision's snapshot instead of date-based lookup). Manually curated when USITC publishes new revisions. | Yes |
 | `config/scenarios.yaml` | Counterfactual scenario definitions (baseline, no_ieepa, no_301, no_232, pre_2025). Used by `apply_scenarios.R`. | No (scenarios only) |
 | `config/local_paths.yaml` | User-specific paths for external files (import weights, TPC benchmark, Tariff-ETRs repo). Gitignored; template at `local_paths.yaml.example`. | No (weighted/comparison only) |

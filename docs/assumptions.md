@@ -36,11 +36,13 @@ This document catalogs methodological assumptions derived from non-official sour
 
 **Assumption:** USMCA preference utilization is measured at the product-country level using Census Bureau RATE_PROV field code 18, computed from calendar year 2024 monthly import data. Tariff rates are scaled by `(1 - usmca_share)` for Canadian and Mexican products. Applied to IEEPA reciprocal, IEEPA fentanyl, Section 122, and Section 232 auto/MHD programs.
 
-**Source:** Census Bureau Import Detail (IMP_DETL.TXT) files. Methodology replicates TPC's approach ("multiplied by the complement of the USMCA share for each product").
+For Section 232 auto/MHD products, the USMCA share is further scaled by `us_auto_content_share` (0.40) to reflect that USMCA-eligible vehicles contain ~60% non-originating content under rules of origin. This means only 40% of a qualifying vehicle's value receives the USMCA exemption from 232 tariffs. This scaling matches Tariff-ETRs methodology and applies only to the 232 USMCA exemption — IEEPA/fentanyl/S122 exemptions use the full product-level USMCA share.
 
-**Why non-official:** Census RATE_PROV coding is administrative, not statutory. Product-level utilization is an empirical estimate, not a legal determination. Falls back to binary HTS `special` field eligibility (S/S+) when shares are unavailable.
+**Source:** Census Bureau Import Detail (IMP_DETL.TXT) files. Methodology replicates TPC's approach ("multiplied by the complement of the USMCA share for each product"). The `us_auto_content_share` parameter matches Tariff-ETRs' `us_auto_content_share` in `other_params.yaml`.
 
-**Implementation:** `src/compute_usmca_shares.R`, `resources/usmca_product_shares.csv` (22,449 product-country pairs), applied in `src/06_calculate_rates.R` steps 2 (fentanyl), 4 (232 auto/MHD), and 7 (IEEPA/S122).
+**Why non-official:** Census RATE_PROV coding is administrative, not statutory. Product-level utilization is an empirical estimate, not a legal determination. The auto content share (0.40) is an economic estimate of US/USMCA-origin content in qualifying vehicles, not a statutory rate. Falls back to binary HTS `special` field eligibility (S/S+) when shares are unavailable.
+
+**Implementation:** `src/compute_usmca_shares.R`, `resources/usmca_product_shares.csv` (22,449 product-country pairs), applied in `src/06_calculate_rates.R` steps 2 (fentanyl), 4 (232 auto/MHD), and 7 (IEEPA/S122). Auto content share configured in `config/policy_params.yaml` under `auto_rebate.us_auto_content_share`.
 
 ---
 

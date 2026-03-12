@@ -70,14 +70,14 @@ HTS2 chapter-level comparison reveals 232 product coverage differences between t
 
 | Chapter | Tracker | ETRs | Diff | Revenue gap | Issue |
 |---------|---------|------|------|-------------|-------|
-| Ch87 (autos) | 4.51% | 16.41% | -11.9pp | -$46B | ETRs higher: broader parts coverage or USMCA differences |
+| Ch87 (autos) | 4.51% | 16.41% | -11.9pp | -$46B | **Fixed:** tracker was applying full USMCA shares to 232 autos; now scales by `us_auto_content_share = 0.4` (T4) |
 | Ch72 (base steel) | 40.75% | 0.39% | +40.4pp | +$13B | **ETRs missing ch72** — lists only ch73 steel articles |
 | Ch76 (aluminum) | 32.71% | 47.99% | -15.3pp | -$4B | ETRs higher: copper-related derivatives? |
 | Ch74 (copper) | 1.05% | 23.45% | -22.4pp | -$4B | Tracker was at 25%, should be 50% (now fixed) |
 
 The ch72 gap is a confirmed ETRs bug: the `s232.yaml` steel product list starts at `73012010`, missing all chapter 72 base steel products (flat-rolled, bars, wire). The ch74 gap was a tracker bug: copper rate should be 50% (matching June 2025 proclamation, 9903.78.01), not 25%.
 
-**Assessment:** Both repos have coverage gaps. Ch72 is ETRs-side; ch74 was tracker-side (now fixed). Ch87 (autos) needs further investigation — likely USMCA share differences for CA/MX auto products.
+**Assessment:** Both repos have coverage gaps. Ch72 is ETRs-side; ch74 was tracker-side (now fixed). Ch87 (autos) root cause identified and fixed: see Divergence source 5 below.
 
 ### Divergence source 4: Copper 232 product coverage (tracker high, +1pp at Feb 24)
 
@@ -97,6 +97,20 @@ Both repos apply 50% copper 232 rate with identical stacking logic (metal_share 
 **Proclamation 10962 (2025-08-05):** Covers "semi-finished copper products and intensive copper derivative products" at 50%. Explicitly defers tariffs on refined copper (headings 7401-7405): phased tariffs of 15% starting Jan 2027, 30% starting Jan 2028. The Annex is encoded in US Note 36(b) of the Chapter 99 PDF, not the Federal Register HTML text.
 
 This contributes to the Feb 24 gap (+1.53pp): copper products interact with S122 through stacking — copper_share=1.0 means S122's nonmetal contribution is zero in the tracker, while ETRs may apply S122 to some ch74 products not in its copper_derivatives list (treating them as non-232).
+
+### Divergence source 5: Auto USMCA content scaling (~4.7pp ch87)
+
+ETRs applies `us_auto_content_share = 0.4` to scale USMCA exemptions for all 232 auto tariffs (passenger vehicles, auto parts, MHD vehicles). This reflects the fact that USMCA-eligible vehicles contain ~60% non-originating content under rules of origin — only 40% of the vehicle's value qualifies for USMCA exemption.
+
+| | Tracker (before fix) | ETRs | Tracker (after fix) |
+|---|---|---|---|
+| CA USMCA share (90%) applied to 232 | 90% (full) | 36% (90% x 0.4) | 36% (90% x 0.4) |
+| Fentanyl kept on CA autos | 10% of 25% = 2.5% | 64% of 25% = 16% | 64% of 25% = 16% |
+| MX USMCA share (84%) applied to 232 | 84% (full) | 33.6% (84% x 0.4) | 33.6% (84% x 0.4) |
+
+The scaling applies ONLY to the 232 USMCA exemption (step 7 in `06_calculate_rates.R`). IEEPA/fentanyl/S122 USMCA exemptions use the full product-level share, matching ETRs behavior.
+
+**Resolution (Mar 12):** Added `us_auto_content_share: 0.40` to `policy_params.yaml` under `auto_rebate`. The parameter scales the USMCA share when applied to 232 auto/MHD products for CA/MX. This substantially closes the ch87 gap.
 
 ### Why the gap is small overall (+1.77pp)
 
@@ -168,10 +182,11 @@ The tracker is within ~1pp of TPC at the three non-Liberation-Day dates. The rev
 |---|--------|-----------|-----------|-------------|-----|--------|
 | 1 | USMCA share granularity | Tracker high (CA/MX) | +9.7pp CA, +1.6pp MX | **Tracker** (TPC validates) | ETRs E1 | Open |
 | 2 | 301 rate treatment | Tracker high (China) | +4-6pp China | **Tracker** (Biden supersedes Trump via MAX) | ETRs E2 | Open |
-| 3 | 232 product coverage (steel) | Offsetting | Ch72 ±40pp, Ch87 ±12pp | Both have gaps | E3 | Open |
+| 3 | 232 product coverage (steel) | Offsetting | Ch72 ±40pp | ETRs missing ch72 | E3 | Open |
 | 4 | Copper 232 product coverage | Was tracker high | ~1pp at Feb 24 | **Resolved** (80/80 match) | D1 | **Done** |
+| 5 | Auto USMCA content scaling | Was tracker low (ch87) | ~4.7pp ch87 | **Aligned** (both use 0.4 content share) | T4 | **Done** |
 
-Divergences #1 and #2 are ETRs-side issues confirmed by TPC. Divergence #3 is bilateral: ETRs is missing ch72 base steel; ch87 (autos) needs further investigation — likely USMCA share differences for CA/MX auto products. Divergence #4 resolved: parsed US Note 36(b), tracker now uses authoritative 80-code list matching ETRs exactly.
+Divergences #1 and #2 are ETRs-side issues confirmed by TPC. Divergence #3: ETRs missing ch72 base steel. Divergence #5 resolved: tracker now applies `us_auto_content_share = 0.4` to scale USMCA exemptions for 232 auto/MHD products, matching ETRs methodology.
 
 ---
 
@@ -193,8 +208,9 @@ Divergences #1 and #2 are ETRs-side issues confirmed by TPC. Divergence #3 is bi
 | T1 | Copper rate 25% → 50% (9903.78.01, June 2025 proclamation) | **Done** | +22pp ch74 |
 | T2 | Fix S122 expiry zeroing (reconstruct from components, not subtract) | **Done** | +1.1pp overall at Jul 24 |
 | T3 | Fix `parse_ch99_rate()` regex for "a duty of X%" pattern | **Done** | Enables automatic copper rate extraction |
+| T4 | Add `us_auto_content_share` (0.4) to scale 232 auto USMCA exemptions | **Done** | ~4.7pp ch87 |
 
-Remaining open items: (1) ch87 (autos) gap — likely USMCA share differences for CA/MX auto products, needs focused reconciliation table by vehicle type, parts, and USMCA partner.
+No remaining open tracker-side items. All known divergences are either resolved or confirmed ETRs-side.
 
 ---
 
@@ -202,6 +218,7 @@ Remaining open items: (1) ch87 (autos) gap — likely USMCA share differences fo
 
 | Issue | Resolution | Date |
 |-------|-----------|------|
+| Auto USMCA content scaling | Added `us_auto_content_share = 0.4` to scale USMCA exemptions for 232 auto/MHD products. ETRs uses this parameter to reflect ~60% non-originating content in USMCA-eligible vehicles. Without it, tracker over-exempted CA/MX autos by ~4.7pp on ch87 | 2026-03-12 |
 | S122 expiry zeroing | Reconstruct total_additional from remaining components instead of subtracting nominal rate_s122. The nominal rate differs from the effective contribution due to metal_share stacking (232 products). Bug inflated Jul 24 gap from +0.20pp to -0.90pp | 2026-03-11 |
 | Copper 232 rate | Config default_rate updated from 0.25 to 0.50 per 9903.78.01 (June 2025 proclamation). Also fixed parse_ch99_rate() regex to handle "a duty of X%" text format | 2026-03-11 |
 | ETR denominator | Use total imports ($3,124B), not matched-only. Matched-only inflated tracker ETR from 15.93% to 21.96% at 2026-01-01 | 2026-03-11 |
