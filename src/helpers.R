@@ -584,18 +584,14 @@ enforce_rate_schema <- function(df) {
 #'   or 'tpc_additive' (all authorities stack additively, matching TPC methodology)
 #' @return df with total_additional and total_rate recomputed
 apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutual_exclusion') {
-  # Ensure rate_s122 exists and has no NAs
-  # (bind_rows can introduce NAs when combining dataframes with/without this column)
+  # Ensure optional columns exist and have no NAs
   if (!'rate_s122' %in% names(df)) {
     df$rate_s122 <- 0
   } else {
     df$rate_s122[is.na(df$rate_s122)] <- 0
   }
-
-  # Ensure metal_share exists (default 1.0 = full metal, no nonmetal portion)
-  if (!'metal_share' %in% names(df)) {
-    df$metal_share <- 1.0
-  }
+  if (!'rate_section_201' %in% names(df)) df$rate_section_201 <- 0
+  if (!'metal_share' %in% names(df)) df$metal_share <- 1.0
 
   # TPC additive: all authorities stack with no mutual exclusion
   if (stacking_method == 'tpc_additive') {
@@ -603,7 +599,7 @@ apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutu
       df %>%
         mutate(
           total_additional = rate_232 + rate_ieepa_recip + rate_ieepa_fent +
-            rate_301 + rate_s122 + rate_other,
+            rate_301 + rate_s122 + rate_section_201 + rate_other,
           total_rate = base_rate + total_additional
         )
     )
@@ -611,31 +607,81 @@ apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutu
 
   df %>%
     mutate(
-      # For derivative 232 products (metal_share < 1.0), non-232 IEEPA authorities
-      # apply to the non-metal portion. For base 232 products (metal_share = 1.0),
-      # nonmetal_share = 0 so behavior is unchanged (full mutual exclusion).
       nonmetal_share = if_else(rate_232 > 0 & metal_share < 1.0, 1 - metal_share, 0),
       total_additional = case_when(
-        # China with 232: 232 + recip*nonmetal + fentanyl + 301 + s122*nonmetal + other
-        # Fentanyl stacks at full value (separate IEEPA authority for China).
-        # Reciprocal and S122 apply only to non-metal portion.
+        # China with 232: 232 + recip*nonmetal + fentanyl + 301 + s122*nonmetal + s201 + other
         country == cty_china & rate_232 > 0 ~
-          rate_232 + rate_ieepa_recip * nonmetal_share + rate_ieepa_fent + rate_301 + rate_s122 * nonmetal_share + rate_other,
+          rate_232 + rate_ieepa_recip * nonmetal_share + rate_ieepa_fent + rate_301 +
+          rate_s122 * nonmetal_share + rate_section_201 + rate_other,
 
-        # China without 232: reciprocal + fentanyl + 301 + s122 + other
+        # China without 232: reciprocal + fentanyl + 301 + s122 + s201 + other
         country == cty_china ~
-          rate_ieepa_recip + rate_ieepa_fent + rate_301 + rate_s122 + rate_other,
+          rate_ieepa_recip + rate_ieepa_fent + rate_301 + rate_s122 + rate_section_201 + rate_other,
 
-        # Others with 232: 232 + (recip + fentanyl + s122)*nonmetal + 301 + other
-        # All non-232 IEEPA authorities apply to non-metal portion only.
-        # S301 is unconditionally cumulative (no nonmetal scaling).
+        # Others with 232: 232 + (recip + fentanyl + s122)*nonmetal + 301 + s201 + other
         rate_232 > 0 ~
-          rate_232 + (rate_ieepa_recip + rate_ieepa_fent + rate_s122) * nonmetal_share + rate_301 + rate_other,
+          rate_232 + (rate_ieepa_recip + rate_ieepa_fent + rate_s122) * nonmetal_share +
+          rate_301 + rate_section_201 + rate_other,
 
-        # Others without 232: reciprocal + fentanyl + s122 + 301 + other
-        TRUE ~ rate_ieepa_recip + rate_ieepa_fent + rate_s122 + rate_301 + rate_other
+        # Others without 232: reciprocal + fentanyl + s122 + 301 + s201 + other
+        TRUE ~ rate_ieepa_recip + rate_ieepa_fent + rate_s122 + rate_301 + rate_section_201 + rate_other
       ),
       total_rate = base_rate + total_additional
+    ) %>%
+    select(-nonmetal_share)
+}
+
+
+# =============================================================================
+# Net Authority Decomposition (used by 08_weighted_etr, 09_daily_series)
+# =============================================================================
+
+#' Compute net authority contributions from snapshot rate columns
+#'
+#' Derives net_232, net_ieepa, net_fentanyl, net_301, net_s122, net_other from
+#' the timeseries rate columns using mutual-exclusion stacking rules.
+#' Net contributions sum to total_additional.
+#'
+#' @param df Data frame with rate_232, rate_301, rate_ieepa_recip,
+#'   rate_ieepa_fent, rate_s122, rate_other, metal_share, country columns
+#' @param cty_china Census code for China (default: '5700')
+#' @param stacking_method 'mutual_exclusion' (default) or 'tpc_additive'
+#' @return df with net_232, net_ieepa, net_fentanyl, net_301, net_s122, net_other added
+compute_net_authority_contributions <- function(df, cty_china = '5700',
+                                                stacking_method = 'mutual_exclusion') {
+  # Ensure rate_s122 exists (backwards compat with old snapshots)
+  if (!'rate_s122' %in% names(df)) df$rate_s122 <- 0
+  if (!'rate_other' %in% names(df)) df$rate_other <- 0
+  if (!'metal_share' %in% names(df)) df$metal_share <- 1.0
+
+  # TPC additive: all authorities contribute their full rate (no mutual exclusion)
+  if (stacking_method == 'tpc_additive') {
+    return(
+      df %>%
+        mutate(
+          net_232 = rate_232,
+          net_ieepa = rate_ieepa_recip,
+          net_fentanyl = rate_ieepa_fent,
+          net_301 = rate_301,
+          net_s122 = rate_s122,
+          net_other = rate_other
+        )
+    )
+  }
+
+  df %>%
+    mutate(
+      nonmetal_share = if_else(rate_232 > 0 & metal_share < 1.0, 1 - metal_share, 0),
+      net_232 = if_else(rate_232 > 0, rate_232, 0),
+      net_ieepa = if_else(rate_232 > 0, rate_ieepa_recip * nonmetal_share, rate_ieepa_recip),
+      net_fentanyl = case_when(
+        country == cty_china ~ rate_ieepa_fent,
+        rate_232 > 0 ~ rate_ieepa_fent * nonmetal_share,
+        TRUE ~ rate_ieepa_fent
+      ),
+      net_301 = if_else(country == cty_china, rate_301, 0),
+      net_s122 = if_else(rate_232 > 0, rate_s122 * nonmetal_share, rate_s122),
+      net_other = rate_other
     ) %>%
     select(-nonmetal_share)
 }

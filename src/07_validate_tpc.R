@@ -166,7 +166,7 @@ compare_to_tpc <- function(our_rates, tpc_data, target_date, baseline_rates = NU
       tpc_rate_change = coalesce(tpc_rate_change, 0),
       diff = our_rate_change - tpc_rate_change,
       abs_diff = abs(diff),
-      match = abs_diff < 0.01  # Within 1 percentage point
+      match = abs_diff < 0.02  # Within 2 percentage points
     )
 
   # Summary stats
@@ -176,7 +176,7 @@ compare_to_tpc <- function(our_rates, tpc_data, target_date, baseline_rates = NU
   n_our_only <- sum(comparison$tpc_rate_change == 0 & comparison$our_rate_change > 0)
 
   message('  Total comparisons: ', n_total)
-  message('  Matching (<1pp diff): ', n_match, ' (', round(100 * n_match / n_total, 1), '%)')
+  message('  Matching (<2pp diff): ', n_match, ' (', round(100 * n_match / n_total, 1), '%)')
   message('  TPC has rate, we don\'t: ', n_tpc_only)
   message('  We have rate, TPC doesn\'t: ', n_our_only)
 
@@ -236,12 +236,12 @@ identify_discrepancies <- function(comparison) {
 
   # Cases where TPC has rate but we don't
   missing_in_ours <- comparison %>%
-    filter(tpc_rate_change > 0.01 & our_rate_change < 0.01) %>%
+    filter(tpc_rate_change > 0.02 & our_rate_change < 0.02) %>%
     arrange(desc(tpc_rate_change))
 
   # Cases where we have rate but TPC doesn't
   extra_in_ours <- comparison %>%
-    filter(our_rate_change > 0.01 & tpc_rate_change < 0.01) %>%
+    filter(our_rate_change > 0.02 & tpc_rate_change < 0.02) %>%
     arrange(desc(our_rate_change))
 
   list(

@@ -28,18 +28,19 @@ The system tracks six distinct tariff authorities that can stack on a single pro
 
 | Authority | Legal Basis | Scope | Rate Range |
 |-----------|------------|-------|------------|
-| **Section 232** | Trade Expansion Act | Steel (ch72-73), aluminum (ch76), autos (heading 8703), copper (headings 7406-7419), aluminum derivatives (~130 products) | 25% (50% for aluminum after mid-2025) |
+| **Section 232** | Trade Expansion Act | Steel (ch72-73), aluminum (ch76), autos (heading 8703), copper (80 HTS10 codes from US Note 36(b): ch74 + ch8544), aluminum derivatives (~130 products) | 25–50% (steel/aluminum/copper 50% post-June 2025; autos 25%; UK deals 25%) |
 | **Section 301** | Trade Act of 1974 | ~11,000 HTS-8 products from China (Lists 1-4B + Biden) | 7.5%-100% by list |
 | **IEEPA Reciprocal** | International Emergency Economic Powers Act | All products for ~238 countries (blanket) | 10%-50% (surcharge or 15% floor) |
 | **IEEPA Fentanyl** | IEEPA | All products for Canada, Mexico, China/HK | 10%-40% (with product carve-outs) |
-| **Section 122** | Trade Act of 1974 | Limited | Variable |
+| **Section 122** | Trade Act of 1974 | All countries (150-day statutory limit, effective 2026-02-24) | 10–25% |
+| **Section 201** | Trade Act of 1974 §201 | Safeguard tariffs (solar panels 9903.45.xx, washing machines 9903.40.xx) | Variable |
 | **Other** | Various | Miscellaneous Ch99 entries | Variable |
 
 ### Three Mechanisms for Linking Duties to Products
 
 1. **Footnote references** — Product-level footnotes in the HTS JSON reference specific Chapter 99 entries (e.g., "See 9903.88.15"). Used for Section 301 and some fentanyl entries.
 
-2. **Chapter/heading blanket coverage** — Entire HTS chapters or headings are covered regardless of footnotes. Used for Section 232 (steel ch72-73, aluminum ch76, autos heading 8703, copper headings 7406-7419).
+2. **Chapter/heading blanket coverage** — Entire HTS chapters or headings are covered regardless of footnotes. Used for Section 232 (steel ch72-73, aluminum ch76, autos heading 8703). Copper uses a specific product list from US Note 36(b) (80 HTS10 codes).
 
 3. **Universal country-level application** — Blanket tariffs applied to all products for listed countries. Used for IEEPA reciprocal (Phase 1 and Phase 2) and IEEPA fentanyl. Country-specific rates parsed from Chapter 99 entry descriptions.
 
@@ -70,10 +71,10 @@ Tariff authorities stack according to mutual exclusion rules aligned with the Ta
 ```
 Section 232 takes precedence over IEEPA reciprocal.
 
-China with 232:     232 + recip*nonmetal + fentanyl + 301 + s122*nonmetal + other
-China without 232:  reciprocal + fentanyl + 301 + s122 + other
-Others with 232:    232 + (recip + fentanyl + s122)*nonmetal + other
-Others without 232: reciprocal + fentanyl + s122 + other
+China with 232:     232 + recip*nonmetal + fentanyl + 301 + s122*nonmetal + section_201 + other
+China without 232:  reciprocal + fentanyl + 301 + s122 + section_201 + other
+Others with 232:    232 + (recip + fentanyl + s122)*nonmetal + 301 + section_201 + other
+Others without 232: reciprocal + fentanyl + s122 + 301 + section_201 + other
 
 Total rate = base_rate + total_additional
 ```
@@ -127,15 +128,15 @@ Point-in-time rate queries use interval encoding: each rate observation has `val
 
 Rates are compared at the HTS-10 x country level against TPC benchmark data at 5 snapshot dates corresponding to major policy events:
 
-| Revision | Policy Event | TPC Date | Exact (<0.5pp) | Within 2pp | Mean Abs Diff |
-|----------|-------------|----------|----------------|------------|---------------|
-| rev_6 | 232 Autos | 2025-03-17 | 47.4% | 48.2% | 7.97pp |
-| rev_10 | Liberation Day | 2025-04-17 | 84.4% | 84.8% | 2.94pp |
-| rev_17 | 232 Increase | 2025-07-17 | 81.8% | 85.4% | 2.11pp |
-| rev_18 | Phase 2 | 2025-10-17 | 65.1% | 67.8% | 4.59pp |
-| rev_32 | Floor Countries | 2025-11-17 | 72.8% | 75.7% | 3.22pp |
+| Revision | Policy Event | TPC Date | Within 2pp | Tracker ETR | TPC ETR | Diff (pp) |
+|----------|-------------|----------|------------|-------------|---------|-----------|
+| rev_6 | 232 Autos | 2025-03-17 | 82.3% | 10.42% | 7.99% | +2.44 |
+| rev_10 | Liberation Day | 2025-04-17 | 93.1% | 15.20% | 23.48% | -8.28 |
+| rev_17 | 232 Increase | 2025-07-17 | 90.6% | 16.43% | 15.35% | +1.08 |
+| rev_18 | Phase 2 | 2025-10-17 | 79.9% | 16.19% | 18.20% | -2.01 |
+| rev_32 | Floor Countries | 2025-11-17 | 84.9% | 15.93% | 16.14% | -0.21 |
 
-The rev_6 (pre-IEEPA) rate is lower because differences at that date are dominated by 232 auto/USMCA treatment where methodological choices diverge from TPC. The post-IEEPA rates (rev_10 onwards) show strong agreement, peaking at 85.4% within-2pp for rev_17. The largest remaining actionable lever is IEEPA duty-free treatment: switching to `nonzero_base_only` would boost rev_32 exact match from 72.8% to 87.9% (+15.1pp).
+The within-2pp match rate improved significantly after the March 2026 base rate inheritance fix (+9.3pp at rev_18, +11.1pp at rev_32). The rev_10 ETR outlier (-8.28pp) reflects the April 9 reciprocal suspension period. The tracker is within ~1pp of TPC at the latest two dates.
 
 ---
 

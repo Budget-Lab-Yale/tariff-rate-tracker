@@ -27,7 +27,7 @@ The tracker processes 39 HTS revisions (January 2025 through February 2026) to c
 
 | Authority | Legal Basis | Scope | Rate Range |
 |-----------|-------------|-------|------------|
-| **Section 232** | Trade Expansion Act §232 | Steel, aluminum, autos, copper, derivatives | 25–50% |
+| **Section 232** | Trade Expansion Act §232 | Steel, aluminum, autos, copper, derivatives | 25–50% (50% for steel/aluminum/copper post-June 2025; 25% for autos, UK deals) |
 | **Section 301** | Trade Act §301 | China (Lists 1–4B, Biden acceleration, cranes) | 7.5–100% |
 | **IEEPA Reciprocal** | International Emergency Economic Powers Act | ~60 countries (Phases 1 & 2) | 10–50% (surcharge or floor) |
 | **IEEPA Fentanyl** | International Emergency Economic Powers Act | Canada, Mexico | 25–35% |
@@ -88,9 +88,10 @@ Section 232 and Section 301 tariffs are unaffected by the SCOTUS ruling (separat
 | Census country codes | `resources/census_codes.csv` | 240 country codes | [Census Bureau](https://www.census.gov/foreign-trade/schedules/b/countrycodes.html) |
 | Import weights | `resources/hs10_gtap_crosswalk.csv` | 18,700-row HTS-10 to GTAP sector crosswalk | [GTAP](https://www.gtap.agecon.purdue.edu/) |
 | Partner mapping | `resources/country_partner_mapping.csv` | 50-row Census-to-partner aggregation | Authors |
-| IEEPA exempt products | `resources/ieepa_exempt_products.csv` | 1,087 HTS-10 codes (Annex A / US Note 2) | [Tariff-ETRs](https://github.com/Budget-Lab-Yale/Tariff-ETRs) |
+| IEEPA exempt products | `resources/ieepa_exempt_products.csv` | 4,325 HTS-10 codes (Annex A / US Note 2 + Ch98 + ITA prefixes) | [Tariff-ETRs](https://github.com/Budget-Lab-Yale/Tariff-ETRs), USITC |
 | 301 product lists | `resources/s301_product_lists.csv` | ~12,200 entries (~11,000 unique HTS-8 codes) | [USITC](https://hts.usitc.gov/) |
 | 232 derivative products | `resources/s232_derivative_products.csv` | ~129 aluminum-containing article prefixes | [Tariff-ETRs](https://github.com/Budget-Lab-Yale/Tariff-ETRs) |
+| 232 copper products | `resources/s232_copper_products.csv` | 80 HTS-10 codes from US Note 36(b) (ch74 + ch8544) | [USITC](https://hts.usitc.gov/) Ch99 PDF |
 | MFN exemption shares | `resources/mfn_exemption_shares.csv` | 4,695 HS2 × country FTA/GSP preference shares | [Tariff-ETRs](https://github.com/Budget-Lab-Yale/Tariff-ETRs) |
 | Fentanyl carve-outs | `resources/fentanyl_carveout_products.csv` | 308 HTS-8 prefixes (energy/minerals/potash) | [Tariff-ETRs](https://github.com/Budget-Lab-Yale/Tariff-ETRs) |
 | Floor exemptions | `data/us_notes/floor_exempt_{revision}.csv` (fallback: `resources/floor_exempt_products.csv`) | Per-revision country-product floor exemptions | [USITC](https://hts.usitc.gov/) |
@@ -137,7 +138,8 @@ Each row in the snapshot/timeseries contains:
 | `rate_ieepa_recip` | dbl | IEEPA reciprocal |
 | `rate_ieepa_fent` | dbl | IEEPA fentanyl |
 | `rate_s122` | dbl | Section 122 |
-| `rate_other` | dbl | Other (Section 201, etc.) |
+| `rate_section_201` | dbl | Section 201 (safeguard tariffs, e.g., solar panels, washing machines) |
+| `rate_other` | dbl | Other Ch99 entries not classified above |
 | `metal_share` | dbl | Metal content share (1.0 for non-derivatives) |
 | `total_additional` | dbl | Sum of additional duties (after stacking) |
 | `total_rate` | dbl | base_rate + total_additional |
@@ -232,7 +234,7 @@ This reduces the import-weighted average base rate from ~4% (statutory) to ~2% (
 
 | File | Purpose |
 |------|---------|
-| `scrape_us_notes.R` | Parses US Note 20/21/31 product lists and floor exemptions from Chapter 99 PDF. Generates static resource files. Run manually when USITC updates PDFs. |
+| `scrape_us_notes.R` | Parses US Note 20/21/31 product lists, floor exemptions, and Note 36 copper product list from Chapter 99 PDF. Generates static resource files. Run manually when USITC updates PDFs. Flags: `--copper`, `--floor-exemptions`, `--all`. |
 | `apply_scenarios.R` | Counterfactual scenario system: zeros out selected authority columns, recomputes totals. Config in `config/scenarios.yaml`. |
 | `diagnostics.R` | Validation utilities: 301 coverage gaps, China IEEPA tracking, per-revision summary, `decompose_tpc_discrepancies()` |
 | `revision_changelog.R` | Diffs Ch99 entries across all revisions, builds policy timeline |
@@ -294,22 +296,22 @@ Tariff authorities overlap. Section 232 and IEEPA reciprocal are **mutually excl
 
 **China with 232 product:**
 ```
-total = rate_232 + rate_ieepa_recip × nonmetal_share + rate_ieepa_fent + rate_301 + rate_s122 + rate_other
+total = rate_232 + rate_ieepa_recip × nonmetal + rate_ieepa_fent + rate_301 + rate_s122 × nonmetal + rate_section_201 + rate_other
 ```
 
 **China without 232 product:**
 ```
-total = rate_ieepa_recip + rate_ieepa_fent + rate_301 + rate_s122 + rate_other
+total = rate_ieepa_recip + rate_ieepa_fent + rate_301 + rate_s122 + rate_section_201 + rate_other
 ```
 
 **Other countries with 232 product:**
 ```
-total = rate_232 + (rate_ieepa_recip + rate_ieepa_fent) × nonmetal_share + rate_s122 + rate_other
+total = rate_232 + (rate_ieepa_recip + rate_ieepa_fent + rate_s122) × nonmetal + rate_301 + rate_section_201 + rate_other
 ```
 
 **Other countries without 232 product:**
 ```
-total = rate_ieepa_recip + rate_ieepa_fent + rate_s122 + rate_other
+total = rate_ieepa_recip + rate_ieepa_fent + rate_s122 + rate_301 + rate_section_201 + rate_other
 ```
 
 Where `nonmetal_share = 1 - metal_share` when `rate_232 > 0` and `metal_share < 1.0`, else `0`. For base 232 products (steel, aluminum, autos, copper), `metal_share = 1.0` so `nonmetal_share = 0`, preserving the mutual exclusion. For derivative products (~130 aluminum-containing articles), `metal_share < 1.0` (default 0.50) so IEEPA/fentanyl apply to the remaining portion.
@@ -325,10 +327,10 @@ Where `nonmetal_share = 1 - metal_share` when `rate_232 > 0` and `metal_share < 
 | Steel (Ch. 72–73) | 9903.80–82.xx | Blanket chapter match | ~1,800 products |
 | Aluminum (Ch. 76) | 9903.85.xx | Blanket chapter match | ~600 products |
 | Autos (heading 8703 + light trucks) | 9903.94.xx | Heading-level prefix match (17 prefixes) | USMCA-exempt |
-| Copper (headings 7406–7419) | 9903.78.xx | Heading-level prefix match (11 prefixes) | Not USMCA-exempt |
+| Copper (ch74 + ch8544) | 9903.78.xx | 80 HTS10 codes from US Note 36(b) via `s232_copper_products.csv` | Not USMCA-exempt |
 | Aluminum derivatives (~130 products) | 9903.85.04/.07/.08 | Blanket product match from `s232_derivative_products.csv` | Metal content share applies |
 
-**Metal content for derivatives:** The tariff applies only to the metal content portion of customs value. Configurable share methods: flat (default 50%), CBO (product-level buckets from `resources/cbo/`), BEA (future). See `config/policy_params.yaml:metal_content`.
+**Metal content for derivatives:** The tariff applies only to the metal content portion of customs value. Configurable share methods: flat (50%), CBO (product-level buckets from `resources/cbo/`), BEA (default, HS10-level shares from BEA Detail I-O table via `resources/metal_content_shares_bea_hs10.csv`). See `config/policy_params.yaml:metal_content`.
 
 **232 country exemptions (pre-March 2025):** Before Proclamation 10896, CA/MX, EU-27, UK, Japan, South Korea, Australia, Brazil, Argentina, and Ukraine had TRQ/quota agreements at 0%. Russia had a permanent 200% override. These are not encoded in the HTS JSON and are configured in `section_232_country_exemptions` in `policy_params.yaml`. Modeled as binary (0% or override), matching Tariff-ETRs methodology.
 
@@ -410,23 +412,33 @@ For countries with multiple fentanyl entries, the first entry per country (by Ch
 
 Comparison against TPC benchmark data, matched by revision-to-TPC-date:
 
-| Revision | TPC Date | N Comparisons | Exact (<0.5pp) | Within 2pp | Mean Abs Diff | Mean Diff |
-|----------|----------|---------------|----------------|------------|---------------|-----------|
-| rev_6 | 2025-03-17 | 62,205 | 61.4% | 61.6% | 5.0 pp | -1.5 pp |
-| rev_10 | 2025-04-17 | 300,126 | 86.4% | 86.4% | 2.0 pp | +0.4 pp |
-| rev_17 | 2025-07-17 | 299,211 | 77.1% | 77.5% | 3.4 pp | -1.3 pp |
-| rev_18 | 2025-10-17 | 298,368 | 61.0% | 61.8% | 5.8 pp | -1.9 pp |
-| rev_32 | 2025-11-17 | 298,341 | 66.1% | 67.0% | 4.9 pp | -0.2 pp |
+| Revision | TPC Date | Within 2pp | Import-Weighted ETR (Tracker) | Import-Weighted ETR (TPC) | Diff (pp) |
+|----------|----------|------------|-------------------------------|---------------------------|-----------|
+| rev_6 | 2025-03-17 | 82.3% | 10.42% | 7.99% | +2.44 |
+| rev_10 | 2025-04-17 | 93.1% | 15.20% | 23.48% | -8.28 |
+| rev_17 | 2025-07-17 | 90.6% | 16.43% | 15.35% | +1.08 |
+| rev_18 | 2025-10-17 | 79.9% | 16.19% | 18.20% | -2.01 |
+| rev_32 | 2025-11-17 | 84.9% | 15.93% | 16.14% | -0.21 |
 
 Regenerate with: `Rscript src/test_tpc_comparison.R`
 
-**Best-matching countries** (rev_32, surcharge IEEPA): Madagascar 94%, Bangladesh 94%, Tunisia 92%, Nepal 91%, Pakistan 89%, Mauritius 89%, Armenia 88%, Morocco 87%, Kenya 87%, Sri Lanka 87%.
+The within-2pp match rate improved significantly after the March 2026 base rate inheritance fix (+9.3pp at rev_18, +11.1pp at rev_32). The rev_10 ETR outlier (-8.28pp) reflects the April 9 reciprocal suspension period — the tracker may understate the brief window when high Liberation Day rates were active. The tracker is within ~1pp of TPC at the latest two dates.
 
-**Discrepancy patterns** (rev_32):
-- **We exceed TPC** (19.9% of products, mean +11.8pp): Mostly IEEPA reciprocal for countries where our rate exceeds TPC's.
-- **TPC exceeds us** (13.1% of products, mean -19.6pp): ~16K products with shortfall near 25pp; ~2,031 China products (mean -23pp).
+**Key gap sources:** (1) China+232 reciprocal stacking methodology (~25pp, confirmed methodological difference); (2) EU/Japan/Korea floor residual (~4pp systematic); (3) USMCA binary vs. utilization-adjusted.
 
-**Key gap sources:** (1) China+232 reciprocal stacking methodology; (2) EU/Japan/Korea floor residual; (3) USMCA classification mismatch for CA/MX.
+---
+
+## Tariff-ETRs Cross-Validation
+
+Import-weighted effective tariff rates compared against [Tariff-ETRs](https://github.com/Budget-Lab-Yale/Tariff-ETRs) `2-21_temp` scenario at three dates (total imports denominator: $3,124B):
+
+| Date | Tracker | Tariff-ETRs | Diff (pp) | Regime |
+|------|---------|-------------|-----------|--------|
+| 2026-01-01 | 16.02% | 14.25% | +1.77 | IEEPA + fentanyl + 232 + 301 |
+| 2026-02-24 | 12.01% | 10.49% | +1.53 | S122 + 232 + 301 (IEEPA zeroed) |
+| 2026-07-24 | 7.62% | 7.29% | +0.33 | 232 + 301 + MFN only |
+
+**Key divergence sources:** (1) USMCA share granularity — tracker uses product-level Census SPI data vs ETRs' GTAP sector-level shares (tracker confirmed correct by TPC); (2) 301 multi-list rate stacking (tracker correct); (3) 232 product coverage gaps (bilateral — ETRs missing ch72 base steel; ch87 autos needs investigation); (4) Copper 232 product coverage (tracker prefix-based vs ETRs curated 86-code list — needs reconciliation against 9903.78.01 proclamation text). Full details in `docs/comparison_vs_tariff_etrs.md`.
 
 ---
 
@@ -440,21 +452,17 @@ For Chinese products subject to Section 232 (steel, aluminum, copper), TPC stack
 
 Some 9903.89.xx exclusions reference US Note product lists and are not captured. Excluded products may incorrectly receive the base 301 rate. Low impact (~61 products).
 
-### 3. China IEEPA reciprocal rate discrepancy
-
-China's IEEPA reciprocal is parsed from 9903.01.63 (Phase 1, +34%). TPC data implies a 25% rate, likely reflecting the May 2025 Geneva agreement. The HTS still encodes the pre-negotiation statutory rate.
-
-### 4. EU floor rate residual (~4pp systematic)
+### 3. EU floor rate residual (~4pp systematic)
 
 EU countries show ~35–42% exact match with ~4pp mean excess. The floor formula is correct, but residual discrepancies remain — possibly from TPC using different floor mechanics or base rate differences.
 
-### 5. USMCA binary vs. utilization-adjusted
-
-USMCA eligibility from the HTS `special` field is binary. In practice, not all trade in an eligible product claims the preference (TPC uses product-level utilization rates, median ~50% for CA/MX). A utilization-rate adjustment would improve accuracy.
-
-### 6. Section 122 expiry uncertainty
+### 4. Section 122 expiry uncertainty
 
 The 150-day statutory limit expires approximately July 25, 2026. Whether Congress extends the authority or the administration shifts to an alternative legal basis is unknown. The `finalized` flag controls behavior.
+
+### ~~5. Copper 232 product coverage~~ (Resolved)
+
+Parsed the authoritative product list from US Note 36(b) of the Chapter 99 PDF via `scrape_us_notes.R --copper`. The 80 HTS10 codes match the Tariff-ETRs curated list exactly. The tracker now uses this authoritative list (`resources/s232_copper_products.csv`) instead of prefix matching. Previous prefix approach captured 33 extra statistical suffixes and missed 4 ch8544 (insulated wire) codes.
 
 ---
 

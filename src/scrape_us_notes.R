@@ -16,10 +16,14 @@
 # and outputs updated resources/s301_product_lists.csv and
 # resources/floor_exempt_products.csv.
 #
+#   3. Section 232 copper product list (US Note 36):
+#      HTS10 codes covered by 9903.78.01 (50% on copper content).
+#
 # Usage:
 #   Rscript src/scrape_us_notes.R                    # Section 301 only
 #   Rscript src/scrape_us_notes.R --floor-exemptions # Floor exemptions only
-#   Rscript src/scrape_us_notes.R --all              # Both 301 + floor
+#   Rscript src/scrape_us_notes.R --copper           # Note 36 copper products only
+#   Rscript src/scrape_us_notes.R --all              # 301 + floor + copper
 #   Rscript src/scrape_us_notes.R --dry-run          # Report without writing
 #   Rscript src/scrape_us_notes.R --download-pdfs [--dry-run]  # Download all revision PDFs
 #   Rscript src/scrape_us_notes.R --revision rev_18            # Parse single revision
@@ -710,6 +714,191 @@ parse_floor_exempt_products <- function(
 
 
 # =============================================================================
+# Note 36: Section 232 Copper Product List
+# =============================================================================
+#
+# US Note 36 to Chapter 99 defines the product coverage for Section 232 copper
+# tariffs (9903.78.01, 50% on copper content). Subdivision (b) enumerates the
+# covered HTS10 codes in a flat 3-column grid. Unlike Notes 20/31 (301), there
+# is no "Heading 9903.78.01 applies to" anchor — the list is within the Note
+# text under subdivision (b).
+#
+# Output: resources/s232_copper_products.csv with columns: hts10, ch99_code
+#
+
+#' Parse Note 36 copper product list from Chapter 99 PDF
+#'
+#' Finds the Note 36 subdivision (b) product grid and extracts all HTS10 codes.
+#' These are the products covered by 9903.78.01 (50% copper 232 tariff).
+#'
+#' @param pdf_path Path to Chapter 99 PDF (or NULL to download)
+#' @param output_csv Path to write s232_copper_products.csv
+#' @param dry_run Report without writing
+#' @return Tibble with hts10, ch99_code columns
+parse_note36_copper_products <- function(
+  pdf_path = NULL,
+  output_csv = 'resources/s232_copper_products.csv',
+  dry_run = FALSE
+) {
+  message('\n', strrep('=', 70))
+  message('NOTE 36: SECTION 232 COPPER PRODUCT LIST PARSER')
+  message(strrep('=', 70))
+
+  # ---- Download PDF if needed ----
+  if (is.null(pdf_path)) {
+    pdf_path <- download_chapter99_pdf()
+  }
+  stopifnot(file.exists(pdf_path))
+
+  # ---- Extract text ----
+  pages <- extract_pdf_text(pdf_path)
+
+  # ---- Find Note 36 product grid ----
+  # Note 36 subdivision (b) contains a flat grid of copper HTS10 codes.
+  # The Note itself may not contain the literal string "note 36" — it's a
+  # numbered section introduced by its position after Note 35. Instead, we
+  # find the page with 9903.78.01 AND a dense cluster of ch74/ch8544 codes.
+  message('\nSearching for Note 36 copper product grid...')
+
+  # Find pages that reference 9903.78.01
+  candidate_pages <- integer()
+  for (i in seq_along(pages)) {
+    if (grepl('9903\\.78\\.01', pages[i])) {
+      candidate_pages <- c(candidate_pages, i)
+    }
+  }
+
+  if (length(candidate_pages) == 0) {
+    message('WARNING: 9903.78.01 not found in PDF. Copper 232 products cannot be parsed.')
+    return(invisible(NULL))
+  }
+  message('  9903.78.01 found on page(s): ', paste(candidate_pages, collapse = ', '))
+
+  # Find the page with the densest cluster of ch74/ch8544 HTS10 codes
+  best_page <- NULL
+  best_count <- 0
+
+  for (pg in candidate_pages) {
+    codes_on_page <- str_extract_all(
+      pages[pg],
+      '(74[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}|8544\\.[0-9]{2}\\.[0-9]{2})'
+    )[[1]]
+    if (length(codes_on_page) > best_count) {
+      best_count <- length(codes_on_page)
+      best_page <- pg
+    }
+  }
+
+  if (is.null(best_page) || best_count == 0) {
+    message('WARNING: No copper HTS10 codes found on 9903.78.01 pages.')
+    return(invisible(NULL))
+  }
+
+  message('  Product grid on page ', best_page, ' (', best_count, ' codes detected)')
+
+  # ---- Extract all HTS10 codes from the grid ----
+  # The grid may span to the next page (compiler's note says so), so also check
+  # the following page for continuation codes
+  scan_pages <- best_page
+  if (best_page < length(pages)) {
+    next_page_codes <- str_extract_all(
+      pages[best_page + 1],
+      '(74[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}|8544\\.[0-9]{2}\\.[0-9]{2})'
+    )[[1]]
+    # Only include next page if it has copper codes and isn't a different section
+    if (length(next_page_codes) > 0) {
+      scan_pages <- c(scan_pages, best_page + 1)
+    }
+  }
+
+  all_codes <- character()
+  for (pg in scan_pages) {
+    page_text <- pages[pg]
+
+    # For the primary page, start extraction from subdivision (b) marker
+    if (pg == best_page) {
+      sub_b_pos <- regexpr('\\(b\\)', page_text)
+      if (sub_b_pos > 0) {
+        page_text <- substring(page_text, sub_b_pos)
+      }
+    }
+
+    # Extract all HTS10 codes (XXXX.XX.XX format) — copper and insulated wire
+    codes <- str_extract_all(page_text, '[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}')[[1]]
+
+    # Filter to copper-relevant codes (ch74 + ch8544)
+    codes <- codes[grepl('^(74|8544)', codes)]
+
+    # Remove any ch99 self-references that might slip through
+    codes <- codes[!grepl('^9903', codes)]
+
+    all_codes <- c(all_codes, codes)
+  }
+
+  all_codes <- unique(all_codes)
+  message('  Extracted ', length(all_codes), ' unique HTS10 codes')
+
+  if (length(all_codes) == 0) {
+    message('WARNING: No copper HTS10 codes extracted. PDF format may have changed.')
+    return(invisible(NULL))
+  }
+
+  # ---- Normalize codes: remove dots and pad to 10 digits ----
+  # PDF format is XXXX.XX.XX (8 digits). Pad with '00' to get HTS10.
+  hts10_codes <- str_pad(gsub('\\.', '', all_codes), 10, side = 'right', pad = '0')
+
+  # ---- Validate: check heading distribution ----
+  headings <- substr(hts10_codes, 1, 4)
+  heading_counts <- table(headings)
+  message('\n  Heading distribution:')
+  for (h in sort(names(heading_counts))) {
+    message('    ', h, ': ', heading_counts[h], ' codes')
+  }
+
+  # ---- Build output ----
+  result <- tibble(
+    hts10 = hts10_codes,
+    ch99_code = '9903.78.01'
+  ) %>%
+    arrange(hts10)
+
+  message('\nFinal copper product list: ', nrow(result), ' HTS10 codes')
+  message('  Ch74 codes: ', sum(grepl('^74', result$hts10)))
+  message('  Ch8544 codes: ', sum(grepl('^8544', result$hts10)))
+
+  # ---- Compare with existing config (if any) ----
+  if (file.exists(output_csv)) {
+    existing <- read_csv(output_csv, col_types = cols(.default = col_character()))
+    new_codes <- anti_join(result, existing, by = 'hts10')
+    removed_codes <- anti_join(existing, result, by = 'hts10')
+    if (nrow(new_codes) > 0) {
+      message('\n  NEW codes vs existing: ', nrow(new_codes))
+      message('    ', paste(head(new_codes$hts10, 10), collapse = ', '),
+              if (nrow(new_codes) > 10) '...' else '')
+    }
+    if (nrow(removed_codes) > 0) {
+      message('  REMOVED codes vs existing: ', nrow(removed_codes))
+      message('    ', paste(head(removed_codes$hts10, 10), collapse = ', '),
+              if (nrow(removed_codes) > 10) '...' else '')
+    }
+    if (nrow(new_codes) == 0 && nrow(removed_codes) == 0) {
+      message('\n  Product list matches existing CSV exactly.')
+    }
+  }
+
+  # ---- Write output ----
+  if (!dry_run) {
+    write_csv(result, output_csv)
+    message('\nWrote ', nrow(result), ' entries to ', output_csv)
+  } else {
+    message('\n[DRY RUN] Would write ', nrow(result), ' entries to ', output_csv)
+  }
+
+  return(invisible(result))
+}
+
+
+# =============================================================================
 # Per-Revision PDF Download
 # =============================================================================
 
@@ -940,6 +1129,7 @@ if (sys.nframe() == 0) {
   args <- commandArgs(trailingOnly = TRUE)
   dry_run <- '--dry-run' %in% args
   do_floor <- '--floor-exemptions' %in% args
+  do_copper <- '--copper' %in% args
   do_all_modes <- '--all' %in% args
   do_download_pdfs <- '--download-pdfs' %in% args
   do_revision <- '--revision' %in% args
@@ -976,7 +1166,11 @@ if (sys.nframe() == 0) {
       floor_result <- parse_floor_exempt_products(dry_run = dry_run)
     }
 
-    if (!do_floor || do_all_modes) {
+    if (do_copper || do_all_modes) {
+      copper_result <- parse_note36_copper_products(dry_run = dry_run)
+    }
+
+    if (!do_floor && !do_copper || do_all_modes) {
       result <- parse_us_note_products(dry_run = dry_run)
     }
   }

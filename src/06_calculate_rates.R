@@ -153,7 +153,7 @@ calculate_rates_fast <- function(products, ch99_data, countries, stacking_method
 
   # Ensure all columns exist
   for (col in c('rate_section_232', 'rate_section_301', 'rate_ieepa_reciprocal',
-                'rate_ieepa_fentanyl', 'rate_section_122', 'rate_other')) {
+                'rate_ieepa_fentanyl', 'rate_section_122', 'rate_section_201', 'rate_other')) {
     if (!(col %in% names(rates_wide))) {
       rates_wide[[col]] <- 0
     }
@@ -640,7 +640,8 @@ calculate_rates_for_revision <- function(
 
       new_pairs <- new_pairs %>%
         mutate(
-          rate_232 = 0, rate_301 = 0, rate_ieepa_fent = 0, rate_s122 = 0, rate_other = 0,
+          rate_232 = 0, rate_301 = 0, rate_ieepa_fent = 0, rate_s122 = 0,
+          rate_section_201 = 0, rate_other = 0,
           rate_ieepa_recip = case_when(
             floor_exempt ~ 0,                             # floor country product exemption
             ieepa_type == 'surcharge' ~ ieepa_country_rate,
@@ -779,7 +780,7 @@ calculate_rates_for_revision <- function(
       anti_join(existing_pairs, by = c('hts10', 'country')) %>%
       mutate(
         rate_232 = 0, rate_301 = 0, rate_ieepa_recip = 0,
-        rate_ieepa_fent = 0, rate_s122 = 0, rate_other = 0
+        rate_ieepa_fent = 0, rate_s122 = 0, rate_section_201 = 0, rate_other = 0
       )
 
     if (nrow(new_grid_pairs) > 0) {
@@ -846,24 +847,47 @@ calculate_rates_for_revision <- function(
         }
 
         cfg <- s232_headings[[tariff_name]]
-        # Support both inline prefixes and external file
-        prefixes <- unlist(cfg$prefixes)
-        if (!is.null(cfg$prefixes_file)) {
-          pf_path <- here(cfg$prefixes_file)
+
+        # Product matching: prefer products_file (exact HTS10 list, treated as prefixes)
+        # over prefixes_file (text file of prefixes) over inline prefixes.
+        matched <- character(0)
+
+        if (!is.null(cfg$products_file)) {
+          pf_path <- here(cfg$products_file)
           if (file.exists(pf_path)) {
-            prefixes <- c(prefixes, trimws(readLines(pf_path)))
-            prefixes <- prefixes[nchar(prefixes) > 0]
+            copper_list <- read_csv(pf_path, col_types = cols(.default = col_character()))
+            # Treat HTS10 codes as prefixes (matches statistical suffixes)
+            pf_codes <- copper_list$hts10
+            pf_pattern <- paste0('^(', paste(pf_codes, collapse = '|'), ')')
+            matched <- products %>%
+              filter(grepl(pf_pattern, hts10)) %>%
+              pull(hts10)
+            message('  232 heading "', tariff_name, '": ', length(matched),
+                    ' products from ', basename(pf_path), ' (', length(pf_codes), ' codes)')
           } else {
-            message('  WARNING: prefixes_file not found: ', pf_path)
+            message('  WARNING: products_file not found: ', pf_path, ' — falling back to prefixes')
           }
         }
-        if (length(prefixes) == 0) next
 
-        # Match products by prefix
-        pattern <- paste0('^(', paste(prefixes, collapse = '|'), ')')
-        matched <- products %>%
-          filter(grepl(pattern, hts10)) %>%
-          pull(hts10)
+        if (length(matched) == 0) {
+          # Fallback: inline prefixes + prefixes_file
+          prefixes <- unlist(cfg$prefixes)
+          if (!is.null(cfg$prefixes_file)) {
+            pf_path <- here(cfg$prefixes_file)
+            if (file.exists(pf_path)) {
+              prefixes <- c(prefixes, trimws(readLines(pf_path)))
+              prefixes <- prefixes[nchar(prefixes) > 0]
+            } else {
+              message('  WARNING: prefixes_file not found: ', pf_path)
+            }
+          }
+          if (length(prefixes) > 0) {
+            pattern <- paste0('^(', paste(prefixes, collapse = '|'), ')')
+            matched <- products %>%
+              filter(grepl(pattern, hts10)) %>%
+              pull(hts10)
+          }
+        }
 
         heading_product_lists[[tariff_name]] <- list(
           products = matched,
@@ -1059,7 +1083,8 @@ calculate_rates_for_revision <- function(
           TRUE ~ 0
         ),
         s232_usmca_eligible = coalesce(heading_usmca_exempt, FALSE) & heading_rate_adj > 0,
-        rate_301 = 0, rate_ieepa_recip = 0, rate_ieepa_fent = 0, rate_s122 = 0, rate_other = 0
+        rate_301 = 0, rate_ieepa_recip = 0, rate_ieepa_fent = 0, rate_s122 = 0,
+        rate_section_201 = 0, rate_other = 0
       ) %>%
       filter(rate_232 > 0) %>%
       select(-steel_rate_232, -alum_rate_232, -chapter,
@@ -1314,7 +1339,7 @@ calculate_rates_for_revision <- function(
             left_join(s301_lookup, by = 'hts8') %>%
             mutate(
               rate_232 = 0, rate_ieepa_recip = 0,
-              rate_ieepa_fent = 0, rate_s122 = 0, rate_other = 0,
+              rate_ieepa_fent = 0, rate_s122 = 0, rate_section_201 = 0, rate_other = 0,
               rate_301 = coalesce(blanket_301, 0)
             ) %>%
             filter(rate_301 > 0) %>%

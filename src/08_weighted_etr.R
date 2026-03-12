@@ -267,84 +267,8 @@ aggregate_tpc <- function(tpc_weighted, imports_gtap) {
 
 
 # =============================================================================
-# Net Authority Decomposition
+# Net Authority Decomposition — delegated to helpers.R:compute_net_authority_contributions()
 # =============================================================================
-
-#' Compute net authority contributions from snapshot rate columns
-#'
-#' Derives net_232, net_ieepa, net_fentanyl, net_301, net_s122 from the
-#' timeseries rate columns using mutual-exclusion stacking rules.
-#' Net contributions sum to total_additional.
-#'
-#' Stacking rules:
-#'   China (232>0):  net_232 + net_fentanyl + net_301 + net_s122
-#'   China (no 232): net_ieepa + net_fentanyl + net_301 + net_s122
-#'   Others (232>0): net_232 + net_s122 (no fentanyl on 232)
-#'   Others (no 232): net_ieepa + net_fentanyl + net_s122
-#'
-#' @param df Data frame with rate_232, rate_301, rate_ieepa_recip,
-#'   rate_ieepa_fent, rate_s122, country columns
-#' @return df with net_232, net_ieepa, net_fentanyl, net_301, net_s122 added
-compute_net_authority_contributions <- function(df, stacking_method = 'mutual_exclusion') {
-  # Ensure rate_s122 exists (backwards compat with old snapshots)
-  if (!'rate_s122' %in% names(df)) {
-    df$rate_s122 <- 0
-  }
-
-  # TPC additive: all authorities contribute their full rate (no mutual exclusion)
-  if (stacking_method == 'tpc_additive') {
-    return(
-      df %>%
-        mutate(
-          net_232 = rate_232,
-          net_ieepa = rate_ieepa_recip,
-          net_fentanyl = rate_ieepa_fent,
-          net_301 = rate_301,
-          net_s122 = rate_s122
-        )
-    )
-  }
-
-  # Ensure metal_share exists for derivative scaling
-  if (!'metal_share' %in% names(df)) {
-    df$metal_share <- 1.0
-  }
-
-  df %>%
-    mutate(
-      # For derivative 232 products (metal_share < 1.0), IEEPA/s122 apply
-      # to the non-metal portion. For primary 232 (metal_share = 1.0),
-      # nonmetal_share = 0 → full mutual exclusion.
-      nonmetal_share = if_else(rate_232 > 0 & metal_share < 1.0, 1 - metal_share, 0),
-      # 232: already scaled by metal_share in step 5
-      net_232 = case_when(
-        rate_232 > 0 ~ rate_232,
-        TRUE ~ 0
-      ),
-      # IEEPA reciprocal: excluded by 232, except on nonmetal portion of derivatives
-      net_ieepa = case_when(
-        rate_232 > 0 ~ rate_ieepa_recip * nonmetal_share,
-        TRUE ~ rate_ieepa_recip
-      ),
-      # Fentanyl: China always stacks; others only on nonmetal when 232 present
-      net_fentanyl = case_when(
-        country == CTY_CHINA ~ rate_ieepa_fent,
-        rate_232 > 0 ~ rate_ieepa_fent * nonmetal_share,
-        TRUE ~ rate_ieepa_fent
-      ),
-      # 301: China only, full customs value (no metal scaling)
-      net_301 = case_when(
-        country == CTY_CHINA ~ rate_301,
-        TRUE ~ 0
-      ),
-      # s122: scales by nonmetal_share on 232 products (excluded to extent 232 applies)
-      net_s122 = case_when(
-        rate_232 > 0 ~ rate_s122 * nonmetal_share,
-        TRUE ~ rate_s122
-      )
-    ) %>%
-    select(-nonmetal_share)
-}
 
 
 # =============================================================================
@@ -392,9 +316,9 @@ compute_weighted_etrs <- function(data, policy_params = NULL) {
       # Note: rename total_additional -> total_rate because ETR measures
       # additional tariffs only (excludes MFN base_rate)
       snapshot_net <- snapshot %>%
-        compute_net_authority_contributions() %>%
+        compute_net_authority_contributions(cty_china = CTY_CHINA) %>%
         select(hts10, country, total_rate = total_additional,
-               net_232, net_ieepa, net_fentanyl, net_301, net_s122)
+               net_232, net_ieepa, net_fentanyl, net_301, net_s122, net_other)
 
       # Join snapshot rates with import flows
       rated <- flows %>%

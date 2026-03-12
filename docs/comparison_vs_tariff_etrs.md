@@ -79,6 +79,25 @@ The ch72 gap is a confirmed ETRs bug: the `s232.yaml` steel product list starts 
 
 **Assessment:** Both repos have coverage gaps. Ch72 is ETRs-side; ch74 was tracker-side (now fixed). Ch87 (autos) needs further investigation — likely USMCA share differences for CA/MX auto products.
 
+### Divergence source 4: Copper 232 product coverage (tracker high, +1pp at Feb 24)
+
+Both repos apply 50% copper 232 rate with identical stacking logic (metal_share scaling, IEEPA/S122 on nonmetal portion only). The difference is product coverage:
+
+| | Tracker | ETRs |
+|---|---------|------|
+| **Method** | All products under heading prefixes (7406-7419) from `policy_params.yaml` | Curated list of 76 ch74 HTS10 codes + 6 ch8544 (insulated wire) codes in `s232.yaml` `copper_derivatives` section |
+| **Headings** | 7406, 7407, 7408, 7409, 7410, 7411, 7412, 7413, 7415, 7418, 7419 | **Identical**: 7406, 7407, 7408, 7409, 7410, 7411, 7412, 7413, 7415, 7418, 7419 |
+| **Excluded** | 7401-7405 (refined copper — phased tariffs planned per proclamation), 7414, 7416, 7417 | Same exclusions |
+| **Metal share** | Ch74 = 1.0 (primary chapter), others via BEA detail I-O | Identical: ch74 = 1.0 (primary chapter), others via BEA detail I-O |
+| **USMCA exempt** | No | No |
+| **Ch8544** | Not covered (copper prefixes only) | 6 codes under 8544 (insulated wire with copper conductors) |
+
+**Resolved (Mar 12):** Parsed the authoritative product list from US Note 36, subdivision (b) of Chapter 99 PDF using `scrape_us_notes.R --copper`. **80 HTS10 codes** (76 ch74 + 4 ch8544). This list matches the ETRs curated list exactly (80 for 80). The tracker's prefix approach previously captured 113 codes (33 extra statistical suffixes) and missed 4 ch8544 insulated wire codes. The tracker now uses the authoritative list via `resources/s232_copper_products.csv`.
+
+**Proclamation 10962 (2025-08-05):** Covers "semi-finished copper products and intensive copper derivative products" at 50%. Explicitly defers tariffs on refined copper (headings 7401-7405): phased tariffs of 15% starting Jan 2027, 30% starting Jan 2028. The Annex is encoded in US Note 36(b) of the Chapter 99 PDF, not the Federal Register HTML text.
+
+This contributes to the Feb 24 gap (+1.53pp): copper products interact with S122 through stacking — copper_share=1.0 means S122's nonmetal contribution is zero in the tracker, while ETRs may apply S122 to some ch74 products not in its copper_derivatives list (treating them as non-232).
+
 ### Why the gap is small overall (+1.77pp)
 
 The USMCA and 301 divergences (tracker high) are offset by 232 product coverage differences (tracker low on autos, ETRs low on base steel). The net effect is a modest +1.77pp.
@@ -149,9 +168,10 @@ The tracker is within ~1pp of TPC at the latest two dates. The rev_10 outlier (-
 |---|--------|-----------|-----------|-------------|-----|
 | 1 | USMCA share granularity | Tracker high (CA/MX) | +9.7pp CA, +1.6pp MX | **Tracker** (TPC validates) | ETRs E1 |
 | 2 | 301 rate treatment | Tracker high (China) | +4-6pp China | **Tracker** (TPC validates) | ETRs E2 |
-| 3 | 232 product coverage | Offsetting | Ch72 ±40pp, Ch87 ±12pp, Ch74 ±22pp | Both have gaps | E3 + T1 |
+| 3 | 232 product coverage (steel) | Offsetting | Ch72 ±40pp, Ch87 ±12pp | Both have gaps | E3 |
+| 4 | Copper 232 product coverage | Tracker high | ~1pp at Feb 24 | **Needs discussion** | D1 |
 
-Divergences #1 and #2 are ETRs-side issues confirmed by TPC. Divergence #3 is bilateral: ETRs is missing ch72 base steel from its 232 product list; the tracker had copper at 25% instead of 50% (now fixed). The ch87 (autos) gap needs further investigation.
+Divergences #1 and #2 are ETRs-side issues confirmed by TPC. Divergence #3 is bilateral: ETRs is missing ch72 base steel; ch87 (autos) needs further investigation. Divergence #4 is a methodological difference: tracker uses prefix-based ch74 coverage from Ch99 footnotes vs ETRs' curated 86-code list — both apply 50% with identical stacking, but product sets differ.
 
 ---
 
@@ -164,6 +184,7 @@ Divergences #1 and #2 are ETRs-side issues confirmed by TPC. Divergence #3 is bi
 | E1 | Replace GTAP-level USMCA shares with product-level Census SPI data | Open | +4-8pp Canada, +2-3pp Mexico |
 | E2 | Implement per-list 301 rates (Biden supersedes Trump on overlap) | Open | +4-6pp China |
 | E3 | Add chapter 72 base steel products to s232.yaml | Open | +40pp ch72 (partially offsets E1/E2) |
+| D1 | Copper product list reconciled: parsed US Note 36(b), 80 HTS10 codes match ETRs exactly. Tracker now uses authoritative list via `s232_copper_products.csv` | **Done** | ~1pp at Feb 24 |
 
 ### Tracker
 
@@ -173,7 +194,7 @@ Divergences #1 and #2 are ETRs-side issues confirmed by TPC. Divergence #3 is bi
 | T2 | Fix S122 expiry zeroing (reconstruct from components, not subtract) | **Done** | +1.1pp overall at Jul 24 |
 | T3 | Fix `parse_ch99_rate()` regex for "a duty of X%" pattern | **Done** | Enables automatic copper rate extraction |
 
-Remaining tracker gap vs ETRs at ch87 (autos) needs investigation — likely USMCA share differences for CA/MX auto products, not a product coverage issue.
+Remaining open items: (1) ch87 (autos) gap — likely USMCA share differences for CA/MX auto products; (2) D1 copper product list reconciliation against 9903.78.01 proclamation.
 
 ---
 
