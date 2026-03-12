@@ -451,7 +451,7 @@ Regenerate with: `Rscript src/test_tpc_comparison.R`
 
 The within-2pp match rate improved significantly after the March 2026 base rate inheritance fix (+9.3pp at rev_18, +11.1pp at rev_32). The rev_10 ETR outlier (-8.28pp) reflects the April 9 reciprocal suspension period — the tracker may understate the brief window when high Liberation Day rates were active. The tracker is within ~1pp of TPC at the latest two dates.
 
-**Key gap sources:** (1) China+232 reciprocal stacking methodology (~25pp, confirmed methodological difference); (2) EU/Japan/Korea floor residual (~4pp systematic); (3) USMCA binary vs. utilization-adjusted.
+**Key gap sources:** (1) China+232 reciprocal stacking (methodological difference, see below); (2) EU/Japan/Korea floor residual (partially explained by duty-free treatment setting, see below); (3) USMCA binary vs. utilization-adjusted.
 
 ---
 
@@ -465,31 +465,37 @@ Import-weighted effective tariff rates compared against [Tariff-ETRs](https://gi
 | 2026-02-24 | 12.01% | 10.49% | +1.53 | S122 + 232 + 301 (IEEPA zeroed) |
 | 2026-07-24 | 7.62% | 7.29% | +0.33 | 232 + 301 + MFN only |
 
-**Key divergence sources:** (1) USMCA share granularity — tracker uses product-level Census SPI data vs ETRs' GTAP sector-level shares (tracker confirmed correct by TPC); (2) 301 multi-list rate stacking (tracker correct); (3) 232 product coverage gaps (bilateral — ETRs missing ch72 base steel; ch87 autos needs investigation); (4) Copper 232 product coverage (tracker prefix-based vs ETRs curated 86-code list — needs reconciliation against 9903.78.01 proclamation text). Full details in `docs/comparison_vs_tariff_etrs.md`.
+**Key divergence sources:** (1) USMCA share granularity — tracker uses product-level Census SPI data vs ETRs' GTAP sector-level shares (tracker confirmed correct by TPC); (2) 301 rate treatment (tracker correct — Biden supersedes Trump on 8 overlap products); (3) 232 product coverage gaps (bilateral — ETRs missing ch72 base steel; ch87 autos needs investigation); (4) Copper 232 product coverage (resolved — parsed US Note 36(b), 80/80 match with ETRs). Full details in `docs/comparison_vs_tariff_etrs.md`.
 
 ---
 
 ## Current Issues
 
-### 1. China+232 reciprocal stacking (~920 products, ~25pp gap)
+### Open implementation gaps
 
-For Chinese products subject to Section 232 (steel, aluminum, copper), TPC stacks IEEPA reciprocal on top of 232 (e.g., 232(25%) + recip(25%) + fent(10%) + 301(25%) = 85%). We apply mutual exclusion per Tariff-ETRs methodology: 232 takes precedence, so reciprocal contributes 0pp. This is a methodological difference, not a data gap — our approach follows the legal structure (Section 232 and IEEPA are separate authorities).
+**1. Section 301 exclusions (9903.89.xx).** Some 9903.89.xx exclusion entries reference US Note product lists that are not parsed. Excluded products may incorrectly receive the base 301 rate. Low impact (~61 products).
 
-### 2. Section 301 exclusions (9903.89.xx)
+**2. EU floor rate residual (~4pp systematic).** EU/Japan/Korea/Swiss countries show ~35–42% exact match with TPC, with ~4pp mean excess. This residual has two components:
 
-Some 9903.89.xx exclusions reference US Note product lists and are not captured. Excluded products may incorrectly receive the base 301 rate. Low impact (~61 products).
+- **Duty-free treatment (configurable, ~38% of gap rows):** The tracker defaults to `ieepa_duty_free_treatment: 'all'` — applying IEEPA reciprocal to all products including those with 0% MFN base rate. TPC excludes duty-free products. Setting `nonzero_base_only` in `policy_params.yaml` eliminates this component and improves match rates materially. The legal text supports either interpretation; the current default follows the stricter reading.
+- **Continuous rate residual (~62% of gap rows):** For products where the tracker applies the full 15% floor, TPC assigns rates spanning 1–14% — a continuous distribution suggesting product-level methodology beyond the simple floor formula. This portion remains unexplained.
 
-### 3. EU floor rate residual (~4pp systematic)
+**3. Ch87 (autos) gap vs Tariff-ETRs (~12pp).** Chapter 87 shows ETRs substantially higher than the tracker. Likely driven by differences in auto parts coverage or USMCA share treatment for CA/MX auto products. Needs a focused reconciliation table broken out by vehicle type, parts, and USMCA partner.
 
-EU countries show ~35–42% exact match with ~4pp mean excess. The floor formula is correct, but residual discrepancies remain — possibly from TPC using different floor mechanics or base rate differences.
+**4. Section 122 expiry uncertainty.** The 150-day statutory limit expires approximately July 23, 2026. Whether Congress extends the authority or the administration shifts to an alternative legal basis is unknown. The `finalized` flag in `policy_params.yaml` controls behavior; the projection horizon extends to 2026-12-31 with S122 zeroed after expiry.
 
-### 4. Section 122 expiry uncertainty
+### Methodological differences (not bugs)
 
-The 150-day statutory limit expires approximately July 25, 2026. Whether Congress extends the authority or the administration shifts to an alternative legal basis is unknown. The `finalized` flag controls behavior.
+**China+232 reciprocal stacking (~920 products, ~25pp gap vs TPC).** For Chinese products subject to Section 232, TPC stacks IEEPA reciprocal on top of 232 (e.g., 232(25%) + recip(25%) + fent(10%) + 301(25%) = 85%). We apply mutual exclusion per Tariff-ETRs methodology: 232 takes precedence over IEEPA reciprocal, so reciprocal contributes 0pp on base 232 products. This is a deliberate methodological choice — our approach follows the legal authority structure (Section 232 and IEEPA are separate authorities with different statutory bases). The `stacking_method = 'tpc_additive'` option in `apply_stacking_rules()` reproduces TPC's additive behavior for diagnostic comparison.
 
-### ~~5. Copper 232 product coverage~~ (Resolved)
+**China IEEPA reciprocal rate (34% vs ~25%).** The statutory IEEPA reciprocal rate for China is 34% (from 9903.01.63). TPC shows ~25%, likely reflecting the May 2025 US-China bilateral agreement. Our system correctly tracks the suspension marker in the HTS JSON; the remaining discrepancy reflects timing differences in how the bilateral agreement is encoded. Not actionable without new evidence of a parser error.
 
-Parsed the authoritative product list from US Note 36(b) of the Chapter 99 PDF via `scrape_us_notes.R --copper`. The 80 HTS10 codes match the Tariff-ETRs curated list exactly. The tracker now uses this authoritative list (`resources/s232_copper_products.csv`) instead of prefix matching. Previous prefix approach captured 33 extra statistical suffixes and missed 4 ch8544 (insulated wire) codes.
+### Resolved
+
+- **Copper 232 product coverage:** Parsed US Note 36(b) via `scrape_us_notes.R --copper`. 80 HTS10 codes match ETRs exactly. Now uses `resources/s232_copper_products.csv`.
+- **USMCA utilization rates:** Product-level Census SPI data replaces binary S/S+ eligibility.
+- **Base rate inheritance:** Statistical suffixes inherit MFN from parent indent (11,558 products fixed).
+- **301 Biden supersession:** Biden rates supersede Trump on 8 overlapping products via `max()` aggregation.
 
 ---
 

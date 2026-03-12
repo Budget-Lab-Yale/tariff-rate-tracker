@@ -1285,10 +1285,10 @@ calculate_rates_for_revision <- function(
 
     if (length(active_301_codes) > 0) {
       # Build HTS8 -> 301 rate lookup:
-      # MAX within each list (if a product appears on multiple ch99 codes within
-      # the same generation, take the highest rate), then MAX across generations.
-      # Biden modifications supersede Trump rates on overlapping products (8 HTS8
-      # codes), not stack. For non-overlapping products only one generation applies.
+      # Take MAX(s301_rate) across all ch99 codes per HTS8. This works because
+      # Biden rates (9903.91.xx) are always >= the corresponding Trump rate
+      # (9903.88.xx) for the 8 overlapping products, so MAX achieves the correct
+      # supersession behavior without needing explicit generation tracking.
       s301_lookup <- s301_products %>%
         filter(ch99_code %in% active_301_codes) %>%
         inner_join(

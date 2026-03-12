@@ -164,14 +164,14 @@ The tracker is within ~1pp of TPC at the latest two dates. The rev_10 outlier (-
 
 ## Summary of Divergences
 
-| # | Source | Direction | Magnitude | Who's right | Fix |
-|---|--------|-----------|-----------|-------------|-----|
-| 1 | USMCA share granularity | Tracker high (CA/MX) | +9.7pp CA, +1.6pp MX | **Tracker** (TPC validates) | ETRs E1 |
-| 2 | 301 rate treatment | Tracker high (China) | +4-6pp China | **Tracker** (TPC validates) | ETRs E2 |
-| 3 | 232 product coverage (steel) | Offsetting | Ch72 ±40pp, Ch87 ±12pp | Both have gaps | E3 |
-| 4 | Copper 232 product coverage | Tracker high | ~1pp at Feb 24 | **Needs discussion** | D1 |
+| # | Source | Direction | Magnitude | Who's right | Fix | Status |
+|---|--------|-----------|-----------|-------------|-----|--------|
+| 1 | USMCA share granularity | Tracker high (CA/MX) | +9.7pp CA, +1.6pp MX | **Tracker** (TPC validates) | ETRs E1 | Open |
+| 2 | 301 rate treatment | Tracker high (China) | +4-6pp China | **Tracker** (Biden supersedes Trump via MAX) | ETRs E2 | Open |
+| 3 | 232 product coverage (steel) | Offsetting | Ch72 ±40pp, Ch87 ±12pp | Both have gaps | E3 | Open |
+| 4 | Copper 232 product coverage | Was tracker high | ~1pp at Feb 24 | **Resolved** (80/80 match) | D1 | **Done** |
 
-Divergences #1 and #2 are ETRs-side issues confirmed by TPC. Divergence #3 is bilateral: ETRs is missing ch72 base steel; ch87 (autos) needs further investigation. Divergence #4 is a methodological difference: tracker uses prefix-based ch74 coverage from Ch99 footnotes vs ETRs' curated 86-code list — both apply 50% with identical stacking, but product sets differ.
+Divergences #1 and #2 are ETRs-side issues confirmed by TPC. Divergence #3 is bilateral: ETRs is missing ch72 base steel; ch87 (autos) needs further investigation — likely USMCA share differences for CA/MX auto products. Divergence #4 resolved: parsed US Note 36(b), tracker now uses authoritative 80-code list matching ETRs exactly.
 
 ---
 
@@ -194,7 +194,7 @@ Divergences #1 and #2 are ETRs-side issues confirmed by TPC. Divergence #3 is bi
 | T2 | Fix S122 expiry zeroing (reconstruct from components, not subtract) | **Done** | +1.1pp overall at Jul 24 |
 | T3 | Fix `parse_ch99_rate()` regex for "a duty of X%" pattern | **Done** | Enables automatic copper rate extraction |
 
-Remaining open items: (1) ch87 (autos) gap — likely USMCA share differences for CA/MX auto products; (2) D1 copper product list reconciliation against 9903.78.01 proclamation.
+Remaining open items: (1) ch87 (autos) gap — likely USMCA share differences for CA/MX auto products, needs focused reconciliation table by vehicle type, parts, and USMCA partner.
 
 ---
 

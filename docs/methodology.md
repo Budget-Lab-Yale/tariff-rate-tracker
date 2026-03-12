@@ -148,11 +148,15 @@ The within-2pp match rate improved significantly after the March 2026 base rate 
 
 Resolved by extracting per-product USMCA utilization shares from Census Bureau IMP_DETL.TXT RATE_PROV field (code 18 = USMCA preferential entry). For each HTS10 x country, `usmca_share = sum(value where RATE_PROV=18) / sum(total value)`. Applied to all CA/MX products as `rate * (1 - usmca_share)`. The Census data provides true product-level variation (CA median 0%, mean 41%; MX median 43%, mean 47%) rather than sector averages. Earlier attempts using Tariff-ETRs sector-level shares failed because sector averages don't capture within-sector bimodal distribution.
 
-### 2. Floor Country Residual — Continuous Rates (EU/Japan/Korea/Swiss, ~2,700 products)
+### 2. Floor Country Residual (EU/Japan/Korea/Swiss)
 
-**Impact**: Germany 46.8% exact match (up from 41.5% after floor exemption fix)
+**Impact**: Germany 46.8% exact match (up from 41.5% after floor exemption fix), ~4pp mean excess
 
-For products where we apply the full 15% floor, TPC assigns rates spanning 1-14% — a continuous distribution suggesting TPC uses trade-weighted or product-level methodology beyond a simple floor formula. This contributes ~3-4pp of average excess for floor countries. The recently implemented floor country product exemptions (PTAAP, civil aircraft, pharma) addressed ~1,600 previously misclassified products per EU country, but this continuous-rate pattern remains.
+This residual has two identified components:
+
+**Duty-free treatment (configurable).** The tracker defaults to `ieepa_duty_free_treatment: 'all'`, applying IEEPA reciprocal to all products including those with 0% MFN base rate. TPC excludes duty-free products. At rev_32, ~38% of EU comparison rows (31,824 of 84,054) are flagged as duty-free-gap — products where the tracker assigns a floor rate and TPC assigns zero. Setting `nonzero_base_only` in `policy_params.yaml` eliminates this component. The legal text supports either interpretation; the default follows the stricter reading.
+
+**Continuous rate residual.** For the remaining products where we apply the full 15% floor, TPC assigns rates spanning 1–14% — a continuous distribution suggesting TPC uses trade-weighted or product-level methodology beyond a simple floor formula. Floor country product exemptions (PTAAP, civil aircraft, pharma) addressed ~1,600 previously misclassified products per EU country, but this continuous-rate pattern remains unexplained.
 
 ### 3. Floor Country Residual — 232 Interaction (~1,200 EU products)
 
@@ -160,23 +164,29 @@ For products where we apply the full 15% floor, TPC assigns rates spanning 1-14%
 
 EU products subject to Section 232 have poor TPC match rates, suggesting EU-specific 232 exemption or exclusion patterns not captured in our methodology. Separate from the floor rate issue.
 
-### 4. China+232 Reciprocal Stacking (~920 products, ~25pp gap)
-
-**Impact**: China metal chapters (72-76) at 1.2% exact match, -24pp mean diff
-
-TPC stacks IEEPA reciprocal on top of Section 232 for China products (e.g., 232(25%) + recip(25%) + fent(10%) + 301(25%) = 85%). Our model applies mutual exclusion per Tariff-ETRs methodology: Section 232 takes precedence over IEEPA reciprocal for base 232 products (`nonmetal_share = 0`), so reciprocal contributes 0pp. This is a fundamental methodological difference — our approach follows the legal authority structure, TPC sums all authorities unconditionally. Confirmed via statistical analysis: adding 25pp reciprocal to our China+232 rates produces near-zero residual vs TPC.
-
-### 5. China IEEPA Reciprocal Rate
-
-**Impact**: China 72.4% exact match at rev_32
-
-The statutory IEEPA reciprocal rate for China is 34% (from 9903.01.63). TPC shows ~25%, likely reflecting the May 2025 US-China bilateral agreement. Our system correctly tracks the suspension marker in the HTS JSON; the remaining discrepancy reflects timing differences in how the bilateral agreement is encoded.
-
-### 6. Pre-Phase 2 Revision Mismatch (rev_6)
+### 4. Pre-Phase 2 Revision Mismatch (rev_6)
 
 **Impact**: 47.3% exact match
 
 The March 2025 TPC snapshot predates IEEPA reciprocal tariffs (Liberation Day was April 2, 2025). The lower match rate reflects different baseline assumptions and limited product overlap at that date.
+
+---
+
+## Methodological Differences vs TPC
+
+These are deliberate modeling choices, not implementation gaps.
+
+### China+232 Reciprocal Stacking (~920 products, ~25pp gap)
+
+**Impact**: China metal chapters (72-76) at 1.2% exact match, -24pp mean diff
+
+TPC stacks IEEPA reciprocal on top of Section 232 for China products (e.g., 232(25%) + recip(25%) + fent(10%) + 301(25%) = 85%). Our model applies mutual exclusion per Tariff-ETRs methodology: Section 232 takes precedence over IEEPA reciprocal for base 232 products (`nonmetal_share = 0`), so reciprocal contributes 0pp. This follows the legal authority structure — Section 232 and IEEPA are separate statutory authorities. Confirmed via statistical analysis: adding 25pp reciprocal to our China+232 rates produces near-zero residual vs TPC. The `stacking_method = 'tpc_additive'` option reproduces TPC's additive behavior for diagnostic comparison.
+
+### China IEEPA Reciprocal Rate (34% vs ~25%)
+
+**Impact**: China 72.4% exact match at rev_32
+
+The statutory IEEPA reciprocal rate for China is 34% (from 9903.01.63). TPC shows ~25%, likely reflecting the May 2025 US-China bilateral agreement. Our system correctly tracks the suspension marker in the HTS JSON; the remaining discrepancy reflects timing differences in how the bilateral agreement is encoded.
 
 ---
 
