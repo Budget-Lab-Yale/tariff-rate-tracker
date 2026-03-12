@@ -367,6 +367,14 @@ Rscript src/00_build_timeseries.R
 
 ## Methodological Details
 
+### Rate Timing: In-Law, Not Announced
+
+The tracker reflects tariff rates **legally in effect** at each date — i.e., the rates encoded in published USITC HTS revisions — rather than announced or intended policy rates. This distinction matters when policy changes rapidly or when announced rates are suspended before taking full effect.
+
+**Example: Liberation Day (April 2–5, 2025).** On April 2, high country-specific reciprocal tariffs were announced and briefly entered the HTS. By April 5, all non-China rates were suspended, reverting to the universal 10% baseline. The tracker captures this 3-day window at its actual statutory rates and then shows the post-suspension regime for all subsequent dates. An "announced policy" approach would show the full Liberation Day rates persisting through the 90-day pause — overstating the tariff burden that was legally operative.
+
+This means the tracker may diverge from benchmarks that use announcement dates or policy-intent snapshots. We consider the in-law approach more appropriate for economic modeling (it reflects the rates importers actually faced), but the distinction should be kept in mind when comparing against other sources. See [Validation](#validation) for how this affects TPC benchmark comparisons.
+
 ### Stacking Formulas
 
 Tariff authorities overlap. Section 232 and IEEPA reciprocal are **mutually exclusive** (232 takes precedence). For derivative 232 products (`metal_share < 1.0`), IEEPA reciprocal/fentanyl apply to the non-metal portion of customs value. Implemented in `helpers.R:apply_stacking_rules()` and `06_calculate_rates.R`.
@@ -491,15 +499,39 @@ Comparison against TPC benchmark data, matched by revision-to-TPC-date:
 
 | Revision | TPC Date | Within 2pp | Import-Weighted ETR (Tracker) | Import-Weighted ETR (TPC) | Diff (pp) |
 |----------|----------|------------|-------------------------------|---------------------------|-----------|
-| rev_6 | 2025-03-17 | 82.3% | 10.42% | 7.99% | +2.44 |
-| rev_10 | 2025-04-17 | 93.1% | 15.20% | 23.48% | -8.28 |
-| rev_17 | 2025-07-17 | 90.6% | 16.43% | 15.35% | +1.08 |
-| rev_18 | 2025-10-17 | 79.9% | 16.19% | 18.20% | -2.01 |
-| rev_32 | 2025-11-17 | 84.9% | 15.93% | 16.14% | -0.21 |
+| rev_6 | 2025-03-17 | 82.3% | 10.43% | 8.00% | +2.43 |
+| rev_10 | 2025-04-17 | 93.1% | 15.21% | 23.49% | -8.28 |
+| rev_17 | 2025-07-17 | 90.6% | 16.54% | 15.37% | +1.17 |
+| rev_18 | 2025-10-17 | 79.9% | 16.29% | 18.23% | -1.94 |
+| rev_32 | 2025-11-17 | 84.9% | 16.03% | 16.16% | -0.13 |
 
 Regenerate with: `Rscript src/test_tpc_comparison.R`
 
-The within-2pp match rate improved significantly after the March 2026 base rate inheritance fix (+9.3pp at rev_18, +11.1pp at rev_32). The rev_10 ETR outlier (-8.28pp) reflects the April 9 reciprocal suspension period — the tracker may understate the brief window when high Liberation Day rates were active. The tracker is within ~1pp of TPC at the latest two dates.
+The within-2pp match rate improved significantly after the March 2026 base rate inheritance fix (+9.3pp at rev_18, +11.1pp at rev_32). The tracker is within ~1pp of TPC at the three non-Liberation-Day dates.
+
+#### Liberation Day Divergence (-8.28pp at rev_10)
+
+The rev_10 outlier reflects an **HTS encoding gap**, not a rate calculation error. TPC's April 17 column reflects the announced Liberation Day reciprocal rates — country-specific surcharges of 11–50% on ~60 countries (EU 20%, Japan 24%, India 26%, Vietnam 46%, etc.). These rates were announced on April 2 ([EO 14257](https://www.federalregister.gov/documents/2025/04/07/2025-06063/regulating-imports-with-a-reciprocal-tariff-to-rectify-trade-practices-that-contribute-to-large-and)) but **were never published as individual country entries in the USITC HTS JSON**. All Liberation Day revisions (rev_7 through rev_9) contain only the universal 10% baseline for non-China countries, with China escalating from 34% → 84% → 125%. The country-specific rates were suspended by April 5 (rev_9) before USITC encoded them.
+
+Because the tracker builds exclusively from published HTS data, it cannot capture rates that existed only in the executive order text. This is a fundamental limitation of the in-law approach for this specific 3-day window — the legal authority was real, but the statutory encoding never materialized.
+
+The `tpc_policy_revision` override mechanism (see below) is available for future timing mismatches where the HTS *does* capture the relevant rates in a different revision. For Liberation Day specifically, no revision contains the country-specific rates, so the override has minimal effect.
+
+#### TPC Comparison Date Matching
+
+The default TPC comparison matches each `tpc_date` to the revision that was legally in effect on that date (via `revision_dates.csv`). This works well when policy is stable but produces misleading comparisons when TPC labels a column by announced policy rather than effective date.
+
+To handle this, `revision_dates.csv` supports an optional `tpc_policy_revision` column that overrides the default date-based matching. When present, the weighted ETR comparison uses the specified revision instead of the one active on the `tpc_date`:
+
+| Revision (default) | TPC Date | TPC Label | tpc_policy_revision | Rationale |
+|---------------------|----------|-----------|---------------------|-----------|
+| rev_6 | 2025-03-17 | Fentanyl | — | Stable period, default matching works |
+| rev_10 | 2025-04-17 | Liberation Day | rev_7 | Country-specific rates never appeared in HTS; override has minimal effect (see above) |
+| rev_17 | 2025-07-17 | S232 increase | — | Stable period |
+| rev_18 | 2025-10-17 | Phase 2 | — | Stable period |
+| rev_32 | 2025-11-17 | Nov 2025 | — | Stable period |
+
+The `etr_aligned` column in `output/etr/etr_overall.csv` contains the policy-aligned tracker ETR where overrides are active. For Liberation Day, the override narrows the gap only slightly (-8.28pp → -7.77pp) because rev_7 also lacks the country-specific rates — the 10% universal baseline was all that was ever encoded in the HTS.
 
 **Key gap sources:** (1) China+232 reciprocal stacking (methodological difference, see below); (2) EU/Japan/Korea floor residual (partially explained by duty-free treatment setting, see below); (3) USMCA binary vs. utilization-adjusted.
 

@@ -50,6 +50,9 @@ POLICY_DATES <- if (!is.null(.pp_10) && !is.null(.pp_10$WEIGHTED_ETR_POLICY_DATE
   ) %>% mutate(date = as.Date(date))
 }
 
+# tpc_policy_revision overrides are enriched at runtime (after helpers.R is sourced)
+# via enrich_policy_dates_with_overrides() — called in compute_weighted_etrs()
+
 # Section 301 + Biden acceleration rates
 SECTION_301_RATES <- if (!is.null(.pp_10)) .pp_10$SECTION_301_RATES else tribble(
   ~ch99_pattern, ~s301_rate,
@@ -278,6 +281,25 @@ aggregate_tpc <- function(tpc_weighted, imports_gtap) {
 # Main Pipeline
 # =============================================================================
 
+enrich_policy_dates_with_overrides <- function(pd) {
+  # Add tpc_policy_revision from revision_dates.csv where available
+  rd <- tryCatch(load_revision_dates(), error = function(e) NULL)
+  if (!is.null(rd) && 'tpc_policy_revision' %in% names(rd)) {
+    overrides <- rd %>%
+      filter(!is.na(tpc_date), !is.na(tpc_policy_revision)) %>%
+      select(tpc_date, tpc_policy_revision)
+    if (nrow(overrides) > 0) {
+      pd <- pd %>% left_join(overrides, by = c('date' = 'tpc_date'))
+      message('  TPC policy-revision overrides: ',
+              sum(!is.na(pd$tpc_policy_revision)), ' date(s)')
+    }
+  }
+  if (!'tpc_policy_revision' %in% names(pd)) {
+    pd$tpc_policy_revision <- NA_character_
+  }
+  pd
+}
+
 compute_weighted_etrs <- function(data, policy_params = NULL) {
   message('\nLoading rate timeseries...')
 
@@ -308,37 +330,75 @@ compute_weighted_etrs <- function(data, policy_params = NULL) {
   message('  Flow-level rows: ', nrow(flows))
   message('  Total imports: $', round(total_imports / 1e9, 1), 'B')
 
+  # Enrich POLICY_DATES with tpc_policy_revision overrides (needs helpers.R loaded)
+  policy_dates <- enrich_policy_dates_with_overrides(POLICY_DATES)
+
   # Query rates from timeseries for each policy date
-  message('\nQuerying rates across ', nrow(POLICY_DATES), ' policy dates...')
+  message('\nQuerying rates across ', nrow(policy_dates), ' policy dates...')
 
-  results <- POLICY_DATES %>%
-    pmap_dfr(function(date, label) {
-      snapshot <- get_rates_at_date(ts, date, policy_params = policy_params)
+  .rate_snapshot <- function(date, label, tpc_policy_revision = NA_character_) {
+    snapshot <- get_rates_at_date(ts, date, policy_params = policy_params)
 
-      # Compute net authority contributions from snapshot rate columns
-      # Use total_rate (base + additional) for comparability with TPC benchmark
-      snapshot_net <- snapshot %>%
-        compute_net_authority_contributions(cty_china = CTY_CHINA) %>%
-        select(hts10, country, total_rate,
-               net_232, net_ieepa, net_fentanyl, net_301, net_s122, net_section_201, net_other)
+    # Compute net authority contributions from snapshot rate columns
+    # Use total_rate (base + additional) for comparability with TPC benchmark
+    snapshot_net <- snapshot %>%
+      compute_net_authority_contributions(cty_china = CTY_CHINA) %>%
+      select(hts10, country, total_rate,
+             net_232, net_ieepa, net_fentanyl, net_301, net_s122, net_section_201, net_other)
 
-      # Join snapshot rates with import flows
-      rated <- flows %>%
-        inner_join(
-          snapshot_net,
-          by = c('hs10' = 'hts10', 'cty_code' = 'country')
-        ) %>%
-        mutate(date = date, label = label)
+    # Join snapshot rates with import flows
+    rated <- flows %>%
+      inner_join(
+        snapshot_net,
+        by = c('hs10' = 'hts10', 'cty_code' = 'country')
+      ) %>%
+      mutate(date = date, label = label)
 
-      rated %>% select(hs10, cty_code, partner, imports, date, label,
-                        total_rate, net_232, net_ieepa, net_fentanyl, net_301,
-                        net_s122, net_section_201)
-    })
+    rated %>% select(hs10, cty_code, partner, imports, date, label,
+                      total_rate, net_232, net_ieepa, net_fentanyl, net_301,
+                      net_s122, net_section_201)
+  }
 
+  results <- policy_dates %>% pmap_dfr(.rate_snapshot)
   message('  Total rated flows: ', nrow(results))
+
+  # Compute policy-aligned results for TPC comparison where tpc_policy_revision overrides exist
+  # These use a specific revision's snapshot instead of date-based lookup
+  override_dates <- policy_dates %>% filter(!is.na(tpc_policy_revision))
+  policy_aligned <- NULL
+
+  if (nrow(override_dates) > 0) {
+    message('\nComputing policy-aligned ETRs for ', nrow(override_dates),
+            ' TPC date override(s)...')
+    policy_aligned <- override_dates %>%
+      pmap_dfr(function(date, label, tpc_policy_revision) {
+        # Load the specified revision's snapshot from timeseries
+        rev_snapshot <- ts %>% filter(revision == tpc_policy_revision)
+        if (nrow(rev_snapshot) == 0) {
+          warning('Override revision ', tpc_policy_revision, ' not found in timeseries; ',
+                  'falling back to date-based lookup for ', label)
+          rev_snapshot <- get_rates_at_date(ts, date, policy_params = policy_params)
+        }
+
+        snapshot_net <- rev_snapshot %>%
+          compute_net_authority_contributions(cty_china = CTY_CHINA) %>%
+          select(hts10, country, total_rate,
+                 net_232, net_ieepa, net_fentanyl, net_301, net_s122, net_section_201, net_other)
+
+        rated <- flows %>%
+          inner_join(snapshot_net, by = c('hs10' = 'hts10', 'cty_code' = 'country')) %>%
+          mutate(date = date, label = label)
+
+        rated %>% select(hs10, cty_code, partner, imports, date, label,
+                          total_rate, net_232, net_ieepa, net_fentanyl, net_301,
+                          net_s122, net_section_201)
+      })
+    message('  Policy-aligned flows: ', nrow(policy_aligned))
+  }
 
   return(list(
     results = results,
+    policy_aligned = policy_aligned,
     total_imports = total_imports,
     partner_totals = partner_totals
   ))
@@ -349,7 +409,8 @@ compute_weighted_etrs <- function(data, policy_params = NULL) {
 # Aggregation
 # =============================================================================
 
-aggregate_etrs <- function(results, imports_gtap, total_imports, partner_totals) {
+aggregate_etrs <- function(results, imports_gtap, total_imports, partner_totals,
+                           policy_aligned = NULL) {
 
   # --- Overall ETR by date ---
   # Denominator = total imports (all flows), not just matched
@@ -362,6 +423,16 @@ aggregate_etrs <- function(results, imports_gtap, total_imports, partner_totals)
       .groups = 'drop'
     ) %>%
     mutate(label = factor(label, levels = POLICY_DATES$label))
+
+  # Policy-aligned ETR for TPC comparison (uses override revision where specified)
+  if (!is.null(policy_aligned) && nrow(policy_aligned) > 0) {
+    aligned_overall <- policy_aligned %>%
+      group_by(date, label) %>%
+      summarise(etr_aligned = sum(total_rate * imports) / total_imports, .groups = 'drop')
+    overall <- overall %>%
+      left_join(aligned_overall, by = c('date', 'label'))
+    message('  Policy-aligned ETR overrides: ', sum(!is.na(overall$etr_aligned)))
+  }
 
   message('\n=== Overall Weighted ETR ===')
   overall %>%
@@ -706,7 +777,8 @@ run_weighted_etr <- function(ts = NULL, policy_params = NULL) {
   etr_data <- compute_weighted_etrs(data, policy_params = policy_params)
   etrs <- aggregate_etrs(
     etr_data$results, data$imports_gtap,
-    etr_data$total_imports, etr_data$partner_totals
+    etr_data$total_imports, etr_data$partner_totals,
+    policy_aligned = etr_data$policy_aligned
   )
 
   # Load TPC comparison (optional — skipped if TPC file missing)
@@ -726,10 +798,27 @@ run_weighted_etr <- function(ts = NULL, policy_params = NULL) {
 
       message('\n=== TPC Overall Weighted ETR ===')
       tpc_etrs$overall %>%
-        left_join(POLICY_DATES, by = 'date') %>%
+        left_join(POLICY_DATES %>% select(date, label), by = 'date') %>%
         mutate(etr_pct = round(etr_tpc * 100, 2)) %>%
         select(date, label, etr_pct) %>%
         print()
+
+      # Show policy-aligned comparison where overrides exist
+      if ('etr_aligned' %in% names(etrs$overall) && any(!is.na(etrs$overall$etr_aligned))) {
+        message('\n=== TPC Comparison (Policy-Aligned) ===')
+        etrs$overall %>%
+          left_join(tpc_etrs$overall, by = 'date') %>%
+          filter(!is.na(etr_tpc)) %>%
+          mutate(
+            tracker_pct = round(ifelse(!is.na(etr_aligned), etr_aligned, etr) * 100, 2),
+            tpc_pct = round(etr_tpc * 100, 2),
+            diff_pp = round(tracker_pct - tpc_pct, 2),
+            aligned = ifelse(!is.na(etr_aligned), '*', '')
+          ) %>%
+          select(date, label, tracker_pct, tpc_pct, diff_pp, aligned) %>%
+          print()
+        message('  * = policy-aligned (uses tpc_policy_revision override from revision_dates.csv)')
+      }
     }, error = function(e) {
       message('TPC comparison failed: ', conditionMessage(e))
     })
