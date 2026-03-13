@@ -380,6 +380,43 @@ load_policy_params <- function(yaml_path = here('config', 'policy_params.yaml'))
 #'
 #' @param yaml_path Path to local_paths.yaml
 #' @return Named list with import_weights, tpc_benchmark, tariff_etrs_repo
+get_country_constants <- function(pp = NULL) {
+  if (is.null(pp)) pp <- tryCatch(load_policy_params(), error = function(e) NULL)
+  list(
+    CTY_CHINA  = if (!is.null(pp)) pp$CTY_CHINA  else '5700',
+    CTY_CANADA = if (!is.null(pp)) pp$CTY_CANADA else '1220',
+    CTY_MEXICO = if (!is.null(pp)) pp$CTY_MEXICO else '2010',
+    CTY_JAPAN  = if (!is.null(pp)) pp$CTY_JAPAN  else '5880',
+    CTY_UK     = if (!is.null(pp)) pp$CTY_UK     else '4120',
+    CTY_HK     = if (!is.null(pp)) pp$CTY_HK     else '5820',
+    EU27_CODES = if (!is.null(pp)) pp$EU27_CODES else c(
+      '4330', '4231', '4870', '4791', '4910', '4351', '4099', '4470', '4050',
+      '4279', '4280', '4840', '4370', '4190', '4759', '4490', '4510', '4239',
+      '4730', '4210', '4550', '4710', '4850', '4359', '4792', '4700', '4010'
+    ),
+    EU27_NAMES = if (!is.null(pp)) pp$EU27_NAMES else c(
+      '4330' = 'Austria', '4231' = 'Belgium', '4870' = 'Bulgaria',
+      '4791' = 'Croatia', '4910' = 'Cyprus', '4351' = 'Czech Republic',
+      '4099' = 'Denmark', '4470' = 'Estonia', '4050' = 'Finland',
+      '4279' = 'France', '4280' = 'Germany', '4840' = 'Greece',
+      '4370' = 'Hungary', '4190' = 'Ireland', '4759' = 'Italy',
+      '4490' = 'Latvia', '4510' = 'Lithuania', '4239' = 'Luxembourg',
+      '4730' = 'Malta', '4210' = 'Netherlands', '4550' = 'Poland',
+      '4710' = 'Portugal', '4850' = 'Romania', '4359' = 'Slovakia',
+      '4792' = 'Slovenia', '4700' = 'Spain', '4010' = 'Sweden'
+    ),
+    ISO_TO_CENSUS = if (!is.null(pp)) pp$ISO_TO_CENSUS else c(
+      'CN' = '5700', 'CA' = '1220', 'MX' = '2010',
+      'JP' = '5880', 'UK' = '4120', 'GB' = '4120',
+      'AU' = '6021', 'KR' = '5800', 'RU' = '4621',
+      'AR' = '3570', 'BR' = '3510', 'UA' = '4623'
+    ),
+    STEEL_CHAPTERS = if (!is.null(pp)) pp$section_232_chapters$steel else c('72', '73'),
+    ALUM_CHAPTERS  = if (!is.null(pp)) pp$section_232_chapters$aluminum else c('76')
+  )
+}
+
+
 load_local_paths <- function(yaml_path = here('config', 'local_paths.yaml')) {
   defaults <- list(
     import_weights = NULL,

@@ -19,31 +19,11 @@ library(jsonlite)
 # Constants (loaded from YAML)
 # =============================================================================
 
-# EU-27 member state Census codes — loaded from config/policy_params.yaml
-.pp_05 <- tryCatch(load_policy_params(), error = function(e) NULL)
-EU27_CODES <- if (!is.null(.pp_05)) .pp_05$EU27_CODES else c(
-  '4330', '4231', '4870', '4791', '4910', '4351', '4099', '4470', '4050',
-  '4279', '4280', '4840', '4370', '4190', '4759', '4490', '4510', '4239',
-  '4730', '4210', '4550', '4710', '4850', '4359', '4792', '4700', '4010'
-)
-ISO_TO_CENSUS <- if (!is.null(.pp_05)) .pp_05$ISO_TO_CENSUS else c(
-  'CN' = '5700', 'CA' = '1220', 'MX' = '2010',
-  'JP' = '5880', 'UK' = '4120', 'GB' = '4120',
-  'AU' = '6021', 'KR' = '5800', 'RU' = '4621',
-  'AR' = '3570', 'BR' = '3510', 'UA' = '4623'
-)
-
-EU27_NAMES <- if (!is.null(.pp_05)) .pp_05$EU27_NAMES else c(
-  '4330' = 'Austria', '4231' = 'Belgium', '4870' = 'Bulgaria',
-  '4791' = 'Croatia', '4910' = 'Cyprus', '4351' = 'Czech Republic',
-  '4099' = 'Denmark', '4470' = 'Estonia', '4050' = 'Finland',
-  '4279' = 'France', '4280' = 'Germany', '4840' = 'Greece',
-  '4370' = 'Hungary', '4190' = 'Ireland', '4759' = 'Italy',
-  '4490' = 'Latvia', '4510' = 'Lithuania', '4239' = 'Luxembourg',
-  '4730' = 'Malta', '4210' = 'Netherlands', '4550' = 'Poland',
-  '4710' = 'Portugal', '4850' = 'Romania', '4359' = 'Slovakia',
-  '4792' = 'Slovenia', '4700' = 'Spain', '4010' = 'Sweden'
-)
+# Country code constants — centralized in helpers.R, loaded from YAML with fallback
+.cc <- get_country_constants()
+EU27_CODES   <- .cc$EU27_CODES
+EU27_NAMES   <- .cc$EU27_NAMES
+ISO_TO_CENSUS <- .cc$ISO_TO_CENSUS
 
 # =============================================================================
 # Country Name Matching

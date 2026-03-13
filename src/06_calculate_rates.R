@@ -38,32 +38,17 @@ library(tidyverse)
 # NOTE: classify_authority(), apply_stacking_rules(), enforce_rate_schema(),
 # and RATE_SCHEMA are defined in helpers.R.
 
-# Load policy parameters from YAML (country codes, ISO mapping)
-.pp <- tryCatch(
-  load_policy_params(),
-  error = function(e) {
-    # Graceful fallback when sourced before helpers.R sets working dir
-    NULL
-  }
-)
-
-# Country code constants — loaded from YAML, with fallback for standalone use
-CTY_CHINA  <- if (!is.null(.pp)) .pp$CTY_CHINA  else '5700'
-CTY_CANADA <- if (!is.null(.pp)) .pp$CTY_CANADA else '1220'
-CTY_MEXICO <- if (!is.null(.pp)) .pp$CTY_MEXICO else '2010'
-CTY_JAPAN  <- if (!is.null(.pp)) .pp$CTY_JAPAN  else '5880'
-CTY_UK     <- if (!is.null(.pp)) .pp$CTY_UK     else '4120'
-CTY_HK     <- if (!is.null(.pp)) .pp$CTY_HK     else '5820'
-
-STEEL_CHAPTERS <- if (!is.null(.pp)) .pp$section_232_chapters$steel else c('72', '73')
-ALUM_CHAPTERS  <- if (!is.null(.pp)) .pp$section_232_chapters$aluminum else c('76')
-
-ISO_TO_CENSUS <- if (!is.null(.pp)) .pp$ISO_TO_CENSUS else c(
-  'CN' = '5700', 'CA' = '1220', 'MX' = '2010',
-  'JP' = '5880', 'UK' = '4120', 'GB' = '4120',
-  'AU' = '6021', 'KR' = '5800', 'RU' = '4621',
-  'AR' = '3570', 'BR' = '3510', 'UA' = '4623'
-)
+# Country code constants — centralized in helpers.R, loaded from YAML with fallback
+.cc <- get_country_constants()
+CTY_CHINA  <- .cc$CTY_CHINA
+CTY_CANADA <- .cc$CTY_CANADA
+CTY_MEXICO <- .cc$CTY_MEXICO
+CTY_JAPAN  <- .cc$CTY_JAPAN
+CTY_UK     <- .cc$CTY_UK
+CTY_HK     <- .cc$CTY_HK
+STEEL_CHAPTERS <- .cc$STEEL_CHAPTERS
+ALUM_CHAPTERS  <- .cc$ALUM_CHAPTERS
+ISO_TO_CENSUS  <- .cc$ISO_TO_CENSUS
 
 
 # =============================================================================

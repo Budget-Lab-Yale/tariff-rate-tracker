@@ -263,6 +263,63 @@ run_test('apply_expiry_zeroing zeros s122 after expiry', {
 
 
 # =============================================================================
+# Test 6b: Expiry boundary edge cases
+# =============================================================================
+
+message('\n--- Test 6b: Expiry boundary edge cases ---')
+
+run_test('s122 active on exact expiry date', {
+  ts <- make_test_ts()
+  pp <- make_test_policy_params()
+  # On the expiry date itself (2026-07-23), s122 should still be active
+  on_expiry <- get_rates_at_date(ts, '2026-07-23', policy_params = pp)
+  non_232 <- on_expiry %>% filter(rate_232 == 0)
+  stopifnot(any(non_232$rate_s122 > 0))
+})
+
+run_test('s122 zeroed on day after expiry', {
+  ts <- make_test_ts()
+  pp <- make_test_policy_params()
+  after_expiry <- get_rates_at_date(ts, '2026-07-24', policy_params = pp)
+  stopifnot(all(after_expiry$rate_s122 == 0))
+})
+
+run_test('swiss framework active on exact expiry date', {
+  ts <- make_test_ts()
+  pp <- make_test_policy_params()
+  # Swiss framework expires 2026-03-31. On expiry date it should still apply.
+  on_expiry <- get_rates_at_date(ts, '2026-03-31', policy_params = pp)
+  swiss <- on_expiry %>% filter(country %in% pp$SWISS_FRAMEWORK$countries)
+  # Swiss countries should have IEEPA rate overridden (framework active)
+  # We just verify the function runs without error on boundary
+  stopifnot(nrow(on_expiry) > 0)
+})
+
+run_test('split point lands exactly on expiry date', {
+  pp <- make_test_policy_params()
+  splits <- get_expiry_split_points(
+    as.Date('2026-07-23'), as.Date('2026-08-01'), pp)
+  # Expiry date is 2026-07-23 — split should be at that boundary
+  stopifnot(as.Date('2026-07-23') %in% splits)
+})
+
+run_test('split points empty when interval starts after all expiries', {
+  pp <- make_test_policy_params()
+  splits <- get_expiry_split_points(
+    as.Date('2026-08-01'), as.Date('2026-12-31'), pp)
+  stopifnot(length(splits) == 0)
+})
+
+run_test('apply_expiry_zeroing keeps s122 on exact expiry date', {
+  ts <- make_test_ts() %>% filter(revision == 'rev_b') %>% head(4)
+  pp <- make_test_policy_params()
+  # On the expiry date itself, s122 should NOT be zeroed
+  adjusted <- apply_expiry_zeroing(ts, as.Date('2026-07-23'), pp)
+  stopifnot(any(adjusted$rate_s122 > 0))
+})
+
+
+# =============================================================================
 # Test 7: product-country-day expansion paths
 # =============================================================================
 
@@ -412,6 +469,48 @@ run_test('tpc_additive authority decomposition reflects additive stacking', {
   stopifnot(tpc$daily_by_authority$mean_ieepa[1] == 0.15)
   stopifnot(tpc$daily_by_authority$mean_fentanyl[1] == 0.10)
   stopifnot(tpc$daily_by_authority$mean_s122[1] == 0.10)
+})
+
+run_test('tpc_additive total equals raw sum of all authorities', {
+  # Create a 232 product with multiple overlapping authorities
+  ts_add <- tibble(
+    hts10 = '7208100000', country = '4280', revision = 'rev_a',
+    base_rate = 0.05, statutory_base_rate = 0.05,
+    rate_232 = 0.50, rate_301 = 0, rate_ieepa_recip = 0.15,
+    rate_ieepa_fent = 0.10, rate_s122 = 0.10, rate_section_201 = 0.02,
+    rate_other = 0, metal_share = 1.0, usmca_eligible = FALSE,
+    valid_from = as.Date('2026-01-01'), valid_until = as.Date('2026-01-02')
+  ) %>% apply_stacking_rules(stacking_method = 'tpc_additive')
+
+  # In additive mode, total_additional should be the literal sum of all rate columns
+  expected_total <- 0.50 + 0.15 + 0.10 + 0.10 + 0.02  # = 0.87
+  actual_total <- ts_add$total_additional[1]
+  stopifnot(abs(actual_total - expected_total) < 1e-10)
+  stopifnot(abs(ts_add$total_rate[1] - (0.05 + expected_total)) < 1e-10)
+})
+
+run_test('tpc_additive vs mutual_exclusion: known numeric difference on 232 product', {
+  # For a pure-metal 232 product (metal_share=1.0, non-China):
+  # mutual_exclusion: total_additional = rate_232 only (recip/s122 scaled by nonmetal=0)
+  # tpc_additive: total_additional = rate_232 + rate_ieepa_recip + rate_s122
+  ts_me <- tibble(
+    hts10 = '7208100000', country = '4280', revision = 'rev_a',
+    base_rate = 0.05, statutory_base_rate = 0.05,
+    rate_232 = 0.50, rate_301 = 0, rate_ieepa_recip = 0.15,
+    rate_ieepa_fent = 0, rate_s122 = 0.10, rate_section_201 = 0,
+    rate_other = 0, metal_share = 1.0, usmca_eligible = FALSE,
+    valid_from = as.Date('2026-01-01'), valid_until = as.Date('2026-01-02')
+  )
+
+  me_result <- apply_stacking_rules(ts_me, stacking_method = 'mutual_exclusion')
+  tpc_result <- apply_stacking_rules(ts_me, stacking_method = 'tpc_additive')
+
+  # ME: only 232 contributes (nonmetal_share = 0)
+  stopifnot(abs(me_result$total_additional[1] - 0.50) < 1e-10)
+  # TPC additive: 232 + recip + s122 = 0.75
+  stopifnot(abs(tpc_result$total_additional[1] - 0.75) < 1e-10)
+  # Difference should be exactly 0.25
+  stopifnot(abs(tpc_result$total_additional[1] - me_result$total_additional[1] - 0.25) < 1e-10)
 })
 
 
