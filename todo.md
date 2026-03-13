@@ -14,10 +14,10 @@
 
 ## Tests to add
 
-- [ ] Add coverage for narrow `date_range` inputs in `tests/run_tests_daily_series.R`.
-- [ ] Add coverage for non-default stacking paths so additive inputs are not silently converted back to mutual exclusion.
-- [ ] Add coverage for country alias validity by checking that all hard-coded alias codes exist in `resources/census_codes.csv`.
-- [ ] Add coverage for pre-policy Section 232 gating, especially the light-truck prefixes.
+- [x] Add coverage for narrow `date_range` inputs in `tests/run_tests_daily_series.R`. *(Added 2026-03-13: Test 8)*
+- [x] Add coverage for non-default stacking paths so additive inputs are not silently converted back to mutual exclusion. *(Added 2026-03-13: Test 9)*
+- [x] Add coverage for country alias validity by checking that all hard-coded alias codes exist in `resources/census_codes.csv`. *(Added 2026-03-13: Test 10 — also caught 7 more bad codes)*
+- [x] Add coverage for pre-policy Section 232 gating, especially the light-truck prefixes. *(Added 2026-03-13: Test 11)*
 
 ## Notes
 

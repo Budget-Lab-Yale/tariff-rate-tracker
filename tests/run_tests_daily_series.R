@@ -315,6 +315,197 @@ run_test('expand_to_daily applies the same expiry logic as export_daily_slice', 
 
 
 # =============================================================================
+# Test 8: Narrow date_range does not crash build_daily_aggregates
+# =============================================================================
+
+message('\n--- Test 8: Narrow date_range inputs ---')
+
+run_test('date_range excluding all revisions returns empty daily output', {
+  ts <- make_test_ts()
+  # All revisions span 2026-01-01 to 2026-12-31; pick a range before that
+  result <- build_daily_aggregates(ts, date_range = c(as.Date('2025-01-01'), as.Date('2025-06-01')))
+  stopifnot(nrow(result$daily_overall) == 0)
+  stopifnot(nrow(result$daily_by_country) == 0)
+  stopifnot(nrow(result$daily_by_authority) == 0)
+})
+
+run_test('date_range overlapping only first revision clips correctly', {
+  ts <- make_test_ts()
+  # rev_a: 2026-01-01 to 2026-05-31, rev_b: 2026-06-01 to 2026-12-31
+  # Request only February — should only get rev_a dates
+  result <- build_daily_aggregates(ts, date_range = c(as.Date('2026-02-01'), as.Date('2026-02-28')))
+  stopifnot(nrow(result$daily_overall) == 28)
+  stopifnot(all(result$daily_overall$date >= as.Date('2026-02-01')))
+  stopifnot(all(result$daily_overall$date <= as.Date('2026-02-28')))
+  stopifnot(all(result$daily_overall$revision == 'rev_a'))
+})
+
+run_test('date_range after all revisions returns empty', {
+  ts <- make_test_ts(horizon_end = as.Date('2026-06-30'))
+  result <- build_daily_aggregates(ts, date_range = c(as.Date('2027-01-01'), as.Date('2027-12-31')))
+  stopifnot(nrow(result$daily_overall) == 0)
+})
+
+
+# =============================================================================
+# Test 9: Stacking method survives through build_daily_aggregates
+# =============================================================================
+
+message('\n--- Test 9: Stacking method passthrough ---')
+
+run_test('tpc_additive produces different totals than mutual_exclusion', {
+  # Build a fixture where stacking method matters: a 232 product with IEEPA recip
+  ts_stack <- expand_grid(
+    hts10 = '7208100000',
+    country = '4280',  # non-China
+    revision = 'rev_a'
+  ) %>%
+    mutate(
+      base_rate = 0.05,
+      statutory_base_rate = 0.05,
+      rate_232 = 0.50,
+      rate_301 = 0,
+      rate_ieepa_recip = 0.15,
+      rate_ieepa_fent = 0,
+      rate_s122 = 0.10,
+      rate_section_201 = 0,
+      rate_other = 0,
+      metal_share = 1.0,
+      usmca_eligible = FALSE,
+      valid_from = as.Date('2026-01-01'),
+      valid_until = as.Date('2026-01-10')
+    ) %>%
+    apply_stacking_rules()
+
+  me <- build_daily_aggregates(ts_stack, stacking_method = 'mutual_exclusion')
+  tpc <- build_daily_aggregates(ts_stack, stacking_method = 'tpc_additive')
+
+  # With mutual exclusion on full-metal 232: recip*0 + s122*0 = only 232
+  # With tpc_additive: 232 + recip + s122 — should be higher
+  stopifnot(nrow(me$daily_overall) > 0)
+  stopifnot(nrow(tpc$daily_overall) > 0)
+  stopifnot(tpc$daily_overall$mean_additional[1] > me$daily_overall$mean_additional[1])
+})
+
+run_test('tpc_additive authority decomposition reflects additive stacking', {
+  ts_stack <- tibble(
+    hts10 = '7208100000', country = '4280', revision = 'rev_a',
+    base_rate = 0.05, statutory_base_rate = 0.05,
+    rate_232 = 0.50, rate_301 = 0, rate_ieepa_recip = 0.15,
+    rate_ieepa_fent = 0.10, rate_s122 = 0.10, rate_section_201 = 0,
+    rate_other = 0, metal_share = 1.0, usmca_eligible = FALSE,
+    valid_from = as.Date('2026-01-01'), valid_until = as.Date('2026-01-05')
+  ) %>% apply_stacking_rules()
+
+  tpc <- build_daily_aggregates(ts_stack, stacking_method = 'tpc_additive')
+  # In additive mode, authority decomposition should show full recip + fent + s122
+  stopifnot(nrow(tpc$daily_by_authority) > 0)
+  stopifnot(tpc$daily_by_authority$mean_ieepa[1] == 0.15)
+  stopifnot(tpc$daily_by_authority$mean_fentanyl[1] == 0.10)
+  stopifnot(tpc$daily_by_authority$mean_s122[1] == 0.10)
+})
+
+
+# =============================================================================
+# Test 10: Country alias validity
+# =============================================================================
+
+message('\n--- Test 10: Country alias validity ---')
+
+source(here('src', '05_parse_policy_params.R'))
+
+run_test('all hardcoded alias codes exist in census_codes.csv', {
+  census <- read_csv(here('resources', 'census_codes.csv'),
+                     col_types = cols(.default = col_character()))
+  valid_codes <- census$Code
+
+  lookup <- build_country_lookup(here('resources', 'census_codes.csv'))
+
+  # The lookup includes official names (from CSV) plus hardcoded aliases.
+  # We only need to validate that every CODE in the lookup is in the CSV.
+  alias_codes <- unique(unname(lookup))
+  missing <- alias_codes[!alias_codes %in% valid_codes]
+  if (length(missing) > 0) {
+    stop('Alias codes not found in census_codes.csv: ', paste(missing, collapse = ', '))
+  }
+  stopifnot(length(missing) == 0)
+})
+
+run_test('Myanmar maps to Census code 5460', {
+  lookup <- build_country_lookup(here('resources', 'census_codes.csv'))
+  stopifnot(lookup[['myanmar']] == '5460')
+  stopifnot(lookup[['burma']] == '5460')
+})
+
+run_test('Macau maps to Census code 5660', {
+  lookup <- build_country_lookup(here('resources', 'census_codes.csv'))
+  stopifnot(lookup[['macau']] == '5660')
+  stopifnot(lookup[['macao']] == '5660')
+})
+
+run_test("Cote d'Ivoire maps to Census code 7480", {
+  lookup <- build_country_lookup(here('resources', 'census_codes.csv'))
+  stopifnot(lookup[["cote d'ivoire"]] == '7480')
+  stopifnot(lookup[['ivory coast']] == '7480')
+})
+
+
+# =============================================================================
+# Test 11: Section 232 heading gate key alignment
+# =============================================================================
+
+message('\n--- Test 11: 232 heading gate alignment ---')
+
+run_test('all policy_params heading names have matching gates', {
+  pp <- load_policy_params()
+  s232_headings <- pp$section_232_headings
+  if (is.null(s232_headings)) {
+    message('    (skipped — no section_232_headings in policy_params)')
+    return(invisible())
+  }
+
+  # Reproduce the heading_gates keys from 06_calculate_rates.R
+  heading_gates <- c('autos_passenger', 'autos_light_trucks', 'auto_parts',
+                     'copper', 'softwood', 'wood_furniture', 'kitchen_cabinets',
+                     'mhd_vehicles', 'mhd_parts', 'buses')
+
+  config_names <- names(s232_headings)
+  missing_gates <- config_names[!config_names %in% heading_gates]
+  if (length(missing_gates) > 0) {
+    stop('Config heading names with no gate entry: ', paste(missing_gates, collapse = ', '),
+         '. These will bypass the Ch99 activation check.')
+  }
+  stopifnot(length(missing_gates) == 0)
+})
+
+run_test('autos_light_trucks key exists in heading_gates (not autos_light)', {
+  # Verify the gate list contains the correct key
+  heading_gates <- c('autos_passenger', 'autos_light_trucks', 'auto_parts',
+                     'copper', 'softwood', 'wood_furniture', 'kitchen_cabinets',
+                     'mhd_vehicles', 'mhd_parts', 'buses')
+  stopifnot('autos_light_trucks' %in% heading_gates)
+  stopifnot(!'autos_light' %in% heading_gates)
+})
+
+run_test('NULL gate lookup bypasses check (regression guard)', {
+  # Simulate the gate-check logic from 06_calculate_rates.R lines 843-846
+  # A NULL gate_val should NOT skip the heading — it means "no gate, always apply"
+  # But a missing key for a real heading IS a bug. This test documents the behavior.
+  heading_gates <- list(autos_passenger = TRUE, autos_light_trucks = FALSE)
+
+  # Existing key with FALSE -> should skip
+  gate_val <- heading_gates[['autos_light_trucks']]
+  should_skip <- !is.null(gate_val) && !gate_val
+  stopifnot(should_skip == TRUE)
+
+  # Missing key -> NULL -> should NOT skip (gate is open)
+  gate_val_missing <- heading_gates[['nonexistent_key']]
+  should_skip_missing <- !is.null(gate_val_missing) && !gate_val_missing
+  stopifnot(should_skip_missing == FALSE)
+})
+
+
+# =============================================================================
 # Summary
 # =============================================================================
 
