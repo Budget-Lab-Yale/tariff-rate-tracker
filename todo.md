@@ -1,14 +1,39 @@
 # Tracker Logic TODO
 
-## 1. ~~Empty revisions can collapse to zero rows~~ (DONE 2026-03-13)
+## 1. Empty revisions can collapse to zero rows
 
-Fixed: removed the early return on `nrow(rates) == 0` in `calculate_rates_for_revision()`. Empty footnote results now initialize as a schema-conforming tibble via `enforce_rate_schema(tibble())`, allowing all blanket-authority steps (IEEPA, 232, 301, S122) to seed rows independently. All blanket steps use `expand_grid` or `add_blanket_pairs()` patterns that create rows from the full product/country lists, not from existing `rates` — so they work correctly on an empty seed.
+### Issue
+
+In [src/06_calculate_rates.R](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/06_calculate_rates.R), `calculate_rates_for_revision()` returns immediately when the initial footnote-based pass is empty. That happens before the blanket-authority logic for IEEPA, Section 232, Section 301, Section 122, and post-IEEPA grid expansion runs.
+
+### Why it matters
+
+A footnote parse miss, or a revision that relies mainly on blanket authorities, can produce a fully empty revision even though the repo has enough information to build most of the rates.
+
+### Proposed solution
+
+- Remove the early return on `nrow(rates) == 0`.
+- Initialize `rates` as an empty schema-conforming tibble instead.
+- Let the blanket-authority steps populate rows even when the footnote seed is empty.
+- At the end of the function, decide explicitly whether a truly empty revision means:
+  - no tariffed pairs, or
+  - a zero-duty base grid should be emitted.
+
+### Files to update
+
+- [src/06_calculate_rates.R](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/06_calculate_rates.R)
+- possibly [src/helpers.R](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/helpers.R) for a small helper like `empty_rates_schema()`
+
+### Tests to add
+
+- A revision fixture with no footnote-linked pairs but active blanket Section 122 or IEEPA
+- A revision fixture with no active authorities at all
 
 ---
 
 ## 2. Country-specific auto deals can become a global auto tariff
 
-**Priority: Low (mitigated by config default_rate)**
+**Priority: Medium-Low (latent logic risk; partially masked in current revisions)**
 
 ### Issue
 
@@ -16,20 +41,29 @@ In [src/05_parse_policy_params.R](/C:/Users/ji252/Documents/GitHub/tariff-rate-t
 
 ### Investigation findings (2026-03-13)
 
-The fallback triggers in **every revision** (rev_6 through rev_32) because the blanket entry `9903.94.01` has no parseable rate in the `general` field from the raw Ch99 parser. The rate is filled in later by downstream processing into `chapter99_rates.rds`.
+The fallback appears to trigger broadly because the blanket auto entry `9903.94.01` does not provide a parseable numeric rate through the raw Chapter 99 parser path used by the live build.
 
-However, the bug has **no practical impact** on current outputs because:
-1. `config/policy_params.yaml` defines `default_rate: 0.25` for `autos_passenger` and `autos_light_trucks`.
-2. In `06_calculate_rates.R` (line 894), the rate assignment uses `cfg$default_rate %||% s232_rates$auto_rate` — the config default takes precedence over the parsed `auto_rate`.
-3. The heading gate (`auto_rate > 0`) still activates correctly because the fallback max is >0 whenever country-specific deal entries exist.
+Important clarification:
+1. The production build parses Chapter 99 directly inside [src/00_build_timeseries.R](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/00_build_timeseries.R); it does **not** depend on `data/processed/chapter99_rates.rds` as a rescue path.
+2. `config/policy_params.yaml` defines `default_rate: 0.25` for `autos_passenger` and `autos_light_trucks`.
+3. In [src/06_calculate_rates.R](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/06_calculate_rates.R), the rate assignment uses `cfg$default_rate %||% s232_rates$auto_rate`, so the config default takes precedence over the parsed fallback.
 
-The risk is limited to a hypothetical future scenario where the config `default_rate` is removed and the blanket Ch99 entry still fails to parse. Given the current config-first architecture, this is defensive cleanup rather than a bug fix.
+That means the current repo is somewhat protected from the bad parsed `auto_rate`, but **not fully**:
+- the same heading config still applies a blanket 25% default once the auto gate is active,
+- and the gate itself is currently driven by `s232_rates$auto_rate > 0`.
 
-### Proposed solution (unchanged, but lower priority)
+So if a future revision contains only country-specific auto deal rows and no true blanket auto row, the repo could still over-apply a global 25% auto tariff even with the config defaults left in place.
+
+Conclusion:
+- this is likely not driving a large error in the current tracked revisions,
+- but it remains a real logic defect, not just harmless cleanup.
+
+### Proposed solution
 
 - Split auto logic into `auto_blanket_rate` (from true blanket entry, default 0) and `auto_deal_rates` (country-specific overrides).
 - Update heading gate to check for deal rows OR blanket rate.
-- No immediate impact expected due to config `default_rate` override.
+- Treat the config default as a reporting/config convenience, not as evidence of blanket legal coverage.
+- Keep this below the highest-priority bugs, but do not mark it resolved.
 
 ### Files to update
 
@@ -45,36 +79,24 @@ The risk is limited to a hypothetical future scenario where the config `default_
 
 ## 3. ~~Country applicability is fail-open~~ (DONE 2026-03-13)
 
-Fixed: `check_country_applies()` now returns `FALSE` for `'unknown'` and `NA` country_type values. The parser already returned `'unknown'` as default (not `'all'`); the only change needed was in `06_calculate_rates.R`. Quality report now flags any `'unknown'` entries. Test 12 covers all country_type branches. Zero impact on current outputs (no `'unknown'` entries in parsed data). Note: the raw `parse_chapter99()` output shows 377-423 `'unknown'` entries per revision, but these are handled by specialized extractors in `05_parse_policy_params.R`, not by the generic `check_country_applies()` path.
+Status:
+- [src/03_parse_chapter99.R](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/03_parse_chapter99.R) now defaults unmatched country descriptions to `'unknown'`, not `'all'`.
+- [src/06_calculate_rates.R](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/06_calculate_rates.R) now makes `check_country_applies()` return `FALSE` for `'unknown'` and `NA` country_type values.
+- [src/quality_report.R](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/quality_report.R) now flags unknown-country rows.
+- Test 12 in [tests/run_tests_daily_series.R](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/tests/run_tests_daily_series.R) covers all `country_type` branches.
+
+Clarification:
+- The fail-open bug itself is fixed.
+- If standalone parser diagnostics or alternative artifacts still show `'unknown'` country rows, that should now be interpreted as parser debt to monitor, not as a silent over-application bug.
+- Any statement about "zero impact on current outputs" should be tied to the current tested build data specifically, because it can otherwise conflict with raw parser diagnostics that still surface unknown rows.
 
 ---
 
-## 4. Section 301 scope is inconsistent across stacking and decomposition
+## 4. ~~Section 301 scope is inconsistent across stacking and decomposition~~ (DONE 2026-03-13)
 
-### Issue
+Fixed: removed `rate_301` from non-China branches in `apply_stacking_rules()` so stacking matches the decomposition (which already zeroed `net_301` outside China). Quality report now flags any non-China `rate_301 > 0`. Test 13 covers stacking exclusion, China inclusion, decomposition reconciliation, and a data integrity check.
 
-The live builder only applies blanket Section 301 to China in [src/06_calculate_rates.R](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/06_calculate_rates.R). But [src/helpers.R](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/helpers.R) still includes `rate_301` in non-China branches of `apply_stacking_rules()`, while `compute_net_authority_contributions()` zeroes `net_301` outside China.
-
-### Why it matters
-
-If any non-China `rate_301` ever enters the panel, total rates and authority decomposition will disagree.
-
-### Proposed solution
-
-- Make `apply_stacking_rules()` exclude `rate_301` from non-China branches.
-- Add a validation check that flags any non-China row with `rate_301 > 0`.
-- If the repo later models non-China Section 301 branches, represent them with a separate authority column instead of reusing the China 301 field.
-
-### Files to update
-
-- [src/helpers.R](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/helpers.R)
-- [src/quality_report.R](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/quality_report.R)
-- [docs/methodology.md](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/docs/methodology.md), if needed
-
-### Tests to add
-
-- A synthetic row with off-China `rate_301 > 0`
-- A reconciliation test ensuring `total_additional` and net authority contributions remain aligned
+**Future work:** If non-China Section 301 tariffs emerge (e.g., EU aircraft dispute revival, or new Section 301 investigations targeting other countries), they should use a dedicated authority column (e.g., `rate_301_other`) rather than reusing `rate_301`, which is hardcoded to China scope in both stacking and decomposition. This would require updates to `RATE_SCHEMA`, `apply_stacking_rules()`, `compute_net_authority_contributions()`, and the quality report.
 
 ---
 
@@ -82,7 +104,7 @@ If any non-China `rate_301` ever enters the panel, total rates and authority dec
 
 ### Issue
 
-The unweighted daily series in [src/09_daily_series.R](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/09_daily_series.R) averages over the rows present in the sparse tariff panel, not over a stable all-products × all-countries denominator.
+The unweighted daily series in [src/09_daily_series.R](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/09_daily_series.R) averages over the rows present in the sparse tariff panel, not over a stable all-products x all-countries denominator.
 
 ### Why it matters
 
@@ -116,7 +138,8 @@ The unweighted means move with panel coverage as well as policy. That makes them
 ## Suggested order
 
 1. ~~Fix fail-open country applicability.~~ (DONE)
-2. ~~Remove the empty-revision early return.~~ (DONE)
-3. Harmonize Section 301 scope across stacking and decomposition.
-4. Fix country-specific auto deals versus blanket auto rates. (low priority, mitigated by config)
+2. Remove the empty-revision early return.
+3. ~~Harmonize Section 301 scope across stacking and decomposition.~~ (DONE)
+4. Fix country-specific auto deals versus blanket auto rates. (medium-low priority, still a real logic defect)
 5. Redefine and document the unweighted daily mean denominator.
+6. If non-China 301 tariffs emerge, add a dedicated authority column (see item 4 notes).

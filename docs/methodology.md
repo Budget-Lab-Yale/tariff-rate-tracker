@@ -115,7 +115,8 @@ In words:
 - Section 232 takes precedence over IEEPA reciprocal on the metal-covered portion.
 - For derivative 232 products, IEEPA reciprocal and Section 122 apply only to the non-metal portion (scaled by `1 - metal_share`).
 - Fentanyl always stacks in full on 232 products (not scaled by metal share), matching the China treatment.
-- Section 301, Section 201, and other provisions contribute at their full rates.
+- Section 301 contributes only for China (the builder assigns `rate_301` exclusively to China-origin products). Non-China 301 is excluded from stacking to match the decomposition. If non-China Section 301 tariffs emerge in the future, they should use a dedicated authority column.
+- Section 201 and other provisions contribute at their full rates.
 
 An alternative `tpc_additive` mode exists for diagnostic comparison only.
 

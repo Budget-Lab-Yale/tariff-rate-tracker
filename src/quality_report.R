@@ -290,7 +290,30 @@ run_quality_report <- function(
     message('Ch99 data not found at ', ch99_path, ' — skipping check.')
   }
 
-  # 5. Summary metadata
+  # 5. Non-China Section 301 check
+  message('\n--- Section 301 Scope Check ---')
+  non_china_301 <- tibble()
+  if ('rate_301' %in% names(ts) && 'country' %in% names(ts)) {
+    cty_china <- '5700'
+    non_china_301 <- ts %>% filter(country != cty_china & rate_301 > 0)
+    if (nrow(non_china_301) > 0) {
+      message('WARNING: ', nrow(non_china_301),
+              ' non-China rows with rate_301 > 0 (stacking excludes 301 for non-China):')
+      summary_301 <- non_china_301 %>%
+        group_by(revision, country) %>%
+        summarise(n = n(), mean_rate = round(mean(rate_301) * 100, 1), .groups = 'drop')
+      for (r in seq_len(min(nrow(summary_301), 10))) {
+        message('  ', summary_301$revision[r], ' / ', summary_301$country[r],
+                ': ', summary_301$n[r], ' products, mean ', summary_301$mean_rate[r], '%')
+      }
+      write_csv(non_china_301 %>% select(revision, hts10, country, rate_301),
+                file.path(output_dir, 'non_china_301.csv'))
+    } else {
+      message('All rate_301 values are zero outside China.')
+    }
+  }
+
+  # 6. Summary metadata
   report <- list(
     run_time = Sys.time(),
     timeseries_path = timeseries_path,
@@ -299,10 +322,12 @@ run_quality_report <- function(
     n_missing_columns = sum(!schema$present),
     n_anomalies = nrow(anomalies),
     n_unknown_country = nrow(unknown_country_rows),
+    n_non_china_301 = nrow(non_china_301),
     schema_check = schema,
     revision_quality = rev_quality,
     anomalies = anomalies,
-    unknown_country = unknown_country_rows
+    unknown_country = unknown_country_rows,
+    non_china_301 = non_china_301
   )
   saveRDS(report, file.path(output_dir, 'quality_report.rds'))
 

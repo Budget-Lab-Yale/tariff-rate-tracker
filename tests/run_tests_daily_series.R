@@ -561,6 +561,73 @@ run_test('no unknown country_type in current ch99 data', {
 
 
 # =============================================================================
+# Test 13: Section 301 scope consistency
+# =============================================================================
+
+message('\n--- Test 13: Section 301 scope consistency ---')
+
+run_test('stacking excludes rate_301 for non-China countries', {
+  # Non-China row with rate_301 > 0 — stacking should NOT include it
+  ts_301 <- tibble(
+    hts10 = '8703230000', country = '4280',  # Germany, not China
+    base_rate = 0.05, statutory_base_rate = 0.05,
+    rate_232 = 0, rate_301 = 0.25, rate_ieepa_recip = 0.15,
+    rate_ieepa_fent = 0, rate_s122 = 0.10, rate_section_201 = 0,
+    rate_other = 0, metal_share = 0, usmca_eligible = FALSE,
+    total_additional = 0, total_rate = 0
+  )
+  stacked <- apply_stacking_rules(ts_301)
+  # 301 should be excluded: total = recip + s122 = 0.25, NOT 0.50
+  stopifnot(abs(stacked$total_additional - 0.25) < 1e-10)
+})
+
+run_test('stacking includes rate_301 for China', {
+  ts_301_cn <- tibble(
+    hts10 = '8703230000', country = '5700',  # China
+    base_rate = 0.05, statutory_base_rate = 0.05,
+    rate_232 = 0, rate_301 = 0.25, rate_ieepa_recip = 0.34,
+    rate_ieepa_fent = 0.10, rate_s122 = 0.10, rate_section_201 = 0,
+    rate_other = 0, metal_share = 0, usmca_eligible = FALSE,
+    total_additional = 0, total_rate = 0
+  )
+  stacked <- apply_stacking_rules(ts_301_cn)
+  # China: recip + fent + 301 + s122 = 0.34 + 0.10 + 0.25 + 0.10 = 0.79
+  stopifnot(abs(stacked$total_additional - 0.79) < 1e-10)
+})
+
+run_test('decomposition matches stacking for non-China with rate_301', {
+  ts_301 <- tibble(
+    hts10 = '8703230000', country = '4280',
+    base_rate = 0.05, statutory_base_rate = 0.05,
+    rate_232 = 0, rate_301 = 0.25, rate_ieepa_recip = 0.15,
+    rate_ieepa_fent = 0, rate_s122 = 0.10, rate_section_201 = 0,
+    rate_other = 0, metal_share = 0, usmca_eligible = FALSE,
+    total_additional = 0, total_rate = 0
+  ) %>% apply_stacking_rules()
+
+  net <- compute_net_authority_contributions(ts_301)
+  decomp_sum <- net$net_232 + net$net_ieepa + net$net_fentanyl +
+    net$net_301 + net$net_s122 + net$net_section_201 + net$net_other
+  residual <- abs(decomp_sum - net$total_additional)
+  stopifnot(max(residual) < 1e-10)
+})
+
+run_test('no non-China rate_301 in current timeseries', {
+  ts_path <- here('data', 'timeseries', 'rate_timeseries.rds')
+  if (!file.exists(ts_path)) {
+    message('    (skipped — timeseries not found)')
+    return(invisible())
+  }
+  ts <- readRDS(ts_path)
+  non_china <- ts %>% filter(country != '5700' & rate_301 > 0)
+  if (nrow(non_china) > 0) {
+    stop(nrow(non_china), ' non-China rows with rate_301 > 0 — needs investigation')
+  }
+  stopifnot(nrow(non_china) == 0)
+})
+
+
+# =============================================================================
 # Summary
 # =============================================================================
 

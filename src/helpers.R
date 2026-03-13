@@ -685,13 +685,15 @@ apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutu
         country == cty_china ~
           rate_ieepa_recip + rate_ieepa_fent + rate_301 + rate_s122 + rate_section_201 + rate_other,
 
-        # Others with 232: 232 + recip*nonmetal + fentanyl + s122*nonmetal + 301 + s201 + other
+        # Others with 232: 232 + recip*nonmetal + fentanyl + s122*nonmetal + s201 + other
+        # Note: rate_301 excluded for non-China (builder only assigns 301 to China;
+        # if non-China 301 is needed in the future, add a dedicated authority column)
         rate_232 > 0 ~
           rate_232 + rate_ieepa_recip * nonmetal_share + rate_ieepa_fent +
-          rate_s122 * nonmetal_share + rate_301 + rate_section_201 + rate_other,
+          rate_s122 * nonmetal_share + rate_section_201 + rate_other,
 
-        # Others without 232: reciprocal + fentanyl + s122 + 301 + s201 + other
-        TRUE ~ rate_ieepa_recip + rate_ieepa_fent + rate_s122 + rate_301 + rate_section_201 + rate_other
+        # Others without 232: reciprocal + fentanyl + s122 + s201 + other
+        TRUE ~ rate_ieepa_recip + rate_ieepa_fent + rate_s122 + rate_section_201 + rate_other
       ),
       total_rate = base_rate + total_additional
     ) %>%
