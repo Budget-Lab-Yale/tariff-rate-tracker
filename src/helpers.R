@@ -687,7 +687,7 @@ remap_imports_via_concordance <- function(imports, snapshot_codes, concordance) 
   # Split imports into remappable and not
   imports_remap <- imports %>%
     filter(hts10 %in% useful_mapping$old_hts10) %>%
-    inner_join(useful_mapping, by = c('hts10' = 'old_hts10')) %>%
+    inner_join(useful_mapping, by = c('hts10' = 'old_hts10'), relationship = 'many-to-many') %>%
     mutate(
       hts10 = new_hts10,
       value = value / n_successors,
