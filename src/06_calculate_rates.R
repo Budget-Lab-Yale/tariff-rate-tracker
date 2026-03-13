@@ -25,6 +25,7 @@
 #   6. Section 301 (blanket, China product list)
 #   6b. Section 122 (blanket, all countries, Annex II exempt)
 #   6c. MFN exemption shares (FTA/GSP preference adjustment to base_rate)
+#   6d. Floor recomputation (recompute IEEPA floor against post-MFN base_rate)
 #   7. USMCA exemptions (CA/MX eligible products)
 #   8. Stacking rules (mutual exclusion, nonmetal share)
 #   9. Schema enforcement + metadata
@@ -1447,6 +1448,27 @@ calculate_rates_for_revision <- function(
     n_adjusted <- sum(rates$base_rate < rates$statutory_base_rate)
     message('  MFN exemption shares: adjusted base_rate for ', n_adjusted,
             ' product-country pairs')
+
+    # 6d. Recompute IEEPA floor deduction against post-MFN base_rate.
+    # Floor countries (EU/JP/KR/CH/LI) have rate_ieepa_recip = max(0, floor - base).
+    # Step 2 computed this against statutory MFN; now base_rate is lower (after FTA/GSP
+    # preference), so the floor gap is wider. ETRs computes floor against effective MFN,
+    # so we recompute here to align: rate_ieepa_recip = max(0, floor - effective_base).
+    floor_countries <- .pp$FLOOR_COUNTRIES
+    floor_rate_val <- .pp$FLOOR_RATE
+    if (!is.null(floor_countries) && !is.null(floor_rate_val) &&
+        'rate_ieepa_recip' %in% names(rates)) {
+      floor_mask <- rates$country %in% floor_countries &
+                    rates$rate_ieepa_recip > 0 &
+                    rates$base_rate < rates$statutory_base_rate
+      if (any(floor_mask)) {
+        old_recip <- rates$rate_ieepa_recip[floor_mask]
+        rates$rate_ieepa_recip[floor_mask] <- pmax(0, floor_rate_val - rates$base_rate[floor_mask])
+        n_floor_adjusted <- sum(rates$rate_ieepa_recip[floor_mask] != old_recip)
+        message('  Floor recomputation: updated rate_ieepa_recip for ', n_floor_adjusted,
+                ' floor-country pairs (against post-MFN base_rate)')
+      }
+    }
   }
 
   # 7. Apply USMCA exemptions
