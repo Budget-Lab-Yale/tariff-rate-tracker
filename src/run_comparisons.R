@@ -96,14 +96,25 @@ run_tpc_validation <- function(
     rev_id <- tpc_revisions$revision[i]
     tpc_date <- tpc_revisions$tpc_date[i]
 
-    # Get snapshot for this revision
-    snapshot <- ts %>% filter(revision == rev_id)
+    # Use tpc_policy_revision if specified, otherwise fall back to revision
+    policy_rev <- if ('tpc_policy_revision' %in% names(tpc_revisions) &&
+                      !is.na(tpc_revisions$tpc_policy_revision[i]) &&
+                      nchar(tpc_revisions$tpc_policy_revision[i]) > 0) {
+      tpc_revisions$tpc_policy_revision[i]
+    } else {
+      rev_id
+    }
+
+    # Get snapshot for the policy revision
+    snapshot <- ts %>% filter(revision == policy_rev)
     if (nrow(snapshot) == 0) {
-      message('  Skipping ', rev_id, ' — not in timeseries')
+      message('  Skipping ', rev_id, ' (policy rev: ', policy_rev, ') — not in timeseries')
       next
     }
 
-    message('\n--- ', rev_id, ' (TPC date: ', tpc_date, ') ---')
+    message('\n--- ', rev_id, ' (TPC date: ', tpc_date,
+            if (policy_rev != rev_id) paste0(', policy rev: ', policy_rev),
+            ') ---')
 
     tryCatch({
       validation <- validate_revision_against_tpc(

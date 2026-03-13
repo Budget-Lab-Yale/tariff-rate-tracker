@@ -52,7 +52,8 @@ library(jsonlite)
 #' @param policy_params Optional policy params list (from load_policy_params())
 #' @return List with daily_overall, daily_by_country, daily_by_authority tibbles
 build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
-                                   policy_params = NULL) {
+                                   policy_params = NULL,
+                                   stacking_method = 'mutual_exclusion') {
 
   stopifnot(
     'valid_from' %in% names(ts),
@@ -102,7 +103,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     rev_data <- ts %>% filter(revision == !!revision)
     rev_data <- apply_expiry_zeroing(rev_data, sub_start, policy_params)
     if (any(c('rate_s122', 'rate_ieepa_recip') %in% names(rev_data))) {
-      rev_data <- apply_stacking_rules(rev_data)
+      rev_data <- apply_stacking_rules(rev_data, stacking_method = stacking_method)
     }
     row <- tibble(
       revision = revision,
@@ -117,7 +118,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
       wt_data <- ts_weighted %>% filter(revision == !!revision)
       wt_data <- apply_expiry_zeroing(wt_data, sub_start, policy_params)
       if (nrow(wt_data) > 0) {
-        wt_data <- apply_stacking_rules(wt_data)
+        wt_data <- apply_stacking_rules(wt_data, stacking_method = stacking_method)
         row$weighted_etr <- sum(wt_data$total_rate * wt_data$imports) / total_imports
         row$weighted_etr_additional <- sum(wt_data$total_additional * wt_data$imports) / total_imports
         row$matched_imports_b <- sum(wt_data$imports) / 1e9
@@ -135,7 +136,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   compute_agg_country <- function(revision, valid_from, valid_until, sub_start = valid_from) {
     rev_data <- ts %>% filter(revision == !!revision)
     rev_data <- apply_expiry_zeroing(rev_data, sub_start, policy_params)
-    rev_data <- apply_stacking_rules(rev_data)
+    rev_data <- apply_stacking_rules(rev_data, stacking_method = stacking_method)
     row <- rev_data %>%
       group_by(country) %>%
       summarise(
@@ -147,7 +148,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     if (has_weights) {
       wt_data <- ts_weighted %>% filter(revision == !!revision)
       wt_data <- apply_expiry_zeroing(wt_data, sub_start, policy_params)
-      wt_data <- apply_stacking_rules(wt_data)
+      wt_data <- apply_stacking_rules(wt_data, stacking_method = stacking_method)
       country_total_imp <- imports %>%
         group_by(cty_code) %>%
         summarise(country_total_imports = sum(imports), .groups = 'drop') %>%
@@ -175,7 +176,8 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     rev_data <- apply_expiry_zeroing(rev_data, sub_start, policy_params)
 
     # Use shared net authority decomposition from helpers.R
-    net_data <- compute_net_authority_contributions(rev_data, cty_china = CTY_CHINA)
+    net_data <- compute_net_authority_contributions(rev_data, cty_china = CTY_CHINA,
+                                                     stacking_method = stacking_method)
 
     row <- tibble(
       revision = revision,
@@ -193,7 +195,8 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
       wt_data <- ts_weighted %>% filter(revision == !!revision)
       wt_data <- apply_expiry_zeroing(wt_data, sub_start, policy_params)
       if (nrow(wt_data) > 0) {
-        wt_net <- compute_net_authority_contributions(wt_data, cty_china = CTY_CHINA)
+        wt_net <- compute_net_authority_contributions(wt_data, cty_china = CTY_CHINA,
+                                                      stacking_method = stacking_method)
         row$etr_232 <- sum(wt_net$net_232 * wt_net$imports) / total_imports
         row$etr_301 <- sum(wt_net$net_301 * wt_net$imports) / total_imports
         row$etr_ieepa <- sum(wt_net$net_ieepa * wt_net$imports) / total_imports
@@ -247,12 +250,10 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     agg_df %>%
       pmap_dfr(function(...) {
         row <- tibble(...)
-        dates <- seq(
-          max(row$valid_from, date_range[1]),
-          min(row$valid_until, date_range[2]),
-          by = 'day'
-        )
-        if (length(dates) == 0) return(tibble())
+        start <- max(row$valid_from, date_range[1])
+        end   <- min(row$valid_until, date_range[2])
+        if (start > end) return(tibble())
+        dates <- seq(start, end, by = 'day')
         tibble(date = dates) %>%
           bind_cols(row %>% select(-valid_from, -valid_until) %>% slice(rep(1, length(dates))))
       })
@@ -729,7 +730,8 @@ run_alternative_series <- function(ts, imports = NULL, policy_params = NULL,
     ts_tpc <- apply_stacking_rules(ts, stacking_method = 'tpc_additive')
     ts_tpc <- enforce_rate_schema(ts_tpc)
     daily <- build_daily_aggregates(ts_tpc, imports = imports,
-                                     policy_params = policy_params)
+                                     policy_params = policy_params,
+                                     stacking_method = 'tpc_additive')
     save_alternative_output(daily$daily_overall, 'tpc_stacking')
   }, error = function(e) {
     message('  FAILED (tpc_stacking): ', conditionMessage(e))
