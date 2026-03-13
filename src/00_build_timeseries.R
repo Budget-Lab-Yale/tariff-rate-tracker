@@ -12,6 +12,7 @@
 #   Rscript src/00_build_timeseries.R --start-from rev_25  # Explicit incremental
 #   Rscript src/00_build_timeseries.R --build-only  # Skip downstream (daily/ETR/quality)
 #   Rscript src/00_build_timeseries.R --core-only  # Build + downstream, but skip weighted outputs
+#   Rscript src/00_build_timeseries.R --with-alternatives  # Also run rebuild alternatives
 #
 # Storage layout:
 #   data/timeseries/
@@ -454,11 +455,12 @@ detect_incremental_start <- function(
 if (sys.nframe() == 0) {
   library(here)
 
-  # Parse CLI args: --full, --start-from REV, --build-only, --core-only
+  # Parse CLI args: --full, --start-from REV, --build-only, --core-only, --with-alternatives
   args <- commandArgs(trailingOnly = TRUE)
   full_rebuild <- '--full' %in% args
   build_only <- '--build-only' %in% args
   core_only <- '--core-only' %in% args
+  with_alternatives <- '--with-alternatives' %in% args
   start_from <- NULL
   for (i in seq_along(args)) {
     if (args[i] == '--start-from' && i < length(args)) start_from <- args[i + 1]
@@ -516,8 +518,10 @@ if (sys.nframe() == 0) {
       message('POST-BUILD: Daily series, ETR, quality report')
       message(strrep('=', 70))
 
+      imports <- load_import_weights()
+
       tryCatch(
-        run_daily_series(ts, policy_params = pp),
+        run_daily_series(ts, imports = imports, policy_params = pp),
         error = function(e) message('Daily series failed: ', conditionMessage(e))
       )
 
@@ -529,6 +533,15 @@ if (sys.nframe() == 0) {
       tryCatch(
         run_quality_report(result$timeseries_path),
         error = function(e) message('Quality report failed: ', conditionMessage(e))
+      )
+
+      # --- Step F: Alternative daily series ---
+      # Post-build alternatives always run; rebuild alternatives only with --with-alternatives
+      source(here('src', 'apply_scenarios.R'))
+      tryCatch(
+        run_alternative_series(ts, imports = imports, policy_params = pp,
+                                rebuild = with_alternatives),
+        error = function(e) message('Alternative series failed: ', conditionMessage(e))
       )
     }
   }

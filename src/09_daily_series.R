@@ -13,6 +13,8 @@
 #   build_daily_aggregates(ts, date_range, imports, policy_params) - daily ETRs
 #   expand_to_daily(ts, date_range, countries, products) - on-demand expansion
 #   run_daily_series(ts, imports, policy_params) - full pipeline wrapper
+#   run_alternative_series(ts, imports, pp, rebuild) - alternative daily series
+#   build_alternative_timeseries(pp_override, variant, imports) - rebuild variant
 #
 # Usage:
 #   # As library (source into other scripts):
@@ -27,6 +29,7 @@
 # =============================================================================
 
 library(tidyverse)
+library(jsonlite)
 
 
 # =============================================================================
@@ -493,6 +496,24 @@ save_daily_outputs <- function(daily, out_dir = here('output', 'daily')) {
   if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
 
   write_csv(daily$daily_overall, file.path(out_dir, 'daily_overall.csv'))
+
+  # Add country names to by-country output
+  census_codes_path <- here('resources', 'census_codes.csv')
+  if (file.exists(census_codes_path)) {
+    census_codes <- read_csv(census_codes_path, col_types = cols(.default = col_character())) %>%
+      rename(country = Code, country_name = Name)
+    partner_path <- here('resources', 'country_partner_mapping.csv')
+    if (file.exists(partner_path)) {
+      partners <- read_csv(partner_path, col_types = cols(.default = col_character())) %>%
+        select(cty_code, partner) %>%
+        rename(country = cty_code, country_abbr = partner)
+      census_codes <- census_codes %>% left_join(partners, by = 'country')
+    }
+    daily$daily_by_country <- daily$daily_by_country %>%
+      left_join(census_codes, by = 'country') %>%
+      relocate(country_name, .after = country) %>%
+      relocate(any_of('country_abbr'), .after = country_name)
+  }
   write_csv(daily$daily_by_country, file.path(out_dir, 'daily_by_country.csv'))
   write_csv(daily$daily_by_authority, file.path(out_dir, 'daily_by_authority.csv'))
   saveRDS(daily, file.path(out_dir, 'daily_aggregates.rds'))
@@ -519,6 +540,238 @@ run_daily_series <- function(ts, imports = NULL, policy_params = NULL) {
   daily <- build_daily_aggregates(ts, imports = imports, policy_params = policy_params)
   save_daily_outputs(daily)
   return(invisible(daily))
+}
+
+
+# =============================================================================
+# Alternative Daily Series
+# =============================================================================
+
+#' Save a single alternative daily output to output/alternative/
+#'
+#' @param daily_overall Daily overall tibble (from build_daily_aggregates)
+#' @param variant Character variant name (e.g., 'no_ieepa')
+#' @param out_dir Output directory
+save_alternative_output <- function(daily_overall, variant,
+                                     out_dir = here('output', 'alternative')) {
+  if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
+  daily_overall <- daily_overall %>% mutate(variant = variant)
+  fname <- paste0('daily_overall_', variant, '.csv')
+  write_csv(daily_overall, file.path(out_dir, fname))
+  message('  Saved: ', fname, ' (', nrow(daily_overall), ' rows)')
+}
+
+
+#' Build alternative timeseries with modified policy params (rebuild variant)
+#'
+#' Re-runs the full rate calculation loop (all revisions) with a modified
+#' policy_params list, then builds daily aggregates. This is slow — only
+#' called when --with-alternatives is passed.
+#'
+#' Temporarily overrides the module-level .pp in 06_calculate_rates.R's
+#' environment, then restores it.
+#'
+#' @param pp_override Modified policy_params list
+#' @param variant_name Character variant name
+#' @param imports Import weights tibble (or NULL)
+#' @param archive_dir HTS archive directory
+#' @param revision_dates_path Path to revision_dates.csv
+#' @param census_codes_path Path to census_codes.csv
+#' @return Daily overall tibble (invisibly)
+build_alternative_timeseries <- function(pp_override, variant_name, imports = NULL,
+                                          archive_dir = here('data', 'hts_archives'),
+                                          revision_dates_path = here('config', 'revision_dates.csv'),
+                                          census_codes_path = here('resources', 'census_codes.csv')) {
+
+  message('\n  Building alternative timeseries: ', variant_name)
+
+  # Ensure pipeline components are sourced (needed for standalone use)
+  if (!exists('calculate_rates_for_revision', mode = 'function')) {
+    source(here('src', '03_parse_chapter99.R'))
+    source(here('src', '04_parse_products.R'))
+    source(here('src', '05_parse_policy_params.R'))
+    source(here('src', '06_calculate_rates.R'))
+  }
+
+  # Save original .pp and swap in override
+  calc_env <- environment(calculate_rates_for_revision)
+  original_pp <- calc_env$.pp
+  calc_env$.pp <- pp_override
+  on.exit(calc_env$.pp <- original_pp, add = TRUE)
+
+  # Load revision dates and country codes
+  rev_dates <- load_revision_dates(revision_dates_path)
+  census_codes <- read_csv(census_codes_path, col_types = cols(.default = col_character()))
+  countries <- census_codes$Code
+  country_lookup <- build_country_lookup(census_codes_path)
+
+  all_revisions <- rev_dates$revision
+  available <- get_available_revisions_all_years(all_revisions, archive_dir)
+  revisions_to_process <- all_revisions[all_revisions %in% available]
+
+  # Process each revision
+  snapshots <- list()
+  for (rev_id in revisions_to_process) {
+    rev_info <- rev_dates %>% filter(revision == rev_id)
+    eff_date <- rev_info$effective_date
+
+    tryCatch({
+      json_path <- resolve_json_path(rev_id, archive_dir)
+      hts_raw <- fromJSON(json_path, simplifyDataFrame = FALSE)
+      ch99_data <- parse_chapter99(json_path)
+      products <- parse_products(json_path)
+      ieepa_rates <- extract_ieepa_rates(hts_raw, country_lookup)
+      fentanyl_rates <- extract_ieepa_fentanyl_rates(hts_raw, country_lookup)
+      s232_rates <- extract_section232_rates(ch99_data)
+      usmca <- extract_usmca_eligibility(hts_raw)
+
+      rates <- calculate_rates_for_revision(
+        products, ch99_data, ieepa_rates, usmca,
+        countries, rev_id, eff_date,
+        s232_rates = s232_rates,
+        fentanyl_rates = fentanyl_rates
+      )
+      snapshots[[rev_id]] <- rates
+    }, error = function(e) {
+      message('    SKIP ', rev_id, ': ', conditionMessage(e))
+    })
+  }
+
+  if (length(snapshots) == 0) {
+    warning('No snapshots built for variant: ', variant_name)
+    return(invisible(tibble()))
+  }
+
+  # Combine into timeseries with valid_from/valid_until
+  timeseries <- bind_rows(snapshots)
+  timeseries <- enforce_rate_schema(timeseries)
+  timeseries <- timeseries %>% arrange(effective_date, revision, country, hts10)
+
+  horizon_end <- pp_override$SERIES_HORIZON_END %||% Sys.Date()
+  last_eff <- max(rev_dates$effective_date[rev_dates$revision %in% unique(timeseries$revision)])
+  if (horizon_end < last_eff) horizon_end <- last_eff
+
+  rev_intervals <- rev_dates %>%
+    filter(revision %in% unique(timeseries$revision)) %>%
+    arrange(effective_date) %>%
+    mutate(
+      valid_from = effective_date,
+      valid_until = lead(effective_date) - 1
+    ) %>%
+    mutate(valid_until = if_else(is.na(valid_until), horizon_end, valid_until)) %>%
+    select(revision, valid_from, valid_until)
+
+  timeseries <- timeseries %>%
+    select(-any_of(c('valid_from', 'valid_until'))) %>%
+    left_join(rev_intervals, by = 'revision')
+
+  # Build daily aggregates
+  daily <- build_daily_aggregates(timeseries, imports = imports, policy_params = pp_override)
+  save_alternative_output(daily$daily_overall, variant_name)
+
+  message('  Done: ', variant_name)
+  return(invisible(daily$daily_overall))
+}
+
+
+#' Run all alternative daily series
+#'
+#' Post-build alternatives (fast): apply scenarios to existing timeseries,
+#' then build daily aggregates. Always runs.
+#'
+#' TPC stacking alternative: re-applies stacking with 'tpc_additive' method.
+#'
+#' Rebuild alternatives (slow): re-run full calculation with modified policy
+#' params. Only runs when rebuild = TRUE.
+#'
+#' @param ts Timeseries tibble with valid_from/valid_until
+#' @param imports Import weights tibble (or NULL)
+#' @param policy_params Policy params list
+#' @param rebuild Logical; if TRUE, also run rebuild alternatives
+#' @return Invisible NULL
+run_alternative_series <- function(ts, imports = NULL, policy_params = NULL,
+                                    rebuild = FALSE) {
+
+  message('\n', strrep('=', 70))
+  message('ALTERNATIVE DAILY SERIES')
+  message(strrep('=', 70))
+
+  if (is.null(imports)) imports <- load_import_weights()
+
+  # Ensure apply_scenario is available
+  if (!exists('apply_scenario', mode = 'function')) {
+    source(here('src', 'apply_scenarios.R'))
+  }
+  scenarios_path <- here('config', 'scenarios.yaml')
+
+  # --- Post-build alternatives (scenario-based) ---
+  # These zero out authorities on the existing timeseries and re-aggregate.
+  post_build_scenarios <- c('no_ieepa', 'no_ieepa_recip', 'no_301',
+                             'no_232', 'no_s122', 'pre_2025')
+
+  for (scenario_name in post_build_scenarios) {
+    tryCatch({
+      message('\n  Scenario: ', scenario_name)
+      ts_scenario <- apply_scenario(ts, scenario_name, scenarios_path)
+      daily <- build_daily_aggregates(ts_scenario, imports = imports,
+                                       policy_params = policy_params)
+      save_alternative_output(daily$daily_overall, scenario_name)
+    }, error = function(e) {
+      message('  FAILED (', scenario_name, '): ', conditionMessage(e))
+    })
+  }
+
+  # --- TPC stacking alternative ---
+  tryCatch({
+    message('\n  Alternative: tpc_stacking')
+    ts_tpc <- apply_stacking_rules(ts, stacking_method = 'tpc_additive')
+    ts_tpc <- enforce_rate_schema(ts_tpc)
+    daily <- build_daily_aggregates(ts_tpc, imports = imports,
+                                     policy_params = policy_params)
+    save_alternative_output(daily$daily_overall, 'tpc_stacking')
+  }, error = function(e) {
+    message('  FAILED (tpc_stacking): ', conditionMessage(e))
+  })
+
+  # --- Rebuild alternatives (only with --with-alternatives) ---
+  if (rebuild) {
+    message('\n  Running rebuild alternatives (this will take a while)...')
+    pp <- policy_params %||% load_policy_params()
+
+    # 1. USMCA 2024 shares
+    tryCatch({
+      pp_usmca <- pp
+      pp_usmca$USMCA_SHARES$year <- 2024
+      pp_usmca$usmca_shares$year <- 2024
+      build_alternative_timeseries(pp_usmca, 'usmca_2024', imports = imports)
+    }, error = function(e) {
+      message('  FAILED (usmca_2024): ', conditionMessage(e))
+    })
+
+    # 2. Flat metal content
+    tryCatch({
+      pp_metal <- pp
+      pp_metal$metal_content$method <- 'flat'
+      build_alternative_timeseries(pp_metal, 'metal_flat', imports = imports)
+    }, error = function(e) {
+      message('  FAILED (metal_flat): ', conditionMessage(e))
+    })
+
+    # 3. Nonzero duty-free treatment
+    tryCatch({
+      pp_dutyfree <- pp
+      pp_dutyfree$ieepa_duty_free_treatment <- 'nonzero_base_only'
+      build_alternative_timeseries(pp_dutyfree, 'dutyfree_nonzero', imports = imports)
+    }, error = function(e) {
+      message('  FAILED (dutyfree_nonzero): ', conditionMessage(e))
+    })
+  }
+
+  message('\n', strrep('=', 70))
+  message('ALTERNATIVE SERIES COMPLETE')
+  message(strrep('=', 70), '\n')
+
+  return(invisible(NULL))
 }
 
 
