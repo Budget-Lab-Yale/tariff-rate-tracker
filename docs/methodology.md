@@ -158,6 +158,8 @@ The repo currently defaults to:
 
 This is configurable through `ieepa_duty_free_treatment`. Benchmark comparisons show that changing to `nonzero_base_only` improves TPC agreement for some floor-country cases.
 
+For floor countries (EU-27, Japan, South Korea, Switzerland, Liechtenstein), the IEEPA reciprocal rate is computed as `max(0, floor_rate - base_rate)`. The floor deduction is computed against the effective (post-MFN-exemption) base rate, not the statutory MFN rate. This means FTA preferences (e.g., KORUS for South Korea) widen the floor gap — if the statutory MFN is 5% but KORUS reduces the effective base to 0.5%, the IEEPA floor component is `max(0, 0.15 - 0.005) = 14.5%`, not `max(0, 0.15 - 0.05) = 10%`. This aligns with the Tariff-ETRs methodology and reflects the policy intent that the floor rate represents the intended total tariff level. The recomputation is implemented as Step 6d in `06_calculate_rates.R`, after MFN exemption shares are applied in Step 6c.
+
 ### USMCA utilization
 
 The production model uses product-level USMCA utilization shares from USITC DataWeb resources committed in `resources/`.

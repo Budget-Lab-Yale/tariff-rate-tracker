@@ -1,0 +1,296 @@
+---
+title: "Tariff Rate Tracker vs. Tariff-ETRs Comparison"
+author: "Tariff Rate Tracker"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: flatly
+    number_sections: true
+  pdf_document:
+    toc: true
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+library(tidyverse)
+library(here)
+library(knitr)
+source(here('src', 'helpers.R'))
+```
+
+# Overview
+
+This document compares the effective tariff rates (ETRs) produced by the
+**Tariff Rate Tracker** with those from the **Tariff-ETRs** model at three
+benchmark dates. Both models estimate the import-weighted average tariff rate
+using Census country codes and 2024 HS10-level import data.
+
+**Key methodological differences:**
+
+- **232/IEEPA stacking**: The Tracker applies mutual exclusion (232 displaces
+  IEEPA on metal products); Tariff-ETRs stacks additively. This primarily
+  affects China.
+- **USMCA**: The Tracker uses binary S/S+ eligibility from HTS; Tariff-ETRs
+  uses product-level utilization rates (~50% median for CA/MX).
+- **MFN preferences**: Tariff-ETRs applies FTA/GSP preference utilization shares;
+  the Tracker applies a simpler exemption-share adjustment.
+- **301 product lists**: Minor differences in list coverage.
+
+```{r load-data}
+# Load ETRs comparison output
+etrs_comp <- read_csv(here('output', 'validation', 'etrs_comparison_by_country.csv'),
+                      col_types = cols(.default = col_character())) %>%
+  mutate(
+    imports = as.numeric(imports),
+    etr = as.numeric(etr),
+    etrs_level = as.numeric(etrs_level),
+    diff_pp = as.numeric(diff_pp),
+    import_share = as.numeric(import_share),
+    date = as.Date(date)
+  )
+
+# Load daily by-authority for weighted ETR decomposition
+daily_auth <- read_csv(here('output', 'daily', 'daily_by_authority.csv'),
+                       col_types = cols(.default = col_guess()))
+
+# Load daily by-country
+daily_cty <- read_csv(here('output', 'daily', 'daily_by_country.csv'),
+                      col_types = cols(.default = col_guess()))
+
+# Policy params for labels
+pp <- load_policy_params()
+eu27 <- pp$EU27_CODES
+
+# Partner groupings
+partner_codes <- c('China' = '5700', 'Canada' = '1220', 'Mexico' = '2010',
+                   'Japan' = '5880', 'UK' = '4120')
+
+# Dates of interest
+focus_dates <- as.Date(c('2026-01-01', '2026-02-24'))
+all_dates <- as.Date(c('2026-01-01', '2026-02-24', '2026-07-24'))
+```
+
+# Overall ETR Comparison
+
+```{r overall-summary}
+overall <- etrs_comp %>%
+  group_by(date) %>%
+  summarise(
+    tracker_rev = sum(etr * imports),
+    etrs_rev = sum(etrs_level * imports),
+    total_imports = sum(imports),
+    .groups = 'drop'
+  ) %>%
+  mutate(
+    `Tracker ETR` = paste0(round(tracker_rev / total_imports * 100, 2), '%'),
+    `Tariff-ETRs` = paste0(round(etrs_rev / total_imports * 100, 2), '%'),
+    `Difference (pp)` = sprintf('%+.2f', (tracker_rev / total_imports - etrs_rev / total_imports) * 100),
+    Date = format(date, '%b %d, %Y')
+  ) %>%
+  select(Date, `Tracker ETR`, `Tariff-ETRs`, `Difference (pp)`)
+
+kable(overall, align = 'lrrr', caption = 'Overall import-weighted ETR comparison')
+```
+
+The overall gap ranges from -0.5pp to +0.6pp across the three dates. The sign
+flip at July 24 reflects the post-IEEPA-invalidation and post-Section 122
+expiry environment, where remaining gaps are primarily USMCA and MFN preference
+differences (where Tariff-ETRs tends to be higher).
+
+# Country-Level Comparison
+
+## January 1, 2026
+
+```{r country-jan}
+make_country_table <- function(comp, d, eu_codes) {
+  at_date <- comp %>% filter(date == d)
+
+  # Named partners
+  partner_rows <- tibble(code = names(partner_codes), census = unname(partner_codes)) %>%
+    left_join(at_date, by = c('census' = 'country')) %>%
+    transmute(
+      Partner = code,
+      `Imports ($B)` = round(imports / 1e9, 1),
+      `Tracker ETR` = paste0(round(etr * 100, 2), '%'),
+      `Tariff-ETRs` = paste0(round(etrs_level * 100, 2), '%'),
+      `Diff (pp)` = sprintf('%+.2f', diff_pp)
+    )
+
+  # EU aggregate
+  eu_data <- at_date %>% filter(country %in% eu_codes)
+  if (nrow(eu_data) > 0) {
+    eu_imp <- sum(eu_data$imports)
+    eu_tracker <- sum(eu_data$etr * eu_data$imports) / eu_imp
+    eu_etrs <- sum(eu_data$etrs_level * eu_data$imports) / eu_imp
+    eu_row <- tibble(
+      Partner = 'EU-27',
+      `Imports ($B)` = round(eu_imp / 1e9, 1),
+      `Tracker ETR` = paste0(round(eu_tracker * 100, 2), '%'),
+      `Tariff-ETRs` = paste0(round(eu_etrs * 100, 2), '%'),
+      `Diff (pp)` = sprintf('%+.2f', (eu_tracker - eu_etrs) * 100)
+    )
+    partner_rows <- bind_rows(partner_rows, eu_row)
+  }
+
+  # Overall
+  total_imp <- sum(at_date$imports)
+  overall_tracker <- sum(at_date$etr * at_date$imports) / total_imp
+  overall_etrs <- sum(at_date$etrs_level * at_date$imports) / total_imp
+  overall_row <- tibble(
+    Partner = '**Overall**',
+    `Imports ($B)` = round(total_imp / 1e9, 1),
+    `Tracker ETR` = paste0(round(overall_tracker * 100, 2), '%'),
+    `Tariff-ETRs` = paste0(round(overall_etrs * 100, 2), '%'),
+    `Diff (pp)` = sprintf('%+.2f', (overall_tracker - overall_etrs) * 100)
+  )
+
+  bind_rows(partner_rows, overall_row)
+}
+
+jan_tbl <- make_country_table(etrs_comp, as.Date('2026-01-01'), eu27)
+kable(jan_tbl, align = 'lrrrr',
+      caption = 'Country-level ETR comparison — January 1, 2026')
+```
+
+**Notable gaps (Jan 1):**
+
+- **China (+5.2pp):** Driven by 232/IEEPA stacking difference. Tracker applies
+  mutual exclusion on steel/aluminum; Tariff-ETRs stacks additively.
+- **Canada (+4.5pp):** USMCA utilization — Tracker uses binary eligibility
+  (~24% of products), Tariff-ETRs uses ~50% median utilization rate.
+- **Japan (-2.3pp):** MFN preference shares — Tariff-ETRs applies FTA preference
+  utilization for Japan–US trade.
+- **EU (-1.5pp):** MFN preference shares for EU trade.
+
+## February 24, 2026
+
+```{r country-feb}
+feb_tbl <- make_country_table(etrs_comp, as.Date('2026-02-24'), eu27)
+kable(feb_tbl, align = 'lrrrr',
+      caption = 'Country-level ETR comparison — February 24, 2026')
+```
+
+**Notable gaps (Feb 24):**
+
+- **China (+4.4pp):** Similar stacking difference, narrower because IEEPA
+  reciprocal is invalidated on this date (SCOTUS ruling), reducing the base
+  that the stacking difference applies to.
+- **Canada (-1.5pp):** Sign reversal — with IEEPA invalidated, the USMCA effect
+  is smaller, and MFN preference differences dominate.
+- **Japan (+1.8pp), UK (+1.9pp):** Section 122 treatment differences.
+
+# Authority Decomposition
+
+The Tracker's daily series decomposes the ETR into contributions by tariff
+authority. The table below shows the import-weighted ETR contribution from
+each authority at the two focus dates.
+
+```{r authority-decomp}
+# Find the closest available dates in daily_auth
+auth_rows <- daily_auth %>%
+  filter(date %in% focus_dates) %>%
+  select(date, revision,
+         etr_232, etr_301, etr_ieepa, etr_fentanyl,
+         etr_s122, etr_section_201, etr_other)
+
+if (nrow(auth_rows) == 0) {
+  # Try nearest dates
+  for (d in focus_dates) {
+    nearest <- daily_auth %>%
+      mutate(dist = abs(as.numeric(date - d))) %>%
+      slice_min(dist, n = 1)
+    auth_rows <- bind_rows(auth_rows, nearest %>%
+      select(date, revision,
+             etr_232, etr_301, etr_ieepa, etr_fentanyl,
+             etr_s122, etr_section_201, etr_other))
+  }
+}
+
+auth_display <- auth_rows %>%
+  mutate(
+    Date = format(date, '%b %d, %Y'),
+    `Section 232` = paste0(round(etr_232 * 100, 2), '%'),
+    `Section 301` = paste0(round(etr_301 * 100, 2), '%'),
+    `IEEPA Reciprocal` = paste0(round(etr_ieepa * 100, 2), '%'),
+    `IEEPA Fentanyl` = paste0(round(etr_fentanyl * 100, 2), '%'),
+    `Section 122` = paste0(round(etr_s122 * 100, 2), '%'),
+    `Section 201` = paste0(round(etr_section_201 * 100, 2), '%'),
+    Total = paste0(round((etr_232 + etr_301 + etr_ieepa + etr_fentanyl +
+                          etr_s122 + etr_section_201 + etr_other) * 100, 2), '%')
+  ) %>%
+  select(Date, `Section 232`, `Section 301`, `IEEPA Reciprocal`,
+         `IEEPA Fentanyl`, `Section 122`, `Section 201`, Total)
+
+kable(auth_display, align = 'lrrrrrrr',
+      caption = 'Tracker ETR decomposition by tariff authority (import-weighted)')
+```
+
+# Top Country ETRs
+
+```{r top-countries}
+make_top_table <- function(comp, d, n = 15) {
+  # Load census names
+  census <- tryCatch(
+    read_csv(here('resources', 'census_codes.csv'),
+             col_types = cols(.default = col_character())),
+    error = function(e) NULL
+  )
+
+  at_date <- comp %>%
+    filter(date == d) %>%
+    arrange(desc(etr)) %>%
+    head(n)
+
+  if (!is.null(census)) {
+    at_date <- at_date %>%
+      left_join(census %>% select(Code, Name), by = c('country' = 'Code'))
+  } else {
+    at_date <- at_date %>% mutate(Name = country)
+  }
+
+  at_date %>%
+    transmute(
+      Country = coalesce(Name, country),
+      `Imports ($B)` = round(imports / 1e9, 1),
+      `Tracker ETR` = paste0(round(etr * 100, 1), '%'),
+      `Tariff-ETRs` = paste0(round(etrs_level * 100, 1), '%'),
+      `Diff (pp)` = sprintf('%+.1f', diff_pp)
+    )
+}
+```
+
+## January 1, 2026 — Top 15 by Tracker ETR
+
+```{r top-jan}
+kable(make_top_table(etrs_comp, as.Date('2026-01-01')),
+      caption = 'Top 15 countries by Tracker ETR — January 1, 2026')
+```
+
+## February 24, 2026 — Top 15 by Tracker ETR
+
+```{r top-feb}
+kable(make_top_table(etrs_comp, as.Date('2026-02-24')),
+      caption = 'Top 15 countries by Tracker ETR — February 24, 2026')
+```
+
+# Data Sources and Methodology Notes
+
+- **Tracker snapshots**: Built from USITC HTS JSON archives via the tariff-rate-tracker
+  pipeline (`00_build_timeseries.R`). Rates reflect statutory tariff schedule
+  including Chapter 99 additional duties.
+- **Tariff-ETRs benchmark**: `2-21_temp` scenario from the Tariff-ETRs model,
+  providing country-level ETRs at 3 dates.
+- **Import weights**: HS10-by-country 2024 Census trade data (from Tariff-ETRs cache),
+  total imports = $3,124B.
+- **IEEPA invalidation**: Modeled as of February 24, 2026 (SCOTUS ruling). Both
+  reciprocal and fentanyl IEEPA rates zeroed on and after that date.
+- **Section 122 expiry**: Statutory 150-day limit; effective February 24, expires
+  July 23, 2026.
+
+---
+
+*Generated by `docs/etrs_comparison_report.Rmd` on `r Sys.time()`.*
+*Comparison data: `output/validation/etrs_comparison_by_country.csv`.*

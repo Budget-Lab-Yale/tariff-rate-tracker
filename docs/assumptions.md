@@ -198,3 +198,29 @@ Phase classification determines stacking behavior — country_eo rates stack add
 **Source:** Reverse-engineered from TPC validation data. The executive order text applies reciprocal tariffs to "articles imported into the United States" with no explicit carve-out for duty-free products, supporting the `'all'` interpretation. However, TPC's exclusion of duty-free products is a reasonable economic interpretation since the tariff base is zero.
 
 **Implementation:** `config/policy_params.yaml` (`ieepa_duty_free_treatment`), applied in `src/06_calculate_rates.R` step 2 (existing products and new IEEPA-only pair expansion).
+
+---
+
+## 14. IEEPA Floor Deduction Against Effective (Post-FTA) Base Rate
+
+**Assumption:** For floor countries (EU-27, Japan, South Korea, Switzerland, Liechtenstein), the IEEPA floor deduction is computed against the effective base rate (after MFN/FTA preference utilization), not the statutory MFN rate. This means FTA preferences widen the floor gap: a product with 5% statutory MFN and 90% KORUS exemption yields `max(0, 0.15 - 0.005) = 14.5%`, not `max(0, 0.15 - 0.05) = 10%`.
+
+**Rationale:** The floor rate represents the intended minimum total tariff level. Measuring against the effective base (what the importer actually pays in MFN duty) ensures the total rate reaches the floor. Measuring against statutory MFN would undercount the additional tariff needed for FTA-preference-utilizing imports.
+
+**Impact:** South Korea (+3.2pp mean IEEPA increase, from 79.5% KORUS preference utilization), Japan (+0.32pp, 14.9% FTA utilization), EU countries (+0.01 to +0.22pp). Aligns with Tariff-ETRs methodology.
+
+**Source:** Tariff-ETRs order-of-operations confirmed via comparison analysis. No explicit Federal Register guidance on whether floor deduction should use statutory or effective base rate.
+
+**Implementation:** `src/06_calculate_rates.R` step 6d — after MFN exemption shares are applied to `base_rate` (step 6c), floor-country rows with `rate_ieepa_recip > 0` are recomputed as `pmax(0, floor_rate - base_rate)`.
+
+---
+
+## 15. IEEPA Exempt Products: ITA Prefix Expansion
+
+**Assumption:** The tracker includes ~125 more IEEPA-exempt HTS8 codes than Tariff-ETRs, primarily in Ch84/85 (computers, semiconductors, integrated circuits) derived from US Note 2 subdivision (v)(iii) ITA product prefixes. These products are exempt from IEEPA reciprocal tariffs in the tracker but subject to the full surcharge in ETRs.
+
+**Impact:** Primarily affects Taiwan (-6.9pp vs ETRs at Jan 1, 2026) and Malaysia (-5.9pp) — both are major electronics/semiconductor exporters. The gap vanishes after IEEPA invalidation (Feb 24).
+
+**Source:** `src/expand_ieepa_exempt.R` Fix 3 (ITA prefix expansion) based on the legal text of US Note 2 subdivision (v)(iii). The tracker's interpretation is broader; Tariff-ETRs uses a narrower product list.
+
+**Implementation:** `resources/ieepa_exempt_products.csv` (4,325 HTS10 codes), expanded from the base Annex A list via `src/expand_ieepa_exempt.R`.
