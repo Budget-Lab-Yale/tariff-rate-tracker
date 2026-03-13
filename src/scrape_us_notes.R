@@ -29,6 +29,16 @@
 #   Rscript src/scrape_us_notes.R --revision rev_18            # Parse single revision
 #   Rscript src/scrape_us_notes.R --all-revisions [--dry-run]  # Parse all revisions
 #
+# Write safety:
+#   All three parsers validate extraction before writing resource files.
+#   - Section 301: refuses to write if anchor coverage <80%, or on first-time
+#     bootstrap with any missing anchors.
+#   - Floor exemptions: refuses to write if anchor coverage <80%, or to
+#     overwrite an existing CSV when any anchors are missing.
+#   - Copper: refuses to overwrite if fewer than 60 codes are extracted
+#     (historically ~80). Warns if non-copper headings appear on scanned pages.
+#   Use --dry-run to inspect parsed results without modifying resource files.
+#
 # Dependencies: pdftools
 #
 # =============================================================================

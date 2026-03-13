@@ -11,8 +11,9 @@
 #   - ch99_code: Chapter 99 subheading (e.g., "9903.88.15")
 #   - rate: Additional duty rate (numeric, e.g., 0.25 for 25%)
 #   - authority: Inferred authority (section_232, section_301, ieepa, etc.)
-#   - countries: List of country codes or special value ("all", "all_except")
-#   - exempt_countries: List of exempt countries (if countries = "all_except")
+#   - country_type: Scope type ("specific", "all", "all_except", "unknown")
+#   - countries: List of country codes (if country_type = "specific")
+#   - exempt_countries: List of exempt countries (if country_type = "all_except")
 #   - description: Original description text
 #   - general_raw: Original general rate text
 #

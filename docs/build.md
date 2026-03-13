@@ -95,16 +95,16 @@ Rscript src/00_build_timeseries.R --with-alternatives
 | Revision schedule | `config/revision_dates.csv` | committed | HTS effective dates and benchmark alignment | manual update when new revisions publish |
 | Census country codes | `resources/census_codes.csv` | committed | country dimension | manual refresh |
 | Country-partner mapping | `resources/country_partner_mapping.csv` | committed | partner aggregates for reporting | manual refresh |
-| Section 301 product list | `resources/s301_product_lists.csv` | committed | blanket 301 coverage | regenerate from US Notes / USITC references as needed |
+| Section 301 product list | `resources/s301_product_lists.csv` | committed | blanket 301 coverage | `src/scrape_us_notes.R` (validates anchor coverage; refuses partial writes) |
 | IEEPA exempt products | `resources/ieepa_exempt_products.csv` | committed | reciprocal exemptions | regenerate when exemption logic changes |
 | Section 232 derivative products | `resources/s232_derivative_products.csv` | committed | derivative 232 coverage | manual / documented refresh |
-| Copper 232 product list | `resources/s232_copper_products.csv` | committed | copper 232 coverage | scrape from US Notes when needed |
+| Copper 232 product list | `resources/s232_copper_products.csv` | committed | copper 232 coverage | `src/scrape_us_notes.R --copper` (validates >= 60 codes; refuses reduced overwrites) |
 | Auto and MHD product lists | `resources/s232_auto_parts.txt`, `resources/s232_mhd_parts.txt` | committed | 232 auto and MHD coverage | manual refresh from official notes |
 | Fentanyl carve-outs | `resources/fentanyl_carveout_products.csv` | committed | reduced fentanyl rates for carve-out products | manual / documented refresh |
 | USMCA product shares | `resources/usmca_product_shares_2024.csv`, `resources/usmca_product_shares_2025.csv` | committed | product-level USMCA utilization | `src/download_usmca_dataweb.R` |
 | MFN exemption shares | `resources/mfn_exemption_shares.csv` | committed | effective MFN base-rate adjustment | regenerate from source trade data if methodology changes |
 | Metal content shares | `resources/metal_content_shares_bea_hs10.csv` | committed | derivative 232 metal-share estimation | regenerate from BEA workflow if needed |
-| Floor exemptions | `resources/floor_exempt_products.csv` plus revision-specific `data/us_notes/floor_exempt_{revision}.csv` | committed plus auto-scrape | floor-country exemptions | `src/scrape_us_notes.R --floor-exemptions` |
+| Floor exemptions | `resources/floor_exempt_products.csv` plus revision-specific `data/us_notes/floor_exempt_{revision}.csv` | committed plus auto-scrape | floor-country exemptions | `src/scrape_us_notes.R --floor-exemptions` (validates anchor coverage; refuses partial overwrites) |
 | Section 122 exemptions | `resources/s122_exempt_products.csv` | committed | Annex II exemptions | manual refresh when authority changes |
 
 ### Optional inputs
