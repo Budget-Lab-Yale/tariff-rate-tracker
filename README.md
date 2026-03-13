@@ -1,8 +1,10 @@
 # Tariff Rate Tracker
 
+A project of The Budget Lab at Yale.
+
 Statutory U.S. tariff rates at the `HTS-10 x country` level, built from USITC Harmonized Tariff Schedule archives and related policy resources.
 
-The repository's core product is an interval-encoded tariff panel for the 2025-2026 tariff regime. Daily series and weighted effective tariff rates are derived from that panel. TPC and Tariff-ETRs are used for comparison and validation only.
+The repository's core product is an interval-encoded tariff panel for the 2025-2026 tariff regime. Daily series and weighted effective tariff rates are derived from that panel. As part of building the tracker, results were compared against prior daily tariff-rate estimates from The Budget Lab's [Tariff-ETRs repository](https://github.com/Budget-Lab-Yale/Tariff-ETRs) and the Tax Policy Center's [Tracking Trump Tariffs](https://taxpolicycenter.org/features/tracking-trump-tariffs). We are grateful to the Tax Policy Center for sharing several snapshots of their model output. These comparisons were used solely for validation and benchmarking, not to construct the production series.
 
 ## What this repo produces
 
@@ -47,4 +49,4 @@ The repo currently models 39 HTS revisions from January 1, 2025 through February
 
 - The core build does not require TPC or Tariff-ETRs inputs.
 - Weighted outputs require local import weights configured in `config/local_paths.yaml`.
-- Some modeling questions remain open, especially around Section 301 exclusions and residual floor-country differences versus TPC. Those are documented in [docs/methodology.md](docs/methodology.md).
+- Some modeling questions remain open, especially around residual floor-country differences versus TPC and the treatment of legacy non-China tariff branches. Those are documented in [docs/methodology.md](docs/methodology.md).

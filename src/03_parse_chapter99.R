@@ -49,11 +49,6 @@ parse_countries <- function(description) {
     return(list(type = 'specific', countries = c('CN'), exempt = character(0)))
   }
 
-  # US Note 21 = Biden Section 301 (China-specific)
-  if (str_detect(desc_lower, 'u\\.s\\.\\s*note\\s*21')) {
-    return(list(type = 'specific', countries = c('CN'), exempt = character(0)))
-  }
-
   # US Note 31 = Biden Section 301 increases (China-specific)
   if (str_detect(desc_lower, 'u\\.s\\.\\s*note\\s*31')) {
     return(list(type = 'specific', countries = c('CN'), exempt = character(0)))

@@ -59,7 +59,7 @@ Semiconductor tariff entries are handled through the normal Chapter 99 parsing p
 | rev_30 | 2025-11-05 | 670 | 1 | 0 | 0 | Additional entry (9903.01.90) |
 | rev_31 | 2025-11-12 | 670 | 0 | 0 | 0 | (no Ch99 changes) |
 | rev_32 | 2025-11-15 | 680 | 10 | 0 | 0 | **S. Korea floor** (9903.02.79-80, 15%); 232 auto S. Korea entries; Section 122 |
-| 2026_basic | 2026-01-01 | 691 | 11 | 0 | 1 | **Switzerland/Liechtenstein floor** (9903.02.82-91, 15%); 301 exclusion; China 34% re-suspended |
+| 2026_basic | 2026-01-01 | 691 | 11 | 0 | 1 | **Switzerland/Liechtenstein floor** (9903.02.82-91, 15%); legacy aircraft-dispute 301 code; China 34% re-suspended |
 
 ---
 
@@ -231,7 +231,7 @@ No Chapter 99 changes.
 - Added: 9903.02.84-86 (Switzerland exemptions: PTAAP, aircraft, pharma)
 - Added: 9903.02.87-88 (Liechtenstein passthrough + 15% floor)
 - Added: 9903.02.89-91 (Liechtenstein exemptions)
-- Added: 9903.89.01 (301 exclusion, rate = 0%)
+- Added: 9903.89.01 (legacy aircraft-dispute Section 301 code, rate = 0%)
 - Suspended: 9903.01.63 (China +34%, re-confirmed suspended)
 
 ### `2026_rev_1` — 2026-01-16: Semiconductor Tariffs

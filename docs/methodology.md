@@ -229,9 +229,9 @@ The main current takeaways from the tracked comparison work are:
 
 ## Open modeling questions
 
-### Section 301 exclusions
+### Legacy non-China Section 301 lines
 
-The repo still does not fully parse `9903.89.xx` exclusion logic. Some products may incorrectly retain a base 301 rate when they should be excluded.
+The repo's China Section 301 logic is intentionally built from the China product lists and active China-oriented Chapter 99 codes. It does not use `9903.89.xx`, which belongs to the separate large civil aircraft dispute with the EU/UK. For the current series horizon, those tariffs are treated as suspended from 2021 onward, so they are not part of the active 2025-2026 China Section 301 modeling path. If the repo is extended to cover the live aircraft-dispute period, that branch should be modeled separately rather than folded into the China blanket logic.
 
 ### Floor-country residuals
 

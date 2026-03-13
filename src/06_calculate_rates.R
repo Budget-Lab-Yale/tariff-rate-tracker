@@ -1262,11 +1262,11 @@ calculate_rates_for_revision <- function(
   #     Like 232, these are NOT referenced via product footnotes for most products.
   #     Source: USITC "China Tariffs" reference document (hts.usitc.gov).
   #
-  #     Known limitation: Some products on Lists 1-4A were later excluded via
-  #     9903.89.xx entries referencing US Note exclusion lists. Those exclusions
-  #     are not captured here — excluded products will incorrectly receive the
-  #     base 301 rate. The impact is minor relative to the ~5,000 product gap
-  #     this step closes.
+  #     Scope note: This blanket step is intentionally limited to the China
+  #     Section 301 product lists maintained in resources/s301_product_lists.csv.
+  #     It does not use 9903.89.xx, which belongs to the separate large civil
+  #     aircraft dispute with the EU/UK and is assumed suspended from 2021 onward
+  #     for the current series horizon.
   s301_products_path <- here('resources', 's301_product_lists.csv')
   if (file.exists(s301_products_path)) {
     s301_products <- read_csv(s301_products_path, col_types = cols(

@@ -118,7 +118,7 @@ For Section 232 auto/MHD products, the USMCA share is further scaled by `us_auto
 1. USITC "China Tariffs" reference document (~10,400 codes)
 2. Chapter 99 PDF US Notes 20/31, scraped via `src/scrape_us_notes.R`
 
-**Known gap:** 9903.89.xx US Note exclusions not captured (excluded products may incorrectly receive 301 rate, ~61 products).
+**Scope note:** `9903.89.xx` is not used in the China Section 301 blanket-product logic. Those provisions belong to the separate large civil aircraft dispute with the EU/UK and are assumed suspended from 2021 onward for the current series horizon. If the repo is extended backward to cover the live aircraft-dispute period, those lines should be modeled as a separate Section 301 branch rather than as China-list exclusions.
 
 **Implementation:** `resources/s301_product_lists.csv`, `config/policy_params.yaml` (SECTION_301_RATES), `src/06_calculate_rates.R`.
 
