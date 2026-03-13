@@ -100,46 +100,22 @@ Fixed: removed `rate_301` from non-China branches in `apply_stacking_rules()` so
 
 ---
 
-## 5. Unweighted daily means use a sparse denominator
+## 5. ~~Unweighted daily means use a sparse denominator~~ (DONE 2026-03-13)
 
-### Issue
-
-The unweighted daily series in [src/09_daily_series.R](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/09_daily_series.R) averages over the rows present in the sparse tariff panel, not over a stable all-products x all-countries denominator.
-
-### Why it matters
-
-The unweighted means move with panel coverage as well as policy. That makes them easy to misread as unconditional averages across all product-country pairs.
-
-### Proposed solution
-
-- Decide whether the intended statistic is:
-  - mean across all product-country pairs, or
-  - mean across tariff-exposed pairs only.
-- Ideally support both.
-- If keeping both:
-  - add explicit `*_all_pairs` and `*_exposed_pairs` outputs, or similar naming
-  - document the denominator clearly in the methodology and README
-- If the repo wants a true all-pairs mean, compute revision-level aggregates on a complete product-country grid without making that huge grid the canonical stored panel.
-
-### Files to update
-
-- [src/09_daily_series.R](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/09_daily_series.R)
-- [docs/methodology.md](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/docs/methodology.md)
-- [README.md](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/README.md)
-- possibly [src/diagnostics.R](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/diagnostics.R)
-
-### Tests to add
-
-- A toy revision where many zero-duty pairs are omitted from the sparse panel
-- A regression test showing the expected difference between all-pairs and exposed-pairs averages
+Status:
+- [src/09_daily_series.R](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/09_daily_series.R) now produces both `*_exposed` (sparse panel) and `*_all_pairs` (full Cartesian) means for overall and by-country aggregates.
+- `mean_additional_all_pairs` and `mean_total_all_pairs` use `n_products * n_countries` as the denominator (overall) or `n_products_total` (by-country). Missing pairs contribute zero.
+- Reporting default is `*_all_pairs`.
+- [docs/methodology.md](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/docs/methodology.md) documents both denominators.
+- Test 14 in [tests/run_tests_daily_series.R](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/tests/run_tests_daily_series.R) covers sparse vs complete panels and by-country denominator logic.
 
 ---
 
 ## Suggested order
 
 1. ~~Fix fail-open country applicability.~~ (DONE)
-2. Remove the empty-revision early return.
+2. ~~Remove the empty-revision early return.~~ (DONE)
 3. ~~Harmonize Section 301 scope across stacking and decomposition.~~ (DONE)
 4. Fix country-specific auto deals versus blanket auto rates. (medium-low priority, still a real logic defect)
-5. Redefine and document the unweighted daily mean denominator.
+5. ~~Redefine and document the unweighted daily mean denominator.~~ (DONE)
 6. If non-China 301 tariffs emerge, add a dedicated authority column (see item 4 notes).

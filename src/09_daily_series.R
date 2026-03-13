@@ -105,14 +105,23 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     if (any(c('rate_s122', 'rate_ieepa_recip') %in% names(rev_data))) {
       rev_data <- apply_stacking_rules(rev_data, stacking_method = stacking_method)
     }
+    n_products <- n_distinct(rev_data$hts10)
+    n_countries <- n_distinct(rev_data$country)
+    n_pairs <- nrow(rev_data)
+    n_all_pairs <- n_products * n_countries
+
     row <- tibble(
       revision = revision,
       valid_from = valid_from,
       valid_until = valid_until,
-      mean_additional = mean(rev_data$total_additional),
-      mean_total = mean(rev_data$total_rate),
-      n_products = n_distinct(rev_data$hts10),
-      n_countries = n_distinct(rev_data$country)
+      mean_additional_exposed = mean(rev_data$total_additional),
+      mean_total_exposed = mean(rev_data$total_rate),
+      mean_additional_all_pairs = sum(rev_data$total_additional) / n_all_pairs,
+      mean_total_all_pairs = sum(rev_data$total_rate) / n_all_pairs,
+      n_products = n_products,
+      n_countries = n_countries,
+      n_pairs = n_pairs,
+      n_all_pairs = n_all_pairs
     )
     if (has_weights) {
       wt_data <- ts_weighted %>% filter(revision == !!revision)
@@ -137,14 +146,21 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     rev_data <- ts %>% filter(revision == !!revision)
     rev_data <- apply_expiry_zeroing(rev_data, sub_start, policy_params)
     rev_data <- apply_stacking_rules(rev_data, stacking_method = stacking_method)
+    n_products_rev <- n_distinct(rev_data$hts10)
     row <- rev_data %>%
       group_by(country) %>%
       summarise(
-        mean_additional = mean(total_additional),
-        mean_total = mean(total_rate),
+        mean_additional_exposed = mean(total_additional),
+        mean_total_exposed = mean(total_rate),
+        mean_additional_all_pairs = sum(total_additional) / n_products_rev,
+        mean_total_all_pairs = sum(total_rate) / n_products_rev,
+        n_products_present = n(),
         .groups = 'drop'
       ) %>%
-      mutate(revision = revision, valid_from = valid_from, valid_until = valid_until)
+      mutate(
+        revision = revision, valid_from = valid_from, valid_until = valid_until,
+        n_products_total = n_products_rev
+      )
     if (has_weights) {
       wt_data <- ts_weighted %>% filter(revision == !!revision)
       wt_data <- apply_expiry_zeroing(wt_data, sub_start, policy_params)

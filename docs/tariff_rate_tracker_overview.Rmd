@@ -1,0 +1,561 @@
+---
+title: "Tariff Rate Tracker"
+author: "The Budget Lab at Yale"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  pdf_document:
+    toc: true
+  html_document:
+    toc: true
+    toc_float: true
+    theme: flatly
+    fig_width: 10
+    fig_height: 6
+subtitle: "Statutory U.S. Tariff Rates, 2025--2026"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = 'center'
+)
+
+library(tidyverse)
+library(here)
+library(scales)
+
+# Load data
+daily_overall   <- read_csv(here('output/daily/daily_overall.csv'))
+daily_country   <- read_csv(here('output/daily/daily_by_country.csv'))
+daily_authority <- read_csv(here('output/daily/daily_by_authority.csv'))
+revision_dates  <- read_csv(here('config/revision_dates.csv'))
+
+# Load country mapping
+partner_map <- read_csv(here('resources/country_partner_mapping.csv'))
+census_codes <- read_csv(here('resources/census_codes.csv'))
+
+# Load ETR comparison data if available
+etr_overall   <- tryCatch(read_csv(here('output/etr/etr_overall.csv')), error = function(e) NULL)
+etr_partner   <- tryCatch(read_csv(here('output/etr/etr_by_partner.csv')), error = function(e) NULL)
+etr_authority <- tryCatch(read_csv(here('output/etr/etr_by_authority.csv')), error = function(e) NULL)
+```
+
+```{r theme}
+# Consistent plot theme
+theme_tracker <- function(base_size = 12) {
+  theme_minimal(base_size = base_size) +
+    theme(
+      plot.title = element_text(face = 'bold', size = rel(1.2)),
+      plot.subtitle = element_text(color = 'grey40', size = rel(0.9)),
+      panel.grid.minor = element_blank(),
+      legend.position = 'bottom',
+      legend.title = element_blank(),
+      plot.caption = element_text(color = 'grey50', size = rel(0.7), hjust = 0)
+    )
+}
+
+# Color palettes
+authority_colors <- c(
+  'Section 232'  = '#1b9e77',
+  'Section 301'  = '#d95f02',
+  'IEEPA'        = '#7570b3',
+  'Fentanyl'     = '#e7298a',
+  'Section 122'  = '#66a61e',
+  'Section 201'  = '#e6ab02'
+)
+
+partner_colors <- c(
+  'China'   = '#e41a1c',
+  'Canada'  = '#377eb8',
+  'Mexico'  = '#4daf4a',
+  'EU'      = '#984ea3',
+  'Japan'   = '#ff7f00',
+  'UK'      = '#a65628',
+  'FTA ROW' = '#999999',
+  'ROW'     = '#666666'
+)
+```
+
+# Purpose
+
+The Tariff Rate Tracker constructs statutory U.S. tariff rates at the
+HTS-10 product by country level for the 2025--2026 tariff regime. It
+processes Harmonized Tariff Schedule (HTS) archives published by the U.S.
+International Trade Commission (USITC), along with supplementary policy
+resources, to produce a comprehensive panel of tariff rates across all
+products and trading partners.
+
+The tracker is designed to support policy analysis by The Budget Lab at
+Yale. Its outputs feed directly into The Budget Lab's
+[Tariff-Model](https://github.com/Budget-Lab-Yale/Tariff-Model), which
+estimates the revenue, distributional, and macroeconomic effects of tariff
+policy changes.
+
+The core outputs are:
+
+- An interval-encoded tariff panel covering `r n_distinct(daily_overall$revision)` HTS
+  revisions from `r format(min(as.Date(daily_overall$date)), '%B %Y')` through
+  `r format(max(as.Date(daily_overall$date)), '%B %Y')`.
+- Daily aggregate series decomposed by tariff authority and trading partner.
+- Import-weighted effective tariff rate (ETR) estimates at key policy dates.
+
+# Data and Process
+
+## Data sources
+
+The tracker draws on several categories of inputs:
+
+1. **HTS JSON archives** from the USITC. Each revision encodes the full
+   tariff schedule: base MFN rates, Chapter 99 additional duties,
+   product footnote references, and special program eligibility codes.
+   The current build processes
+   `r nrow(revision_dates)` revisions.
+
+2. **Committed resource files** maintained in the repository. These
+   include product lists for Section 301 (China), Section 232 derivatives
+   and copper, IEEPA-exempt products, fentanyl carve-outs, floor-country
+   exemptions, and USMCA product-level utilization shares from USITC
+   DataWeb.
+
+3. **Policy parameters** in a single YAML configuration file, encoding
+   tariff authority classifications, country-specific rate structures,
+   stacking rules, and date-bounded overrides (e.g., Section 122 expiry,
+   the Swiss framework agreement).
+
+4. **Census import data** (2024) for computing import-weighted ETRs.
+   These weights are optional---the core build produces unweighted
+   aggregates without them.
+
+## Processing pipeline
+
+The pipeline runs in six stages for each HTS revision:
+
+1. **Parse Chapter 99 entries**: extract additional-duty rates, classify
+   each entry by tariff authority (Section 232, 301, IEEPA reciprocal,
+   fentanyl, Section 122, Section 201).
+
+2. **Parse product master records**: extract ~19,800 HTS-10 product
+   lines with base MFN rates, footnote references, and special program
+   fields.
+
+3. **Build product-country rates**: link products to duties via three
+   mechanisms---footnote references (product-specific Ch99 provisions),
+   blanket chapter/heading coverage (Section 232), and product list
+   matching (Section 301, IEEPA exemptions).
+
+4. **Apply stacking rules**: compute the total tariff for each
+   product-country pair. Section 232 takes precedence over IEEPA
+   reciprocal on the metal-covered portion; other authorities stack
+   according to documented mutual-exclusion rules.
+
+5. **Apply USMCA and exemptions**: reduce rates for Canadian and Mexican
+   products proportional to their product-level USMCA utilization share.
+   Apply MFN preference adjustments, floor-country product exemptions,
+   and IEEPA-exempt product lists.
+
+6. **Aggregate to daily series**: broadcast the piecewise-constant
+   revision intervals across calendar days, splitting at policy expiry
+   dates (e.g., Section 122's 150-day statutory limit).
+
+```{r policy-timeline}
+# Key policy events for annotation
+key_events <- revision_dates %>%
+  filter(policy_event != '' & !is.na(policy_event)) %>%
+  mutate(date = as.Date(effective_date)) %>%
+  filter(date >= '2025-01-01') %>%
+  # Select the most important events for annotation
+  filter(revision %in% c('basic', 'rev_3', 'rev_6', 'rev_7', 'rev_9',
+                          'rev_12', 'rev_17', 'rev_18', 'rev_23',
+                          'rev_32', '2026_basic', '2026_rev_4'))
+```
+
+# Daily Tariff Rates
+
+## Overall effective tariff rate
+
+```{r fig-overall, fig.height=5}
+daily_plot <- daily_overall %>%
+  mutate(date = as.Date(date))
+
+# Annotation dates
+annotations <- tribble(
+  ~date,         ~label,
+  '2025-02-04',  'Fentanyl\n(CA/MX/CN)',
+  '2025-04-02',  'Liberation\nDay',
+  '2025-04-09',  'Phase 1\nsuspended',
+  '2025-07-01',  '232\nincrease',
+  '2025-08-07',  'Phase 2',
+  '2025-11-15',  'Floor\ncountries',
+  '2026-02-24',  'IEEPA\ninvalidated'
+) %>%
+  mutate(date = as.Date(date)) %>%
+  left_join(daily_plot %>% distinct(date, .keep_all = TRUE), by = 'date')
+
+has_weights <- !all(is.na(daily_plot$weighted_etr))
+
+p <- ggplot(daily_plot, aes(x = date))
+
+if (has_weights) {
+  p <- p + geom_line(aes(y = weighted_etr * 100), color = '#2c5f8a', linewidth = 0.9)
+} else {
+  p <- p + geom_line(aes(y = mean_total_all_pairs * 100), color = '#2c5f8a', linewidth = 0.9)
+}
+
+# Add TPC comparison points if available
+if (!is.null(etr_overall) && has_weights) {
+  tpc_points <- etr_overall %>%
+    filter(!is.na(etr_tpc)) %>%
+    mutate(date = as.Date(date))
+  p <- p +
+    geom_point(data = tpc_points, aes(x = date, y = etr_tpc * 100),
+               color = '#d63333', size = 3, shape = 16)
+}
+
+yvar <- if (has_weights) 'weighted_etr' else 'mean_total_all_pairs'
+
+p <- p +
+  geom_vline(
+    data = annotations,
+    aes(xintercept = date),
+    linetype = 'dashed', color = 'grey60', linewidth = 0.3
+  ) +
+  geom_text(
+    data = annotations,
+    aes(x = date, y = Inf, label = label),
+    vjust = 1.2, hjust = 0.5, size = 2.5, color = 'grey40', lineheight = 0.85
+  ) +
+  scale_x_date(date_breaks = '2 months', date_labels = '%b\n%Y') +
+  scale_y_continuous(
+    limits = c(0, NA),
+    labels = function(x) paste0(x, '%')
+  ) +
+  labs(
+    title = 'U.S. Average Tariff Rate (2025--2026)',
+    subtitle = if (has_weights) {
+      'Import-weighted effective tariff rate; red dots = TPC benchmark'
+    } else {
+      'Unweighted mean total tariff rate across all product-country pairs'
+    },
+    x = NULL, y = NULL,
+    caption = 'Source: Yale Budget Lab Tariff Rate Tracker. Built from USITC HTS archives.'
+  ) +
+  theme_tracker()
+
+p
+```
+
+The series shows the step-function structure of statutory tariff
+changes, with rates only updating when a new HTS revision takes effect.
+The fentanyl tariffs on Canada, Mexico, and China in early 2025 are
+followed by the April 2 "Liberation Day" reciprocal tariffs, the
+subsequent Phase 1 suspension and China de-escalation, and the
+reinstatement via Phase 2 in August 2025. The February 2026 drop
+reflects the Supreme Court's invalidation of IEEPA tariff authority,
+with Section 122 providing a lower replacement rate.
+
+## By tariff authority
+
+```{r fig-authority, fig.height=6}
+authority_long <- daily_authority %>%
+  mutate(date = as.Date(date)) %>%
+  {
+    if (has_weights) {
+      select(., date, revision,
+             `Section 232` = etr_232,
+             `Section 301` = etr_301,
+             `IEEPA`       = etr_ieepa,
+             `Fentanyl`    = etr_fentanyl,
+             `Section 122` = etr_s122,
+             `Section 201` = etr_section_201)
+    } else {
+      select(., date, revision,
+             `Section 232` = mean_232,
+             `Section 301` = mean_301,
+             `IEEPA`       = mean_ieepa,
+             `Fentanyl`    = mean_fentanyl,
+             `Section 122` = mean_s122,
+             `Section 201` = mean_section_201)
+    }
+  } %>%
+  pivot_longer(-c(date, revision), names_to = 'authority', values_to = 'rate') %>%
+  filter(authority != 'Section 201') # very small, omit for clarity
+
+authority_long$authority <- factor(
+  authority_long$authority,
+  levels = c('Section 122', 'Fentanyl', 'IEEPA', 'Section 301', 'Section 232')
+)
+
+ggplot(authority_long, aes(x = date, y = rate * 100, fill = authority)) +
+  geom_area(alpha = 0.85) +
+  scale_fill_manual(values = authority_colors, guide = guide_legend(reverse = TRUE)) +
+  scale_x_date(date_breaks = '2 months', date_labels = '%b\n%Y') +
+  scale_y_continuous(labels = function(x) paste0(x, '%')) +
+  labs(
+    title = 'U.S. Tariff Rate by Authority (2025--2026)',
+    subtitle = if (has_weights) {
+      'Import-weighted ETR contribution by tariff authority'
+    } else {
+      'Unweighted mean rate contribution by tariff authority'
+    },
+    x = NULL, y = NULL,
+    caption = 'Source: Yale Budget Lab Tariff Rate Tracker. Section 201 omitted (< 0.02pp contribution).'
+  ) +
+  theme_tracker()
+```
+
+The authority decomposition illustrates the shifting composition of U.S.
+trade policy. Section 232 (steel, aluminum, autos, copper) and Section
+301 (China) provide a relatively stable base throughout the period.
+IEEPA reciprocal and fentanyl tariffs dominate from April through
+February 2026, when they are struck down. Section 122 replaces IEEPA at a
+lower overall rate.
+
+## By major trading partner
+
+```{r fig-country-prep}
+# Map country codes to names and partner groups
+major_partners <- c('5700', '1220', '2010', '5880', '4280', '4120')
+major_labels <- c('China', 'Canada', 'Mexico', 'Japan', 'Germany (EU)', 'United Kingdom')
+names(major_labels) <- major_partners
+
+country_daily <- daily_country %>%
+  mutate(date = as.Date(date)) %>%
+  filter(country %in% major_partners) %>%
+  mutate(partner = major_labels[as.character(country)])
+```
+
+```{r fig-country, fig.height=7}
+rate_var <- if (has_weights && !all(is.na(country_daily$weighted_etr))) {
+  'weighted_etr'
+} else {
+  'mean_total_all_pairs'
+}
+
+ggplot(country_daily, aes(x = date, y = .data[[rate_var]] * 100, color = partner)) +
+  geom_step(linewidth = 0.8) +
+  scale_color_manual(values = partner_colors) +
+  scale_x_date(date_breaks = '2 months', date_labels = '%b\n%Y') +
+  scale_y_continuous(labels = function(x) paste0(x, '%')) +
+  labs(
+    title = 'Tariff Rate by Major Trading Partner (2025--2026)',
+    subtitle = if (rate_var == 'weighted_etr') {
+      'Import-weighted effective tariff rate'
+    } else {
+      'Unweighted mean total tariff rate'
+    },
+    x = NULL, y = NULL,
+    caption = 'Source: Yale Budget Lab Tariff Rate Tracker.'
+  ) +
+  theme_tracker()
+```
+
+```{r fig-country-facet, fig.height=8}
+ggplot(country_daily, aes(x = date, y = .data[[rate_var]] * 100)) +
+  geom_step(color = '#2c5f8a', linewidth = 0.7) +
+  facet_wrap(~ partner, scales = 'free_y', ncol = 2) +
+  scale_x_date(date_breaks = '4 months', date_labels = '%b\n%Y') +
+  scale_y_continuous(labels = function(x) paste0(x, '%')) +
+  labs(
+    title = 'Tariff Rate by Partner (Faceted)',
+    x = NULL, y = NULL,
+    caption = 'Source: Yale Budget Lab Tariff Rate Tracker.'
+  ) +
+  theme_tracker() +
+  theme(strip.text = element_text(face = 'bold'))
+```
+
+China faces the highest sustained tariff rates, driven by overlapping
+Section 301, IEEPA reciprocal, and fentanyl authorities. Canada and
+Mexico are primarily affected by fentanyl tariffs with USMCA providing
+partial relief. EU countries, Japan, and the UK see rates jump at
+Liberation Day and Phase 2, then fall when IEEPA is invalidated; their
+Section 232 exposure on steel, aluminum, and autos persists. After
+February 2026, China's rates decline significantly as IEEPA and fentanyl
+authorities are vacated, leaving Section 301 and 232 as the remaining
+sources of elevated duties.
+
+`r if (!is.null(etr_partner)) '## Partner-level ETR comparison'`
+
+```{r fig-partner-etr, eval=!is.null(etr_partner), fig.height=6}
+partner_labels <- c(
+  'china' = 'China', 'canada' = 'Canada', 'mexico' = 'Mexico',
+  'eu' = 'EU', 'japan' = 'Japan', 'uk' = 'UK',
+  'ftrow' = 'FTA ROW', 'row' = 'ROW'
+)
+
+etr_partner_plot <- etr_partner %>%
+  mutate(
+    date = as.Date(date),
+    partner_label = partner_labels[partner],
+    partner_label = factor(partner_label, levels = c(
+      'China', 'Canada', 'Mexico', 'EU', 'Japan', 'UK', 'FTA ROW', 'ROW'
+    ))
+  )
+
+ggplot(etr_partner_plot, aes(x = date, y = etr * 100, color = partner_label)) +
+  geom_step(linewidth = 0.8) +
+  geom_point(size = 1.5) +
+  scale_color_manual(values = partner_colors) +
+  scale_x_date(date_breaks = '2 months', date_labels = '%b\n%Y') +
+  scale_y_continuous(labels = function(x) paste0(x, '%')) +
+  labs(
+    title = 'Import-Weighted ETR by Partner Group',
+    subtitle = 'At key policy dates',
+    x = NULL, y = NULL,
+    caption = 'Source: Yale Budget Lab Tariff Rate Tracker, weighted by 2024 Census imports.'
+  ) +
+  theme_tracker()
+```
+
+# Methodology Changes
+
+## Relative to The Budget Lab's prior methodology
+
+The Tariff Rate Tracker represents a significant rebuild of the tariff
+estimation infrastructure relative to The Budget Lab's prior methodology
+(Tariff-ETRs). The main changes are:
+
+**Product-level USMCA utilization.** The prior methodology applied
+USMCA exemptions using GTAP sector-level utilization fractions for
+Canada and Mexico. The tracker uses product-level utilization shares
+from USITC DataWeb (programs S/S+), with year-specific files for 2024
+and 2025. This captures substantial within-sector variation in USMCA
+uptake, and the shift from pre-tariff (2024) to tariff-induced (2025)
+utilization patterns. For Section 232 auto and motor vehicle products,
+the USMCA share is further scaled by a U.S. content factor (40%) to
+reflect rules-of-origin requirements.
+
+**HTS-derived rate construction.** The prior methodology relied more
+heavily on manually curated rate inputs and scenario definitions. The
+tracker parses rates directly from HTS JSON archives, with the Chapter
+99 parser extracting additional-duty rates, country scope, and
+suspension status from the machine-readable tariff schedule. This
+reduces manual entry points and ensures rate changes are captured as
+soon as USITC publishes a new revision.
+
+**Section 232 derivative products.** The tracker uses BEA Detail
+Input-Output table metal-content shares at the HS-10 level, compared to
+the prior methodology's simpler product-level bucketing approach. This
+produces more granular scaling of IEEPA rates on the non-metal portion of
+derivative aluminum products.
+
+**Section 301 product coverage.** The tracker applies Section 301 as a
+blanket tariff using the full USITC "China Tariffs" reference product
+list (~10,400 HTS-8 codes), taking the maximum active rate across
+overlapping generations. The prior methodology used exclusive partitioning
+of products across 301 lists. Both produce the same result for most
+products, but the max-aggregation approach handles the small number of
+Biden-supersession overlaps more cleanly.
+
+**Interval encoding.** The tracker stores rates as piecewise-constant
+intervals (`valid_from`, `valid_until`) rather than as a full
+date-by-date panel. This compresses storage by approximately two orders
+of magnitude and makes point-in-time queries efficient. Daily outputs
+are derived by broadcasting these intervals.
+
+**Section 122 enforcement.** The tracker explicitly models the 150-day
+statutory limit on Section 122 authority, zeroing rates after the expiry
+date in the build, daily outputs, and point-in-time queries. A
+configuration flag allows the expiry to be overridden if Congress
+extends the authority.
+
+## Relative to Tax Policy Center (TPC) estimates
+
+The tracker validates its rates against TPC benchmark data at five
+snapshot dates corresponding to major policy events. TPC estimates are
+derived from the daily rates published by TPC and therefore may reflect
+different timing conventions, interpolation methods, or rate assumptions
+that are not fully transparent from the published series alone.
+
+```{r tpc-table, eval=!is.null(etr_overall)}
+tpc_comparison <- etr_overall %>%
+  filter(!is.na(etr_tpc)) %>%
+  mutate(
+    tracker_pct = sprintf('%.1f%%', etr * 100),
+    tpc_pct = sprintf('%.1f%%', etr_tpc * 100),
+    diff_pp = sprintf('%+.1f pp', (etr - etr_tpc) * 100)
+  ) %>%
+  select(Date = date, `Policy Event` = label,
+         `Tracker ETR` = tracker_pct,
+         `TPC ETR` = tpc_pct,
+         Difference = diff_pp)
+
+knitr::kable(
+  tpc_comparison,
+  caption = 'Weighted ETR comparison: Tracker vs. TPC at policy-event dates',
+  align = c('l', 'l', 'r', 'r', 'r')
+)
+```
+
+The main sources of divergence are:
+
+**Section 232/IEEPA mutual exclusion.** The tracker applies mutual
+exclusion between Section 232 and IEEPA reciprocal, following the legal
+structure where 232 tariffs take precedence. TPC appears to stack IEEPA
+reciprocal on top of Section 232 products additively. This accounts for
+the largest product-level discrepancies (~25 percentage points on ~920
+Chinese steel and aluminum products) and is a deliberate methodological
+difference, not a data error.
+
+**Liberation Day timing.** The April 2025 snapshot captures a period of
+rapid policy changes (Phase 1 announcement, China escalation, Phase 1
+suspension) compressed into a single week. The tracker is tied to HTS
+revision dates, which may not align exactly with the dates TPC uses for
+its benchmark snapshot. The large divergence at the April 17 date
+primarily reflects this timing difference.
+
+**Floor-country treatment.** For countries under a 15% floor rate
+structure (EU, Japan, South Korea, Switzerland), the tracker applies the
+floor to all products by default, including those with a 0% MFN base
+rate. TPC may exclude duty-free products from floor treatment.
+Approximately 38% of the product-level disagreement on floor-country
+rates is attributable to this difference. The remaining residual
+suggests additional product-level methodology differences that are not
+fully characterized.
+
+**USMCA utilization rates.** The tracker uses product-level USMCA
+utilization shares, whereas TPC appears to use a different approach
+(possibly product-level utilization rates with a different source or
+methodology). The tracker's binary-to-continuous shift improved agreement
+with TPC for Canadian and Mexican products but differences remain,
+particularly for automotive products where rules-of-origin and content
+requirements are complex.
+
+```{r tpc-partner-table, eval=!is.null(etr_partner)}
+# Latest date with TPC data
+tpc_partner_latest <- etr_partner %>%
+  filter(!is.na(etr_tpc)) %>%
+  filter(date == max(date)) %>%
+  mutate(
+    partner_label = partner_labels[partner],
+    tracker_pct = sprintf('%.1f%%', etr * 100),
+    tpc_pct = sprintf('%.1f%%', etr_tpc * 100),
+    diff_pp = sprintf('%+.1f pp', (etr - etr_tpc) * 100),
+    share_pct = sprintf('%.1f%%', import_share * 100)
+  ) %>%
+  select(
+    Partner = partner_label,
+    `Import Share` = share_pct,
+    `Tracker ETR` = tracker_pct,
+    `TPC ETR` = tpc_pct,
+    Difference = diff_pp
+  )
+
+knitr::kable(
+  tpc_partner_latest,
+  caption = paste0(
+    'Partner-level ETR comparison at latest TPC benchmark date (',
+    max(etr_partner$date[!is.na(etr_partner$etr_tpc)]), ')'
+  ),
+  align = c('l', 'r', 'r', 'r', 'r')
+)
+```
+
+These comparisons should be interpreted with caution. The TPC benchmark
+values used here are derived from TPC's published daily rates at
+specific snapshot dates. Any differences may reflect not only
+methodological divergence but also differences in timing, trade data
+vintages, or product classification that are difficult to disentangle
+without access to TPC's underlying product-level data.

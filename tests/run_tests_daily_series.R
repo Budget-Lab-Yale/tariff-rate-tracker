@@ -384,7 +384,7 @@ run_test('tpc_additive produces different totals than mutual_exclusion', {
   # With tpc_additive: 232 + recip + s122 — should be higher
   stopifnot(nrow(me$daily_overall) > 0)
   stopifnot(nrow(tpc$daily_overall) > 0)
-  stopifnot(tpc$daily_overall$mean_additional[1] > me$daily_overall$mean_additional[1])
+  stopifnot(tpc$daily_overall$mean_additional_exposed[1] > me$daily_overall$mean_additional_exposed[1])
 })
 
 run_test('tpc_additive authority decomposition reflects additive stacking', {
@@ -624,6 +624,96 @@ run_test('no non-China rate_301 in current timeseries', {
     stop(nrow(non_china), ' non-China rows with rate_301 > 0 — needs investigation')
   }
   stopifnot(nrow(non_china) == 0)
+})
+
+
+# =============================================================================
+# Test 14: All-pairs denominator in daily aggregates
+# =============================================================================
+
+message('\n--- Test 14: All-pairs denominator ---')
+
+run_test('all-pairs mean is lower than exposed-pairs mean for sparse panel', {
+  # Create a sparse panel: 3 products x 2 countries = 6 possible pairs, but only 4 present
+  ts_sparse <- tibble(
+    hts10 = c('0101000000', '0101000000', '0102000000', '0102000000',
+              '0103000000', '0103000000'),
+    country = c('5700', '4280', '5700', '4280', '5700', '4280'),
+    revision = 'rev_a',
+    base_rate = 0.05, statutory_base_rate = 0.05,
+    rate_232 = 0, rate_301 = 0, rate_ieepa_recip = 0.10,
+    rate_ieepa_fent = 0, rate_s122 = 0, rate_section_201 = 0,
+    rate_other = 0, metal_share = 0, usmca_eligible = FALSE,
+    total_additional = 0.10, total_rate = 0.15,
+    effective_date = as.Date('2025-04-01'),
+    valid_from = as.Date('2025-04-01'), valid_until = as.Date('2025-04-02')
+  )
+  # Remove one row to make it sparse (5 of 6 pairs)
+  ts_sparse <- ts_sparse[-6, ]
+
+  daily <- build_daily_aggregates(ts_sparse,
+    date_range = c(as.Date('2025-04-01'), as.Date('2025-04-01')))
+
+  ov <- daily$daily_overall
+  stopifnot('mean_additional_exposed' %in% names(ov))
+  stopifnot('mean_additional_all_pairs' %in% names(ov))
+  stopifnot('n_pairs' %in% names(ov))
+  stopifnot('n_all_pairs' %in% names(ov))
+
+  # Exposed mean = sum(0.10 * 5) / 5 = 0.10
+  # All-pairs mean = sum(0.10 * 5) / 6 = 0.0833...
+  stopifnot(abs(ov$mean_additional_exposed[1] - 0.10) < 1e-10)
+  stopifnot(ov$n_pairs[1] == 5)
+  stopifnot(ov$n_all_pairs[1] == 6)  # 3 products x 2 countries
+  stopifnot(ov$mean_additional_all_pairs[1] < ov$mean_additional_exposed[1])
+})
+
+run_test('all-pairs equals exposed when panel is complete', {
+  # Complete panel: 2 products x 2 countries = 4 pairs, all present
+  ts_full <- tibble(
+    hts10 = c('0101000000', '0101000000', '0102000000', '0102000000'),
+    country = c('5700', '4280', '5700', '4280'),
+    revision = 'rev_a',
+    base_rate = 0.05, statutory_base_rate = 0.05,
+    rate_232 = 0, rate_301 = 0, rate_ieepa_recip = 0.10,
+    rate_ieepa_fent = 0, rate_s122 = 0, rate_section_201 = 0,
+    rate_other = 0, metal_share = 0, usmca_eligible = FALSE,
+    total_additional = 0.10, total_rate = 0.15,
+    effective_date = as.Date('2025-04-01'),
+    valid_from = as.Date('2025-04-01'), valid_until = as.Date('2025-04-02')
+  )
+  daily <- build_daily_aggregates(ts_full,
+    date_range = c(as.Date('2025-04-01'), as.Date('2025-04-01')))
+
+  ov <- daily$daily_overall
+  stopifnot(ov$n_pairs[1] == ov$n_all_pairs[1])
+  stopifnot(abs(ov$mean_additional_exposed[1] - ov$mean_additional_all_pairs[1]) < 1e-10)
+})
+
+run_test('by-country all-pairs uses revision product count as denominator', {
+  # 3 products x 2 countries, but country 4280 only has 2 of 3 products
+  ts_sparse <- tibble(
+    hts10 = c('0101000000', '0101000000', '0102000000', '0102000000', '0103000000'),
+    country = c('5700', '4280', '5700', '4280', '5700'),
+    revision = 'rev_a',
+    base_rate = 0.05, statutory_base_rate = 0.05,
+    rate_232 = 0, rate_301 = 0, rate_ieepa_recip = 0.10,
+    rate_ieepa_fent = 0, rate_s122 = 0, rate_section_201 = 0,
+    rate_other = 0, metal_share = 0, usmca_eligible = FALSE,
+    total_additional = 0.10, total_rate = 0.15,
+    effective_date = as.Date('2025-04-01'),
+    valid_from = as.Date('2025-04-01'), valid_until = as.Date('2025-04-02')
+  )
+  daily <- build_daily_aggregates(ts_sparse,
+    date_range = c(as.Date('2025-04-01'), as.Date('2025-04-01')))
+
+  cty <- daily$daily_by_country
+  cty_4280 <- cty %>% filter(country == '4280')
+  # Country 4280 has 2 rows, exposed mean = 0.10
+  # All-pairs: 2 * 0.10 / 3 = 0.0667 (denominator = 3 total products in revision)
+  stopifnot(abs(cty_4280$mean_additional_exposed[1] - 0.10) < 1e-10)
+  stopifnot(abs(cty_4280$mean_additional_all_pairs[1] - 0.2 / 3) < 1e-10)
+  stopifnot(cty_4280$n_products_total[1] == 3)
 })
 
 

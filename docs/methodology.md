@@ -194,6 +194,13 @@ The revision panel is the legal-in-effect dataset. It answers:
 
 Daily outputs are derived by broadcasting piecewise-constant revision intervals across calendar days, with explicit handling for date-bounded overrides such as Section 122 expiry.
 
+Unweighted daily means are reported with two denominators:
+
+- `*_exposed`: mean across product-country pairs present in the sparse tariff panel (pairs with non-zero tariff activity).
+- `*_all_pairs`: mean across the full Cartesian product of all products and all countries in the revision. Missing pairs are treated as having zero additional tariff. This is the default reporting statistic.
+
+The all-pairs denominator is `n_products * n_countries` for overall aggregates and `n_products_total` for per-country aggregates. Products with zero additional tariff across all countries are generally still present in the panel through blanket IEEPA coverage, so the two denominators converge for revisions with broad blanket programs.
+
 ### Weighted ETRs
 
 Weighted ETRs are reporting outputs, not separate production logic. They use local import weights when available and summarize the product-country panel by:
