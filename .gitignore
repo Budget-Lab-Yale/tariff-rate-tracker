@@ -5,6 +5,8 @@
 
 # Local config (user-specific paths — use local_paths.yaml.example as template)
 config/local_paths.yaml
+config/.chapter99_hash
+config/.chapter99_pending
 
 # API credentials (never commit tokens)
 .env

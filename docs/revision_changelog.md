@@ -312,3 +312,12 @@ No Chapter 99 changes. +153 product line additions.
    - **Fentanyl stacking on 232 products**: `apply_stacking_rules()` and `compute_net_authority_contributions()` in `helpers.R` were incorrectly scaling fentanyl by `nonmetal_share` for non-China 232 products (zeroing fentanyl on full-metal items). Fixed to stack fentanyl in full, matching the China path.
    - **Country alias codes**: Myanmar (5560→5460), Macau (5850→5660), Cote d'Ivoire (7230→7480) were mapped to wrong Census codes in `05_parse_policy_params.R`.
    - **232 light-truck gate**: `06_calculate_rates.R` used `autos_light` instead of `autos_light_trucks` in its heading gates, causing light-truck prefixes to bypass the Ch99-activation check.
+
+7. **Additional fixes (2026-03-13)**:
+   - **Country applicability fail-closed**: `check_country_applies()` now returns `FALSE` for unknown/NA `country_type` values, preventing unmatched Ch99 descriptions from applying to all countries.
+   - **Empty revision early return**: Removed the `nrow(rates) == 0` early return in `calculate_rates_for_revision()`. Blanket-authority steps (IEEPA, 232, 301, S122) now populate rows even when the footnote seed is empty.
+   - **Section 301 scope**: Excluded `rate_301` from non-China branches in `apply_stacking_rules()` so stacking matches the decomposition.
+   - **Auto deal vs blanket 232**: `extract_section232_rates()` no longer falls back to `max(deal_rate)` as a global auto tariff when only country-specific deal entries exist. Non-deal countries correctly stay at zero.
+   - **All-pairs denominator**: Daily aggregates now report both `*_exposed` (sparse panel) and `*_all_pairs` (full Cartesian product) means. Reporting default is `*_all_pairs`.
+   - **Revision date automation**: `01_scrape_revision_dates.R` rewritten to use the USITC REST API (`releaseList`) for discovering new revisions. Includes Chapter 99 PDF change detection via SHA-256 hash comparison.
+   - **Assumption #12 removed**: TPC additive stacking methodology moved from `assumptions.md` to a code comment in `helpers.R` — it describes TPC's approach, not our own assumption.

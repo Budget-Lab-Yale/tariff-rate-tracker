@@ -481,13 +481,31 @@ load_revision_dates <- function(csv_path = here('config', 'revision_dates.csv'))
     effective_date = col_date(),
     tpc_date = col_date(),
     policy_event = col_character(),
-    tpc_policy_revision = col_character()
+    tpc_policy_revision = col_character(),
+    needs_review = col_character()
   ))
 
   # Validate
   stopifnot(all(!is.na(dates$revision)))
   stopifnot(all(!is.na(dates$effective_date)))
   stopifnot(!any(duplicated(dates$revision)))
+
+  # Check for unresolved placeholder dates
+  if ('needs_review' %in% names(dates)) {
+    unreviewed <- dates %>% filter(!is.na(needs_review) & needs_review == 'TRUE')
+    if (nrow(unreviewed) > 0) {
+      stop(
+        nrow(unreviewed), ' revision(s) have unreviewed placeholder dates:\n',
+        paste0('  ', unreviewed$revision, '  effective_date=', unreviewed$effective_date,
+               collapse = '\n'),
+        '\n\nThe API publication date is NOT the policy effective date.',
+        '\nOpen config/revision_dates.csv, set the correct effective_date,',
+        '\nand remove or clear the needs_review column for these rows.'
+      )
+    }
+    # Drop the column after validation — downstream code doesn't need it
+    dates <- dates %>% select(-needs_review)
+  }
 
   # Sort by effective_date
   dates <- dates %>% arrange(effective_date)
@@ -660,7 +678,10 @@ apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutu
     df$metal_share[is.na(df$metal_share)] <- 1.0
   }
 
-  # TPC additive: all authorities stack with no mutual exclusion
+  # TPC additive: all authorities stack with no mutual exclusion.
+  # TPC stacks IEEPA reciprocal on top of 232 — confirmed empirically by comparing
+  # our mutual-exclusion rates against TPC data (the ~25pp systematic gap on 232
+  # products matches the IEEPA reciprocal rate and disappears in additive mode).
   if (stacking_method == 'tpc_additive') {
     return(
       df %>%

@@ -171,17 +171,7 @@ Phase classification determines stacking behavior — country_eo rates stack add
 
 ---
 
-## 12. TPC Additive Stacking Methodology
-
-**Assumption:** TPC stacks IEEPA reciprocal tariffs on top of Section 232 tariffs with no mutual exclusion. This was confirmed by comparing our mutual-exclusion rates against TPC data — the ~25pp systematic gap on 232 products matches the magnitude of the IEEPA reciprocal rate, and disappears when running in `tpc_additive` mode.
-
-**Source:** Reverse-engineered from TPC validation data (`data/tpc/tariff_by_flow_day.csv`). TPC does not publish their stacking methodology. This assumption was confirmed empirically: switching to additive stacking eliminated the systematic 232-product discrepancy.
-
-**Implementation:** `stacking_method = 'tpc_additive'` parameter in `src/helpers.R:apply_stacking_rules()`, toggled via `--tpc-stacking` CLI flag.
-
----
-
-## 13. IEEPA Duty-Free Product Treatment
+## 12. IEEPA Duty-Free Product Treatment
 
 **Assumption:** TPC does not apply IEEPA reciprocal tariffs to products with 0% MFN base rate. Our default (`'all'`) applies IEEPA to all products regardless of MFN rate, which is the legally strict interpretation (EO text does not carve out duty-free products). Setting `ieepa_duty_free_treatment: 'nonzero_base_only'` matches TPC methodology.
 

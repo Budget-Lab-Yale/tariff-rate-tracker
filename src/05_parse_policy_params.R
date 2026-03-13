@@ -686,8 +686,10 @@ extract_section232_rates <- function(ch99_data) {
   s232_auto <- ch99_data %>%
     filter(grepl('^9903\\.94', ch99_code), !is.na(rate))
 
+  auto_has_deals <- FALSE
   if (nrow(s232_auto) > 0) {
-    # Auto entries: look for parent entry applying to all countries
+    # Auto entries: look for blanket entry applying to all countries.
+    # Country-specific deal entries are NOT evidence of a blanket tariff.
     auto_all <- s232_auto %>% filter(country_type == 'all')
     auto_except <- s232_auto %>% filter(country_type == 'all_except')
 
@@ -701,10 +703,12 @@ extract_section232_rates <- function(ch99_data) {
       message('  Auto 232: ', round(auto_rate * 100), '% (all except ',
               length(auto_exempt), ' countries/groups)')
     } else {
-      # Country-specific auto entries: take the max as the default
-      auto_rate <- max(s232_auto$rate)
+      # Only country-specific deal entries — no blanket auto tariff
+      auto_rate <- 0
       auto_exempt <- character(0)
-      message('  Auto 232: ', round(auto_rate * 100), '% (country-specific entries)')
+      auto_has_deals <- TRUE
+      message('  Auto 232: no blanket rate (', nrow(s232_auto),
+              ' country-specific deal entries only)')
     }
   } else {
     auto_rate <- 0
@@ -825,12 +829,12 @@ extract_section232_rates <- function(ch99_data) {
     }
   }
 
-  has_232 <- (steel_rate > 0 || aluminum_rate > 0 || auto_rate > 0 ||
+  has_232 <- (steel_rate > 0 || aluminum_rate > 0 || auto_rate > 0 || auto_has_deals ||
               wood_rate > 0 || wood_furniture_rate > 0 || mhd_rate > 0 || copper_rate > 0)
 
   coverage_parts <- c()
   if (steel_rate > 0 || aluminum_rate > 0) coverage_parts <- c(coverage_parts, 'steel/aluminum')
-  if (auto_rate > 0) coverage_parts <- c(coverage_parts, 'autos')
+  if (auto_rate > 0 || auto_has_deals) coverage_parts <- c(coverage_parts, 'autos')
   if (wood_rate > 0 || wood_furniture_rate > 0) coverage_parts <- c(coverage_parts, 'wood')
   if (mhd_rate > 0) coverage_parts <- c(coverage_parts, 'MHD')
   if (copper_rate > 0) coverage_parts <- c(coverage_parts, 'copper')
@@ -849,6 +853,7 @@ extract_section232_rates <- function(ch99_data) {
     aluminum_exempt = aluminum_exempt,
     auto_exempt = auto_exempt,
     derivative_exempt = derivative_exempt,
+    auto_has_deals = auto_has_deals,
     auto_deal_rates = auto_deal_rates,
     wood_deal_rates = wood_deal_rates,
     steel_country_overrides = steel_country_overrides,

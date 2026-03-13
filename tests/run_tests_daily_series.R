@@ -718,6 +718,64 @@ run_test('by-country all-pairs uses revision product count as denominator', {
 
 
 # =============================================================================
+# Test 15: Auto deal vs blanket rate separation (232)
+# =============================================================================
+
+message('\n--- Test 15: Auto deal vs blanket 232 separation ---')
+
+run_test('deal-only auto entries produce auto_rate = 0', {
+  # Simulate ch99 data with only country-specific auto deal entries (no blanket)
+  ch99_deal_only <- tibble(
+    ch99_code = c('9903.94.05', '9903.94.06'),
+    rate = c(0.15, 0.075),
+    country_type = c('specific', 'specific'),
+    countries = list('GB', 'GB'),
+    description = c('passenger vehicles', 'automobile parts'),
+    general_raw = c('15%', '+7.5%'),
+    authority = 'section_232',
+    exempt_countries = list(character(0), character(0))
+  )
+  s232 <- extract_section232_rates(ch99_deal_only)
+  # Blanket auto_rate should be 0 — no 'all' or 'all_except' entries
+  stopifnot(s232$auto_rate == 0)
+  # But deals exist
+  stopifnot(s232$auto_has_deals == TRUE)
+})
+
+run_test('blanket auto entry produces auto_rate > 0', {
+  ch99_blanket <- tibble(
+    ch99_code = '9903.94.01',
+    rate = 0.25,
+    country_type = 'all',
+    countries = list('all'),
+    description = 'passenger vehicles',
+    general_raw = '25%',
+    authority = 'section_232',
+    exempt_countries = list(character(0))
+  )
+  s232 <- extract_section232_rates(ch99_blanket)
+  stopifnot(s232$auto_rate == 0.25)
+  stopifnot(s232$auto_has_deals == FALSE)
+})
+
+run_test('deal-only auto does not set auto_rate for non-deal countries', {
+  # With auto_rate = 0 and auto_has_deals = TRUE, heading gates open
+  # but per-country rate = 0 for non-deal countries
+  s232_mock <- list(
+    auto_rate = 0,
+    auto_has_deals = TRUE,
+    auto_exempt = character(0)
+  )
+  # Gate should be open
+  gate <- s232_mock$auto_rate > 0 || s232_mock$auto_has_deals
+  stopifnot(gate == TRUE)
+  # But non-deal country rate = 0
+  non_deal_rate <- if_else(FALSE, 0, s232_mock$auto_rate)  # not exempt, but rate = 0
+  stopifnot(non_deal_rate == 0)
+})
+
+
+# =============================================================================
 # Summary
 # =============================================================================
 

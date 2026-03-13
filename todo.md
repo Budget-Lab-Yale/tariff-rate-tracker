@@ -31,49 +31,16 @@ A footnote parse miss, or a revision that relies mainly on blanket authorities, 
 
 ---
 
-## 2. Country-specific auto deals can become a global auto tariff
+## 2. ~~Country-specific auto deals can become a global auto tariff~~ (DONE 2026-03-13)
 
-**Priority: Medium-Low (latent logic risk; partially masked in current revisions)**
+Status:
+- [src/05_parse_policy_params.R](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/05_parse_policy_params.R): `extract_section232_rates()` now sets `auto_rate = 0` when only country-specific deal entries exist (no blanket `all`/`all_except` row). Returns `auto_has_deals` flag so the heading gate can still open for deal application.
+- [src/06_calculate_rates.R](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/06_calculate_rates.R): heading gates for `autos_passenger`/`autos_light_trucks` now check `auto_rate > 0 || auto_has_deals`. Non-deal countries get `auto_rate = 0` from the per-country lookup; deal countries are overridden later by the deal application loop.
+- Test 15 in [tests/run_tests_daily_series.R](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/tests/run_tests_daily_series.R) covers deal-only vs blanket ch99 data and confirms non-deal countries stay at zero.
 
-### Issue
-
-In [src/05_parse_policy_params.R](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/05_parse_policy_params.R), `extract_section232_rates()` falls back to `max(s232_auto$rate)` when there is no blanket auto row and only country-specific deal rows exist. That value is then reused downstream as if it were the default auto tariff.
-
-### Investigation findings (2026-03-13)
-
-The fallback appears to trigger broadly because the blanket auto entry `9903.94.01` does not provide a parseable numeric rate through the raw Chapter 99 parser path used by the live build.
-
-Important clarification:
-1. The production build parses Chapter 99 directly inside [src/00_build_timeseries.R](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/00_build_timeseries.R); it does **not** depend on `data/processed/chapter99_rates.rds` as a rescue path.
-2. `config/policy_params.yaml` defines `default_rate: 0.25` for `autos_passenger` and `autos_light_trucks`.
-3. In [src/06_calculate_rates.R](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/06_calculate_rates.R), the rate assignment uses `cfg$default_rate %||% s232_rates$auto_rate`, so the config default takes precedence over the parsed fallback.
-
-That means the current repo is somewhat protected from the bad parsed `auto_rate`, but **not fully**:
-- the same heading config still applies a blanket 25% default once the auto gate is active,
-- and the gate itself is currently driven by `s232_rates$auto_rate > 0`.
-
-So if a future revision contains only country-specific auto deal rows and no true blanket auto row, the repo could still over-apply a global 25% auto tariff even with the config defaults left in place.
-
-Conclusion:
-- this is likely not driving a large error in the current tracked revisions,
-- but it remains a real logic defect, not just harmless cleanup.
-
-### Proposed solution
-
-- Split auto logic into `auto_blanket_rate` (from true blanket entry, default 0) and `auto_deal_rates` (country-specific overrides).
-- Update heading gate to check for deal rows OR blanket rate.
-- Treat the config default as a reporting/config convenience, not as evidence of blanket legal coverage.
-- Keep this below the highest-priority bugs, but do not mark it resolved.
-
-### Files to update
-
-- [src/05_parse_policy_params.R](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/05_parse_policy_params.R)
-- [src/06_calculate_rates.R](/C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/06_calculate_rates.R)
-
-### Tests to add
-
-- A fixture where the auto block contains only country-specific deal entries and no blanket auto row
-- A regression test that confirms non-deal countries stay at zero auto 232 in that case
+Clarification:
+- The `default_rate: 0.25` in `policy_params.yaml` is still used as the heading-level rate via `cfg$default_rate %||% s232_rates$auto_rate`. With `auto_rate = 0`, the config default always wins. This is correct: the config records the legal blanket rate even when the parser can't extract it from `9903.94.01`.
+- The fix prevents a future deal-only revision from incorrectly applying a global 25% auto tariff to non-deal countries.
 
 ---
 
@@ -111,11 +78,50 @@ Status:
 
 ---
 
+## 6. ~~Revision-date API automation can fail silently~~ (DONE 2026-03-13)
+
+Status:
+- Replaced `year(effective_date)` with `as.integer(format(effective_date, '%Y'))` — no lubridate dependency needed.
+- Narrowed `tryCatch` to network/HTTP errors only; code/config errors now propagate with real stack traces instead of masquerading as "API unavailable."
+
+---
+
+## 7. ~~Chapter 99 PDF change detection clears its own alert and mutates shared cache~~ (DONE 2026-03-13)
+
+Status:
+- Probe download now goes to `tempdir()`, never touches `data/us_notes/chapter99.pdf`.
+- When a change is detected, a pending marker (`.chapter99_pending`) is written instead of advancing the stored hash. The alert persists across runs until acknowledged with `--accept-pdf-hash`.
+- Download is validated with PDF magic-byte signature check (`%PDF`) plus minimum size threshold. Bad downloads are discarded, not cached.
+
+---
+
+## 8. ~~Placeholder publication dates can enter the canonical revision schedule without a hard guard~~ (DONE 2026-03-13)
+
+Status:
+- New revisions get `needs_review = TRUE` column in `revision_dates.csv`.
+- `load_revision_dates()` in `helpers.R` now halts with a clear error listing all unreviewed rows if any `needs_review = TRUE` entries exist.
+- The build cannot proceed until the user sets the correct `effective_date` and clears the flag.
+
+---
+
+## 9. ~~Setup and build docs are stale relative to the new automation~~ (DONE 2026-03-13)
+
+Status:
+- `preflight.R` and `install_dependencies.R`: replaced `rvest` with `digest` in optional packages.
+- `docs/methodology.md`: added "Revision discovery and dating" section describing the API-assisted workflow, publication-vs-policy date distinction, and PDF change detection.
+- No `docs/build.md` exists in the repo — methodology.md is the canonical build/operational doc.
+
+---
+
 ## Suggested order
 
-1. ~~Fix fail-open country applicability.~~ (DONE)
-2. ~~Remove the empty-revision early return.~~ (DONE)
-3. ~~Harmonize Section 301 scope across stacking and decomposition.~~ (DONE)
-4. Fix country-specific auto deals versus blanket auto rates. (medium-low priority, still a real logic defect)
-5. ~~Redefine and document the unweighted daily mean denominator.~~ (DONE)
-6. If non-China 301 tariffs emerge, add a dedicated authority column (see item 4 notes).
+1. ~~Fix the `year()` dependency bug in revision-date automation.~~ (DONE)
+2. ~~Add a hard build/preflight guard for placeholder publication dates.~~ (DONE)
+3. ~~Rework Chapter 99 PDF change detection so it does not clear its own alert or overwrite the shared parser cache.~~ (DONE)
+4. ~~Update setup/build docs and optional package checks to match the new automation.~~ (DONE)
+5. ~~Fix fail-open country applicability.~~ (DONE)
+6. ~~Remove the empty-revision early return.~~ (DONE)
+7. ~~Harmonize Section 301 scope across stacking and decomposition.~~ (DONE)
+8. ~~Fix country-specific auto deals versus blanket auto rates.~~ (DONE)
+9. ~~Redefine and document the unweighted daily mean denominator.~~ (DONE)
+10. If non-China 301 tariffs emerge, add a dedicated authority column (see item 4 notes).

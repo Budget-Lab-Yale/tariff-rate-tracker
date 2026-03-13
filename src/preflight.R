@@ -19,7 +19,7 @@
 REQUIRED_PACKAGES <- c('tidyverse', 'jsonlite', 'yaml', 'here')
 OPTIONAL_PACKAGES <- c(
   'pdftools',   # scrape_us_notes.R (Chapter 99 PDF parsing)
-  'rvest',      # 01_scrape_revision_dates.R (USITC web scraping)
+  'digest',     # 01_scrape_revision_dates.R (Chapter 99 PDF change detection)
   'arrow',      # 09_daily_series.R (Parquet export)
   'httr'        # optional HTTP utilities
 )

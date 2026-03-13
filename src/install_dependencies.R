@@ -20,7 +20,7 @@ REQUIRED <- c(
 
 OPTIONAL <- c(
   'pdftools',    # Chapter 99 US Notes PDF parsing (scrape_us_notes.R)
-  'rvest',       # USITC web scraping (01_scrape_revision_dates.R)
+  'digest',      # Chapter 99 PDF change detection (01_scrape_revision_dates.R)
   'arrow',       # Parquet export (09_daily_series.R export_daily_slice)
   'httr'         # HTTP utilities (optional download fallbacks)
 )

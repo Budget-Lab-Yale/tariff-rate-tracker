@@ -63,6 +63,12 @@ Daily outputs are derived from this interval representation rather than stored a
 - Weighted ETR outputs when local import weights are configured
 - Sensitivity variants and diagnostic outputs
 
+## Revision discovery and dating
+
+New HTS revisions are discovered automatically via the USITC REST API (`hts.usitc.gov/reststop/releaseList`). The scraper (`src/01_scrape_revision_dates.R`) also checks whether the Chapter 99 PDF has changed by comparing SHA-256 hashes, which can detect amendments that have not yet been published as a separate API release.
+
+**Important:** The API returns *publication dates* (when USITC posted the revision), not *policy effective dates* (when the tariff took effect). These regularly differ by weeks. When the scraper adds a new revision, it uses the publication date as a placeholder and marks the `policy_event` column with `[REVIEW]`. The pipeline treats this date as the policy date for timeseries intervals until manually corrected. The correct policy effective date should be set in `config/revision_dates.csv` before running a production build.
+
 ## Operational model
 
 ### Step 1: parse revision inputs
