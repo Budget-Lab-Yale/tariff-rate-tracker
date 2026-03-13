@@ -17,12 +17,21 @@ source(here('src', '09_daily_series.R'))
 
 pass_count <- 0
 fail_count <- 0
+skip_count <- 0
+
+skip_test <- function(reason) {
+  cond <- structure(class = c('skip', 'condition'), list(message = reason))
+  stop(cond)
+}
 
 run_test <- function(name, expr) {
   tryCatch({
     force(expr)
     message('  PASS: ', name)
     pass_count <<- pass_count + 1
+  }, skip = function(e) {
+    message('  SKIP: ', name, ' — ', conditionMessage(e))
+    skip_count <<- skip_count + 1
   }, error = function(e) {
     message('  FAIL: ', name, ' — ', conditionMessage(e))
     fail_count <<- fail_count + 1
@@ -548,8 +557,7 @@ run_test('all_except excludes exempt countries', {
 run_test('no unknown country_type in current ch99 data', {
   ch99_path <- here('data', 'processed', 'chapter99_rates.rds')
   if (!file.exists(ch99_path)) {
-    message('    (skipped — ch99 data not found)')
-    return(invisible())
+    skip_test('ch99 data not found')
   }
   ch99 <- readRDS(ch99_path)
   n_unknown <- sum(ch99$country_type == 'unknown', na.rm = TRUE)
@@ -615,8 +623,7 @@ run_test('decomposition matches stacking for non-China with rate_301', {
 run_test('no non-China rate_301 in current timeseries', {
   ts_path <- here('data', 'timeseries', 'rate_timeseries.rds')
   if (!file.exists(ts_path)) {
-    message('    (skipped — timeseries not found)')
-    return(invisible())
+    skip_test('timeseries not found')
   }
   ts <- readRDS(ts_path)
   non_china <- ts %>% filter(country != '5700' & rate_301 > 0)
@@ -780,6 +787,6 @@ run_test('deal-only auto does not set auto_rate for non-deal countries', {
 # =============================================================================
 
 message('\n', strrep('=', 50))
-message('Tests: ', pass_count, ' passed, ', fail_count, ' failed')
+message('Tests: ', pass_count, ' passed, ', skip_count, ' skipped, ', fail_count, ' failed')
 message(strrep('=', 50))
 if (fail_count > 0) stop(fail_count, ' test(s) failed')

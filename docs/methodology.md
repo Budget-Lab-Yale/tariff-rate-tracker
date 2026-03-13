@@ -168,6 +168,8 @@ This is now a core modeling input, not a Tariff-ETRs benchmark input.
 
 Section 122 is treated as a temporary post-IEEPA blanket authority with a configurable expiry date and `finalized` flag.
 
+Section 122 follows the same mutual-exclusion rule as IEEPA reciprocal with respect to Section 232. On products with `rate_232 > 0`, the Section 122 rate is scaled by `nonmetal_share` (= `1 - metal_share`). For pure 232 products (`metal_share = 1.0`), Section 122 contributes zero because Section 232 already covers them at higher rates (50% steel/aluminum vs. 15% maximum under Section 122). For derivative 232 products, Section 122 applies only to the non-metal portion. For non-232 products, Section 122 stacks at its full rate.
+
 The repo enforces Section 122 timing in three places:
 
 - build-time per-revision rate construction

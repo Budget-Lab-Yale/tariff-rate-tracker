@@ -652,7 +652,11 @@ enforce_rate_schema <- function(df) {
 #'     to the non-metal portion of customs value
 #'   - Fentanyl stacks on 232 for all countries (separate IEEPA authority)
 #'   - Section 301 only applies to China
-#'   - Section 122 stacks on everything
+#'   - Section 122 is scaled by nonmetal_share on 232 products (same treatment as
+#'     IEEPA reciprocal). For pure-metal products (metal_share = 1.0), nonmetal_share = 0,
+#'     so s122 contributes zero — Section 232 already covers these at higher rates.
+#'     For derivative 232 products (metal_share < 1.0), s122 applies to the non-metal
+#'     portion. For non-232 products, s122 stacks at full value.
 #'
 #' @param df Data frame with rate_232, rate_301, rate_ieepa_recip,
 #'   rate_ieepa_fent, rate_s122, rate_other, metal_share, country columns

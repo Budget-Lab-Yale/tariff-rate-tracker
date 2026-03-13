@@ -326,6 +326,7 @@ build_full_timeseries <- function(
 
   message('  Added interval columns: valid_from / valid_until')
 
+  if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
   ts_path <- file.path(output_dir, 'rate_timeseries.rds')
   saveRDS(timeseries, ts_path)
   message('Saved time series: ', ts_path)

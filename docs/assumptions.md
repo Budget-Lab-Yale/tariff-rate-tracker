@@ -171,7 +171,25 @@ Phase classification determines stacking behavior — country_eo rates stack add
 
 ---
 
-## 12. IEEPA Duty-Free Product Treatment
+## 12. Section 122 / Section 232 Mutual Exclusion on Metal Products
+
+**Assumption:** Section 122 follows the same mutual-exclusion treatment as IEEPA reciprocal with respect to Section 232. On products with `rate_232 > 0`, the Section 122 rate is scaled by `nonmetal_share` (= `1 - metal_share`):
+
+| Product type | metal_share | nonmetal_share | Section 122 effective contribution |
+|-------------|-------------|----------------|-------------------------------------|
+| Pure 232 (steel, aluminum, copper) | 1.0 | 0.0 | Zero |
+| Derivative 232 (aluminum articles) | 0 < x < 1 | 1 - x | rate_s122 * (1 - metal_share) |
+| Non-232 | n/a | n/a | Full rate_s122 |
+
+**Rationale:** Section 232 already covers metal products at rates well above Section 122's 15% statutory maximum. Applying Section 122 to the metal portion would double-count the tariff on products already subject to 232.
+
+**Source:** Tariff-ETRs stacking logic, which applies the same nonmetal scaling to all non-232 blanket authorities. No explicit Federal Register guidance specifies the interaction between Section 122 and Section 232 on overlapping products.
+
+**Implementation:** `src/helpers.R:apply_stacking_rules()` — the `case_when` branches for `rate_232 > 0` multiply `rate_s122` by `nonmetal_share`, which is 0 for pure-metal products and `1 - metal_share` for derivatives.
+
+---
+
+## 13. IEEPA Duty-Free Product Treatment
 
 **Assumption:** TPC does not apply IEEPA reciprocal tariffs to products with 0% MFN base rate. Our default (`'all'`) applies IEEPA to all products regardless of MFN rate, which is the legally strict interpretation (EO text does not carve out duty-free products). Setting `ieepa_duty_free_treatment: 'nonzero_base_only'` matches TPC methodology.
 
