@@ -20,6 +20,7 @@ The repository's core product is an interval-encoded tariff panel for the 2025-2
 - Methodology and tariff-regime history: [docs/methodology.md](docs/methodology.md)
 - Non-official assumptions: [docs/assumptions.md](docs/assumptions.md)
 - HTS revision chronology: [docs/revision_changelog.md](docs/revision_changelog.md)
+- Policy timing vs. HTS dates: [docs/policy_timing.md](docs/policy_timing.md)
 
 ## System requirements
 
