@@ -89,7 +89,10 @@ Rscript src/00_build_timeseries.R
 Rscript src/00_build_timeseries.R --full
 Rscript src/00_build_timeseries.R --build-only
 Rscript src/00_build_timeseries.R --with-alternatives
+Rscript src/00_build_timeseries.R --full --use-policy-dates
 ```
+
+The `--use-policy-dates` flag uses legal policy effective dates instead of HTS revision dates where they differ. This affects 7 revisions (e.g., SCOTUS ruling effective Feb 20 vs. HTS revision Feb 24). See [docs/policy_timing.md](policy_timing.md) for the full list and legal sources. Note: some revisions bundle multiple policy changes with different timing gaps; the flag shifts the entire revision date, which is an approximation.
 
 ## Input inventory
 

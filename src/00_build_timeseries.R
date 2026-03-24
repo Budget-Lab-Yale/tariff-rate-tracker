@@ -69,7 +69,8 @@ build_full_timeseries <- function(
   tpc_path = NULL,
   scenario = 'baseline',
   start_from = NULL,
-  stacking_method = 'mutual_exclusion'
+  stacking_method = 'mutual_exclusion',
+  use_policy_dates = FALSE
 ) {
   start_time <- Sys.time()
 
@@ -96,7 +97,8 @@ build_full_timeseries <- function(
   }
 
   # Load revision dates
-  rev_dates <- load_revision_dates(revision_dates_path)
+  rev_dates <- load_revision_dates(revision_dates_path,
+                                    use_policy_dates = use_policy_dates)
 
   # Load country codes
   census_codes <- read_csv(census_codes_path, col_types = cols(.default = col_character()))
@@ -456,12 +458,13 @@ detect_incremental_start <- function(
 if (sys.nframe() == 0) {
   library(here)
 
-  # Parse CLI args: --full, --start-from REV, --build-only, --core-only, --with-alternatives
+  # Parse CLI args
   args <- commandArgs(trailingOnly = TRUE)
   full_rebuild <- '--full' %in% args
   build_only <- '--build-only' %in% args
   core_only <- '--core-only' %in% args
   with_alternatives <- '--with-alternatives' %in% args
+  use_policy_dates <- '--use-policy-dates' %in% args
   start_from <- NULL
   for (i in seq_along(args)) {
     if (args[i] == '--start-from' && i < length(args)) start_from <- args[i + 1]
@@ -484,7 +487,9 @@ if (sys.nframe() == 0) {
   )
 
   # --- Step C: Build timeseries ---
-  result <- build_full_timeseries(start_from = start_from)
+  if (use_policy_dates) message('Mode: Using policy effective dates (--use-policy-dates)')
+  result <- build_full_timeseries(start_from = start_from,
+                                   use_policy_dates = use_policy_dates)
 
   # --- Step D: Summary ---
   if (!is.null(result)) {

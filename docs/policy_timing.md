@@ -68,12 +68,16 @@ These are not tracker errors — the tracker correctly follows legal effective d
 
 ## Infrastructure for date adjustment
 
-The `config/revision_dates.csv` now includes a `policy_effective_date` column alongside the existing `effective_date` (HTS publication date). This column is populated for the 7 revisions where the legal effective date differs from the HTS date.
+The `config/revision_dates.csv` includes a `policy_effective_date` column alongside the existing `effective_date` (HTS publication date). This column is populated for the 7 revisions where the legal effective date differs from the HTS date.
 
-To create an alternative series using legal effective dates:
+### `--use-policy-dates` flag
 
-1. Copy `config/revision_dates.csv` to a new file (e.g., `config/revision_dates_policy.csv`)
-2. For rows with a `policy_effective_date`, overwrite `effective_date` with that value
-3. Run the pipeline with the alternative config: modify `00_build_timeseries.R` to load your custom dates file
+To build the series using legal effective dates instead of HTS dates:
 
-A future enhancement could add a `--use-policy-dates` flag to the build orchestrator to automate this swap.
+```bash
+Rscript src/00_build_timeseries.R --full --use-policy-dates
+```
+
+This swaps `policy_effective_date` into `effective_date` for the 7 revisions where it's populated. All downstream logic (rate calculation, interval construction, daily series) uses the swapped dates. The flag is implemented in `load_revision_dates()` in `src/helpers.R`.
+
+**Limitation:** Some revisions bundle multiple policy changes with different timing gaps. For example, rev_17 includes both the CA fentanyl increase (no timing gap) and copper 232 (31-day gap). The flag shifts the entire revision date, which is an approximation. For finer-grained control, copy `config/revision_dates.csv` and edit individual `effective_date` values directly.
