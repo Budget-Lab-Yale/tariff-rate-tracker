@@ -161,6 +161,13 @@ build_full_timeseries <- function(
   snapshot_paths <- character()
   failed_revisions <- character()
   last_successful_rev <- if (!is.null(start_from)) start_from else NULL
+  n_revisions <- length(revisions_to_process)
+
+  cli::cli_progress_bar(
+    format = "Processing {cli::pb_current}/{cli::pb_total} [{cli::pb_bar}] {cli::pb_eta} | {rev_id} ({eff_date})",
+    total = n_revisions,
+    clear = FALSE
+  )
 
   for (i in seq_along(revisions_to_process)) {
     rev_id <- revisions_to_process[i]
@@ -168,8 +175,10 @@ build_full_timeseries <- function(
     eff_date <- rev_info$effective_date
     tpc_date <- rev_info$tpc_date
 
+    cli::cli_progress_update()
+
     message('\n', strrep('-', 60))
-    message('[', i, '/', length(revisions_to_process), '] Processing: ',
+    message('[', i, '/', n_revisions, '] Processing: ',
             rev_id, ' (effective ', eff_date, ')')
     message(strrep('-', 60))
     log_info('[', i, '/', length(revisions_to_process), '] ', rev_id,
@@ -270,6 +279,7 @@ build_full_timeseries <- function(
       failed_revisions <<- c(failed_revisions, rev_id)
     })
   }
+  cli::cli_progress_done()
 
   # Report failures
   if (length(failed_revisions) > 0) {
