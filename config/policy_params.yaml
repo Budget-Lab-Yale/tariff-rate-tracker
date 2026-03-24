@@ -447,15 +447,18 @@ ieepa_duty_free_treatment: 'all'
 # Date when IEEPA tariff authority was invalidated by the Supreme Court.
 # All revisions with effective_date >= this date have IEEPA rates zeroed out.
 # Set to null to disable (all revisions keep IEEPA rates as parsed).
-ieepa_invalidation_date: '2026-02-24'
+ieepa_invalidation_date: '2026-02-24'       # HTS date; overridden to 2026-02-20 when use_policy_dates=TRUE
+ieepa_invalidation_policy_date: '2026-02-20' # SCOTUS ruling date (Learning Resources v. Trump)
 
 # --- Section 122 (Trade Act §122, 150-day statutory limit) ---
 # Blanket tariff replacing IEEPA after SCOTUS invalidation.
 # Effective 2026-02-24; expires after 150 days unless Congress extends.
 # Set finalized to true if Congress extends (removes expiry constraint).
 section_122:
-  effective_date: '2026-02-24'
-  expiry_date: '2026-07-23'    # 150 days from effective (last active day)
+  effective_date: '2026-02-24'           # HTS date; overridden to 2026-02-20 when use_policy_dates=TRUE
+  policy_effective_date: '2026-02-20'    # SCOTUS ruling date (S122 EO signed same day)
+  expiry_date: '2026-07-23'             # 150 days from HTS effective (last active day)
+  policy_expiry_date: '2026-07-19'      # 150 days from policy effective date
   finalized: false              # set true if Congress extends
   exempt_products: 'resources/s122_exempt_products.csv'
 

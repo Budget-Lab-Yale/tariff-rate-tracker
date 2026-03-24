@@ -302,7 +302,7 @@ build_full_timeseries <- function(
 
   # Add temporal intervals (valid_from / valid_until) from revision ordering
   # Final revision extends to configurable horizon (default: 2026-12-31), not Sys.Date()
-  policy_params <- load_policy_params()
+  policy_params <- load_policy_params(use_policy_dates = use_policy_dates)
   horizon_end <- policy_params$SERIES_HORIZON_END %||% Sys.Date()
   # Guard: horizon cannot be earlier than the final revision's effective_date
   last_eff <- max(rev_dates$effective_date[rev_dates$revision %in% unique(timeseries$revision)])

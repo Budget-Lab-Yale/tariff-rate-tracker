@@ -245,7 +245,8 @@ ensure_dir <- function(path) {
 #'
 #' @param yaml_path Path to policy_params.yaml
 #' @return List with raw params plus convenience fields
-load_policy_params <- function(yaml_path = here('config', 'policy_params.yaml')) {
+load_policy_params <- function(yaml_path = here('config', 'policy_params.yaml'),
+                               use_policy_dates = TRUE) {
   if (!file.exists(yaml_path)) {
     stop('Policy params YAML not found: ', yaml_path)
   }
@@ -364,6 +365,22 @@ load_policy_params <- function(yaml_path = here('config', 'policy_params.yaml'))
       expiry_date = as.Date(params$section_122$expiry_date),
       finalized = isTRUE(params$section_122$finalized)
     )
+  }
+
+  # Swap policy dates if requested (SCOTUS ruling + S122 coordination)
+  if (use_policy_dates) {
+    if (!is.null(params$ieepa_invalidation_policy_date)) {
+      params$IEEPA_INVALIDATION_DATE <- as.Date(params$ieepa_invalidation_policy_date)
+      message('  Policy dates: IEEPA invalidation -> ', params$IEEPA_INVALIDATION_DATE)
+    }
+    if (!is.null(params$section_122$policy_effective_date)) {
+      params$SECTION_122$effective_date <- as.Date(params$section_122$policy_effective_date)
+      message('  Policy dates: S122 effective -> ', params$SECTION_122$effective_date)
+    }
+    if (!is.null(params$section_122$policy_expiry_date)) {
+      params$SECTION_122$expiry_date <- as.Date(params$section_122$policy_expiry_date)
+      message('  Policy dates: S122 expiry -> ', params$SECTION_122$expiry_date)
+    }
   }
 
   # Local paths (optional user-specific file locations)
