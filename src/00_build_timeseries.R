@@ -464,7 +464,7 @@ if (sys.nframe() == 0) {
   build_only <- '--build-only' %in% args
   core_only <- '--core-only' %in% args
   with_alternatives <- '--with-alternatives' %in% args
-  use_policy_dates <- '--use-policy-dates' %in% args
+  use_policy_dates <- !('--use-hts-dates' %in% args)  # default: policy dates
   start_from <- NULL
   for (i in seq_along(args)) {
     if (args[i] == '--start-from' && i < length(args)) start_from <- args[i + 1]
@@ -487,7 +487,11 @@ if (sys.nframe() == 0) {
   )
 
   # --- Step C: Build timeseries ---
-  if (use_policy_dates) message('Mode: Using policy effective dates (--use-policy-dates)')
+  if (use_policy_dates) {
+    message('Mode: Using policy effective dates (default; pass --use-hts-dates to override)')
+  } else {
+    message('Mode: Using raw HTS revision dates (--use-hts-dates)')
+  }
   result <- build_full_timeseries(start_from = start_from,
                                    use_policy_dates = use_policy_dates)
 

@@ -70,15 +70,17 @@ These are not tracker errors — the tracker correctly follows legal effective d
 
 The `config/revision_dates.csv` includes a `policy_effective_date` column alongside the existing `effective_date` (HTS publication date). This column is populated for the 7 revisions where the legal effective date differs from the HTS date.
 
-### `--use-policy-dates` flag
+### Default: policy dates
 
-To build the series using legal effective dates instead of HTS dates:
+The pipeline defaults to using legal policy effective dates where they differ from HTS revision dates. This is implemented in `load_revision_dates()` in `src/helpers.R`, which swaps `policy_effective_date` into `effective_date` for the revisions where it's populated.
+
+To use raw HTS dates instead:
 
 ```bash
-Rscript src/00_build_timeseries.R --full --use-policy-dates
+Rscript src/00_build_timeseries.R --full --use-hts-dates
 ```
 
-This swaps `policy_effective_date` into `effective_date` for the 7 revisions where it's populated. All downstream logic (rate calculation, interval construction, daily series) uses the swapped dates. The flag is implemented in `load_revision_dates()` in `src/helpers.R`.
+For the SCOTUS ruling (2026_rev_4), both IEEPA removal and Section 122 imposition are assigned to the ruling date (Feb 20, 2026), since the S122 EO was signed the same day even though CBP implementation was Feb 24.
 
 **Bundling analysis:** We decomposed each timing-gap revision to determine what share of its ETR impact belongs to the policy-date component vs. the HTS-date component (import-weighted):
 

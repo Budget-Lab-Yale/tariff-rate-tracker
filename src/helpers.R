@@ -506,12 +506,13 @@ build_chapter99_url <- function(release_name) {
 #' Load revision dates from config CSV
 #'
 #' @param csv_path Path to revision_dates.csv
-#' @param use_policy_dates If TRUE, swap policy_effective_date into effective_date
-#'   where populated. This uses legal policy dates instead of HTS revision dates.
+#' @param use_policy_dates If TRUE (default), swap policy_effective_date into
+#'   effective_date where populated. This uses legal policy dates instead of
+#'   HTS revision dates. Set FALSE or pass --use-hts-dates to use raw HTS dates.
 #'   See docs/policy_timing.md for details on which revisions are affected.
 #' @return Tibble with revision, effective_date, tpc_date
 load_revision_dates <- function(csv_path = here('config', 'revision_dates.csv'),
-                                use_policy_dates = FALSE) {
+                                use_policy_dates = TRUE) {
   if (!file.exists(csv_path)) {
     stop('Revision dates CSV not found: ', csv_path,
          '\nRun scraper or create manually.')
