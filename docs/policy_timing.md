@@ -12,7 +12,7 @@ The `config/revision_dates.csv` file maps each HTS revision to its `effective_da
 |---|---|---|---|
 | rev_3 | Fentanyl surcharges (CA/MX/CN) | EOs 14193, 14194, 14195 (Feb 1, 2025) | [White House Fact Sheet](https://www.whitehouse.gov/fact-sheets/2025/02/fact-sheet-president-donald-j-trump-imposes-tariffs-on-imports-from-canada-mexico-and-china/) |
 | rev_6 | 232 Autos (25%) | Proclamation 10908 (Mar 26, 2025) | [Federal Register 90 FR 14705](https://www.federalregister.gov/documents/2025/04/03/2025-05930/adjusting-imports-of-automobiles-and-automobile-parts-into-the-united-states) |
-| rev_7 | IEEPA Phase 1 reciprocal | EO 14257 (Apr 2, 2025) | [Federal Register](https://www.presidency.ucsb.edu/documents/executive-order-14257-regulating-imports-with-reciprocal-tariff-rectify-trade-practices) |
+| rev_7 | IEEPA Phase 1 reciprocal | EO 14257 (Apr 2, 2025) | [Federal Register 90 FR 15269](https://www.federalregister.gov/documents/2025/04/07/2025-06063/regulating-imports-with-a-reciprocal-tariff-to-rectify-trade-practices-that-contribute-to-large-and) |
 | rev_16 | 232 steel/aluminum 50% | Proclamation 10947 (Jun 3, 2025) | [Federal Register 90 FR 24199](https://www.federalregister.gov/documents/2025/06/09/2025-10524/adjusting-imports-of-aluminum-and-steel-into-the-united-states) |
 | rev_17 | 232 Copper (50%) | Proclamation (Jul 30, 2025) | [Federal Register](https://www.federalregister.gov/documents/2025/08/05/2025-14893/adjusting-imports-of-copper-into-the-united-states) |
 | rev_18 | IEEPA Phase 2 reciprocal | EO 14326 (Jul 31, 2025) | [Federal Register 90 FR 37963](https://www.federalregister.gov/documents/2025/08/06/2025-15010/further-modifying-the-reciprocal-tariff-rates) |
