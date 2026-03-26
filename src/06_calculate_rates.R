@@ -227,6 +227,7 @@ check_country_applies <- function(country, country_type, countries, exempt) {
 #' @param countries Vector of Census country codes
 #' @return List with 'rates' (updated tibble) and 'deriv_matched' (character vector)
 apply_232_derivatives <- function(rates, products, ch99_data, s232_rates, countries,
+                                  heading_products = character(0),
                                   policy_params = NULL) {
   deriv_products <- load_232_derivative_products()
   deriv_matched <- character(0)
@@ -286,6 +287,19 @@ apply_232_derivatives <- function(rates, products, ch99_data, s232_rates, countr
     }
   }
 
+  # Update statutory_rate_232 for derivative products only (pre-metal-scaling).
+  # Non-derivative products already have statutory_rate_232 set before step 4b.
+  if (length(deriv_matched) > 0) {
+    rates <- rates %>%
+      mutate(
+        statutory_rate_232 = if_else(
+          hts10 %in% deriv_matched,
+          pmax(coalesce(statutory_rate_232, 0), rate_232),
+          statutory_rate_232
+        )
+      )
+  }
+
   # Join metal content shares and scale derivative 232 rates.
   # For derivative products, rate_232 was set to the full rate above;
   # now scale by metal_share so that the rate reflects metal-content-only.
@@ -304,12 +318,47 @@ apply_232_derivatives <- function(rates, products, ch99_data, s232_rates, countr
   }
 
   if (length(deriv_matched) > 0) {
+    # Scale by per-type share (aluminum_share for aluminum derivatives) rather
+    # than aggregate metal_share. The derivative tariff only applies to the
+    # aluminum content; steel/copper fractions are covered by IEEPA via
+    # nonmetal_share in stacking. This matches ETRs' per-type scaling.
+    #
+    # Skip scaling for derivatives that also have a heading rate (e.g., auto parts
+    # that are also aluminum derivatives). The heading rate dominates and shouldn't
+    # be metal-scaled — ETRs handles this via per-program pmax.
+    scale_col <- if ('aluminum_share' %in% names(rates)) 'aluminum_share' else 'metal_share'
+    # Exclude primary chapter products (72/73/76) and heading products from
+    # derivative metal scaling. Primary chapters get blanket 232 rates (full product);
+    # heading products get heading rates (full product). Only true derivatives
+    # (outside primary chapters, not heading-matched) should be metal-scaled.
+    p_chapters <- if (!is.null(.pp)) unlist(.pp$metal_content$primary_chapters) else c('72', '73', '76')
+    primary_hts10 <- rates %>% distinct(hts10) %>%
+      filter(substr(hts10, 1, 2) %in% p_chapters) %>% pull(hts10)
+    deriv_only <- setdiff(deriv_matched, c(heading_products, primary_hts10))
     rates <- rates %>%
       mutate(rate_232 = if_else(
-        hts10 %in% deriv_matched & metal_share < 1.0,
-        rate_232 * metal_share,
+        hts10 %in% deriv_only & !!sym(scale_col) < 1.0,
+        rate_232 * !!sym(scale_col),
         rate_232
       ))
+
+    # Reset metal_share to 1.0 for heading products excluded from scaling.
+    # Their rate_232 applies to the full product value (heading rate dominates),
+    # not the metal portion. Without this, stacking incorrectly computes
+    # nonmetal_share > 0 and lets IEEPA fill the "non-metal" portion.
+    heading_derivs <- intersect(deriv_matched, heading_products)
+    if (length(heading_derivs) > 0) {
+      rates <- rates %>%
+        mutate(
+          metal_share       = if_else(hts10 %in% heading_derivs, 1.0, metal_share),
+          steel_share       = if_else(hts10 %in% heading_derivs, 0, steel_share),
+          aluminum_share    = if_else(hts10 %in% heading_derivs, 0, aluminum_share),
+          copper_share      = if_else(hts10 %in% heading_derivs, 0, copper_share),
+          other_metal_share = if_else(hts10 %in% heading_derivs, 0, other_metal_share)
+        )
+      message('  Reset metal_share=1.0 for ', length(heading_derivs),
+              ' heading/derivative overlap products')
+    }
 
     n_deriv_with_232 <- sum(rates$hts10 %in% deriv_matched & rates$rate_232 > 0)
     message('  Derivative 232 after metal scaling: ', n_deriv_with_232,
@@ -1106,6 +1155,13 @@ calculate_rates_for_revision <- function(
     }
   }
 
+  # Save pre-rebate, pre-deal statutory 232 rates for CSV export.
+  # This captures the blanket rate before auto rebate (4b) and deal overrides (4c).
+  # ETRs applies rebate and target_total floor logic itself.
+  # Derivatives (set in step 5) update this column for their products.
+  rates <- rates %>%
+    mutate(statutory_rate_232 = rate_232)
+
   # 4b. Apply Section 232 auto rebate
   #     Reduces effective 232 rate on auto/vehicle products by a credit reflecting
   #     US assembly content: effective_rate -= rebate_rate * us_assembly_share.
@@ -1263,10 +1319,42 @@ calculate_rates_for_revision <- function(
   # 5. Apply Section 232 derivative tariff + metal content scaling
   #    Derivative products (9903.85.04/.07/.08) are aluminum-containing articles
   #    outside chapter 76. The tariff applies only to the metal content portion.
-  result <- apply_232_derivatives(
-    rates, products, ch99_data, s232_rates, countries,
-    policy_params = pp
-  )
+  # Build heading product list from prefixes of ACTIVE headings only.
+  # Products matching active heading prefixes are non-metal 232 programs
+  # and should NOT be metal-scaled even if they also match derivative prefixes.
+  # Inactive headings' products should be treated as pure derivatives.
+  all_heading_hts10 <- character(0)
+  if (!is.null(s232_headings)) {
+    for (nm in names(s232_headings)) {
+      # Skip inactive headings — their products are pure derivatives
+      gate_val <- heading_gates[[nm]]
+      if (!is.null(gate_val) && !gate_val) next
+      cfg <- s232_headings[[nm]]
+      prefixes <- cfg$prefixes %||% character(0)
+      if (!is.null(cfg$prefixes_file)) {
+        pf <- here(cfg$prefixes_file)
+        if (file.exists(pf)) prefixes <- c(prefixes, trimws(readLines(pf, warn = FALSE)))
+      }
+      if (!is.null(cfg$products_file)) {
+        pf <- here(cfg$products_file)
+        if (file.exists(pf)) {
+          prods <- read_csv(pf, show_col_types = FALSE,
+                            col_types = cols(.default = col_character()))
+          prefixes <- c(prefixes, prods$hts10)
+        }
+      }
+      prefixes <- unique(prefixes[nchar(prefixes) > 0])
+      if (length(prefixes) > 0) {
+        pattern <- paste0('^(', paste(prefixes, collapse = '|'), ')')
+        matched <- products$hts10[grepl(pattern, products$hts10)]
+        all_heading_hts10 <- c(all_heading_hts10, matched)
+      }
+    }
+    all_heading_hts10 <- unique(all_heading_hts10)
+  }
+  result <- apply_232_derivatives(rates, products, ch99_data, s232_rates, countries,
+                                   heading_products = all_heading_hts10,
+                                   policy_params = .pp)
   rates <- result$rates
   deriv_matched <- result$deriv_matched
 
@@ -1452,6 +1540,18 @@ calculate_rates_for_revision <- function(
             n_with_s122, ' product-country pairs (',
             length(s122_exempt_hts8), ' HTS8 exempt)')
   }
+
+  # Save statutory rates for all non-232 authorities (pre-USMCA, pre-stacking).
+  # 232 statutory rates are already saved as statutory_rate_232 in apply_232_derivatives().
+  rates <- rates %>%
+    mutate(
+      statutory_rate_ieepa_recip = rate_ieepa_recip,
+      statutory_rate_ieepa_fent  = rate_ieepa_fent,
+      statutory_rate_301         = rate_301,
+      statutory_rate_s122        = rate_s122,
+      statutory_rate_section_201 = rate_section_201,
+      statutory_rate_other       = rate_other
+    )
 
   # 6c. Apply MFN exemption shares (FTA/GSP preference adjustment)
   # Reduces statutory base_rate using HS2 x country exemption shares from Census
