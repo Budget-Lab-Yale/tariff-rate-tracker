@@ -43,9 +43,12 @@ library(yaml)
 #' @param output_dir Directory to write config files into (created if needed)
 #' @param policy_params Optional: pre-loaded policy params (calls load_policy_params() if NULL)
 #' @param etrs_resources_dir Path to ETRs resources/ directory
+#' @param ch99_data Optional: Chapter 99 data for s232 deal rates and heading gates.
+#'   If NULL, falls back to data/processed/chapter99_rates.rds (may not exist).
 generate_etrs_config <- function(ts, date, output_dir,
                                   policy_params = NULL,
-                                  etrs_resources_dir = NULL) {
+                                  etrs_resources_dir = NULL,
+                                  ch99_data = NULL) {
 
   date <- as.Date(date)
   if (is.null(policy_params)) {
@@ -64,9 +67,16 @@ generate_etrs_config <- function(ts, date, output_dir,
   }
   message(sprintf('  Snapshot: %s product-country pairs', format(nrow(snapshot), big.mark = ',')))
 
-  # Load Ch99 data for s232 deal target_total extraction
-  ch99_path <- here::here('data', 'processed', 'chapter99_rates.rds')
-  ch99_data <- if (file.exists(ch99_path)) readRDS(ch99_path) else NULL
+  # Ch99 data: use provided, else try fallback path
+  if (is.null(ch99_data)) {
+    ch99_path <- here::here('data', 'processed', 'chapter99_rates.rds')
+    if (file.exists(ch99_path)) {
+      ch99_data <- readRDS(ch99_path)
+    } else {
+      warning('No ch99_data provided and fallback not found at ', ch99_path,
+              ' — s232 heading gates and deal target_totals will be incomplete')
+    }
+  }
 
   # Export dense statutory rates CSV (replaces all per-authority YAMLs)
   active_s232_programs <- export_statutory_rates(snapshot, policy_params, output_dir,
