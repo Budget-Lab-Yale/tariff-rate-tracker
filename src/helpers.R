@@ -882,16 +882,17 @@ apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutu
 
   if (has_per_type) {
     # Determine which metal type is active per product based on chapter/product type.
-    # Steel chapters: 72/73; aluminum chapters: 76; derivatives: aluminum type.
-    # Copper and other heading programs don't have metal-type 232 (they're full-product).
-    primary_chapters <- c('72', '73', '76')
+    # Steel chapters: 72/73; aluminum chapters: 76; copper headings: flagged;
+    # derivatives: aluminum type.
+    has_copper_flag <- 'is_copper_heading' %in% names(df)
     df <- df %>%
       mutate(
         .ch2 = substr(hts10, 1, 2),
         .active_type_share = case_when(
-          rate_232 > 0 & .ch2 %in% c('72', '73') ~ steel_share,
-          rate_232 > 0 & .ch2 == '76'             ~ aluminum_share,
-          rate_232 > 0 & metal_share < 1.0         ~ aluminum_share,  # derivatives
+          rate_232 > 0 & .ch2 %in% c('72', '73')              ~ steel_share,
+          rate_232 > 0 & .ch2 == '76'                          ~ aluminum_share,
+          rate_232 > 0 & has_copper_flag & is_copper_heading   ~ copper_share,
+          rate_232 > 0 & metal_share < 1.0                     ~ aluminum_share,  # derivatives
           TRUE ~ 0
         ),
         nonmetal_share = if_else(rate_232 > 0 & .active_type_share > 0,
@@ -975,13 +976,15 @@ compute_net_authority_contributions <- function(df, cty_china = '5700',
   has_per_type <- all(c('steel_share', 'aluminum_share', 'copper_share') %in% names(df))
 
   if (has_per_type) {
+    has_copper_flag <- 'is_copper_heading' %in% names(df)
     df <- df %>%
       mutate(
         .ch2 = substr(hts10, 1, 2),
         .active_type_share = case_when(
-          rate_232 > 0 & .ch2 %in% c('72', '73') ~ steel_share,
-          rate_232 > 0 & .ch2 == '76'             ~ aluminum_share,
-          rate_232 > 0 & metal_share < 1.0         ~ aluminum_share,
+          rate_232 > 0 & .ch2 %in% c('72', '73')              ~ steel_share,
+          rate_232 > 0 & .ch2 == '76'                          ~ aluminum_share,
+          rate_232 > 0 & has_copper_flag & is_copper_heading   ~ copper_share,
+          rate_232 > 0 & metal_share < 1.0                     ~ aluminum_share,
           TRUE ~ 0
         ),
         nonmetal_share = if_else(rate_232 > 0 & .active_type_share > 0,

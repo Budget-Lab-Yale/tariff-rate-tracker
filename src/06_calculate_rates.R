@@ -1327,19 +1327,13 @@ calculate_rates_for_revision <- function(
             ' product-country pairs overridden')
   }
 
-  # Save post-deal, pre-rebate statutory 232 rates for CSV export.
+  # Save post-deal, post-rebate statutory 232 rates for CSV export.
   # After deal overrides (step 4c), rate_232 reflects the effective rate including
-  # floor/surcharge adjustments. For auto products that received the rebate in
-  # step 4b, undo the deduction so ETRs can re-apply its own rebate logic.
+  # floor/surcharge adjustments and auto rebate. The generated other_params.yaml
+  # sets auto_rebate_rate = 0 so ETRs does not re-apply the rebate.
   # Derivatives (set in step 5) update this column for their products.
   rates <- rates %>%
-    mutate(
-      statutory_rate_232 = if_else(
-        hts10 %in% auto_products & rate_232 > 0,
-        rate_232 + rebate_deduction,
-        rate_232
-      )
-    )
+    mutate(statutory_rate_232 = rate_232)
 
   # 5. Apply Section 232 derivative tariff + metal content scaling
   #    Derivative products (9903.85.04/.07/.08) are aluminum-containing articles
@@ -1382,6 +1376,32 @@ calculate_rates_for_revision <- function(
                                    policy_params = .pp)
   rates <- result$rates
   deriv_matched <- result$deriv_matched
+
+  # 5b. Scale copper heading products by copper content share.
+  #     The copper proclamation applies the tariff "upon the value of the copper
+  #     content," not the full customs value. This parallels ETRs' per-type metal
+  #     scaling. After scaling, is_copper_heading flags these products so stacking
+  #     rules use copper_share for nonmetal_share.
+  if (length(copper_products) > 0 && 'copper_share' %in% names(rates)) {
+    rates <- rates %>%
+      mutate(
+        is_copper_heading = hts10 %in% copper_products,
+        rate_232 = if_else(
+          is_copper_heading & rate_232 > 0,
+          rate_232 * copper_share,
+          rate_232
+        ),
+        statutory_rate_232 = if_else(
+          is_copper_heading & statutory_rate_232 > 0,
+          statutory_rate_232 * copper_share,
+          statutory_rate_232
+        )
+      )
+    n_scaled <- sum(rates$is_copper_heading & rates$rate_232 > 0)
+    message('  Copper heading metal scaling: ', n_scaled, ' product-country pairs')
+  } else {
+    rates$is_copper_heading <- FALSE
+  }
 
   # 6. Apply Section 301 as blanket tariff for China
   #     301 products are defined by US Note 20/21/31 product lists (Federal Register).

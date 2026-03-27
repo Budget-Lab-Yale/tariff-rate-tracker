@@ -1115,7 +1115,7 @@ generate_other_params_yaml <- function(date, policy_params, output_dir,
     mfn_exemption_shares = 'resources/mfn_exemption_shares.csv',
     us_auto_content_share = auto_rebate$us_auto_content_share %||% 0.40,
     us_auto_assembly_share = auto_rebate$us_assembly_share %||% 0.33,
-    auto_rebate_rate = auto_rebate$rebate_rate %||% 0.0375,
+    auto_rebate_rate = 0,  # Rebate already applied by tracker; ETRs should not re-apply
     ieepa_usmca_exception = 1,
     s122_usmca_exception = 0,
     s301_usmca_exception = 0,
