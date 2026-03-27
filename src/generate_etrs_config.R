@@ -309,7 +309,7 @@ export_statutory_rates <- function(snapshot, policy_params, output_dir, ch99_dat
       hts10,
       cty_code         = country,
       mfn_rate         = statutory_base_rate,
-      ieepa_reciprocal = statutory_rate_ieepa_recip,
+      ieepa_reciprocal = rate_ieepa_recip,
       ieepa_fentanyl   = statutory_rate_ieepa_fent,
       s301             = statutory_rate_301,
       s122             = statutory_rate_s122,
