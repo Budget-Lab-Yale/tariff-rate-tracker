@@ -19,6 +19,7 @@ The repo is designed to run in progressively richer modes depending on what loca
 | `core_plus_weights` | core + import weights in `config/local_paths.yaml` | core outputs + weighted daily fields + weighted ETR outputs |
 | `compare_tpc` | core + TPC benchmark CSV | comparison outputs against TPC |
 | `compare_etrs` | core + Tariff-ETRs repo path | standalone script (`src/compare_etrs.R`); wrapper in `run_comparisons.R` not yet complete |
+| `generate_etrs_config` | core (built timeseries) | ETRs-compatible config: `statutory_rates.csv.gz` + `other_params.yaml` per revision date |
 
 The core series is the production dataset. Comparison inputs are optional.
 
@@ -156,6 +157,7 @@ By default, the pipeline uses **legal policy effective dates** where they differ
 | `output/etr/` | weighted ETR tables and plots |
 | `output/comparisons/` | benchmark comparison artifacts |
 | `output/alternative/` | sensitivity variants |
+| `output/etrs_config/{date}/` | ETRs-compatible config directories (from `generate_etrs_config.R`) |
 
 ## Comparison workflows
 
@@ -168,6 +170,18 @@ Rscript src/run_comparisons.R --etr
 ```
 
 `--etrs` is currently a placeholder in the wrapper. For Tariff-ETRs comparison, run `src/compare_etrs.R` directly (requires `tariff_etrs_repo` in `config/local_paths.yaml`).
+
+### Generating ETRs config
+
+To export tracker rates into Tariff-ETRs-compatible config format:
+
+```bash
+Rscript src/generate_etrs_config.R 2026-04-01 ../Tariff-ETRs/config/baseline/2026-04-01
+```
+
+This writes `statutory_rates.csv.gz` (dense per-authority statutory rates at HTS10 × country level) and `other_params.yaml` (adjustment parameters: metal content, USMCA, auto rebate). The CSV is the primary lossless interface — ETRs reads it directly and applies all adjustments (USMCA scaling, metal content, stacking). Legacy per-authority YAML generators are also available for backward compatibility.
+
+To generate configs for all revision dates at once, use `generate_etrs_configs_all_revisions()` from R.
 
 ## Updating when a new HTS revision is published
 

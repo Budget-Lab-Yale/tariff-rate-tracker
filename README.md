@@ -45,6 +45,7 @@ That sequence builds the core series without requiring private benchmark data or
 - `src/00_build_timeseries.R`: main build orchestrator
 - `src/09_daily_series.R`: daily aggregate and filtered daily export utilities
 - `src/08_weighted_etr.R`: weighted ETR outputs when import weights are configured
+- `src/generate_etrs_config.R`: exports tracker rates into Tariff-ETRs-compatible config (`statutory_rates.csv.gz` + `other_params.yaml`)
 - `config/policy_params.yaml`: tariff logic and related modeling parameters
 - `config/revision_dates.csv`: HTS revision schedule and benchmark date alignment
 - `resources/`: committed supporting datasets and lookup tables

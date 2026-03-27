@@ -6,7 +6,7 @@ This document is an appendix to [methodology.md](methodology.md). It catalogs me
 
 ## 1. Tariff Stacking: Mutual Exclusion vs. Additive
 
-**Assumption:** Section 232 and IEEPA reciprocal tariffs are mutually exclusive — 232 takes precedence, and IEEPA reciprocal applies only to the non-metal portion of derivative 232 products.
+**Assumption:** Section 232 and IEEPA reciprocal tariffs are mutually exclusive — 232 takes precedence, and IEEPA reciprocal applies only to the non-metal portion of derivative 232 products. The non-metal share is now computed per metal type rather than from the aggregate `metal_share`: steel chapters (72/73) use `1 - steel_share`, aluminum chapters (76) and derivatives use `1 - aluminum_share`, and copper headings use `1 - copper_share`. This matches Tariff-ETRs' per-type scaling.
 
 **TPC feedback (March 2026):** TPC confirmed they largely agree with mutual exclusion between 232 and IEEPA. Two exceptions: (1) copper products can stack 232 + CA/MX IEEPA (fentanyl), and (2) 232 derivatives face IEEPA on the non-metal portion (which our methodology already handles). The previously attributed ~25pp gap on ~25,800 products needs re-investigation — it may be driven by duty-free treatment differences or other factors rather than a fundamental stacking disagreement.
 
@@ -26,11 +26,15 @@ This document is an appendix to [methodology.md](methodology.md). It catalogs me
 |--------|-------|--------|
 | Flat | 50% for all derivatives | Matches TPC methodology |
 | CBO | 75% (high aluminum), 25% (low aluminum), 90% (copper) | CBO budget analysis files |
-| BEA (default) | HS10-level shares from BEA Detail I-O table | `resources/metal_content_shares_bea_hs10.csv` |
+| BEA (default) | HS10-level per-type shares from BEA Detail I-O table | `resources/metal_content_shares_bea_hs10.csv` |
+
+The BEA method returns per-type columns (`steel_share`, `aluminum_share`, `copper_share`, `other_metal_share`) in addition to the aggregate `metal_share`. Derivative 232 rates are scaled by `aluminum_share` specifically — the derivative tariff applies only to the aluminum content, not steel or copper fractions that may be present. Stacking uses the same per-type share to compute `nonmetal_share` (see Assumption 1). The flat and CBO methods do not have per-type breakdowns; they use zeros for per-type columns and fall back to aggregate `metal_share` in stacking.
+
+Products in primary chapters (72, 73, 76) are forced to `metal_share = 1.0` regardless of derivative flag, since the blanket 232 rate applies to the full customs value of base metal products. Products that overlap between heading programs (e.g., auto parts that are also aluminum derivatives) use the heading rate at full product value and have their `metal_share` reset to 1.0 to prevent IEEPA from filling a phantom non-metal portion.
 
 **Source:** Flat 50% reverse-engineered from TPC. CBO buckets from Congressional Budget Office tariff analysis (`resources/cbo/`). BEA shares computed from BEA Detail I-O table, matching Tariff-ETRs `bea_granularity: 'detail'`. No official HTS or Federal Register guidance specifies metal content calculation methodology.
 
-**Implementation:** `config/policy_params.yaml` (`metal_content` block, `method: 'bea'`), `resources/metal_content_shares_bea_hs10.csv`, `src/helpers.R:load_metal_content()`.
+**Implementation:** `config/policy_params.yaml` (`metal_content` block, `method: 'bea'`), `resources/metal_content_shares_bea_hs10.csv`, `src/helpers.R:load_metal_content()`. Per-type scaling in `src/06_calculate_rates.R:apply_232_derivatives()`. Per-type nonmetal_share in `src/helpers.R:apply_stacking_rules()` and `compute_net_authority_contributions()`.
 
 ---
 
@@ -177,19 +181,20 @@ Phase classification determines stacking behavior — country_eo rates stack add
 
 ## 12. Section 122 / Section 232 Mutual Exclusion on Metal Products
 
-**Assumption:** Section 122 follows the same mutual-exclusion treatment as IEEPA reciprocal with respect to Section 232. On products with `rate_232 > 0`, the Section 122 rate is scaled by `nonmetal_share` (= `1 - metal_share`):
+**Assumption:** Section 122 follows the same mutual-exclusion treatment as IEEPA reciprocal with respect to Section 232. On products with `rate_232 > 0`, the Section 122 rate is scaled by `nonmetal_share`, which is computed per metal type (see Assumption 1):
 
-| Product type | metal_share | nonmetal_share | Section 122 effective contribution |
-|-------------|-------------|----------------|-------------------------------------|
-| Pure 232 (steel, aluminum, copper) | 1.0 | 0.0 | Zero |
-| Derivative 232 (aluminum articles) | 0 < x < 1 | 1 - x | rate_s122 * (1 - metal_share) |
+| Product type | Active type share | nonmetal_share | Section 122 effective contribution |
+|-------------|-------------------|----------------|-------------------------------------|
+| Pure 232 steel (ch72/73) | steel_share = 1.0 | 0.0 | Zero |
+| Pure 232 aluminum (ch76) | aluminum_share = 1.0 | 0.0 | Zero |
+| Derivative 232 (aluminum articles) | aluminum_share = x | 1 - x | rate_s122 * (1 - aluminum_share) |
 | Non-232 | n/a | n/a | Full rate_s122 |
 
 **Rationale:** Section 232 already covers metal products at rates well above Section 122's 15% statutory maximum. Applying Section 122 to the metal portion would double-count the tariff on products already subject to 232.
 
-**Source:** Tariff-ETRs stacking logic, which applies the same nonmetal scaling to all non-232 blanket authorities. No explicit Federal Register guidance specifies the interaction between Section 122 and Section 232 on overlapping products.
+**Source:** Tariff-ETRs stacking logic, which applies the same per-type nonmetal scaling to all non-232 blanket authorities. No explicit Federal Register guidance specifies the interaction between Section 122 and Section 232 on overlapping products.
 
-**Implementation:** `src/helpers.R:apply_stacking_rules()` — the `case_when` branches for `rate_232 > 0` multiply `rate_s122` by `nonmetal_share`, which is 0 for pure-metal products and `1 - metal_share` for derivatives.
+**Implementation:** `src/helpers.R:apply_stacking_rules()` — the `case_when` branches for `rate_232 > 0` multiply `rate_s122` by `nonmetal_share`, which is computed from the active 232 program's type-specific share (0 for pure-metal products, `1 - aluminum_share` for derivatives).
 
 ---
 

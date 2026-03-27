@@ -125,7 +125,7 @@ The default production rule is `mutual_exclusion`, implemented in `helpers.R::ap
 In words:
 
 - Section 232 takes precedence over IEEPA reciprocal on the metal-covered portion.
-- For derivative 232 products, IEEPA reciprocal and Section 122 apply only to the non-metal portion (scaled by `1 - metal_share`).
+- For derivative 232 products, IEEPA reciprocal and Section 122 apply only to the non-metal portion. The non-metal share is computed per metal type: steel chapters (72/73) use `1 - steel_share`, aluminum chapters (76) and derivatives use `1 - aluminum_share`, and copper headings use `1 - copper_share`. This ensures IEEPA fills only the portion not claimed by the active 232 program's specific metal type, rather than the aggregate metal content.
 - Fentanyl always stacks in full on 232 products (not scaled by metal share), matching the China treatment.
 - Section 301 contributes only for China (the builder assigns `rate_301` exclusively to China-origin products). Non-China 301 is excluded from stacking to match the decomposition. If non-China Section 301 tariffs emerge in the future, they should use a dedicated authority column.
 - Section 201 and other provisions contribute at their full rates.
@@ -142,7 +142,7 @@ Section 232 is modeled through a mix of:
 - heading or prefix coverage
 - explicit product lists for derivatives, copper, auto parts, and MHD products
 
-Derivative products use a configurable metal-share estimate. The default is the BEA-based HS10 metal-share file.
+Derivative products use a configurable metal-share estimate. The default is the BEA-based HS10 metal-share file, which provides per-type breakdowns (`steel_share`, `aluminum_share`, `copper_share`, `other_metal_share`). Aluminum derivatives are scaled by `aluminum_share` specifically — the derivative tariff applies only to the aluminum content, not steel or copper fractions that may be present. Products that overlap between heading programs (e.g., auto parts that are also aluminum derivatives) use the heading rate at full product value rather than being metal-scaled.
 
 ### Section 301
 
