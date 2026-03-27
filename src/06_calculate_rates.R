@@ -970,6 +970,17 @@ calculate_rates_for_revision <- function(
     wood_products <- unique(wood_products)
     mhd_products <- unique(mhd_products)
 
+    # Exclude blanket chapter products from heading lists — a Ch73 steel spring
+    # that matches auto_parts prefixes is still a steel product (gets blanket 232
+    # rate, not auto rebate/USMCA auto content share).
+    blanket_chapters <- c(STEEL_CHAPTERS, ALUM_CHAPTERS)
+    n_auto_pre <- length(auto_products)
+    auto_products <- auto_products[!substr(auto_products, 1, 2) %in% blanket_chapters]
+    if (length(auto_products) < n_auto_pre) {
+      message('  Excluded ', n_auto_pre - length(auto_products),
+              ' blanket chapter products from auto_products')
+    }
+
     n_steel <- length(steel_products)
     n_alum <- length(aluminum_products)
     n_auto <- length(auto_products)
@@ -1091,8 +1102,12 @@ calculate_rates_for_revision <- function(
           TRUE ~ 0
         ),
         rate_232 = pmax(rate_232, blanket_232),
-        # Track which products have USMCA-eligible 232 headings (for step 7)
-        s232_usmca_eligible = coalesce(heading_usmca_exempt, FALSE) & heading_rate_adj > 0
+        # Track which products have USMCA-eligible 232 headings (for step 7).
+        # Only when the heading rate is actually used — blanket chapter products
+        # (steel/aluminum) get their rate from the blanket, not the heading,
+        # so they should NOT inherit the heading's USMCA eligibility.
+        s232_usmca_eligible = coalesce(heading_usmca_exempt, FALSE) & heading_rate_adj > 0 &
+          !(chapter %in% c(STEEL_CHAPTERS, ALUM_CHAPTERS))
       ) %>%
       select(-steel_rate_232, -alum_rate_232, -chapter, -blanket_232,
              -heading_232_rate, -heading_usmca_exempt, -heading_rate_adj)
@@ -1141,7 +1156,8 @@ calculate_rates_for_revision <- function(
           heading_rate_adj > 0 ~ heading_rate_adj,
           TRUE ~ 0
         ),
-        s232_usmca_eligible = coalesce(heading_usmca_exempt, FALSE) & heading_rate_adj > 0,
+        s232_usmca_eligible = coalesce(heading_usmca_exempt, FALSE) & heading_rate_adj > 0 &
+          !(chapter %in% c(STEEL_CHAPTERS, ALUM_CHAPTERS)),
         rate_301 = 0, rate_ieepa_recip = 0, rate_ieepa_fent = 0, rate_s122 = 0,
         rate_section_201 = 0, rate_other = 0
       ) %>%

@@ -916,11 +916,12 @@ apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutu
         country == cty_china ~
           rate_ieepa_recip + rate_ieepa_fent + rate_301 + rate_s122 + rate_section_201 + rate_other,
 
-        # Others with 232: 232 + recip*nonmetal + fentanyl + s122*nonmetal + s201 + other
-        # Note: rate_301 excluded for non-China (builder only assigns 301 to China;
-        # if non-China 301 is needed in the future, add a dedicated authority column)
+        # Others with 232: 232 + recip*nonmetal + fent*nonmetal + s122*nonmetal + s201 + other
+        # Fentanyl follows the same content-based split as reciprocal: 232 covers
+        # the metal/copper content, fentanyl applies to the non-metal portion only.
+        # For heading products (auto_parts, copper, autos), nonmetal_share ≈ 0.
         rate_232 > 0 ~
-          rate_232 + rate_ieepa_recip * nonmetal_share + rate_ieepa_fent +
+          rate_232 + rate_ieepa_recip * nonmetal_share + rate_ieepa_fent * nonmetal_share +
           rate_s122 * nonmetal_share + rate_section_201 + rate_other,
 
         # Others without 232: reciprocal + fentanyl + s122 + s201 + other
@@ -996,7 +997,11 @@ compute_net_authority_contributions <- function(df, cty_china = '5700',
     mutate(
       net_232 = if_else(rate_232 > 0, rate_232, 0),
       net_ieepa = if_else(rate_232 > 0, rate_ieepa_recip * nonmetal_share, rate_ieepa_recip),
-      net_fentanyl = rate_ieepa_fent,
+      net_fentanyl = case_when(
+        country == cty_china ~ rate_ieepa_fent,
+        rate_232 > 0 ~ rate_ieepa_fent * nonmetal_share,
+        TRUE ~ rate_ieepa_fent
+      ),
       net_301 = if_else(country == cty_china, rate_301, 0),
       net_s122 = if_else(rate_232 > 0, rate_s122 * nonmetal_share, rate_s122),
       net_section_201 = rate_section_201,
