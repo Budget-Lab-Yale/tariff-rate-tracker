@@ -288,7 +288,7 @@ apply_232_derivatives <- function(rates, products, ch99_data, s232_rates, countr
   }
 
   # Update statutory_rate_232 for derivative products only (pre-metal-scaling).
-  # Non-derivative products already have statutory_rate_232 set before step 4b.
+  # Non-derivative products already have statutory_rate_232 set after step 4c.
   if (length(deriv_matched) > 0) {
     rates <- rates %>%
       mutate(
@@ -1171,12 +1171,7 @@ calculate_rates_for_revision <- function(
     }
   }
 
-  # Save pre-rebate, pre-deal statutory 232 rates for CSV export.
-  # This captures the blanket rate before auto rebate (4b) and deal overrides (4c).
-  # ETRs applies rebate and target_total floor logic itself.
-  # Derivatives (set in step 5) update this column for their products.
-  rates <- rates %>%
-    mutate(statutory_rate_232 = rate_232)
+  # statutory_rate_232 is set after step 4c (deal overrides) — see below.
 
   # 4b. Apply Section 232 auto rebate
   #     Reduces effective 232 rate on auto/vehicle products by a credit reflecting
@@ -1331,6 +1326,20 @@ calculate_rates_for_revision <- function(
     message('  232 deal rates (floor/surcharge): ', n_deal_overrides,
             ' product-country pairs overridden')
   }
+
+  # Save post-deal, pre-rebate statutory 232 rates for CSV export.
+  # After deal overrides (step 4c), rate_232 reflects the effective rate including
+  # floor/surcharge adjustments. For auto products that received the rebate in
+  # step 4b, undo the deduction so ETRs can re-apply its own rebate logic.
+  # Derivatives (set in step 5) update this column for their products.
+  rates <- rates %>%
+    mutate(
+      statutory_rate_232 = if_else(
+        hts10 %in% auto_products & rate_232 > 0,
+        rate_232 + rebate_deduction,
+        rate_232
+      )
+    )
 
   # 5. Apply Section 232 derivative tariff + metal content scaling
   #    Derivative products (9903.85.04/.07/.08) are aluminum-containing articles

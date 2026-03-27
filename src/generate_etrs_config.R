@@ -227,22 +227,33 @@ export_statutory_rates <- function(snapshot, policy_params, output_dir, ch99_dat
       next
     }
     prog <- headings[[prog_name]]
-    prefixes <- prog$prefixes %||% character(0)
-    if (!is.null(prog$prefixes_file)) {
-      pf <- here::here(prog$prefixes_file)
-      if (file.exists(pf)) {
-        prefixes <- c(prefixes, trimws(readLines(pf, warn = FALSE)))
-        prefixes <- prefixes[nchar(prefixes) > 0]
-      }
-    }
+
+    # Match products using same priority as calculate_rates_for_revision():
+    # 1. products_file (exact HTS10 list as prefixes)
+    # 2. Fallback to inline prefixes + prefixes_file (only if products_file empty)
+    prefixes <- character(0)
+
     if (!is.null(prog$products_file)) {
       pf <- here::here(prog$products_file)
       if (file.exists(pf)) {
         prods <- read_csv(pf, show_col_types = FALSE,
                           col_types = cols(.default = col_character()))
-        prefixes <- c(prefixes, prods$hts10)
+        prefixes <- prods$hts10
       }
     }
+
+    if (length(prefixes) == 0) {
+      # Fallback: inline prefixes + prefixes_file
+      prefixes <- prog$prefixes %||% character(0)
+      if (!is.null(prog$prefixes_file)) {
+        pf <- here::here(prog$prefixes_file)
+        if (file.exists(pf)) {
+          prefixes <- c(prefixes, trimws(readLines(pf, warn = FALSE)))
+          prefixes <- prefixes[nchar(prefixes) > 0]
+        }
+      }
+    }
+
     prefixes <- unique(prefixes)
     if (length(prefixes) > 0) {
       heading_patterns[[prog_name]] <- paste0('^(', paste(prefixes, collapse = '|'), ')')
