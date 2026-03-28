@@ -460,6 +460,7 @@ section_122:
   expiry_date: '2026-07-23'             # 150 days from HTS effective (last active day)
   policy_expiry_date: '2026-07-19'      # 150 days from policy effective date
   finalized: false              # set true if Congress extends
+  rate: 0.10                    # 10% non-discriminatory rate (from 9903.03.01)
   exempt_products: 'resources/s122_exempt_products.csv'
 
 # --- Series time horizon ---
