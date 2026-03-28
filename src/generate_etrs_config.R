@@ -1117,7 +1117,7 @@ generate_other_params_yaml <- function(date, policy_params, output_dir,
     us_auto_assembly_share = auto_rebate$us_assembly_share %||% 0.33,
     auto_rebate_rate = 0,  # Rebate already applied by tracker; ETRs should not re-apply
     ieepa_usmca_exception = 1,
-    s122_usmca_exception = 0,
+    s122_usmca_exception = 1,
     s301_usmca_exception = 0,
     usmca_exempt = usmca_exempt,
     metal_content = list(
