@@ -922,6 +922,20 @@ run_alternative_series <- function(ts, imports = NULL, policy_params = NULL,
       message('  FAILED (usmca_monthly): ', conditionMessage(e))
     })
 
+    # 1c. USMCA fixed latest month (Dec 2025 — post-behavioral-shift equilibrium)
+    tryCatch({
+      pp_usmca_f <- pp
+      pp_usmca_f$USMCA_SHARES$mode <- 'fixed_month'
+      pp_usmca_f$USMCA_SHARES$year <- 2025
+      pp_usmca_f$USMCA_SHARES$month <- 12
+      pp_usmca_f$usmca_shares$mode <- 'fixed_month'
+      pp_usmca_f$usmca_shares$year <- 2025
+      pp_usmca_f$usmca_shares$month <- 12
+      build_alternative_timeseries(pp_usmca_f, 'usmca_dec2025', imports = imports)
+    }, error = function(e) {
+      message('  FAILED (usmca_dec2025): ', conditionMessage(e))
+    })
+
     # 2. Flat metal content
     tryCatch({
       pp_metal <- pp

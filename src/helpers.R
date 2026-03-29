@@ -321,7 +321,9 @@ load_policy_params <- function(yaml_path = here('config', 'policy_params.yaml'),
 
   # USMCA utilization shares (DataWeb SPI S/S+)
   params$USMCA_SHARES <- list(
-    year = params$usmca_shares$year %||% NULL
+    mode = params$usmca_shares$mode %||% 'annual',
+    year = params$usmca_shares$year %||% NULL,
+    month = params$usmca_shares$month %||% NULL
   )
 
   # MFN exemption shares (FTA/GSP preference utilization)
@@ -1253,6 +1255,7 @@ load_revision_floor_exemptions <- function(revision_id) {
 #' Modes (from policy_params$USMCA_SHARES$mode):
 #'   'annual' (default): loads resources/usmca_product_shares_{year}.csv
 #'   'monthly': loads resources/usmca_product_shares_{year}_{MM}.csv based on effective_date
+#'   'fixed_month': loads resources/usmca_product_shares_{year}_{MM}.csv using configured month
 #'
 #' @param policy_params Policy params list (uses usmca_shares mode/year)
 #' @param path Override path (ignores mode/year selection if provided)
@@ -1263,7 +1266,18 @@ load_usmca_product_shares <- function(policy_params = NULL, path = NULL, effecti
     mode <- policy_params$USMCA_SHARES$mode %||% 'annual'
     year <- policy_params$USMCA_SHARES$year %||% NULL
 
-    if (mode == 'monthly' && !is.null(effective_date)) {
+    if (mode == 'fixed_month') {
+      fixed_month <- policy_params$USMCA_SHARES$month %||% 12L
+      year <- year %||% 2025L
+      monthly_path <- here('resources', sprintf('usmca_product_shares_%d_%02d.csv', year, as.integer(fixed_month)))
+      if (file.exists(monthly_path)) {
+        path <- monthly_path
+      } else {
+        message('  Fixed-month USMCA file not found for ', year, '-', sprintf('%02d', fixed_month),
+                ' — falling back to annual')
+        path <- here('resources', paste0('usmca_product_shares_', year, '.csv'))
+      }
+    } else if (mode == 'monthly' && !is.null(effective_date)) {
       eff <- as.Date(effective_date)
       year <- year %||% as.integer(format(eff, '%Y'))
       # Clamp to year boundaries
