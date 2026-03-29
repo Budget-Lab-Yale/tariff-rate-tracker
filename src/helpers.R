@@ -1274,9 +1274,22 @@ load_usmca_product_shares <- function(policy_params = NULL, path = NULL, effecti
       if (file.exists(monthly_path)) {
         path <- monthly_path
       } else {
-        message('  Monthly USMCA file not found for ', year, '-', sprintf('%02d', month_num),
-                ' — falling back to annual')
-        path <- here('resources', paste0('usmca_product_shares_', year, '.csv'))
+        # Try to find the latest available monthly file before this month
+        found_fallback <- FALSE
+        for (m in (month_num - 1L):1L) {
+          fallback_path <- here('resources', sprintf('usmca_product_shares_%d_%02d.csv', year, m))
+          if (file.exists(fallback_path)) {
+            message('  Monthly USMCA file not found for ', year, '-', sprintf('%02d', month_num),
+                    ' — using latest available: month ', sprintf('%02d', m))
+            path <- fallback_path
+            found_fallback <- TRUE
+            break
+          }
+        }
+        if (!found_fallback) {
+          message('  No monthly USMCA files found for ', year, ' — falling back to annual')
+          path <- here('resources', paste0('usmca_product_shares_', year, '.csv'))
+        }
       }
     } else {
       if (!is.null(year)) {
