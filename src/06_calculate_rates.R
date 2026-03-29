@@ -331,7 +331,7 @@ apply_232_derivatives <- function(rates, products, ch99_data, s232_rates, countr
     # derivative metal scaling. Primary chapters get blanket 232 rates (full product);
     # heading products get heading rates (full product). Only true derivatives
     # (outside primary chapters, not heading-matched) should be metal-scaled.
-    p_chapters <- if (!is.null(.pp)) unlist(.pp$metal_content$primary_chapters) else c('72', '73', '76')
+    p_chapters <- if (!is.null(pp_local)) unlist(pp_local$metal_content$primary_chapters) else c('72', '73', '76')
     primary_hts10 <- rates %>% distinct(hts10) %>%
       filter(substr(hts10, 1, 2) %in% p_chapters) %>% pull(hts10)
     deriv_only <- setdiff(deriv_matched, c(heading_products, primary_hts10))
@@ -1373,7 +1373,7 @@ calculate_rates_for_revision <- function(
   }
   result <- apply_232_derivatives(rates, products, ch99_data, s232_rates, countries,
                                    heading_products = all_heading_hts10,
-                                   policy_params = .pp)
+                                   policy_params = pp)
   rates <- result$rates
   deriv_matched <- result$deriv_matched
 

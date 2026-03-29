@@ -1370,20 +1370,12 @@ load_metal_content <- function(metal_cfg = NULL, hts10_codes = character(0),
   is_derivative <- result$hts10 %in% derivative_hts10
 
   if (sum(is_derivative) == 0) {
-    result$steel_share <- 0
-    result$aluminum_share <- 0
-    result$copper_share <- 0
-    result$other_metal_share <- 0
     message('  Metal content: no derivative products to adjust')
     return(result)
   }
 
   if (method == 'flat') {
     result$metal_share[is_derivative] <- flat_share
-    result$steel_share <- 0
-    result$aluminum_share <- 0
-    result$copper_share <- 0
-    result$other_metal_share <- 0
     message('  Metal content: flat method (', round(flat_share * 100),
             '% for ', sum(is_derivative), ' derivatives)')
 
@@ -1432,12 +1424,6 @@ load_metal_content <- function(metal_cfg = NULL, hts10_codes = character(0),
       ) %>%
       select(-cbo_share)
 
-    # CBO doesn't have per-type breakdown — use zeros
-    result$steel_share <- 0
-    result$aluminum_share <- 0
-    result$copper_share <- 0
-    result$other_metal_share <- 0
-
     n_cbo <- sum(!is.na(cbo_shares$hts10[cbo_shares$hts10 %in% derivative_hts10]))
     message('  Metal content: CBO method (', n_cbo, ' of ', sum(is_derivative),
             ' derivatives matched; high=', cbo_high_share, ', low=', cbo_low_share,
@@ -1485,10 +1471,6 @@ load_metal_content <- function(metal_cfg = NULL, hts10_codes = character(0),
   } else {
     warning('Unknown metal_content method: ', method, '. Using flat fallback.')
     result$metal_share[is_derivative] <- flat_share
-    result$steel_share <- 0
-    result$aluminum_share <- 0
-    result$copper_share <- 0
-    result$other_metal_share <- 0
   }
 
   # Force primary chapters (72, 73, 76) to metal_share = 1.0 regardless of
