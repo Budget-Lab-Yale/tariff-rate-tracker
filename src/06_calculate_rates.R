@@ -1658,7 +1658,7 @@ calculate_rates_for_revision <- function(
 
   # 7. Apply USMCA exemptions
   # TPC methodology: rate * (1 - usmca_share) for each CA/MX product.
-  # If Census SPI shares available (from compute_usmca_shares.R), apply to ALL
+  # If DataWeb SPI shares available (from download_usmca_dataweb.R), apply to ALL
   # CA/MX products — the share naturally handles eligibility (products that never
   # enter under USMCA have share ≈ 0, fully-claiming products have share ≈ 1).
   # Also applies to 232 auto/MHD products flagged s232_usmca_eligible (T1 fix).

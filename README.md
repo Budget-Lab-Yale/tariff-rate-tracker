@@ -48,6 +48,7 @@ That sequence builds the core series without requiring private benchmark data or
 - `src/generate_etrs_config.R`: exports tracker rates into Tariff-ETRs-compatible config (`statutory_rates.csv.gz` + `other_params.yaml`)
 - `config/policy_params.yaml`: tariff logic and related modeling parameters
 - `config/revision_dates.csv`: HTS revision schedule and benchmark date alignment
+- `scripts/`: standalone analysis tools (not part of the core pipeline)
 - `resources/`: committed supporting datasets and lookup tables
 
 ## Current scope

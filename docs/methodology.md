@@ -188,6 +188,8 @@ Section 122 is treated as a temporary post-IEEPA blanket authority with a config
 
 Section 122 follows the same mutual-exclusion rule as IEEPA reciprocal with respect to Section 232. On products with `rate_232 > 0`, the Section 122 rate is scaled by `nonmetal_share` (= `1 - metal_share`). For pure 232 products (`metal_share = 1.0`), Section 122 contributes zero because Section 232 already covers them at higher rates (50% steel/aluminum vs. 15% maximum under Section 122). For derivative 232 products, Section 122 applies only to the non-metal portion. For non-232 products, Section 122 stacks at its full rate.
 
+USMCA-eligible imports are exempt from Section 122 tariffs, parallel to the IEEPA USMCA exception. The exemption is applied via product-level USMCA utilization shares (same mechanism as IEEPA/fentanyl). This is reflected in the ETRs export config as `s122_usmca_exception = 1`.
+
 The repo enforces Section 122 timing in three places:
 
 - build-time per-revision rate construction
