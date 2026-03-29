@@ -50,6 +50,7 @@ year <- if ('--year' %in% args) {
 } else {
   2024L
 }
+run_monthly <- '--monthly' %in% args
 env_file <- if ('--env-file' %in% args) {
   args[which(args == '--env-file') + 1]
 } else {
@@ -74,6 +75,7 @@ load_token <- function(env_file) {
 token <- load_token(env_file)
 message('USITC DataWeb USMCA share download')
 message('  Year: ', year)
+message('  Mode: ', if (run_monthly) 'monthly' else 'annual')
 message('  Token: ', substr(token, 1, 20), '...')
 
 # =============================================================================
@@ -85,7 +87,8 @@ message('  Token: ', substr(token, 1, 20), '...')
 #' @param countries Character vector of country codes
 #' @param programs Character vector of SPI program codes (NULL = all)
 #' @param year Integer year
-build_query <- function(chapters, countries, programs = NULL, year) {
+#' @param monthly Logical; if TRUE, return monthly breakdown
+build_query <- function(chapters, countries, programs = NULL, year, monthly = FALSE) {
   # Program filter
   if (!is.null(programs)) {
     ext_programs <- list(
@@ -107,7 +110,7 @@ build_query <- function(chapters, countries, programs = NULL, year) {
     savedQueryName = '',
     savedQueryDesc = '',
     isOwner = TRUE,
-    runMonthly = FALSE,
+    runMonthly = monthly,
     reportOptions = list(
       tradeType = 'Import',
       classificationSystem = 'HTS'
@@ -155,7 +158,7 @@ build_query <- function(chapters, countries, programs = NULL, year) {
         endDate = jsonlite::unbox(NA),
         startMonth = jsonlite::unbox(NA),
         endMonth = jsonlite::unbox(NA),
-        yearsTimeline = 'Annual'
+        yearsTimeline = if (monthly) 'Monthly' else 'Annual'
       ),
       countries = list(
         aggregation = 'Break Out Countries',
@@ -229,6 +232,60 @@ run_query <- function(query, token) {
   })
 }
 
+#' Execute a DataWeb API query with monthly breakdown and parse results
+#' @return tibble with month, hts10, country, value columns
+run_query_monthly <- function(query, token) {
+  resp <- POST(
+    url = paste0(DATAWEB_BASE, '/api/v2/report2/runReport'),
+    add_headers(
+      'Content-Type' = 'application/json; charset=utf-8',
+      'Authorization' = paste('Bearer', token)
+    ),
+    body = toJSON(query, auto_unbox = FALSE, null = 'null'),
+    encode = 'raw'
+  )
+
+  if (status_code(resp) != 200) {
+    warning('API returned status ', status_code(resp))
+    return(tibble())
+  }
+
+  result <- content(resp, as = 'parsed', simplifyVector = FALSE)
+  errors <- result$dto$errors
+  if (length(errors) > 0) {
+    warning('API error: ', paste(errors, collapse = '; '))
+    return(tibble())
+  }
+
+  tables <- result$dto$tables
+  if (length(tables) == 0) return(tibble())
+
+  # Each table is one month; parse month from tableTitle (e.g., "January 2025")
+  month_names <- c('January' = 1L, 'February' = 2L, 'March' = 3L, 'April' = 4L,
+                    'May' = 5L, 'June' = 6L, 'July' = 7L, 'August' = 8L,
+                    'September' = 9L, 'October' = 10L, 'November' = 11L, 'December' = 12L)
+
+  map_df(tables, function(tbl) {
+    title <- tbl$tableTitle %||% ''
+    month_word <- sub(' .*', '', title)
+    month_num <- month_names[month_word]
+    if (is.na(month_num)) return(tibble())
+
+    rows <- tbl$row_groups[[1]]$rowsNew
+    if (length(rows) == 0) return(tibble())
+
+    map_df(rows, function(r) {
+      entries <- r$rowEntries
+      tibble(
+        month = month_num,
+        hts10 = entries[[1]]$value,
+        country = entries[[2]]$value,
+        value = as.numeric(gsub(',', '', entries[[length(entries)]]$value))
+      )
+    })
+  })
+}
+
 # =============================================================================
 # Download data: chapter-by-chapter to stay under 20K row limit
 # =============================================================================
@@ -241,6 +298,9 @@ batch_chapters <- function(chapters, batch_size = 5) {
 
 countries <- c(CTY_CANADA, CTY_MEXICO)
 chapter_batches <- batch_chapters(ALL_CHAPTERS, batch_size = 5)
+rate_limit_sec <- if (run_monthly) 1.0 else 0.5
+
+query_fn <- if (run_monthly) run_query_monthly else run_query
 
 message('\nDownloading USMCA imports (programs S/S+) by HTS10...')
 message('  ', length(chapter_batches), ' chapter batches x 2 countries')
@@ -249,17 +309,18 @@ usmca_records <- map_df(seq_along(chapter_batches), function(i) {
   chapters <- chapter_batches[[i]]
   ch_label <- paste0('ch', chapters[1], '-', chapters[length(chapters)])
 
-  q <- build_query(chapters, countries, programs = USMCA_PROGRAMS, year = year)
-  result <- run_query(q, token)
+  q <- build_query(chapters, countries, programs = USMCA_PROGRAMS, year = year,
+                    monthly = run_monthly)
+  result <- query_fn(q, token)
 
   if (nrow(result) > 0) {
     message('  [', i, '/', length(chapter_batches), '] ', ch_label,
-            ': ', nrow(result), ' products')
+            ': ', nrow(result), ' records')
   } else {
-    message('  [', i, '/', length(chapter_batches), '] ', ch_label, ': 0 products')
+    message('  [', i, '/', length(chapter_batches), '] ', ch_label, ': 0 records')
   }
 
-  Sys.sleep(0.5)  # Rate limiting
+  Sys.sleep(rate_limit_sec)
   result
 })
 
@@ -270,17 +331,18 @@ total_records <- map_df(seq_along(chapter_batches), function(i) {
   chapters <- chapter_batches[[i]]
   ch_label <- paste0('ch', chapters[1], '-', chapters[length(chapters)])
 
-  q <- build_query(chapters, countries, programs = NULL, year = year)
-  result <- run_query(q, token)
+  q <- build_query(chapters, countries, programs = NULL, year = year,
+                    monthly = run_monthly)
+  result <- query_fn(q, token)
 
   if (nrow(result) > 0) {
     message('  [', i, '/', length(chapter_batches), '] ', ch_label,
-            ': ', nrow(result), ' products')
+            ': ', nrow(result), ' records')
   } else {
-    message('  [', i, '/', length(chapter_batches), '] ', ch_label, ': 0 products')
+    message('  [', i, '/', length(chapter_batches), '] ', ch_label, ': 0 records')
   }
 
-  Sys.sleep(0.5)
+  Sys.sleep(rate_limit_sec)
   result
 })
 
@@ -293,73 +355,122 @@ message('\n  Total records: ', nrow(total_records))
 # Map country names to codes
 country_map <- c('Canada' = CTY_CANADA, 'Mexico' = CTY_MEXICO)
 
+# Group columns depend on mode
+group_cols <- if (run_monthly) c('month', 'hts10', 'cty_code') else c('hts10', 'cty_code')
+
 total_clean <- total_records %>%
   mutate(cty_code = country_map[country]) %>%
   filter(!is.na(cty_code)) %>%
-  group_by(hts10, cty_code) %>%
+  group_by(across(all_of(group_cols))) %>%
   summarise(total_value = sum(value, na.rm = TRUE), .groups = 'drop')
 
 usmca_clean <- usmca_records %>%
   mutate(cty_code = country_map[country]) %>%
   filter(!is.na(cty_code)) %>%
-  group_by(hts10, cty_code) %>%
+  group_by(across(all_of(group_cols))) %>%
   summarise(usmca_value = sum(value, na.rm = TRUE), .groups = 'drop')
 
 product_shares <- total_clean %>%
-  left_join(usmca_clean, by = c('hts10', 'cty_code')) %>%
+  left_join(usmca_clean, by = group_cols) %>%
   mutate(
     usmca_value = replace_na(usmca_value, 0),
     usmca_share = if_else(total_value > 0, usmca_value / total_value, 0)
   )
 
 # --- Summary statistics ---
-message('\nProduct-level USMCA shares (DataWeb SPI S/S+, year = ', year, '):')
+mode_label <- if (run_monthly) 'monthly' else 'annual'
+message('\nProduct-level USMCA shares (DataWeb SPI S/S+, year = ', year, ', ', mode_label, '):')
 message('  Total product-country pairs: ', nrow(product_shares))
 message('  CA products: ', sum(product_shares$cty_code == CTY_CANADA))
 message('  MX products: ', sum(product_shares$cty_code == CTY_MEXICO))
 
-summary_by_country <- product_shares %>%
-  group_by(cty_code) %>%
-  summarise(
-    total_value = sum(total_value),
-    usmca_value = sum(usmca_value),
-    overall_share = usmca_value / total_value,
-    n_products = n(),
-    n_with_usmca = sum(usmca_share > 0),
-    n_full_usmca = sum(usmca_share > 0.99),
-    n_zero_usmca = sum(usmca_share == 0),
-    .groups = 'drop'
-  )
+if (run_monthly) {
+  # Monthly summary: aggregate shares by month and country
+  monthly_summary <- product_shares %>%
+    group_by(month, cty_code) %>%
+    summarise(
+      total_value = sum(total_value),
+      usmca_value = sum(usmca_value),
+      overall_share = usmca_value / total_value,
+      n_products = n(),
+      .groups = 'drop'
+    ) %>%
+    arrange(month, cty_code)
+  message('\n  Monthly aggregate shares:')
+  print(monthly_summary, n = 30)
+} else {
+  summary_by_country <- product_shares %>%
+    group_by(cty_code) %>%
+    summarise(
+      total_value = sum(total_value),
+      usmca_value = sum(usmca_value),
+      overall_share = usmca_value / total_value,
+      n_products = n(),
+      n_with_usmca = sum(usmca_share > 0),
+      n_full_usmca = sum(usmca_share > 0.99),
+      n_zero_usmca = sum(usmca_share == 0),
+      .groups = 'drop'
+    )
 
-message('\n  Overall value shares:')
-print(summary_by_country)
+  message('\n  Overall value shares:')
+  print(summary_by_country)
 
-message('\n  Share distribution (CA):')
-ca_shares <- product_shares$usmca_share[product_shares$cty_code == CTY_CANADA]
-print(summary(ca_shares))
-message('  Share distribution (MX):')
-mx_shares <- product_shares$usmca_share[product_shares$cty_code == CTY_MEXICO]
-print(summary(mx_shares))
+  message('\n  Share distribution (CA):')
+  ca_shares <- product_shares$usmca_share[product_shares$cty_code == CTY_CANADA]
+  print(summary(ca_shares))
+  message('  Share distribution (MX):')
+  mx_shares <- product_shares$usmca_share[product_shares$cty_code == CTY_MEXICO]
+  print(summary(mx_shares))
 
-message('\n  Share deciles (CA):')
-print(quantile(ca_shares, probs = seq(0, 1, 0.1)))
-message('  Share deciles (MX):')
-print(quantile(mx_shares, probs = seq(0, 1, 0.1)))
+  message('\n  Share deciles (CA):')
+  print(quantile(ca_shares, probs = seq(0, 1, 0.1)))
+  message('  Share deciles (MX):')
+  print(quantile(mx_shares, probs = seq(0, 1, 0.1)))
+}
 
 # --- Save ---
-out <- product_shares %>%
-  select(hts10, cty_code, usmca_share) %>%
-  arrange(hts10, cty_code)
+if (run_monthly) {
+  # Save per-month files (same schema as annual: hts10, cty_code, usmca_share)
+  months_available <- sort(unique(product_shares$month))
+  for (m in months_available) {
+    month_data <- product_shares %>%
+      filter(month == m) %>%
+      select(hts10, cty_code, usmca_share) %>%
+      arrange(hts10, cty_code)
 
-stopifnot(!anyNA(out$usmca_share))
-stopifnot(all(out$usmca_share >= 0 & out$usmca_share <= 1))
+    stopifnot(!anyNA(month_data$usmca_share))
+    stopifnot(all(month_data$usmca_share >= 0 & month_data$usmca_share <= 1))
 
-out_path <- here('resources', paste0('usmca_product_shares_', year, '.csv'))
-write_csv(out, out_path)
-message('\nSaved ', nrow(out), ' product-country pairs to: ', out_path)
-message('Data year: ', year, ' | Source: USITC DataWeb (SPI programs S/S+)')
+    month_path <- here('resources', sprintf('usmca_product_shares_%d_%02d.csv', year, m))
+    write_csv(month_data, month_path)
+    message('  Saved month ', sprintf('%02d', m), ': ', nrow(month_data),
+            ' pairs to ', basename(month_path))
+  }
 
-# Also copy to the default path for backward compatibility
-default_path <- here('resources', 'usmca_product_shares.csv')
-write_csv(out, default_path)
-message('Also saved to: ', default_path)
+  # Save combined diagnostic file (with value columns for noise analysis)
+  diag_path <- here('resources', paste0('usmca_product_shares_', year, '_monthly_diagnostic.csv'))
+  diag_out <- product_shares %>%
+    select(month, hts10, cty_code, usmca_share, total_value, usmca_value) %>%
+    arrange(month, hts10, cty_code)
+  write_csv(diag_out, diag_path)
+  message('\nSaved diagnostic file: ', basename(diag_path), ' (', nrow(diag_out), ' rows)')
+  message('Data year: ', year, ' | Source: USITC DataWeb (SPI programs S/S+) | Mode: monthly')
+
+} else {
+  out <- product_shares %>%
+    select(hts10, cty_code, usmca_share) %>%
+    arrange(hts10, cty_code)
+
+  stopifnot(!anyNA(out$usmca_share))
+  stopifnot(all(out$usmca_share >= 0 & out$usmca_share <= 1))
+
+  out_path <- here('resources', paste0('usmca_product_shares_', year, '.csv'))
+  write_csv(out, out_path)
+  message('\nSaved ', nrow(out), ' product-country pairs to: ', out_path)
+  message('Data year: ', year, ' | Source: USITC DataWeb (SPI programs S/S+)')
+
+  # Also copy to the default path for backward compatibility
+  default_path <- here('resources', 'usmca_product_shares.csv')
+  write_csv(out, default_path)
+  message('Also saved to: ', default_path)
+}

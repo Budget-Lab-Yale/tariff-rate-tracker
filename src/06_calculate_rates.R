@@ -471,7 +471,7 @@ calculate_rates_for_revision <- function(
 
   # Load product-level USMCA utilization shares from DataWeb SPI data (S/S+).
   # Year configured in policy_params.yaml (usmca_shares.year). Falls back to binary eligibility.
-  usmca_product_shares <- load_usmca_product_shares(policy_params = pp)
+  usmca_product_shares <- load_usmca_product_shares(policy_params = pp, effective_date = effective_date)
 
   # Load MFN exemption shares (FTA/GSP preference utilization at HS2 x country level).
   # Adjusts statutory base_rate down before stacking. Sourced from Tariff-ETRs.

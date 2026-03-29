@@ -898,14 +898,28 @@ run_alternative_series <- function(ts, imports = NULL, policy_params = NULL,
     message('\n  Running rebuild alternatives (this will take a while)...')
     pp <- policy_params %||% load_policy_params()
 
-    # 1. USMCA 2024 shares
+    # 1a. USMCA 2024 shares (pre-tariff steady-state)
     tryCatch({
       pp_usmca <- pp
       pp_usmca$USMCA_SHARES$year <- 2024
+      pp_usmca$USMCA_SHARES$mode <- 'annual'
       pp_usmca$usmca_shares$year <- 2024
+      pp_usmca$usmca_shares$mode <- 'annual'
       build_alternative_timeseries(pp_usmca, 'usmca_2024', imports = imports)
     }, error = function(e) {
       message('  FAILED (usmca_2024): ', conditionMessage(e))
+    })
+
+    # 1b. USMCA monthly 2025 shares (per-revision month)
+    tryCatch({
+      pp_usmca_m <- pp
+      pp_usmca_m$USMCA_SHARES$mode <- 'monthly'
+      pp_usmca_m$USMCA_SHARES$year <- 2025
+      pp_usmca_m$usmca_shares$mode <- 'monthly'
+      pp_usmca_m$usmca_shares$year <- 2025
+      build_alternative_timeseries(pp_usmca_m, 'usmca_monthly', imports = imports)
+    }, error = function(e) {
+      message('  FAILED (usmca_monthly): ', conditionMessage(e))
     })
 
     # 2. Flat metal content
