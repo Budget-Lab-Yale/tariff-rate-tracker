@@ -898,19 +898,19 @@ run_alternative_series <- function(ts, imports = NULL, policy_params = NULL,
     message('\n  Running rebuild alternatives (this will take a while)...')
     pp <- policy_params %||% load_policy_params()
 
-    # 1a. USMCA 2024 shares (pre-tariff steady-state)
+    # 1a. USMCA 2025 annual average (time-invariant counterfactual)
     tryCatch({
       pp_usmca <- pp
-      pp_usmca$USMCA_SHARES$year <- 2024
+      pp_usmca$USMCA_SHARES$year <- 2025
       pp_usmca$USMCA_SHARES$mode <- 'annual'
-      pp_usmca$usmca_shares$year <- 2024
+      pp_usmca$usmca_shares$year <- 2025
       pp_usmca$usmca_shares$mode <- 'annual'
-      build_alternative_timeseries(pp_usmca, 'usmca_2024', imports = imports)
+      build_alternative_timeseries(pp_usmca, 'usmca_annual', imports = imports)
     }, error = function(e) {
-      message('  FAILED (usmca_2024): ', conditionMessage(e))
+      message('  FAILED (usmca_annual): ', conditionMessage(e))
     })
 
-    # 1b. USMCA monthly 2025 shares (per-revision month)
+    # 1b. USMCA raw monthly 2025 shares (unsmoothed per-revision month)
     tryCatch({
       pp_usmca_m <- pp
       pp_usmca_m$USMCA_SHARES$mode <- 'monthly'
@@ -922,7 +922,19 @@ run_alternative_series <- function(ts, imports = NULL, policy_params = NULL,
       message('  FAILED (usmca_monthly): ', conditionMessage(e))
     })
 
-    # 1c. USMCA fixed latest month (Dec 2025 — post-behavioral-shift equilibrium)
+    # 1c. USMCA 2024 shares (pre-tariff steady-state)
+    tryCatch({
+      pp_usmca_24 <- pp
+      pp_usmca_24$USMCA_SHARES$year <- 2024
+      pp_usmca_24$USMCA_SHARES$mode <- 'annual'
+      pp_usmca_24$usmca_shares$year <- 2024
+      pp_usmca_24$usmca_shares$mode <- 'annual'
+      build_alternative_timeseries(pp_usmca_24, 'usmca_2024', imports = imports)
+    }, error = function(e) {
+      message('  FAILED (usmca_2024): ', conditionMessage(e))
+    })
+
+    # 1d. USMCA fixed latest month (Dec 2025 — post-behavioral-shift equilibrium)
     tryCatch({
       pp_usmca_f <- pp
       pp_usmca_f$USMCA_SHARES$mode <- 'fixed_month'

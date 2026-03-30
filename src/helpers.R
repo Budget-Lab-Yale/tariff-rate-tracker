@@ -1253,9 +1253,14 @@ load_revision_floor_exemptions <- function(revision_id) {
 #' Returns NULL if file not found (triggers fallback to binary eligibility).
 #'
 #' Modes (from policy_params$USMCA_SHARES$mode):
-#'   'annual' (default): loads resources/usmca_product_shares_{year}.csv
+#'   'h2_average' (default): averages months 7-12 of the configured year. Reflects post-tariff
+#'      steady-state USMCA utilization (CA ~85-88%, MX ~85-88%) without monthly noise.
+#'   'annual': loads resources/usmca_product_shares_{year}.csv
 #'   'monthly': loads resources/usmca_product_shares_{year}_{MM}.csv based on effective_date
 #'   'fixed_month': loads resources/usmca_product_shares_{year}_{MM}.csv using configured month
+#'   'hybrid_rolling': Q1 average for Jan-Mar, 3-month rolling average (m, m-1, m-2) from April.
+#'      Smooths the mid-2025 USMCA utilization jump while capturing the behavioral shift.
+#'      Rolling uses available months only; falls back to annual if no monthly files found.
 #'
 #' @param policy_params Policy params list (uses usmca_shares mode/year)
 #' @param path Override path (ignores mode/year selection if provided)
@@ -1266,7 +1271,32 @@ load_usmca_product_shares <- function(policy_params = NULL, path = NULL, effecti
     mode <- policy_params$USMCA_SHARES$mode %||% 'annual'
     year <- policy_params$USMCA_SHARES$year %||% NULL
 
-    if (mode == 'fixed_month') {
+    if (mode == 'h2_average') {
+      # Average months 7-12: post-tariff steady-state USMCA utilization
+      year <- year %||% 2025L
+      monthly_shares <- list()
+      for (m in 7L:12L) {
+        m_path <- here('resources', sprintf('usmca_product_shares_%d_%02d.csv', year, m))
+        if (file.exists(m_path)) {
+          monthly_shares[[length(monthly_shares) + 1L]] <- read_csv(
+            m_path, col_types = cols(hts10 = col_character(), cty_code = col_character(),
+                                     usmca_share = col_double()), show_col_types = FALSE
+          )
+        }
+      }
+      if (length(monthly_shares) > 0) {
+        combined <- bind_rows(monthly_shares) %>%
+          group_by(hts10, cty_code) %>%
+          summarise(usmca_share = mean(usmca_share, na.rm = TRUE), .groups = 'drop')
+        message('  Loaded USMCA H2 average: ', nrow(combined),
+                ' product-country pairs (', length(monthly_shares), ' months, Jul-Dec ', year, ')')
+        return(combined)
+      } else {
+        message('  No H2 monthly USMCA files found for ', year, ' — falling back to annual')
+        path <- here('resources', paste0('usmca_product_shares_', year, '.csv'))
+      }
+
+    } else if (mode == 'fixed_month') {
       fixed_month <- policy_params$USMCA_SHARES$month %||% 12L
       year <- year %||% 2025L
       monthly_path <- here('resources', sprintf('usmca_product_shares_%d_%02d.csv', year, as.integer(fixed_month)))
@@ -1277,6 +1307,49 @@ load_usmca_product_shares <- function(policy_params = NULL, path = NULL, effecti
                 ' — falling back to annual')
         path <- here('resources', paste0('usmca_product_shares_', year, '.csv'))
       }
+    } else if (mode == 'hybrid_rolling' && !is.null(effective_date)) {
+      # Q1 average for Jan-Mar; 3-month rolling (m, m-1, m-2) from April onward
+      eff <- as.Date(effective_date)
+      year <- year %||% as.integer(format(eff, '%Y'))
+      month_num <- as.integer(format(eff, '%m'))
+      if (eff < as.Date(paste0(year, '-01-01'))) month_num <- 1L
+      if (eff > as.Date(paste0(year, '-12-31'))) month_num <- 12L
+
+      if (month_num <= 3L) {
+        # Q1: average all available months 1-3
+        window <- 1L:3L
+      } else {
+        # Rolling: months m, m-1, m-2
+        window <- (month_num - 2L):month_num
+      }
+
+      # Load available monthly files in the window
+      monthly_shares <- list()
+      for (m in window) {
+        m_path <- here('resources', sprintf('usmca_product_shares_%d_%02d.csv', year, m))
+        if (file.exists(m_path)) {
+          monthly_shares[[length(monthly_shares) + 1L]] <- read_csv(
+            m_path, col_types = cols(hts10 = col_character(), cty_code = col_character(),
+                                     usmca_share = col_double()), show_col_types = FALSE
+          )
+        }
+      }
+
+      if (length(monthly_shares) > 0) {
+        # Average shares across available months (only for products present in each month)
+        combined <- bind_rows(monthly_shares) %>%
+          group_by(hts10, cty_code) %>%
+          summarise(usmca_share = mean(usmca_share, na.rm = TRUE), .groups = 'drop')
+        window_label <- paste0(sprintf('%02d', window[1]), '-', sprintf('%02d', window[length(window)]))
+        message('  Loaded USMCA hybrid rolling: ', nrow(combined),
+                ' product-country pairs (', length(monthly_shares), ' months in window ',
+                window_label, ')')
+        return(combined)
+      } else {
+        message('  No monthly USMCA files found for hybrid rolling — falling back to annual')
+        path <- here('resources', paste0('usmca_product_shares_', year, '.csv'))
+      }
+
     } else if (mode == 'monthly' && !is.null(effective_date)) {
       eff <- as.Date(effective_date)
       year <- year %||% as.integer(format(eff, '%Y'))

@@ -178,9 +178,21 @@ The tracker's broader interpretation follows the legal text of the subdivision, 
 
 ### USMCA utilization
 
-The production model uses product-level USMCA utilization shares from USITC DataWeb resources committed in `resources/`.
+The production model uses product-level USMCA utilization shares from USITC DataWeb resources committed in `resources/`. This is a core modeling input, not a Tariff-ETRs benchmark input.
 
-This is now a core modeling input, not a Tariff-ETRs benchmark input.
+**Baseline method: H2 2025 average.** The 2025 USMCA data shows a structural break in utilization around mid-year as firms sharply increased claiming in response to new tariffs (trade-weighted share rising from ~0.40-0.50 in H1 to ~0.85-0.88 in H2). The baseline uses the average of July-December 2025, reflecting post-tariff steady-state utilization. This is time-invariant across revisions, avoids monthly noise, and represents the regime firms are actually operating under.
+
+Five modes are available in `config/policy_params.yaml` (`usmca_shares.mode`):
+
+| Mode | Description | Use case |
+|------|-------------|----------|
+| `h2_average` | Average of months 7-12 (default) | Baseline: post-tariff steady-state utilization |
+| `hybrid_rolling` | Q1 avg + 3-month rolling from April | Alternative: smoothed time-varying behavioral shift |
+| `monthly` | Raw per-month shares | Alternative: unsmoothed timing sensitivity |
+| `annual` | Single-year average | Alternative: blends pre- and post-tariff regimes |
+| `fixed_month` | One month's shares for all revisions | Alternative: specific month (e.g., Dec 2025) |
+
+See [analysis/usmca_share_method_comparison.md](analysis/usmca_share_method_comparison.md) for the full comparison.
 
 ### Section 122
 
