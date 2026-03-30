@@ -91,7 +91,10 @@ Rscript src/00_build_timeseries.R --full
 Rscript src/00_build_timeseries.R --build-only
 Rscript src/00_build_timeseries.R --with-alternatives
 Rscript src/00_build_timeseries.R --full --use-hts-dates
+Rscript src/00_build_timeseries.R --full --refresh-usmca
 ```
+
+The `--refresh-usmca` flag re-downloads USMCA utilization shares from the USITC DataWeb API before building. This updates the monthly and annual share CSVs in `resources/` with the latest available data. Requires a DataWeb API token in `.env` (see `src/download_usmca_dataweb.R` for setup). The flag is optional — without it, the build uses the committed share files.
 
 By default, the pipeline uses **legal policy effective dates** where they differ from HTS revision dates (e.g., SCOTUS ruling effective Feb 20 vs. HTS revision Feb 24). Pass `--use-hts-dates` to use raw HTS revision dates instead. See [docs/policy_timing.md](policy_timing.md) for the full list of affected revisions and legal sources.
 

@@ -13,6 +13,7 @@
 #   Rscript src/00_build_timeseries.R --build-only  # Skip downstream (daily/ETR/quality)
 #   Rscript src/00_build_timeseries.R --core-only  # Build + downstream, but skip weighted outputs
 #   Rscript src/00_build_timeseries.R --with-alternatives  # Also run rebuild alternatives
+#   Rscript src/00_build_timeseries.R --refresh-usmca     # Re-download USMCA shares from DataWeb API
 #
 # Storage layout:
 #   data/timeseries/
@@ -480,6 +481,7 @@ if (sys.nframe() == 0) {
   build_only <- '--build-only' %in% args
   core_only <- '--core-only' %in% args
   with_alternatives <- '--with-alternatives' %in% args
+  refresh_usmca <- '--refresh-usmca' %in% args
   use_policy_dates <- !('--use-hts-dates' %in% args)  # default: policy dates
   start_from <- NULL
   for (i in seq_along(args)) {
@@ -501,6 +503,30 @@ if (sys.nframe() == 0) {
     download_missing_revisions(),
     error = function(e) message('Download check failed: ', conditionMessage(e))
   )
+
+  # --- Step B2: Refresh USMCA shares from DataWeb API (if requested) ---
+  if (refresh_usmca) {
+    message('\n', strrep('=', 70))
+    message('Refreshing USMCA utilization shares from USITC DataWeb API')
+    message(strrep('=', 70))
+    pp_temp <- load_policy_params(use_policy_dates = use_policy_dates)
+    usmca_year <- pp_temp$USMCA_SHARES$year %||% 2025L
+    tryCatch({
+      # Download monthly data (produces per-month CSVs + diagnostic)
+      system2('Rscript', c(here('src', 'download_usmca_dataweb.R'),
+                            '--monthly', '--year', usmca_year),
+              stdout = '', stderr = '')
+      message('  Monthly shares refreshed for ', usmca_year)
+      # Also download annual for the same year
+      system2('Rscript', c(here('src', 'download_usmca_dataweb.R'),
+                            '--year', usmca_year),
+              stdout = '', stderr = '')
+      message('  Annual shares refreshed for ', usmca_year)
+    }, error = function(e) {
+      message('  USMCA refresh failed: ', conditionMessage(e),
+              '\n  Continuing with existing share files.')
+    })
+  }
 
   # --- Step C: Build timeseries ---
   if (use_policy_dates) {
