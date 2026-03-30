@@ -52,7 +52,8 @@ Thumbs.db
 todo.md
 blog*/
 
-# Rendered HTML in docs (only source .md/.Rmd tracked)
+# Analysis docs and rendered output (internal working documents)
+docs/analysis/*.md
 docs/analysis/*.html
 docs/analysis/*.pdf
 
