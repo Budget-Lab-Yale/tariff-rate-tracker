@@ -4,8 +4,8 @@
 
 This memo reviews the issues still described as unresolved in:
 
-- [README.md](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/README.md)
-- [docs/comparison_vs_tariff_etrs.md](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/docs/comparison_vs_tariff_etrs.md)
+- [README.md](README.md)
+- [docs/comparison_vs_tariff_etrs.md](docs/comparison_vs_tariff_etrs.md)
 
 The goal is to distinguish between:
 
@@ -34,10 +34,10 @@ The comparison memo currently states that the tracker applies per-list Section 3
 
 Relevant documentation:
 
-- [docs/comparison_vs_tariff_etrs.md](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/docs/comparison_vs_tariff_etrs.md)
-- [README.md](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/README.md)
+- [docs/comparison_vs_tariff_etrs.md](docs/comparison_vs_tariff_etrs.md)
+- [README.md](README.md)
 
-However, the implementation in [src/06_calculate_rates.R](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/06_calculate_rates.R) appears to do something simpler:
+However, the implementation in [src/06_calculate_rates.R](src/06_calculate_rates.R) appears to do something simpler:
 
 - it filters to active 301 Chapter 99 codes,
 - joins those to `resources/s301_product_lists.csv`,
@@ -46,12 +46,12 @@ However, the implementation in [src/06_calculate_rates.R](C:/Users/ji252/Documen
 
 That logic is implemented at:
 
-- [src/06_calculate_rates.R:1287](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/06_calculate_rates.R:1287)
-- [src/06_calculate_rates.R:1299](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/06_calculate_rates.R:1299)
+- [src/06_calculate_rates.R:1287](src/06_calculate_rates.R:1287)
+- [src/06_calculate_rates.R:1299](src/06_calculate_rates.R:1299)
 
 The applied rate is then pushed into `rate_301` here:
 
-- [src/06_calculate_rates.R:1308](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/06_calculate_rates.R:1308)
+- [src/06_calculate_rates.R:1308](src/06_calculate_rates.R:1308)
 
 Why this matters:
 
@@ -67,7 +67,7 @@ Suggested action:
    - sum across generations where both apply,
    - unless a documented supersession rule applies for a specific overlap set.
 2. Re-run the China comparison against both TPC and Tariff-ETRs.
-3. Update [docs/comparison_vs_tariff_etrs.md](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/docs/comparison_vs_tariff_etrs.md) so it reflects verified implementation, not intended behavior.
+3. Update [docs/comparison_vs_tariff_etrs.md](docs/comparison_vs_tariff_etrs.md) so it reflects verified implementation, not intended behavior.
 
 Priority: High
 
@@ -79,7 +79,7 @@ The README currently presents the EU floor residual as mostly unexplained.
 
 Relevant section:
 
-- [README.md:455](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/README.md:455)
+- [README.md:455](README.md:455)
 
 But the repo still defaults to:
 
@@ -87,7 +87,7 @@ But the repo still defaults to:
 
 in:
 
-- [config/policy_params.yaml:373](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/config/policy_params.yaml:373)
+- [config/policy_params.yaml:373](config/policy_params.yaml:373)
 
 The README already notes that the TPC-aligned alternative:
 
@@ -95,17 +95,17 @@ The README already notes that the TPC-aligned alternative:
 
 improves exact match materially:
 
-- [README.md:358](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/README.md:358)
-- [README.md:360](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/README.md:360)
+- [README.md:358](README.md:358)
+- [README.md:360](README.md:360)
 
 The validation script explicitly measures this effect:
 
-- [test_tpc_comparison.R:281](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/test_tpc_comparison.R:281)
-- [test_tpc_comparison.R:304](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/test_tpc_comparison.R:304)
+- [test_tpc_comparison.R:281](test_tpc_comparison.R:281)
+- [test_tpc_comparison.R:304](test_tpc_comparison.R:304)
 
 And the saved floor-country summary shows a large duty-free component:
 
-- [output/validation/tpc_floor_group_summary.csv](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/output/validation/tpc_floor_group_summary.csv)
+- [output/validation/tpc_floor_group_summary.csv](output/validation/tpc_floor_group_summary.csv)
 
 In that file, EU-27 has:
 
@@ -133,12 +133,12 @@ This likely changes the interpretation of one of the main â€œremaining issues.â€
 
 This issue is documented in the README:
 
-- [README.md:451](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/README.md:451)
+- [README.md:451](README.md:451)
 
 The code confirms it directly:
 
-- [src/06_calculate_rates.R:1262](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/06_calculate_rates.R:1262)
-- [src/06_calculate_rates.R:1266](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/06_calculate_rates.R:1266)
+- [src/06_calculate_rates.R:1262](src/06_calculate_rates.R:1262)
+- [src/06_calculate_rates.R:1266](src/06_calculate_rates.R:1266)
 
 Current behavior:
 
@@ -160,12 +160,12 @@ This appears to be low volume, but it is a clean, genuine feature gap and should
 
 The README describes the China plus Section 232 discrepancy as a current issue:
 
-- [README.md:447](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/README.md:447)
+- [README.md:447](README.md:447)
 
 The actual stacking logic is explicit:
 
-- [src/helpers.R:612](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/helpers.R:612)
-- [src/helpers.R:627](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/helpers.R:627)
+- [src/helpers.R:612](src/helpers.R:612)
+- [src/helpers.R:627](src/helpers.R:627)
 
 Current behavior:
 
@@ -194,8 +194,8 @@ The parser already contains explicit logic for handling:
 
 Relevant code:
 
-- [src/05_parse_policy_params.R:404](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/05_parse_policy_params.R:404)
-- [src/05_parse_policy_params.R:419](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/05_parse_policy_params.R:419)
+- [src/05_parse_policy_params.R:404](src/05_parse_policy_params.R:404)
+- [src/05_parse_policy_params.R:419](src/05_parse_policy_params.R:419)
 
 Suggested action:
 
@@ -210,7 +210,7 @@ The comparison memo still lists a large chapter 87 gap and suggests it may refle
 
 Relevant section:
 
-- [docs/comparison_vs_tariff_etrs.md:67](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/docs/comparison_vs_tariff_etrs.md:67)
+- [docs/comparison_vs_tariff_etrs.md:67](docs/comparison_vs_tariff_etrs.md:67)
 
 The codebase does include:
 
@@ -221,10 +221,10 @@ The codebase does include:
 
 Relevant implementation:
 
-- [config/policy_params.yaml:91](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/config/policy_params.yaml:91)
-- [config/policy_params.yaml:128](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/config/policy_params.yaml:128)
-- [src/06_calculate_rates.R:1140](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/06_calculate_rates.R:1140)
-- [src/06_calculate_rates.R:1194](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/06_calculate_rates.R:1194)
+- [config/policy_params.yaml:91](config/policy_params.yaml:91)
+- [config/policy_params.yaml:128](config/policy_params.yaml:128)
+- [src/06_calculate_rates.R:1140](src/06_calculate_rates.R:1140)
+- [src/06_calculate_rates.R:1194](src/06_calculate_rates.R:1194)
 
 There is not yet a single clear code defect explaining the whole gap.
 

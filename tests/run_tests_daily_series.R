@@ -6,7 +6,12 @@
 # Uses base R stopifnot() assertions — no external test framework required.
 #
 # Usage:
-#   Rscript tests/run_tests_daily_series.R
+#   Rscript tests/run_tests_daily_series.R                  # Fixture-based tests only (CI-safe)
+#   Rscript tests/run_tests_daily_series.R --with-artifacts # Also run artifact-dependent integration tests
+#
+# The default run uses only in-memory fixtures and does not require built
+# artifacts (rate_timeseries.rds, snapshots, etc.). Pass --with-artifacts to
+# include heavier integration tests that load full build outputs.
 #
 # =============================================================================
 
@@ -14,6 +19,8 @@ library(tidyverse)
 library(here)
 source(here('src', 'helpers.R'))
 source(here('src', '09_daily_series.R'))
+
+run_artifact_tests <- '--with-artifacts' %in% commandArgs(trailingOnly = TRUE)
 
 pass_count <- 0
 fail_count <- 0
@@ -719,7 +726,17 @@ run_test('decomposition matches stacking for non-China with rate_301', {
   stopifnot(max(residual) < 1e-10)
 })
 
-run_test('no non-China rate_301 in current timeseries', {
+# =============================================================================
+# Artifact-dependent integration tests (opt-in with --with-artifacts)
+# =============================================================================
+
+if (!run_artifact_tests) {
+  message('\n--- Skipping artifact-dependent tests (pass --with-artifacts to include) ---')
+} else {
+  message('\n--- Running artifact-dependent integration tests ---')
+}
+
+if (run_artifact_tests) run_test('no non-China rate_301 in current timeseries', {
   ts_path <- here('data', 'timeseries', 'rate_timeseries.rds')
   if (!file.exists(ts_path)) {
     skip_test('timeseries not found')
@@ -993,7 +1010,7 @@ snapshot_signature <- function(df) {
   )
 }
 
-run_test('snapshot_rev_16 matches point query on effective date', {
+if (run_artifact_tests) run_test('snapshot_rev_16 matches point query on effective date', {
   ts_path <- here('data', 'timeseries', 'rate_timeseries.rds')
   snap_path <- here('data', 'timeseries', 'snapshot_rev_16.rds')
   if (!file.exists(ts_path) || !file.exists(snap_path)) {
@@ -1009,7 +1026,7 @@ run_test('snapshot_rev_16 matches point query on effective date', {
   stopifnot(identical(snapshot_signature(point), snapshot_signature(snap)))
 })
 
-run_test('snapshot_2026_rev_4 matches point query on effective date', {
+if (run_artifact_tests) run_test('snapshot_2026_rev_4 matches point query on effective date', {
   ts_path <- here('data', 'timeseries', 'rate_timeseries.rds')
   snap_path <- here('data', 'timeseries', 'snapshot_2026_rev_4.rds')
   if (!file.exists(ts_path) || !file.exists(snap_path)) {
@@ -1025,7 +1042,7 @@ run_test('snapshot_2026_rev_4 matches point query on effective date', {
   stopifnot(identical(snapshot_signature(point), snapshot_signature(snap)))
 })
 
-run_test('daily_overall matches direct aggregation on timing-sensitive dates', {
+if (run_artifact_tests) run_test('daily_overall matches direct aggregation on timing-sensitive dates', {
   ts_path <- here('data', 'timeseries', 'rate_timeseries.rds')
   daily_path <- here('output', 'daily', 'daily_overall.csv')
   if (!file.exists(ts_path) || !file.exists(daily_path)) {
@@ -1055,7 +1072,7 @@ run_test('daily_overall matches direct aggregation on timing-sensitive dates', {
   }
 })
 
-run_test('daily_by_country matches direct aggregation for China on timing-sensitive dates', {
+if (run_artifact_tests) run_test('daily_by_country matches direct aggregation for China on timing-sensitive dates', {
   ts_path <- here('data', 'timeseries', 'rate_timeseries.rds')
   daily_path <- here('output', 'daily', 'daily_by_country.csv')
   if (!file.exists(ts_path) || !file.exists(daily_path)) {

@@ -30,8 +30,8 @@ The last revision should not end at `Sys.Date()`. Instead, the build should supp
 
 Recommended changes:
 
-- Add a config value such as `series_horizon.end_date: '2026-12-31'` in [config/policy_params.yaml](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/config/policy_params.yaml).
-- In [src/00_build_timeseries.R](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/00_build_timeseries.R), replace the final `valid_until = Sys.Date()` logic with:
+- Add a config value such as `series_horizon.end_date: '2026-12-31'` in [config/policy_params.yaml](config/policy_params.yaml).
+- In [src/00_build_timeseries.R](src/00_build_timeseries.R), replace the final `valid_until = Sys.Date()` logic with:
   - `lead(effective_date) - 1` for non-final revisions
   - `series_horizon.end_date` for the last revision
 - Add a guard so the horizon cannot be earlier than the final revision’s `effective_date`.
@@ -48,7 +48,7 @@ The repository should continue to store the full panel primarily as interval row
 
 Recommended changes:
 
-- Preserve [data/timeseries/rate_timeseries.rds](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/data/timeseries/rate_timeseries.rds) as the canonical dataset.
+- Preserve [data/timeseries/rate_timeseries.rds](data/timeseries/rate_timeseries.rds) as the canonical dataset.
 - Consider adding a columnar equivalent such as `rate_timeseries.parquet`.
 - Document that the interval form is the authoritative source for all downstream daily products.
 
@@ -64,7 +64,7 @@ The repo needs a dedicated function for generating a daily `hts10 x country x da
 
 Recommended changes:
 
-- Add a new function in [src/09_daily_series.R](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/09_daily_series.R), for example:
+- Add a new function in [src/09_daily_series.R](src/09_daily_series.R), for example:
   - `build_daily_product_country(ts, date_range, countries = NULL, products = NULL, policy_params = NULL, format = 'parquet')`
 - This function should:
   - start from the interval dataset
@@ -93,7 +93,7 @@ Section 122 expiry handling should be centralized and reused by:
 
 Recommended changes:
 
-- Add a helper in [src/helpers.R](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/helpers.R), for example:
+- Add a helper in [src/helpers.R](src/helpers.R), for example:
   - `apply_post_interval_adjustments(df, query_date = NULL, date_col = NULL, policy_params)`
 - This helper should:
   - zero `rate_s122` after the configured expiry date when `finalized = false`
@@ -244,9 +244,9 @@ Use for:
 
 Current outputs already fit this tier well:
 
-- [output/daily/daily_overall.csv](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/output/daily/daily_overall.csv)
-- [output/daily/daily_by_country.csv](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/output/daily/daily_by_country.csv)
-- [output/daily/daily_by_authority.csv](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/output/daily/daily_by_authority.csv)
+- [output/daily/daily_overall.csv](output/daily/daily_overall.csv)
+- [output/daily/daily_by_country.csv](output/daily/daily_by_country.csv)
+- [output/daily/daily_by_authority.csv](output/daily/daily_by_authority.csv)
 
 ### Tier 3: partitioned daily product-country dataset
 
@@ -288,9 +288,9 @@ Current total-rate logic includes Section 201, but authority decompositions do n
 
 Recommended changes:
 
-- In [src/helpers.R](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/helpers.R), extend `compute_net_authority_contributions()` to include `net_section_201`.
-- In [src/09_daily_series.R](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/09_daily_series.R), add `mean_section_201` and `etr_section_201` to authority outputs.
-- In [src/08_weighted_etr.R](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/src/08_weighted_etr.R), ensure authority-level summaries and plots include Section 201.
+- In [src/helpers.R](src/helpers.R), extend `compute_net_authority_contributions()` to include `net_section_201`.
+- In [src/09_daily_series.R](src/09_daily_series.R), add `mean_section_201` and `etr_section_201` to authority outputs.
+- In [src/08_weighted_etr.R](src/08_weighted_etr.R), ensure authority-level summaries and plots include Section 201.
 
 Rationale:
 
@@ -366,8 +366,8 @@ Monthly build is likely the best default implementation because it avoids holdin
 
 Update:
 
-- [README.md](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/README.md)
-- [docs/methodology.md](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/docs/methodology.md)
+- [README.md](README.md)
+- [docs/methodology.md](docs/methodology.md)
 
 Add documentation for:
 

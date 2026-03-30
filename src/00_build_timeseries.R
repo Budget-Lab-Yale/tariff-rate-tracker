@@ -511,21 +511,32 @@ if (sys.nframe() == 0) {
     message(strrep('=', 70))
     pp_temp <- load_policy_params(use_policy_dates = use_policy_dates)
     usmca_year <- pp_temp$USMCA_SHARES$year %||% 2025L
-    tryCatch({
-      # Download monthly data (produces per-month CSVs + diagnostic)
-      system2('Rscript', c(here('src', 'download_usmca_dataweb.R'),
-                            '--monthly', '--year', usmca_year),
-              stdout = '', stderr = '')
+    refresh_ok <- TRUE
+    # Download monthly data (produces per-month CSVs + diagnostic)
+    monthly_rc <- system2('Rscript', c(here('src', 'download_usmca_dataweb.R'),
+                                        '--monthly', '--year', usmca_year),
+                           stdout = TRUE, stderr = TRUE)
+    if (!is.null(attr(monthly_rc, 'status')) && attr(monthly_rc, 'status') != 0) {
+      message('  USMCA monthly refresh FAILED (exit ', attr(monthly_rc, 'status'), '):')
+      message(paste0('    ', tail(monthly_rc, 10), collapse = '\n'))
+      refresh_ok <- FALSE
+    } else {
       message('  Monthly shares refreshed for ', usmca_year)
-      # Also download annual for the same year
-      system2('Rscript', c(here('src', 'download_usmca_dataweb.R'),
-                            '--year', usmca_year),
-              stdout = '', stderr = '')
+    }
+    # Download annual for the same year
+    annual_rc <- system2('Rscript', c(here('src', 'download_usmca_dataweb.R'),
+                                       '--year', usmca_year),
+                          stdout = TRUE, stderr = TRUE)
+    if (!is.null(attr(annual_rc, 'status')) && attr(annual_rc, 'status') != 0) {
+      message('  USMCA annual refresh FAILED (exit ', attr(annual_rc, 'status'), '):')
+      message(paste0('    ', tail(annual_rc, 10), collapse = '\n'))
+      refresh_ok <- FALSE
+    } else {
       message('  Annual shares refreshed for ', usmca_year)
-    }, error = function(e) {
-      message('  USMCA refresh failed: ', conditionMessage(e),
-              '\n  Continuing with existing share files.')
-    })
+    }
+    if (!refresh_ok) {
+      message('  WARNING: One or more USMCA refreshes failed. Continuing with existing files.')
+    }
   }
 
   # --- Step C: Build timeseries ---

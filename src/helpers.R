@@ -541,14 +541,15 @@ load_revision_dates <- function(csv_path = here('config', 'revision_dates.csv'),
          '\nRun scraper or create manually.')
   }
 
+  # Read with known columns; any extra columns (e.g., needs_review) are
+  # auto-typed so the spec doesn't warn when they're absent from the CSV.
   dates <- read_csv(csv_path, col_types = cols(
     revision = col_character(),
     effective_date = col_date(),
     policy_effective_date = col_date(),
     tpc_date = col_date(),
     policy_event = col_character(),
-    tpc_policy_revision = col_character(),
-    needs_review = col_character()
+    tpc_policy_revision = col_character()
   ))
 
   # Validate

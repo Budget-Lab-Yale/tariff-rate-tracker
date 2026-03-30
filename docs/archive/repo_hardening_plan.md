@@ -29,10 +29,10 @@ It should not depend on the Tariff-ETRs repo for production outputs.
 
 Documentation is currently split across:
 
-- [README.md](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/README.md)
-- [docs/methodology.md](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/docs/methodology.md)
-- [docs/assumptions.md](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/docs/assumptions.md)
-- [docs/active_hts_changes.md](C:/Users/ji252/Documents/GitHub/tariff-rate-tracker/docs/active_hts_changes.md)
+- [README.md](README.md)
+- [docs/methodology.md](docs/methodology.md)
+- [docs/assumptions.md](docs/assumptions.md)
+- [docs/active_hts_changes.md](docs/active_hts_changes.md)
 - comparison memos and issue memos under `docs/`
 
 This makes it hard for a new user to answer basic questions:
