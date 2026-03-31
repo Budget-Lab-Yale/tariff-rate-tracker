@@ -4,7 +4,7 @@ This document is the canonical description of the tariff regime, the repo's mode
 
 ## Scope
 
-The tracker constructs statutory U.S. tariff rates at the `HTS-10 x country` level by processing USITC HTS revisions. The current repo covers 38 revisions from January 1, 2025 through February 24, 2026, and extends the final interval through December 31, 2026 using the configured series horizon.
+The tracker constructs statutory U.S. tariff rates at the `HTS-10 x country` level by processing USITC HTS revisions. The current repo covers 39 revisions from January 1, 2025 through February 24, 2026, and extends the final interval through December 31, 2026 using the configured series horizon.
 
 The production series is built from:
 
@@ -126,7 +126,7 @@ In words:
 
 - Section 232 takes precedence over IEEPA reciprocal on the metal-covered portion.
 - For derivative 232 products, IEEPA reciprocal and Section 122 apply only to the non-metal portion. The non-metal share is computed per metal type: steel chapters (72/73) use `1 - steel_share`, aluminum chapters (76) and derivatives use `1 - aluminum_share`, and copper headings use `1 - copper_share`. This ensures IEEPA fills only the portion not claimed by the active 232 program's specific metal type, rather than the aggregate metal content.
-- Fentanyl always stacks in full on 232 products (not scaled by metal share), matching the China treatment.
+- Fentanyl on 232 products: for China, fentanyl stacks in full (not scaled by metal share); for other countries (CA/MX), fentanyl is scaled by the non-metal share, following the same content-based split as IEEPA reciprocal.
 - Section 301 contributes only for China (the builder assigns `rate_301` exclusively to China-origin products). Non-China 301 is excluded from stacking to match the decomposition. If non-China Section 301 tariffs emerge in the future, they should use a dedicated authority column.
 - Section 201 and other provisions contribute at their full rates.
 
@@ -298,7 +298,7 @@ The repo is intentionally tied to published HTS revisions. That means very short
 
 ### Comparison-runner completeness
 
-The repo has a comparison runner, but the Tariff-ETRs cross-repo path is not yet fully implemented inside `run_comparisons.R`.
+The repo has a standalone ETRs comparison script (`compare_etrs.R`) that is fully functional, but it is not yet integrated into the `run_comparisons.R` orchestrator (the `--etrs` flag is reserved).
 
 ## What this methodology does not claim
 

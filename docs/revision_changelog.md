@@ -300,7 +300,7 @@ No Chapter 99 changes. +153 product line additions.
 
 1. **Phase 1 suspension (rev_9-17)**: All country-specific Phase 1 entries (9903.01.43-76) were suspended during the 90-day pause. The universal 10% baseline (9903.01.25) remained active throughout.
 
-2. **China IEEPA trajectory**: +10% (rev_1) → +34% (rev_7) → +84% (rev_8) → +125% (rev_9) → +34% (rev_12, Geneva) → suspended/10% baseline (rev_12+). China's Phase 2 rate is via 9903.01.77 at +40% (EO 14323 / Brazil EO section).
+2. **China IEEPA trajectory**: +10% (rev_1) → +34% (rev_7) → +84% (rev_8) → +125% (rev_9) → +34% (rev_12, Geneva) → suspended/10% baseline (rev_12+). Note: 9903.01.77 is the Brazil EO entry (+40%, EO 14323), not a China entry. China's Phase 1 entry (9903.01.63) remains suspended post-Geneva; China is subject to the universal 10% baseline (9903.01.25) plus any Phase 2 rates in the 9903.02.xx range.
 
 3. **Floor country pattern**: EU (rev_18/24), Japan (rev_23), S. Korea (rev_32), Switzerland/Liechtenstein (2026_basic). Each gets passthrough (base >= 15%) + floor (base < 15% → 15%) + exemption entries.
 
@@ -309,7 +309,7 @@ No Chapter 99 changes. +153 product line additions.
 5. **TPC date gaps**: rev_18 (effective 2025-08-07) is validated against TPC date 2025-10-17 — a 2+ month gap. Policy changes between these dates (revisions 19-27) may cause discrepancies. See `config/revision_dates.csv` for the full date mapping. The `tpc_policy_revision` column maps each validation row to the correct policy snapshot (e.g., rev_10 validates against rev_7's rates).
 
 6. **Bug fixes (2026-03-13)**: Three high-priority fixes applied to the stacking and rate-assignment logic:
-   - **Fentanyl stacking on 232 products**: `apply_stacking_rules()` and `compute_net_authority_contributions()` in `helpers.R` were incorrectly scaling fentanyl by `nonmetal_share` for non-China 232 products (zeroing fentanyl on full-metal items). Fixed to stack fentanyl in full, matching the China path.
+   - **Fentanyl stacking on 232 products**: `apply_stacking_rules()` and `compute_net_authority_contributions()` in `helpers.R` were incorrectly scaling fentanyl by `nonmetal_share` for non-China 232 products (zeroing fentanyl on full-metal items). Initially fixed (2026-03-13) to stack fentanyl in full matching the China path, then revised (2026-03-27) to scale non-China fentanyl by `nonmetal_share` — following the same content-based split as IEEPA reciprocal. China fentanyl continues to stack in full.
    - **Country alias codes**: Myanmar (5560→5460), Macau (5850→5660), Cote d'Ivoire (7230→7480) were mapped to wrong Census codes in `05_parse_policy_params.R`.
    - **232 light-truck gate**: `06_calculate_rates.R` used `autos_light` instead of `autos_light_trucks` in its heading gates, causing light-truck prefixes to bypass the Ch99-activation check.
 
@@ -320,4 +320,4 @@ No Chapter 99 changes. +153 product line additions.
    - **Auto deal vs blanket 232**: `extract_section232_rates()` no longer falls back to `max(deal_rate)` as a global auto tariff when only country-specific deal entries exist. Non-deal countries correctly stay at zero.
    - **All-pairs denominator**: Daily aggregates now report both `*_exposed` (sparse panel) and `*_all_pairs` (full Cartesian product) means. Reporting default is `*_all_pairs`.
    - **Revision date automation**: `01_scrape_revision_dates.R` rewritten to use the USITC REST API (`releaseList`) for discovering new revisions. Includes Chapter 99 PDF change detection via SHA-256 hash comparison.
-   - **Assumption #12 removed**: TPC additive stacking methodology moved from `assumptions.md` to a code comment in `helpers.R` — it describes TPC's approach, not our own assumption.
+   - **Assumption #12 renumbered**: The former TPC additive stacking assumption was replaced. Assumption 12 now covers Section 122 / Section 232 mutual exclusion on metal products. The TPC additive stacking methodology is referenced in Assumption 1 (`tpc_additive` mode) and in code comments in `helpers.R`.
