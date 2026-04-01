@@ -769,7 +769,7 @@ parse_floor_exempt_products <- function(
 # is no "Heading 9903.78.01 applies to" anchor — the list is within the Note
 # text under subdivision (b).
 #
-# Output: resources/s232_copper_products.csv with columns: hts10, ch99_code
+# Output: resources/s232_copper_products.csv with columns: hts10 (HTS8 prefix), ch99_code
 #
 
 #' Parse Note 36 copper product list from Chapter 99 PDF
@@ -882,16 +882,19 @@ parse_note36_copper_products <- function(
   }
 
   all_codes <- unique(all_codes)
-  message('  Extracted ', length(all_codes), ' unique HTS10 codes')
+  message('  Extracted ', length(all_codes), ' unique HTS8 codes')
 
   if (length(all_codes) == 0) {
-    message('WARNING: No copper HTS10 codes extracted. PDF format may have changed.')
+    message('WARNING: No copper HTS8 codes extracted. PDF format may have changed.')
     return(invisible(NULL))
   }
 
-  # ---- Normalize codes: remove dots and pad to 10 digits ----
-  # PDF format is XXXX.XX.XX (8 digits). Pad with '00' to get HTS10.
-  hts10_codes <- str_pad(gsub('\\.', '', all_codes), 10, side = 'right', pad = '0')
+  # ---- Normalize codes: remove dots to get HTS8 prefixes ----
+  # PDF format is XXXX.XX.XX (8 digits). Keep as HTS8 rather than padding to
+
+  # HTS10 — statistical suffixes (digits 9-10) change across HTS revisions, so
+  # HTS8 prefixes are stable and match all suffixes via startswith().
+  hts10_codes <- gsub('\\.', '', all_codes)
 
   # ---- Validate: check heading distribution and expected coverage ----
   headings <- substr(hts10_codes, 1, 4)
@@ -937,7 +940,7 @@ parse_note36_copper_products <- function(
   ) %>%
     arrange(hts10)
 
-  message('\nFinal copper product list: ', nrow(result), ' HTS10 codes')
+  message('\nFinal copper product list: ', nrow(result), ' HTS8 prefixes')
   message('  Ch74 codes: ', sum(grepl('^74', result$hts10)))
   message('  Ch8544 codes: ', sum(grepl('^8544', result$hts10)))
 

@@ -236,7 +236,7 @@ export_statutory_rates <- function(snapshot, policy_params, output_dir, ch99_dat
     prog <- headings[[prog_name]]
 
     # Match products using same priority as calculate_rates_for_revision():
-    # 1. products_file (exact HTS10 list as prefixes)
+    # 1. products_file (HTS8 prefixes, matched via startswith)
     # 2. Fallback to inline prefixes + prefixes_file (only if products_file empty)
     prefixes <- character(0)
 

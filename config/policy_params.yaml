@@ -98,7 +98,7 @@ section_232_headings:
     default_rate: 0.25
     usmca_exempt: true
   copper:
-    products_file: 'resources/s232_copper_products.csv'  # Authoritative: US Note 36(b), 80 HTS10 codes
+    products_file: 'resources/s232_copper_products.csv'  # Authoritative: US Note 36(b), 80 HTS8 prefixes
     prefixes: ['7406', '7407', '7408', '7409', '7410', '7411', '7412', '7413',
                '7415', '7418', '7419', '8544']  # Fallback if products_file missing
     default_rate: 0.50    # 9903.78.01: 50% upon value of copper content (June 2025 proclamation)

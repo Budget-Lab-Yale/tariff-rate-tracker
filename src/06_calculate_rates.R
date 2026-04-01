@@ -969,7 +969,7 @@ calculate_rates_for_revision <- function(
 
         cfg <- s232_headings[[tariff_name]]
 
-        # Product matching: prefer products_file (exact HTS10 list, treated as prefixes)
+        # Product matching: prefer products_file (HTS8 prefixes, matched via startswith)
         # over prefixes_file (text file of prefixes) over inline prefixes.
         matched <- character(0)
 
