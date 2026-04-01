@@ -60,12 +60,18 @@ generate_etrs_config <- function(ts, date, output_dir,
 
   # Snapshot rates at this date
   has_valid_dates <- 'valid_from' %in% names(ts) && !all(is.na(ts$valid_from))
-  if (has_valid_dates) {
-    snapshot <- get_rates_at_date(ts, date, policy_params)
-  } else {
-    snapshot <- ts
+  if (!has_valid_dates) {
+    stop('Timeseries is missing valid_from/valid_until columns (or all NA). ',
+         'Rebuild with: Rscript src/00_build_timeseries.R --full\n',
+         '  The interval computation step (lines 319-342 of 00_build_timeseries.R) ',
+         'may have been skipped or the build may have crashed before completing.')
   }
+  snapshot <- get_rates_at_date(ts, date, policy_params)
   message(sprintf('  Snapshot: %s product-country pairs', format(nrow(snapshot), big.mark = ',')))
+  if (nrow(snapshot) > 10e6) {
+    warning('Snapshot has ', format(nrow(snapshot), big.mark = ','),
+            ' rows — expected ~3-5M. Check that valid_from filtering is working correctly.')
+  }
 
   # Ch99 data: use provided, else try fallback path
   if (is.null(ch99_data)) {
@@ -80,7 +86,7 @@ generate_etrs_config <- function(ts, date, output_dir,
 
   # Export dense statutory rates CSV (replaces all per-authority YAMLs)
   active_s232_programs <- export_statutory_rates(snapshot, policy_params, output_dir,
-                                                  ch99_data = ch99_data)
+                                                  ch99_data = ch99_data, date = date)
 
   # Write other_params.yaml (adjustment parameters only — no MFN path needed)
   generate_other_params_yaml(date, policy_params, output_dir, etrs_resources_dir,
@@ -107,7 +113,12 @@ generate_etrs_configs_all_revisions <- function(ts, output_base,
     policy_params <- load_policy_params()
   }
 
-  # Get unique revision intervals
+  # Get unique revision intervals — fail early if intervals are missing
+  if (!all(c('valid_from', 'valid_until') %in% names(ts)) || all(is.na(ts$valid_from))) {
+    stop('Timeseries is missing valid_from/valid_until columns (or all NA). ',
+         'Rebuild with: Rscript src/00_build_timeseries.R --full')
+  }
+
   rev_intervals <- ts %>%
     distinct(revision, valid_from, valid_until) %>%
     arrange(valid_from)
@@ -150,9 +161,10 @@ generate_etrs_configs_all_revisions <- function(ts, output_base,
 #' @param policy_params Loaded policy parameters
 #' @param output_dir Directory to write statutory_rates.csv.gz
 #' @param ch99_data Ch99 data for extracting s232 deal rates (optional; NULL = no deal target_totals)
+#' @param date Date for filtering derivative products by effective_date (optional)
 #'
 #' @return Character vector of active s232 program names (for metal_programs)
-export_statutory_rates <- function(snapshot, policy_params, output_dir, ch99_data = NULL) {
+export_statutory_rates <- function(snapshot, policy_params, output_dir, ch99_data = NULL, date = NULL) {
 
   # Verify statutory columns exist
   required <- c('statutory_rate_232', 'statutory_base_rate',
@@ -181,13 +193,14 @@ export_statutory_rates <- function(snapshot, policy_params, output_dir, ch99_dat
   alum_pattern <- paste0('^(', paste(alum_chapters, collapse = '|'), ')')
 
   # Derivative products (both aluminum and steel types)
+  # Use load_232_derivative_products() which properly filters by effective_date
   deriv_file <- here::here(policy_params$section_232_derivatives$resource_file %||%
                             'resources/s232_derivative_products.csv')
   deriv_prefixes <- character(0)
   alum_deriv_prefixes <- character(0)
   steel_deriv_prefixes <- character(0)
-  if (file.exists(deriv_file)) {
-    derivs <- read_csv(deriv_file, show_col_types = FALSE)
+  derivs <- load_232_derivative_products(path = deriv_file, effective_date = date)
+  if (!is.null(derivs) && nrow(derivs) > 0) {
     deriv_prefixes <- unique(derivs$hts_prefix)
     alum_deriv_prefixes <- unique(derivs$hts_prefix[derivs$derivative_type == 'aluminum'])
     steel_deriv_prefixes <- unique(derivs$hts_prefix[derivs$derivative_type == 'steel'])
@@ -310,10 +323,12 @@ export_statutory_rates <- function(snapshot, policy_params, output_dir, ch99_dat
   # ---------------------------------------------------------------------------
 
   # Build per-program s232 columns via pivot_wider
+  # Deduplicate to prevent list-columns when snapshot has repeated (hts10, country) rows
   s232_wide <- snapshot %>%
     select(hts10, cty_code = country, statutory_rate_232) %>%
     inner_join(product_programs, by = 'hts10') %>%
     filter(statutory_rate_232 > 0) %>%
+    distinct(hts10, cty_code, s232_program, .keep_all = TRUE) %>%
     mutate(s232_program = paste0('s232_', s232_program)) %>%
     pivot_wider(
       id_cols = c(hts10, cty_code),
