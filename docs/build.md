@@ -111,7 +111,7 @@ By default, the pipeline uses **legal policy effective dates** where they differ
 | Country-partner mapping | `resources/country_partner_mapping.csv` | committed | partner aggregates for reporting | manual refresh |
 | Section 301 product list | `resources/s301_product_lists.csv` | committed | blanket 301 coverage | `src/scrape_us_notes.R` (validates anchor coverage; refuses partial writes) |
 | IEEPA exempt products | `resources/ieepa_exempt_products.csv` | committed | reciprocal exemptions | regenerate when exemption logic changes |
-| Section 232 derivative products | `resources/s232_derivative_products.csv` | committed | derivative 232 coverage (aluminum + steel, 639 entries) | manual / FR 2025-15819; future: `scrape_us_notes.R --232-derivatives` |
+| Section 232 derivative products | `resources/s232_derivative_products.csv` | committed | derivative 232 coverage (aluminum + steel, 568 HTS8 prefixes) | manual / FR 2025-15819; future: `scrape_us_notes.R --232-derivatives` |
 | Copper 232 product list | `resources/s232_copper_products.csv` | committed | copper 232 coverage (80 HTS8 prefixes) | `src/scrape_us_notes.R --copper` (validates >= 60 codes; refuses reduced overwrites) |
 | Auto and MHD product lists | `resources/s232_auto_parts.txt`, `resources/s232_mhd_parts.txt` | committed | 232 auto and MHD coverage | manual refresh from official notes |
 | Fentanyl carve-outs | `resources/fentanyl_carveout_products.csv` | committed | reduced fentanyl rates for carve-out products | manual / documented refresh |
