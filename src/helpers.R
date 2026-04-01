@@ -1190,8 +1190,11 @@ add_blanket_pairs <- function(rates, products, covered_hts10, country_rates,
 #' Cannot be extracted from HTS JSON.
 #'
 #' @param path Path to s232_derivative_products.csv
-#' @return Tibble with hts_prefix, ch99_code, derivative_type; or NULL if missing
-load_232_derivative_products <- function(path = here('resources', 's232_derivative_products.csv')) {
+#' @param effective_date Optional date to filter entries by effective_date column.
+#'   Only entries with effective_date <= this date (or blank) are returned.
+#' @return Tibble with hts_prefix, ch99_code, derivative_type, effective_date; or NULL if missing
+load_232_derivative_products <- function(path = here('resources', 's232_derivative_products.csv'),
+                                         effective_date = NULL) {
   if (!file.exists(path)) {
     message('  232 derivative products file not found: ', path)
     return(NULL)
@@ -1200,8 +1203,20 @@ load_232_derivative_products <- function(path = here('resources', 's232_derivati
   products <- read_csv(path, col_types = cols(
     hts_prefix = col_character(),
     ch99_code = col_character(),
-    derivative_type = col_character()
+    derivative_type = col_character(),
+    effective_date = col_date(format = '')
   ))
+
+  # Filter by effective_date if provided
+  if (!is.null(effective_date) && 'effective_date' %in% names(products)) {
+    n_before <- nrow(products)
+    products <- products %>%
+      filter(is.na(effective_date) | effective_date <= !!effective_date)
+    n_filtered <- n_before - nrow(products)
+    if (n_filtered > 0) {
+      message('  Filtered out ', n_filtered, ' derivative entries not yet effective at ', effective_date)
+    }
+  }
 
   message('  Loaded ', nrow(products), ' Section 232 derivative product prefixes')
   return(products)

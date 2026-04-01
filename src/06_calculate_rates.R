@@ -231,8 +231,9 @@ check_country_applies <- function(country, country_type, countries, exempt) {
 #' @return List with 'rates' (updated tibble) and 'deriv_matched' (character vector)
 apply_232_derivatives <- function(rates, products, ch99_data, s232_rates, countries,
                                   heading_products = character(0),
-                                  policy_params = NULL) {
-  deriv_products <- load_232_derivative_products()
+                                  policy_params = NULL,
+                                  effective_date = NULL) {
+  deriv_products <- load_232_derivative_products(effective_date = effective_date)
   deriv_matched <- character(0)
 
   # Initialize deriv_type column (used by stacking rules to select per-type share)
@@ -1435,7 +1436,8 @@ calculate_rates_for_revision <- function(
   }
   result <- apply_232_derivatives(rates, products, ch99_data, s232_rates, countries,
                                    heading_products = all_heading_hts10,
-                                   policy_params = pp)
+                                   policy_params = pp,
+                                   effective_date = effective_date)
   rates <- result$rates
   deriv_matched <- result$deriv_matched
 
