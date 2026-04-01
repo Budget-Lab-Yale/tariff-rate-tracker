@@ -212,13 +212,16 @@ check_country_applies <- function(country, country_type, countries, exempt) {
 
 #' Apply Section 232 derivative tariff and metal content scaling
 #'
-#' Derivative products (9903.85.04/.07/.08) are aluminum-containing articles
-#' outside chapter 76. The tariff applies only to the metal content portion
+#' Derivative products include both aluminum-containing articles outside
+#' chapter 76 (9903.85.04/.07/.08) and steel-containing articles outside
+#' chapters 72-73 (9903.81.89-93, added via Section 232 Inclusions Process,
+#' FR 2025-15819). The tariff applies only to the metal content portion
 #' of customs value. This function:
 #'   1. Loads the product list from resources/s232_derivative_products.csv
-#'   2. Matches products by prefix
-#'   3. Applies derivative 232 rates (update existing + add new pairs)
-#'   4. Joins metal content shares and scales rate_232 by metal_share
+#'   2. Matches products by prefix, split by derivative_type (steel/aluminum)
+#'   3. Applies derivative 232 rates per type (update existing + add new pairs)
+#'   4. Joins metal content shares and scales rate_232 by per-type share
+#'   5. Tags products with deriv_type for use in stacking rules
 #'
 #' @param rates Current rates tibble
 #' @param products Product data from parse_products()
@@ -232,58 +235,95 @@ apply_232_derivatives <- function(rates, products, ch99_data, s232_rates, countr
   deriv_products <- load_232_derivative_products()
   deriv_matched <- character(0)
 
+  # Initialize deriv_type column (used by stacking rules to select per-type share)
+  if (!'deriv_type' %in% names(rates)) {
+    rates <- rates %>% mutate(deriv_type = NA_character_)
+  }
+
   if (!is.null(deriv_products) && nrow(deriv_products) > 0 && s232_rates$has_232) {
-    # Check if derivative Ch99 entries exist in this revision
-    deriv_ch99_codes <- c('9903.85.04', '9903.85.07', '9903.85.08')
-    has_deriv_entries <- any(ch99_data$ch99_code %in% deriv_ch99_codes)
+    # Check if derivative Ch99 entries exist in this revision (either type)
+    alum_deriv_ch99 <- c('9903.85.04', '9903.85.07', '9903.85.08')
+    steel_deriv_ch99 <- c('9903.81.89', '9903.81.90', '9903.81.91', '9903.81.93')
+    has_alum_deriv <- any(ch99_data$ch99_code %in% alum_deriv_ch99)
+    has_steel_deriv <- any(ch99_data$ch99_code %in% steel_deriv_ch99)
 
-    if (has_deriv_entries) {
-      derivative_rate <- s232_rates$derivative_rate
-      derivative_exempt <- s232_rates$derivative_exempt
+    if (has_alum_deriv || has_steel_deriv) {
+      # Split product list by derivative type
+      alum_products <- deriv_products %>% filter(derivative_type == 'aluminum')
+      steel_products <- deriv_products %>% filter(derivative_type == 'steel')
 
-      # Match products by prefix
-      deriv_prefixes <- deriv_products$hts_prefix
-      deriv_pattern <- paste0('^(', paste(deriv_prefixes, collapse = '|'), ')')
-      deriv_matched <- products %>%
-        filter(grepl(deriv_pattern, hts10)) %>%
-        pull(hts10)
+      # --- Aluminum derivatives ---
+      alum_matched <- character(0)
+      if (has_alum_deriv && nrow(alum_products) > 0) {
+        alum_prefixes <- alum_products$hts_prefix
+        alum_pattern <- paste0('^(', paste(alum_prefixes, collapse = '|'), ')')
+        alum_matched <- products %>%
+          filter(grepl(alum_pattern, hts10)) %>% pull(hts10)
 
-      message('  Section 232 derivative coverage: ', length(deriv_matched), ' products')
-
-      if (length(deriv_matched) > 0) {
-        # Build per-country rate lookup
-        country_deriv_rate <- tibble(country = countries) %>%
-          mutate(
-            deriv_exempt = map_lgl(country, ~is_232_exempt(.x, derivative_exempt)),
-            deriv_rate = if_else(deriv_exempt, 0, derivative_rate)
-          )
-
-        n_deriv_countries <- sum(country_deriv_rate$deriv_rate > 0)
-        message('  Derivative 232: ', round(derivative_rate * 100), '% for ',
-                n_deriv_countries, ' countries')
-
-        # Update rate_232 for derivative products already in rates
-        rates <- rates %>%
-          left_join(
-            country_deriv_rate %>% select(country, deriv_rate),
-            by = 'country'
-          ) %>%
-          mutate(
-            deriv_rate = coalesce(deriv_rate, 0),
-            rate_232 = if_else(
-              hts10 %in% deriv_matched & deriv_rate > 0,
-              pmax(rate_232, deriv_rate),
-              rate_232
+        if (length(alum_matched) > 0) {
+          country_alum <- tibble(country = countries) %>%
+            mutate(
+              deriv_exempt = map_lgl(country, ~is_232_exempt(.x, s232_rates$derivative_exempt)),
+              deriv_rate = if_else(deriv_exempt, 0, s232_rates$derivative_rate)
             )
-          ) %>%
-          select(-deriv_rate)
-
-        # Add new pairs using blanket helper
-        blanket_rates <- country_deriv_rate %>%
-          select(country, blanket_rate = deriv_rate)
-        rates <- add_blanket_pairs(rates, products, deriv_matched, blanket_rates,
-                                   'rate_232', '232 derivative duties')
+          rates <- rates %>%
+            left_join(country_alum %>% select(country, .alum_deriv_rate = deriv_rate), by = 'country') %>%
+            mutate(
+              .alum_deriv_rate = coalesce(.alum_deriv_rate, 0),
+              rate_232 = if_else(hts10 %in% alum_matched & .alum_deriv_rate > 0,
+                                 pmax(rate_232, .alum_deriv_rate), rate_232),
+              deriv_type = if_else(hts10 %in% alum_matched & .alum_deriv_rate > 0,
+                                   'aluminum', deriv_type)
+            ) %>% select(-.alum_deriv_rate)
+          blanket_alum <- country_alum %>% select(country, blanket_rate = deriv_rate)
+          rates <- add_blanket_pairs(rates, products, alum_matched, blanket_alum,
+                                     'rate_232', '232 aluminum derivative duties')
+          # Tag newly added pairs
+          rates <- rates %>%
+            mutate(deriv_type = if_else(hts10 %in% alum_matched & is.na(deriv_type) & rate_232 > 0,
+                                         'aluminum', deriv_type))
+          message('  Aluminum derivative coverage: ', length(alum_matched), ' products')
+        }
       }
+
+      # --- Steel derivatives ---
+      steel_matched <- character(0)
+      if (has_steel_deriv && nrow(steel_products) > 0) {
+        steel_prefixes <- steel_products$hts_prefix
+        steel_pattern <- paste0('^(', paste(steel_prefixes, collapse = '|'), ')')
+        steel_matched <- products %>%
+          filter(grepl(steel_pattern, hts10)) %>% pull(hts10)
+
+        if (length(steel_matched) > 0) {
+          country_steel <- tibble(country = countries) %>%
+            mutate(
+              deriv_exempt = map_lgl(country, ~is_232_exempt(.x, s232_rates$steel_derivative_exempt)),
+              deriv_rate = if_else(deriv_exempt, 0, s232_rates$steel_derivative_rate)
+            )
+          rates <- rates %>%
+            left_join(country_steel %>% select(country, .steel_deriv_rate = deriv_rate), by = 'country') %>%
+            mutate(
+              .steel_deriv_rate = coalesce(.steel_deriv_rate, 0),
+              rate_232 = if_else(hts10 %in% steel_matched & .steel_deriv_rate > 0,
+                                 pmax(rate_232, .steel_deriv_rate), rate_232),
+              # Products in both types: steel takes precedence for deriv_type
+              # (stacking uses steel_share, which is correct since steel content
+              # is what triggers the steel derivative classification)
+              deriv_type = if_else(hts10 %in% steel_matched & .steel_deriv_rate > 0,
+                                   'steel', deriv_type)
+            ) %>% select(-.steel_deriv_rate)
+          blanket_steel <- country_steel %>% select(country, blanket_rate = deriv_rate)
+          rates <- add_blanket_pairs(rates, products, steel_matched, blanket_steel,
+                                     'rate_232', '232 steel derivative duties')
+          rates <- rates %>%
+            mutate(deriv_type = if_else(hts10 %in% steel_matched & is.na(deriv_type) & rate_232 > 0,
+                                         'steel', deriv_type))
+          message('  Steel derivative coverage: ', length(steel_matched), ' products')
+        }
+      }
+
+      deriv_matched <- union(alum_matched, steel_matched)
+      message('  Section 232 derivative coverage (total): ', length(deriv_matched), ' products')
     }
   }
 
@@ -318,15 +358,16 @@ apply_232_derivatives <- function(rates, products, ch99_data, s232_rates, countr
   }
 
   if (length(deriv_matched) > 0) {
-    # Scale by per-type share (aluminum_share for aluminum derivatives) rather
-    # than aggregate metal_share. The derivative tariff only applies to the
-    # aluminum content; steel/copper fractions are covered by IEEPA via
-    # nonmetal_share in stacking. This matches ETRs' per-type scaling.
+    # Scale by per-type share: aluminum derivatives use aluminum_share,
+    # steel derivatives use steel_share. The derivative tariff only applies to
+    # the relevant metal content; the other metal fractions are covered by IEEPA
+    # via nonmetal_share in stacking. This matches ETRs' per-type scaling.
     #
     # Skip scaling for derivatives that also have a heading rate (e.g., auto parts
     # that are also aluminum derivatives). The heading rate dominates and shouldn't
     # be metal-scaled — ETRs handles this via per-program pmax.
-    scale_col <- if ('aluminum_share' %in% names(rates)) 'aluminum_share' else 'metal_share'
+    has_per_type <- all(c('steel_share', 'aluminum_share') %in% names(rates))
+
     # Exclude primary chapter products (72/73/76) and heading products from
     # derivative metal scaling. Primary chapters get blanket 232 rates (full product);
     # heading products get heading rates (full product). Only true derivatives
@@ -335,12 +376,32 @@ apply_232_derivatives <- function(rates, products, ch99_data, s232_rates, countr
     primary_hts10 <- rates %>% distinct(hts10) %>%
       filter(substr(hts10, 1, 2) %in% p_chapters) %>% pull(hts10)
     deriv_only <- setdiff(deriv_matched, c(heading_products, primary_hts10))
-    rates <- rates %>%
-      mutate(rate_232 = if_else(
-        hts10 %in% deriv_only & !!sym(scale_col) < 1.0,
-        rate_232 * !!sym(scale_col),
-        rate_232
-      ))
+
+    if (has_per_type) {
+      # Per-type scaling: aluminum derivatives by aluminum_share, steel by steel_share
+      rates <- rates %>%
+        mutate(
+          .scale_share = case_when(
+            hts10 %in% deriv_only & deriv_type == 'steel'    ~ steel_share,
+            hts10 %in% deriv_only & deriv_type == 'aluminum' ~ aluminum_share,
+            hts10 %in% deriv_only                            ~ metal_share,  # fallback
+            TRUE ~ 1.0
+          ),
+          rate_232 = if_else(
+            hts10 %in% deriv_only & .scale_share < 1.0,
+            rate_232 * .scale_share,
+            rate_232
+          )
+        ) %>% select(-.scale_share)
+    } else {
+      # Fallback: aggregate metal_share (backward compat for flat/cbo methods)
+      rates <- rates %>%
+        mutate(rate_232 = if_else(
+          hts10 %in% deriv_only & metal_share < 1.0,
+          rate_232 * metal_share,
+          rate_232
+        ))
+    }
 
     # Reset metal_share to 1.0 for heading products excluded from scaling.
     # Their rate_232 applies to the full product value (heading rate dominates),
@@ -1336,8 +1397,9 @@ calculate_rates_for_revision <- function(
     mutate(statutory_rate_232 = rate_232)
 
   # 5. Apply Section 232 derivative tariff + metal content scaling
-  #    Derivative products (9903.85.04/.07/.08) are aluminum-containing articles
-  #    outside chapter 76. The tariff applies only to the metal content portion.
+  #    Aluminum derivatives (9903.85.04/.07/.08) and steel derivatives (9903.81.89-93)
+  #    are metal-containing articles outside primary chapters. Tariff applies to
+  #    metal content only; per-type scaling uses steel_share or aluminum_share.
   # Build heading product list from prefixes of ACTIVE headings only.
   # Products matching active heading prefixes are non-metal 232 programs
   # and should NOT be metal-scaled even if they also match derivative prefixes.

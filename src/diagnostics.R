@@ -375,11 +375,16 @@ decompose_tpc_discrepancies <- function(comparison_path, revision_filter = NULL)
     )
 
   # Load 232 product lists for sub-category classification
-  derivative_products <- tryCatch(
+  derivative_products_df <- tryCatch(
     read_csv(here('resources', 's232_derivative_products.csv'),
-             col_types = cols(.default = col_character()))$hts8,
-    error = function(e) character(0)
+             col_types = cols(.default = col_character())),
+    error = function(e) tibble(hts_prefix = character(0), derivative_type = character(0))
   )
+  derivative_products <- derivative_products_df$hts_prefix
+  steel_derivative_products <- derivative_products_df %>%
+    filter(derivative_type == 'steel') %>% pull(hts_prefix)
+  alum_derivative_products <- derivative_products_df %>%
+    filter(derivative_type == 'aluminum') %>% pull(hts_prefix)
   auto_parts <- tryCatch(
     readLines(here('resources', 's232_auto_parts.txt')),
     error = function(e) character(0)
@@ -403,20 +408,30 @@ decompose_tpc_discrepancies <- function(comparison_path, revision_filter = NULL)
   aluminum_chapters <- c('76')
 
   # Classify 232 sub-type for each product
+  # Match derivatives by prefix (variable-length prefixes from CSV)
+  match_deriv_prefix <- function(hts10_vec, prefixes) {
+    if (length(prefixes) == 0) return(rep(FALSE, length(hts10_vec)))
+    pattern <- paste0('^(', paste(prefixes, collapse = '|'), ')')
+    grepl(pattern, hts10_vec)
+  }
   comp <- comp %>%
     mutate(
       hts8 = substr(hts10, 1, 8),
+      .is_steel_deriv = match_deriv_prefix(hts10, steel_derivative_products),
+      .is_alum_deriv = match_deriv_prefix(hts10, alum_derivative_products),
       s232_subtype = case_when(
         rate_232 == 0 ~ NA_character_,
         chapter %in% steel_chapters ~ 's232_pure_steel',
         chapter %in% aluminum_chapters ~ 's232_pure_aluminum',
         hts10 %in% copper_products |
           substr(hts10, 1, 4) %in% copper_prefixes ~ 's232_copper',
-        hts8 %in% derivative_products ~ 's232_derivative',
+        .is_steel_deriv ~ 's232_steel_derivative',
+        .is_alum_deriv ~ 's232_aluminum_derivative',
         hts8 %in% auto_all ~ 's232_auto',
         TRUE ~ 's232_other'
       )
-    )
+    ) %>%
+    select(-.is_steel_deriv, -.is_alum_deriv)
 
   # Classify mismatches into categories
   comp <- comp %>%

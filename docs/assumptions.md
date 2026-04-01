@@ -56,11 +56,17 @@ For Section 232 auto/MHD products, the USMCA share is further scaled by `us_auto
 
 ## 4. Section 232 Derivative Product List
 
-**Assumption:** ~130 aluminum-containing articles outside Chapter 76 are covered by 9903.85.04/.07/.08 (232 derivatives). The product list is maintained externally because HTS JSON does not provide US Note 19 subdivision text.
+**Assumption:** ~639 metal-containing articles outside primary chapters are covered as Section 232 derivatives. This includes:
+- **Aluminum derivatives** (~250 entries): articles outside chapter 76, covered by 9903.85.04/.07/.08 (US Note 19 subdivisions j/k/r/s). Original ~129 entries reverse-engineered from US Note 19.
+- **Steel derivatives** (~389 entries): articles outside chapters 72-73, covered by 9903.81.89-93 (US Note 16 subdivisions m/n/t/u). Added via the Section 232 Inclusions Process (FR 2025-15819, effective August 18, 2025).
 
-**Source:** Tariff-ETRs project, reverse-engineered from US Note 19 to Chapter 99 PDF. Should be re-derived directly when USITC API provides US Notes data.
+Products in both types (e.g., dairy in steel cans with aluminum lids, HTS 0402.99.68) get two rows in the CSV; the rate calculator applies the higher effective rate and tags the dominant type for stacking.
 
-**Implementation:** `resources/s232_derivative_products.csv`, loaded by `src/helpers.R:load_232_derivative_products()`.
+**Source:** Original aluminum list from Tariff-ETRs project (US Note 19 PDF). Steel derivatives and additional aluminum derivatives from Federal Register notice 2025-15819 (Vol. 90, No. 158, August 19, 2025). Source PDF: `docs/federal-register/2025-15819.pdf`.
+
+**Why non-official:** The product lists are maintained externally because HTS JSON does not provide US Note 16/19 subdivision text. The `derivative_type` column (steel/aluminum) determines which per-type metal share is used for scaling. Should be re-derived directly from the Chapter 99 PDF when `scrape_us_notes.R` is extended with Note 16/19 parsers.
+
+**Implementation:** `resources/s232_derivative_products.csv` (639 entries with `hts_prefix`, `ch99_code`, `derivative_type`), loaded by `src/helpers.R:load_232_derivative_products()`. Per-type scaling in `src/06_calculate_rates.R:apply_232_derivatives()` uses `steel_share` for steel derivatives and `aluminum_share` for aluminum derivatives.
 
 ---
 

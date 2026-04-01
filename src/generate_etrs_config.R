@@ -180,16 +180,23 @@ export_statutory_rates <- function(snapshot, policy_params, output_dir, ch99_dat
   alum_chapters <- policy_params$section_232_chapters$aluminum %||% '76'
   alum_pattern <- paste0('^(', paste(alum_chapters, collapse = '|'), ')')
 
-  # Derivative products
+  # Derivative products (both aluminum and steel types)
   deriv_file <- here::here(policy_params$section_232_derivatives$resource_file %||%
                             'resources/s232_derivative_products.csv')
   deriv_prefixes <- character(0)
+  alum_deriv_prefixes <- character(0)
+  steel_deriv_prefixes <- character(0)
   if (file.exists(deriv_file)) {
     derivs <- read_csv(deriv_file, show_col_types = FALSE)
     deriv_prefixes <- unique(derivs$hts_prefix)
+    alum_deriv_prefixes <- unique(derivs$hts_prefix[derivs$derivative_type == 'aluminum'])
+    steel_deriv_prefixes <- unique(derivs$hts_prefix[derivs$derivative_type == 'steel'])
   }
   deriv_pattern <- if (length(deriv_prefixes) > 0) {
     paste0('^(', paste(deriv_prefixes, collapse = '|'), ')')
+  } else NULL
+  steel_deriv_pattern <- if (length(steel_deriv_prefixes) > 0) {
+    paste0('^(', paste(steel_deriv_prefixes, collapse = '|'), ')')
   } else NULL
 
   # Heading programs (autos, copper, softwood, etc.)
@@ -276,7 +283,8 @@ export_statutory_rates <- function(snapshot, policy_params, output_dir, ch99_dat
     for (prog_name in names(heading_patterns)) {
       if (grepl(heading_patterns[[prog_name]], hts10)) return(prog_name)
     }
-    # Derivatives (outside primary chapters)
+    # Derivatives (outside primary chapters) — steel derivatives first, then aluminum
+    if (!is.null(steel_deriv_pattern) && grepl(steel_deriv_pattern, hts10)) return('steel_derivatives')
     if (!is.null(deriv_pattern) && grepl(deriv_pattern, hts10)) return('aluminum_derivatives')
     # Fallback: unclassified (shouldn't happen)
     return('unclassified')
@@ -484,21 +492,34 @@ generate_s232_yaml <- function(snapshot, date, policy_params, output_dir) {
     }
   }
 
-  # --- Aluminum derivatives ---
+  # --- Aluminum and steel derivatives ---
   deriv_file <- here::here(policy_params$section_232_derivatives$resource_file)
   if (file.exists(deriv_file) && has_232) {
     derivs <- read_csv(deriv_file, show_col_types = FALSE)
-    deriv_prefixes <- unique(derivs$hts_prefix)
-    active_derivs <- filter_active_codes(deriv_prefixes)
+    deriv_rate <- policy_params$section_232_derivatives$default_rate %||% 0.50
 
-    if (length(active_derivs) > 0) {
-      deriv_rate <- policy_params$section_232_derivatives$default_rate %||% 0.50
+    # Aluminum derivatives
+    alum_deriv_prefixes <- unique(derivs$hts_prefix[derivs$derivative_type == 'aluminum'])
+    active_alum_derivs <- filter_active_codes(alum_deriv_prefixes)
+    if (length(active_alum_derivs) > 0) {
       s232_config[['aluminum_derivatives']] <- list(
-        base = as.list(as.character(active_derivs)),
+        base = as.list(as.character(active_alum_derivs)),
         rates = list(default = deriv_rate),
         usmca_exempt = 0
       )
-      message(sprintf('  s232 aluminum_derivatives: %d active HTS10 codes', length(active_derivs)))
+      message(sprintf('  s232 aluminum_derivatives: %d active HTS10 codes', length(active_alum_derivs)))
+    }
+
+    # Steel derivatives
+    steel_deriv_prefixes <- unique(derivs$hts_prefix[derivs$derivative_type == 'steel'])
+    active_steel_derivs <- filter_active_codes(steel_deriv_prefixes)
+    if (length(active_steel_derivs) > 0) {
+      s232_config[['steel_derivatives']] <- list(
+        base = as.list(as.character(active_steel_derivs)),
+        rates = list(default = deriv_rate),
+        usmca_exempt = 0
+      )
+      message(sprintf('  s232 steel_derivatives: %d active HTS10 codes', length(active_steel_derivs)))
     }
   }
 

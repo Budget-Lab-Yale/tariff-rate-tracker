@@ -880,14 +880,18 @@ apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutu
   # Per-metal-type nonmetal_share: only count the metal types that have active
   # 232 programs covering this product. Steel chapters → steel_share, aluminum
   # chapters + derivatives → aluminum_share, copper → copper_share.
+  # Steel derivatives (outside ch72-73) use steel_share; aluminum derivatives
+  # (outside ch76) use aluminum_share. The deriv_type column (set by
+  # apply_232_derivatives) determines which type applies.
   # IEEPA fills everything not claimed by the active 232 program's metal type.
   has_per_type <- all(c('steel_share', 'aluminum_share', 'copper_share') %in% names(df))
 
   if (has_per_type) {
     # Determine which metal type is active per product based on chapter/product type.
     # Steel chapters: 72/73; aluminum chapters: 76; copper headings: flagged;
-    # derivatives: aluminum type.
+    # derivatives: per deriv_type column (steel or aluminum).
     has_copper_flag <- 'is_copper_heading' %in% names(df)
+    has_deriv_type <- 'deriv_type' %in% names(df)
     df <- df %>%
       mutate(
         .ch2 = substr(hts10, 1, 2),
@@ -895,7 +899,9 @@ apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutu
           rate_232 > 0 & .ch2 %in% c('72', '73')              ~ steel_share,
           rate_232 > 0 & .ch2 == '76'                          ~ aluminum_share,
           rate_232 > 0 & has_copper_flag & is_copper_heading   ~ copper_share,
-          rate_232 > 0 & metal_share < 1.0                     ~ aluminum_share,  # derivatives
+          rate_232 > 0 & has_deriv_type & deriv_type == 'steel'    ~ steel_share,
+          rate_232 > 0 & has_deriv_type & deriv_type == 'aluminum' ~ aluminum_share,
+          rate_232 > 0 & metal_share < 1.0                     ~ aluminum_share,  # fallback
           TRUE ~ 0
         ),
         nonmetal_share = if_else(rate_232 > 0 & .active_type_share > 0,
@@ -1177,9 +1183,11 @@ add_blanket_pairs <- function(rates, products, covered_hts10, country_rates,
 
 #' Load Section 232 derivative product list
 #'
-#' Reads the derivative product CSV (aluminum-containing articles outside ch76
-#' covered by 9903.85.04/.07/.08). These products are defined by US Note 19
-#' subdivisions i/j/k and cannot be extracted from HTS JSON.
+#' Reads the derivative product CSV containing both aluminum derivatives
+#' (outside ch76, covered by 9903.85.04/.07/.08, US Note 19) and steel
+#' derivatives (outside ch72-73, covered by 9903.81.89-93, US Note 16).
+#' Steel derivatives added via Section 232 Inclusions Process (FR 2025-15819).
+#' Cannot be extracted from HTS JSON.
 #'
 #' @param path Path to s232_derivative_products.csv
 #' @return Tibble with hts_prefix, ch99_code, derivative_type; or NULL if missing

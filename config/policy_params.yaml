@@ -353,11 +353,16 @@ section_301_products:
   country: '5700'
 
 # --- Section 232 derivative products ---
-# Aluminum-containing articles outside chapter 76 (US Note 19 subdivisions i/j/k)
-# covered by 9903.85.04/.07/.08. Product list not extractable from HTS JSON.
+# Steel- and aluminum-containing articles outside primary chapters.
+# Aluminum derivatives: US Note 19 subdivisions j/k/r/s → 9903.85.04/.07/.08
+# Steel derivatives: US Note 16 subdivisions m/n/t/u → 9903.81.89-93
+#   (added via Section 232 Inclusions Process, FR 2025-15819, effective Aug 18, 2025)
+# Product list not extractable from HTS JSON; maintained in CSV with derivative_type column.
 section_232_derivatives:
   resource_file: 'resources/s232_derivative_products.csv'
-  default_rate: 0.50    # fallback; actual rate extracted from ch99 (9903.85.04/.07/.08)
+  default_rate: 0.50    # fallback; actual rate extracted from ch99 entries
+  aluminum_ch99_codes: ['9903.85.04', '9903.85.07', '9903.85.08']
+  steel_ch99_codes: ['9903.81.89', '9903.81.90', '9903.81.91', '9903.81.93']
 
 # --- Metal content shares for 232 derivatives ---
 # The tariff on derivative products applies only to the metal content portion

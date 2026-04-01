@@ -682,6 +682,27 @@ extract_section232_rates <- function(ch99_data) {
             '% (', nrow(alum_deriv), ' Ch99 entries)')
   }
 
+  # --- Steel derivatives (9903.81.89-93) ---
+  # Added via Section 232 Inclusions Process (FR 2025-15819, effective Aug 18, 2025).
+  # These entries cover steel-containing articles outside chapters 72-73.
+  # 9903.81.91 is the content-based tariff (applies to steel content only).
+  # 9903.81.89/90 are full-rate entries for products in primary steel chapters.
+  # 9903.81.92 is an exemption (US-melted steel, rate=0).
+  # 9903.81.93 is a FTZ transitional entry.
+  steel_deriv_codes <- c('9903.81.89', '9903.81.90', '9903.81.91', '9903.81.93')
+  steel_deriv <- steel_entries %>%
+    filter(ch99_code %in% steel_deriv_codes, !is.na(rate), rate > 0)
+  steel_derivative_rate <- if (nrow(steel_deriv) > 0) max(steel_deriv$rate) else steel_rate
+  steel_derivative_exempt <- if (nrow(steel_deriv) > 0) {
+    unique(unlist(steel_deriv$exempt_countries))
+  } else {
+    steel_exempt
+  }
+  if (nrow(steel_deriv) > 0 && steel_derivative_rate > 0) {
+    message('  Steel derivative 232: ', round(steel_derivative_rate * 100),
+            '% (', nrow(steel_deriv), ' Ch99 entries)')
+  }
+
   # --- Autos (9903.94) ---
   s232_auto <- ch99_data %>%
     filter(grepl('^9903\\.94', ch99_code), !is.na(rate))
@@ -829,7 +850,8 @@ extract_section232_rates <- function(ch99_data) {
   }
 
   has_232 <- (steel_rate > 0 || aluminum_rate > 0 || auto_rate > 0 || auto_has_deals ||
-              wood_rate > 0 || wood_furniture_rate > 0 || mhd_rate > 0 || copper_rate > 0)
+              wood_rate > 0 || wood_furniture_rate > 0 || mhd_rate > 0 || copper_rate > 0 ||
+              derivative_rate > 0 || steel_derivative_rate > 0)
 
   coverage_parts <- c()
   if (steel_rate > 0 || aluminum_rate > 0) coverage_parts <- c(coverage_parts, 'steel/aluminum')
@@ -844,6 +866,7 @@ extract_section232_rates <- function(ch99_data) {
     aluminum_rate = aluminum_rate,
     auto_rate = auto_rate,
     derivative_rate = derivative_rate,
+    steel_derivative_rate = steel_derivative_rate,
     wood_rate = wood_rate,
     wood_furniture_rate = wood_furniture_rate,
     mhd_rate = mhd_rate,
@@ -852,6 +875,7 @@ extract_section232_rates <- function(ch99_data) {
     aluminum_exempt = aluminum_exempt,
     auto_exempt = auto_exempt,
     derivative_exempt = derivative_exempt,
+    steel_derivative_exempt = steel_derivative_exempt,
     auto_has_deals = auto_has_deals,
     auto_deal_rates = auto_deal_rates,
     wood_deal_rates = wood_deal_rates,
