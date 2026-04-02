@@ -123,16 +123,8 @@ message('Building daily aggregates revision-by-revision...')
 total_imports <- sum(imports$imports)
 imports_lookup <- imports %>% select(hs10, cty_code, imports)
 
-agg_rows <- list()
-for (rev_id in names(ts_split)) {
-  rev_data <- ts_split[[rev_id]]
-  rev_interval <- rev_intervals %>% filter(revision == rev_id)
-  if (nrow(rev_interval) == 0) next
-
-  valid_from <- rev_interval$valid_from
-  valid_until <- rev_interval$valid_until
-
-  rev_data <- apply_expiry_zeroing(rev_data, valid_from, pp_metal)
+compute_agg_for_sub <- function(rev_data_raw, rev_id, sub_from, sub_until) {
+  rev_data <- apply_expiry_zeroing(rev_data_raw, sub_from, pp_metal)
   if (any(c('rate_s122', 'rate_ieepa_recip') %in% names(rev_data))) {
     rev_data <- apply_stacking_rules(rev_data)
   }
@@ -144,8 +136,8 @@ for (rev_id in names(ts_split)) {
 
   row <- tibble(
     revision = rev_id,
-    valid_from = valid_from,
-    valid_until = valid_until,
+    valid_from = sub_from,
+    valid_until = sub_until,
     mean_additional_exposed = mean(rev_data$total_additional),
     mean_total_exposed = mean(rev_data$total_rate),
     mean_additional_all_pairs = sum(rev_data$total_additional) / n_all_pairs,
@@ -170,9 +162,36 @@ for (rev_id in names(ts_split)) {
     row$matched_imports_b <- 0
     row$total_imports_b <- total_imports / 1e9
   }
+  return(row)
+}
 
-  agg_rows[[rev_id]] <- row
-  message('  ', rev_id, ': ETR=', round(row$weighted_etr * 100, 2), '%')
+agg_rows <- list()
+for (rev_id in names(ts_split)) {
+  rev_data_raw <- ts_split[[rev_id]]
+  rev_interval <- rev_intervals %>% filter(revision == rev_id)
+  if (nrow(rev_interval) == 0) next
+
+  valid_from <- rev_interval$valid_from
+  valid_until <- rev_interval$valid_until
+
+  # Split interval at expiry dates (S122, Swiss framework, etc.)
+  splits <- get_expiry_split_points(valid_from, valid_until, pp_metal)
+
+  if (length(splits) == 0) {
+    row <- compute_agg_for_sub(rev_data_raw, rev_id, valid_from, valid_until)
+    agg_rows[[paste0(rev_id, '_0')]] <- row
+    message('  ', rev_id, ': ETR=', round(row$weighted_etr * 100, 2), '%')
+  } else {
+    # Build sub-intervals: [valid_from, split1], [split1+1, split2], ..., [splitN+1, valid_until]
+    boundaries <- c(valid_from, splits + 1)
+    ends <- c(splits, valid_until)
+    for (j in seq_along(boundaries)) {
+      row <- compute_agg_for_sub(rev_data_raw, rev_id, boundaries[j], ends[j])
+      agg_rows[[paste0(rev_id, '_', j)]] <- row
+      message('  ', rev_id, ' [', boundaries[j], ' to ', ends[j], ']: ETR=',
+              round(row$weighted_etr * 100, 2), '%')
+    }
+  }
 }
 
 agg_overall <- bind_rows(agg_rows)
