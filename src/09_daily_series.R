@@ -758,7 +758,8 @@ save_alternative_output <- function(daily_overall, variant,
 build_alternative_timeseries <- function(pp_override, variant_name, imports = NULL,
                                           archive_dir = here('data', 'hts_archives'),
                                           revision_dates_path = here('config', 'revision_dates.csv'),
-                                          census_codes_path = here('resources', 'census_codes.csv')) {
+                                          census_codes_path = here('resources', 'census_codes.csv'),
+                                          policy_params = NULL) {
 
   message('\n  Building alternative timeseries: ', variant_name)
 
@@ -806,7 +807,8 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
         products, ch99_data, ieepa_rates, usmca,
         countries, rev_id, eff_date,
         s232_rates = s232_rates,
-        fentanyl_rates = fentanyl_rates
+        fentanyl_rates = fentanyl_rates,
+        policy_params = policy_params %||% pp_override
       )
       snapshots[[rev_id]] <- rates
     }, error = function(e) {
@@ -923,7 +925,7 @@ run_alternative_series <- function(ts, imports = NULL, policy_params = NULL,
       pp_usmca$USMCA_SHARES$mode <- 'annual'
       pp_usmca$usmca_shares$year <- 2025
       pp_usmca$usmca_shares$mode <- 'annual'
-      build_alternative_timeseries(pp_usmca, 'usmca_annual', imports = imports)
+      build_alternative_timeseries(pp_usmca, 'usmca_annual', imports = imports, policy_params = pp_usmca)
     }, error = function(e) {
       message('  FAILED (usmca_annual): ', conditionMessage(e))
     })
@@ -935,7 +937,7 @@ run_alternative_series <- function(ts, imports = NULL, policy_params = NULL,
       pp_usmca_m$USMCA_SHARES$year <- 2025
       pp_usmca_m$usmca_shares$mode <- 'monthly'
       pp_usmca_m$usmca_shares$year <- 2025
-      build_alternative_timeseries(pp_usmca_m, 'usmca_monthly', imports = imports)
+      build_alternative_timeseries(pp_usmca_m, 'usmca_monthly', imports = imports, policy_params = pp_usmca_m)
     }, error = function(e) {
       message('  FAILED (usmca_monthly): ', conditionMessage(e))
     })
@@ -947,7 +949,7 @@ run_alternative_series <- function(ts, imports = NULL, policy_params = NULL,
       pp_usmca_24$USMCA_SHARES$mode <- 'annual'
       pp_usmca_24$usmca_shares$year <- 2024
       pp_usmca_24$usmca_shares$mode <- 'annual'
-      build_alternative_timeseries(pp_usmca_24, 'usmca_2024', imports = imports)
+      build_alternative_timeseries(pp_usmca_24, 'usmca_2024', imports = imports, policy_params = pp_usmca_24)
     }, error = function(e) {
       message('  FAILED (usmca_2024): ', conditionMessage(e))
     })
@@ -961,7 +963,7 @@ run_alternative_series <- function(ts, imports = NULL, policy_params = NULL,
       pp_usmca_f$usmca_shares$mode <- 'fixed_month'
       pp_usmca_f$usmca_shares$year <- 2025
       pp_usmca_f$usmca_shares$month <- 12
-      build_alternative_timeseries(pp_usmca_f, 'usmca_dec2025', imports = imports)
+      build_alternative_timeseries(pp_usmca_f, 'usmca_dec2025', imports = imports, policy_params = pp_usmca_f)
     }, error = function(e) {
       message('  FAILED (usmca_dec2025): ', conditionMessage(e))
     })
@@ -970,7 +972,7 @@ run_alternative_series <- function(ts, imports = NULL, policy_params = NULL,
     tryCatch({
       pp_metal <- pp
       pp_metal$metal_content$method <- 'flat'
-      build_alternative_timeseries(pp_metal, 'metal_flat', imports = imports)
+      build_alternative_timeseries(pp_metal, 'metal_flat', imports = imports, policy_params = pp_metal)
     }, error = function(e) {
       message('  FAILED (metal_flat): ', conditionMessage(e))
     })
@@ -979,7 +981,7 @@ run_alternative_series <- function(ts, imports = NULL, policy_params = NULL,
     tryCatch({
       pp_dutyfree <- pp
       pp_dutyfree$ieepa_duty_free_treatment <- 'nonzero_base_only'
-      build_alternative_timeseries(pp_dutyfree, 'dutyfree_nonzero', imports = imports)
+      build_alternative_timeseries(pp_dutyfree, 'dutyfree_nonzero', imports = imports, policy_params = pp_dutyfree)
     }, error = function(e) {
       message('  FAILED (dutyfree_nonzero): ', conditionMessage(e))
     })
