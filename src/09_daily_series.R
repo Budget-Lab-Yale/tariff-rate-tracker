@@ -251,6 +251,21 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   agg_by_country <- split_and_aggregate(compute_agg_country)
   agg_by_authority <- split_and_aggregate(compute_agg_authority)
 
+  # Add etr_base to authority decomposition so parts sum to weighted_etr.
+  # Computed as residual: weighted_etr - sum(authority ETRs). This guarantees
+  # exact additivity regardless of matched/unmatched product handling.
+  if (has_weights && 'weighted_etr' %in% names(agg_overall)) {
+    overall_etr <- agg_overall %>%
+      select(revision, valid_from, valid_until, weighted_etr)
+    agg_by_authority <- agg_by_authority %>%
+      left_join(overall_etr, by = c('revision', 'valid_from', 'valid_until')) %>%
+      mutate(
+        etr_base = weighted_etr - (etr_232 + etr_301 + etr_ieepa + etr_fentanyl +
+                                    etr_s122 + etr_section_201 + etr_other)
+      ) %>%
+      select(-weighted_etr)
+  }
+
   # Log any expiry splits that occurred
   if (!is.null(policy_params)) {
     adjustments <- collect_expiry_adjustments(policy_params)
@@ -624,6 +639,9 @@ build_daily_workbook_readme <- function() {
     c('etr_s122', 'Import-weighted ETR contribution from Section 122'),
     c('etr_section_201', 'Import-weighted ETR contribution from Section 201'),
     c('etr_other', 'Import-weighted ETR contribution from other authorities'),
+    c('etr_base', 'Import-weighted base rate contribution (residual: weighted_etr minus all authority ETRs)'),
+    c('', ''),
+    c('Note: etr_base + etr_232 + etr_301 + etr_ieepa + etr_fentanyl + etr_s122 + etr_section_201 + etr_other = weighted_etr (from daily_overall)', ''),
     c('', ''),
 
     # --- Notes ---

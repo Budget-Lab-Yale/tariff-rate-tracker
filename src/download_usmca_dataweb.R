@@ -76,7 +76,7 @@ token <- load_token(env_file)
 message('USITC DataWeb USMCA share download')
 message('  Year: ', year)
 message('  Mode: ', if (run_monthly) 'monthly' else 'annual')
-message('  Token: loaded (', nchar(token), ' chars)')
+message('  Token: ', if (nzchar(token)) 'loaded' else 'missing')
 
 # =============================================================================
 # DataWeb API query functions
