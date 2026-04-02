@@ -48,7 +48,8 @@ library(yaml)
 generate_etrs_config <- function(ts, date, output_dir,
                                   policy_params = NULL,
                                   etrs_resources_dir = NULL,
-                                  ch99_data = NULL) {
+                                  ch99_data = NULL,
+                                  tracker_root = here::here()) {
 
   date <- as.Date(date)
   if (is.null(policy_params)) {
@@ -75,7 +76,7 @@ generate_etrs_config <- function(ts, date, output_dir,
 
   # Ch99 data: use provided, else try fallback path
   if (is.null(ch99_data)) {
-    ch99_path <- here::here('data', 'processed', 'chapter99_rates.rds')
+    ch99_path <- file.path(tracker_root, 'data', 'processed', 'chapter99_rates.rds')
     if (file.exists(ch99_path)) {
       ch99_data <- readRDS(ch99_path)
     } else {
@@ -86,7 +87,8 @@ generate_etrs_config <- function(ts, date, output_dir,
 
   # Export dense statutory rates CSV (replaces all per-authority YAMLs)
   active_s232_programs <- export_statutory_rates(snapshot, policy_params, output_dir,
-                                                  ch99_data = ch99_data, date = date)
+                                                  ch99_data = ch99_data, date = date,
+                                                  tracker_root = tracker_root)
 
   # Write other_params.yaml (adjustment parameters only — no MFN path needed)
   generate_other_params_yaml(date, policy_params, output_dir, etrs_resources_dir,
@@ -107,7 +109,8 @@ generate_etrs_config <- function(ts, date, output_dir,
 #' @return Tibble of revision intervals (date, valid_from, valid_until)
 generate_etrs_configs_all_revisions <- function(ts, output_base,
                                                  policy_params = NULL,
-                                                 etrs_resources_dir = NULL) {
+                                                 etrs_resources_dir = NULL,
+                                                 tracker_root = here::here()) {
 
   if (is.null(policy_params)) {
     policy_params <- load_policy_params()
@@ -135,7 +138,8 @@ generate_etrs_configs_all_revisions <- function(ts, output_base,
       date              = rev$valid_from,
       output_dir        = output_dir,
       policy_params     = policy_params,
-      etrs_resources_dir = etrs_resources_dir
+      etrs_resources_dir = etrs_resources_dir,
+      tracker_root      = tracker_root
     )
   }
 
@@ -164,7 +168,8 @@ generate_etrs_configs_all_revisions <- function(ts, output_base,
 #' @param date Date for filtering derivative products by effective_date (optional)
 #'
 #' @return Character vector of active s232 program names (for metal_programs)
-export_statutory_rates <- function(snapshot, policy_params, output_dir, ch99_data = NULL, date = NULL) {
+export_statutory_rates <- function(snapshot, policy_params, output_dir, ch99_data = NULL, date = NULL,
+                                   tracker_root = here::here()) {
 
   # Verify statutory columns exist
   required <- c('statutory_rate_232', 'statutory_base_rate',
@@ -194,7 +199,7 @@ export_statutory_rates <- function(snapshot, policy_params, output_dir, ch99_dat
 
   # Derivative products (both aluminum and steel types)
   # Use load_232_derivative_products() which properly filters by effective_date
-  deriv_file <- here::here(policy_params$section_232_derivatives$resource_file %||%
+  deriv_file <- file.path(tracker_root, policy_params$section_232_derivatives$resource_file %||%
                             'resources/s232_derivative_products.csv')
   deriv_prefixes <- character(0)
   alum_deriv_prefixes <- character(0)
@@ -254,7 +259,7 @@ export_statutory_rates <- function(snapshot, policy_params, output_dir, ch99_dat
     prefixes <- character(0)
 
     if (!is.null(prog$products_file)) {
-      pf <- here::here(prog$products_file)
+      pf <- file.path(tracker_root, prog$products_file)
       if (file.exists(pf)) {
         prods <- read_csv(pf, show_col_types = FALSE,
                           col_types = cols(.default = col_character()))
@@ -266,7 +271,7 @@ export_statutory_rates <- function(snapshot, policy_params, output_dir, ch99_dat
       # Fallback: inline prefixes + prefixes_file
       prefixes <- prog$prefixes %||% character(0)
       if (!is.null(prog$prefixes_file)) {
-        pf <- here::here(prog$prefixes_file)
+        pf <- file.path(tracker_root, prog$prefixes_file)
         if (file.exists(pf)) {
           prefixes <- c(prefixes, trimws(readLines(pf, warn = FALSE)))
           prefixes <- prefixes[nchar(prefixes) > 0]
