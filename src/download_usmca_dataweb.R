@@ -430,12 +430,12 @@ if (run_monthly) {
 
 # --- Save ---
 if (run_monthly) {
-  # Save per-month files (same schema as annual: hts10, cty_code, usmca_share)
+  # Save per-month files with value columns for proper aggregation
   months_available <- sort(unique(product_shares$month))
   for (m in months_available) {
     month_data <- product_shares %>%
       filter(month == m) %>%
-      select(hts10, cty_code, usmca_share) %>%
+      select(hts10, cty_code, usmca_share, total_value, usmca_value) %>%
       arrange(hts10, cty_code)
 
     stopifnot(!anyNA(month_data$usmca_share))

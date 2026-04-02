@@ -1303,17 +1303,35 @@ load_usmca_product_shares <- function(policy_params = NULL, path = NULL, effecti
         m_path <- here('resources', sprintf('usmca_product_shares_%d_%02d.csv', year, m))
         if (file.exists(m_path)) {
           monthly_shares[[length(monthly_shares) + 1L]] <- read_csv(
-            m_path, col_types = cols(hts10 = col_character(), cty_code = col_character(),
+            m_path, col_types = cols(.default = col_guess(),
+                                     hts10 = col_character(), cty_code = col_character(),
                                      usmca_share = col_double()), show_col_types = FALSE
           )
         }
       }
       if (length(monthly_shares) > 0) {
-        combined <- bind_rows(monthly_shares) %>%
-          group_by(hts10, cty_code) %>%
-          summarise(usmca_share = mean(usmca_share, na.rm = TRUE), .groups = 'drop')
-        message('  Loaded USMCA H2 average: ', nrow(combined),
-                ' product-country pairs (', length(monthly_shares), ' months, Jul-Dec ', year, ')')
+        combined <- bind_rows(monthly_shares)
+        has_values <- all(c('total_value', 'usmca_value') %in% names(combined))
+        if (has_values) {
+          # Value-weighted aggregation: sum(usmca_value) / sum(total_value)
+          combined <- combined %>%
+            group_by(hts10, cty_code) %>%
+            summarise(
+              usmca_share = if_else(sum(total_value, na.rm = TRUE) > 0,
+                                    sum(usmca_value, na.rm = TRUE) / sum(total_value, na.rm = TRUE),
+                                    0),
+              .groups = 'drop'
+            )
+          message('  Loaded USMCA H2 average (value-weighted): ', nrow(combined),
+                  ' product-country pairs (', length(monthly_shares), ' months, Jul-Dec ', year, ')')
+        } else {
+          # Fallback: simple average of ratios (legacy monthly CSVs without value columns)
+          combined <- combined %>%
+            group_by(hts10, cty_code) %>%
+            summarise(usmca_share = mean(usmca_share, na.rm = TRUE), .groups = 'drop')
+          message('  Loaded USMCA H2 average (ratio-averaged, no value cols): ', nrow(combined),
+                  ' product-country pairs (', length(monthly_shares), ' months, Jul-Dec ', year, ')')
+        }
         return(combined)
       } else {
         message('  No H2 monthly USMCA files found for ', year, ' — falling back to annual')
@@ -1360,14 +1378,29 @@ load_usmca_product_shares <- function(policy_params = NULL, path = NULL, effecti
       }
 
       if (length(monthly_shares) > 0) {
-        # Average shares across available months (only for products present in each month)
-        combined <- bind_rows(monthly_shares) %>%
-          group_by(hts10, cty_code) %>%
-          summarise(usmca_share = mean(usmca_share, na.rm = TRUE), .groups = 'drop')
+        combined <- bind_rows(monthly_shares)
+        has_values <- all(c('total_value', 'usmca_value') %in% names(combined))
         window_label <- paste0(sprintf('%02d', window[1]), '-', sprintf('%02d', window[length(window)]))
-        message('  Loaded USMCA hybrid rolling: ', nrow(combined),
-                ' product-country pairs (', length(monthly_shares), ' months in window ',
-                window_label, ')')
+        if (has_values) {
+          combined <- combined %>%
+            group_by(hts10, cty_code) %>%
+            summarise(
+              usmca_share = if_else(sum(total_value, na.rm = TRUE) > 0,
+                                    sum(usmca_value, na.rm = TRUE) / sum(total_value, na.rm = TRUE),
+                                    0),
+              .groups = 'drop'
+            )
+          message('  Loaded USMCA hybrid rolling (value-weighted): ', nrow(combined),
+                  ' product-country pairs (', length(monthly_shares), ' months in window ',
+                  window_label, ')')
+        } else {
+          combined <- combined %>%
+            group_by(hts10, cty_code) %>%
+            summarise(usmca_share = mean(usmca_share, na.rm = TRUE), .groups = 'drop')
+          message('  Loaded USMCA hybrid rolling (ratio-averaged): ', nrow(combined),
+                  ' product-country pairs (', length(monthly_shares), ' months in window ',
+                  window_label, ')')
+        }
         return(combined)
       } else {
         message('  No monthly USMCA files found for hybrid rolling — falling back to annual')

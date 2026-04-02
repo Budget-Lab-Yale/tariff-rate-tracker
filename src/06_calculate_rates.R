@@ -1412,25 +1412,34 @@ calculate_rates_for_revision <- function(
       gate_val <- heading_gates[[nm]]
       if (!is.null(gate_val) && !gate_val) next
       cfg <- s232_headings[[nm]]
-      prefixes <- cfg$prefixes %||% character(0)
-      if (!is.null(cfg$prefixes_file)) {
-        pf <- here(cfg$prefixes_file)
-        if (file.exists(pf)) prefixes <- c(prefixes, trimws(readLines(pf, warn = FALSE)))
-      }
+      matched <- character(0)
+
+      # Prefer products_file (authoritative HTS8/10 codes)
       if (!is.null(cfg$products_file)) {
         pf <- here(cfg$products_file)
         if (file.exists(pf)) {
           prods <- read_csv(pf, show_col_types = FALSE,
                             col_types = cols(.default = col_character()))
-          prefixes <- c(prefixes, prods$hts10)
+          pf_pattern <- paste0('^(', paste(prods$hts10, collapse = '|'), ')')
+          matched <- products$hts10[grepl(pf_pattern, products$hts10)]
         }
       }
-      prefixes <- unique(prefixes[nchar(prefixes) > 0])
-      if (length(prefixes) > 0) {
-        pattern <- paste0('^(', paste(prefixes, collapse = '|'), ')')
-        matched <- products$hts10[grepl(pattern, products$hts10)]
-        all_heading_hts10 <- c(all_heading_hts10, matched)
+
+      # Fallback to prefixes only if products_file didn't produce matches
+      if (length(matched) == 0) {
+        prefixes <- unlist(cfg$prefixes %||% character(0))
+        if (!is.null(cfg$prefixes_file)) {
+          pf <- here(cfg$prefixes_file)
+          if (file.exists(pf)) prefixes <- c(prefixes, trimws(readLines(pf, warn = FALSE)))
+        }
+        prefixes <- unique(prefixes[nchar(prefixes) > 0])
+        if (length(prefixes) > 0) {
+          pattern <- paste0('^(', paste(prefixes, collapse = '|'), ')')
+          matched <- products$hts10[grepl(pattern, products$hts10)]
+        }
       }
+
+      all_heading_hts10 <- c(all_heading_hts10, matched)
     }
     all_heading_hts10 <- unique(all_heading_hts10)
   }

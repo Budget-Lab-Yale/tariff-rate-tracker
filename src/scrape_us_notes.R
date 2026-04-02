@@ -23,7 +23,8 @@
 #   Rscript src/scrape_us_notes.R                    # Section 301 only
 #   Rscript src/scrape_us_notes.R --floor-exemptions # Floor exemptions only
 #   Rscript src/scrape_us_notes.R --copper           # Note 36 copper products only
-#   Rscript src/scrape_us_notes.R --all              # 301 + floor + copper
+#   Rscript src/scrape_us_notes.R --derivatives      # Notes 16/19 derivative products only
+#   Rscript src/scrape_us_notes.R --all              # 301 + floor + copper + derivatives
 #   Rscript src/scrape_us_notes.R --dry-run          # Report without writing
 #   Rscript src/scrape_us_notes.R --download-pdfs [--dry-run]  # Download all revision PDFs
 #   Rscript src/scrape_us_notes.R --revision rev_18            # Parse single revision
@@ -977,6 +978,256 @@ parse_note36_copper_products <- function(
 
 
 # =============================================================================
+# Notes 16/19: Section 232 Derivative Product Lists
+# =============================================================================
+#
+# US Note 16 to Chapter 99 defines steel derivative products (headings
+# 9903.81.89-93). US Note 19 defines aluminum derivative products (headings
+# 9903.85.04, 9903.85.07, 9903.85.08). Each note's subdivisions list HTS8
+# codes in prose blocks that enumerate covered products per ch99 heading.
+#
+# The derivative product lists have expanded over time via Federal Register
+# notices (e.g., FR 2025-15819 effective 2025-08-18). Each expansion batch
+# is tied to a specific ch99 heading and effective date. The parser extracts
+# all HTS8 codes per heading subdivision, enabling temporal gating via the
+# revision effective date.
+#
+# Output: resources/s232_derivative_products.csv with columns:
+#   hts_prefix, ch99_code, derivative_type, effective_date
+#
+
+#' Parse Notes 16/19 derivative product lists from Chapter 99 PDF
+#'
+#' Extracts HTS8 codes from the derivative product subdivisions in US Notes
+#' 16 (steel) and 19 (aluminum). Each code is tagged with its ch99 heading
+#' and derivative type.
+#'
+#' @param pdf_path Path to Chapter 99 PDF (or NULL to download)
+#' @param output_csv Path to write s232_derivative_products.csv
+#' @param dry_run Report without writing
+#' @return Tibble with hts_prefix, ch99_code, derivative_type columns
+parse_derivative_products <- function(
+  pdf_path = NULL,
+  output_csv = 'resources/s232_derivative_products.csv',
+  dry_run = FALSE
+) {
+  message('\n', strrep('=', 70))
+  message('NOTES 16/19: SECTION 232 DERIVATIVE PRODUCT LIST PARSER')
+  message(strrep('=', 70))
+
+  # ---- Download PDF if needed ----
+  if (is.null(pdf_path)) {
+    pdf_path <- download_chapter99_pdf()
+  }
+  stopifnot(file.exists(pdf_path))
+
+  # ---- Extract text ----
+  pages <- extract_pdf_text(pdf_path)
+
+  # ---- Configuration: ch99 codes and their derivative types ----
+  # Each entry maps a ch99 heading to the derivative type and the Note
+  # subdivision pattern that introduces its product list.
+  #
+  # Steel derivative headings (Note 16):
+  #   9903.81.89: subdivisions (s) — nails/staples/wire products
+  #   9903.81.90: subdivision  (s) continued — structural/misc products
+  #   9903.81.91: subdivision  (t) — broad derivative list (3 batches by date)
+  #
+  # Aluminum derivative headings (Note 19):
+  #   9903.85.04: subdivision  (i) — stranded wire, cables
+  #   9903.85.07: subdivision  (j) — containers, foil, structures
+  #   9903.85.08: subdivision  (k) — broad derivative list
+  #
+  # Multiple headings may share a page, so we extract the full US Notes text,
+  # split by heading anchors, and extract codes from each section.
+
+  # Ordered list of derivative headings to extract
+  deriv_headings <- list(
+    list(ch99 = '9903.81.89', type = 'steel'),
+    list(ch99 = '9903.81.90', type = 'steel'),
+    list(ch99 = '9903.81.91', type = 'steel'),
+    list(ch99 = '9903.85.04', type = 'aluminum'),
+    list(ch99 = '9903.85.07', type = 'aluminum'),
+    list(ch99 = '9903.85.08', type = 'aluminum')
+  )
+
+  # ---- Find US Notes pages with derivative product lists ----
+  # Concatenate all US Notes pages (before the rate schedule ~page 500) that
+  # mention derivative headings into one text block, then split by heading.
+  max_notes_page <- min(length(pages), 500)
+
+  # Find pages with derivative product lists (dense HTS codes + derivative anchors)
+  deriv_page_indices <- integer()
+  for (i in seq_len(max_notes_page)) {
+    page_text <- pages[i]
+    has_deriv_anchor <- grepl(
+      'rates of duty.*heading 9903\\.(81\\.8[9]|81\\.9[013]|85\\.0[478]).*apply.*derivative',
+      page_text, ignore.case = TRUE
+    )
+    if (has_deriv_anchor) {
+      # Check for product codes on this or next page
+      codes <- str_extract_all(page_text, '[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}')[[1]]
+      non_ch99 <- codes[!grepl('^(9903|9802)', codes)]
+      if (length(non_ch99) >= 3 || (i < max_notes_page &&
+          length(str_extract_all(pages[i + 1], '[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}')[[1]]) > 20)) {
+        deriv_page_indices <- c(deriv_page_indices, i)
+      }
+    }
+  }
+
+  # Also include continuation pages (dense codes following a derivative page)
+  if (length(deriv_page_indices) > 0) {
+    last_deriv <- max(deriv_page_indices)
+    for (np in seq(last_deriv + 1, min(last_deriv + 5, max_notes_page))) {
+      codes <- str_extract_all(pages[np], '[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}')[[1]]
+      non_ch99 <- codes[!grepl('^(9903|9802)', codes)]
+      if (length(non_ch99) > 20) {
+        deriv_page_indices <- c(deriv_page_indices, np)
+      } else {
+        break
+      }
+    }
+  }
+
+  deriv_page_indices <- sort(unique(deriv_page_indices))
+  message('\n  Derivative product pages: ', paste(deriv_page_indices, collapse = ', '))
+
+  if (length(deriv_page_indices) == 0) {
+    message('  WARNING: No derivative product pages found in PDF.')
+    return(invisible(NULL))
+  }
+
+  # Concatenate all derivative pages into one text block
+  full_text <- paste(pages[deriv_page_indices], collapse = '\n')
+
+  # ---- Split text by heading anchors and extract codes ----
+  all_results <- tibble(
+    hts_prefix = character(),
+    ch99_code = character(),
+    derivative_type = character()
+  )
+
+  for (cfg in deriv_headings) {
+    ch99_escaped <- gsub('\\.', '\\\\.', cfg$ch99)
+    # Anchor: "heading XXXX.XX.XX apply" or "heading XXXX.XX.XX apply to"
+    anchor_pattern <- paste0('heading ', ch99_escaped, '.*?apply')
+
+    # Find anchor position in the concatenated text
+    anchor_match <- regexpr(anchor_pattern, full_text, ignore.case = TRUE)
+    if (anchor_match < 0) {
+      message('\n  ', cfg$ch99, ' (', cfg$type, '): anchor not found, skipping')
+      next
+    }
+
+    # Extract text from this anchor to the next heading anchor (or end)
+    start_pos <- anchor_match
+    # Find the next heading anchor after this one
+    remaining <- substring(full_text, start_pos + attr(anchor_match, 'match.length'))
+    next_heading <- regexpr(
+      'rates of duty.*?heading 9903\\.(81\\.[89][0-9]|85\\.0[2-9]|85\\.1[0-9]).*?apply',
+      remaining, ignore.case = TRUE
+    )
+    if (next_heading > 0) {
+      section_text <- substr(remaining, 1, next_heading - 1)
+    } else {
+      section_text <- remaining
+    }
+
+    # Extract all HTS8 codes from this section
+    all_codes <- str_extract_all(section_text, '[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}')[[1]]
+    # Remove ch99 and ch98 references
+    all_codes <- all_codes[!grepl('^(9903|9802)', all_codes)]
+    all_codes <- unique(all_codes)
+
+    # Normalize to HTS8 prefixes
+    hts8_codes <- gsub('\\.', '', all_codes)
+
+    message('\n  ', cfg$ch99, ' (', cfg$type, '): ', length(hts8_codes), ' HTS8 codes')
+
+    if (length(hts8_codes) > 0) {
+      batch <- tibble(
+        hts_prefix = hts8_codes,
+        ch99_code = cfg$ch99,
+        derivative_type = cfg$type
+      )
+      all_results <- bind_rows(all_results, batch)
+    }
+  }
+
+  # Deduplicate: same HTS8 may appear under multiple headings
+  all_results <- all_results %>%
+    distinct(hts_prefix, ch99_code, derivative_type) %>%
+    arrange(derivative_type, ch99_code, hts_prefix)
+
+  message('\n  Total derivative products: ', nrow(all_results))
+  message('  Steel: ', sum(all_results$derivative_type == 'steel'))
+  message('  Aluminum: ', sum(all_results$derivative_type == 'aluminum'))
+
+  # ---- Compare with existing CSV ----
+  if (file.exists(output_csv)) {
+    existing <- read_csv(output_csv, col_types = cols(.default = col_character()))
+    # Compare on hts_prefix + derivative_type (ignore effective_date for comparison)
+    existing_key <- existing %>% distinct(hts_prefix, derivative_type)
+    new_key <- all_results %>% distinct(hts_prefix, derivative_type)
+
+    new_codes <- anti_join(new_key, existing_key, by = c('hts_prefix', 'derivative_type'))
+    removed_codes <- anti_join(existing_key, new_key, by = c('hts_prefix', 'derivative_type'))
+
+    if (nrow(new_codes) > 0) {
+      message('\n  NEW products vs existing CSV: ', nrow(new_codes))
+      for (t in unique(new_codes$derivative_type)) {
+        nc <- new_codes %>% filter(derivative_type == t)
+        message('    ', t, ': ', nrow(nc), ' — ',
+                paste(head(nc$hts_prefix, 10), collapse = ', '),
+                if (nrow(nc) > 10) '...' else '')
+      }
+    }
+    if (nrow(removed_codes) > 0) {
+      message('  REMOVED products vs existing CSV: ', nrow(removed_codes))
+      for (t in unique(removed_codes$derivative_type)) {
+        rc <- removed_codes %>% filter(derivative_type == t)
+        message('    ', t, ': ', nrow(rc), ' — ',
+                paste(head(rc$hts_prefix, 10), collapse = ', '),
+                if (nrow(rc) > 10) '...' else '')
+      }
+    }
+    if (nrow(new_codes) == 0 && nrow(removed_codes) == 0) {
+      message('\n  Product list matches existing CSV exactly.')
+    }
+  }
+
+  # ---- Write output ----
+  # NOTE: This parser extracts hts_prefix, ch99_code, derivative_type but does
+  # NOT assign effective_date — that requires cross-referencing Federal Register
+  # notices or revision dates. The existing CSV's effective_date column should
+  # be preserved via a merge if updating incrementally.
+  if (!dry_run) {
+    if (file.exists(output_csv)) {
+      # Merge with existing to preserve effective_date
+      existing <- read_csv(output_csv, col_types = cols(.default = col_character()))
+      merged <- all_results %>%
+        left_join(
+          existing %>% select(hts_prefix, ch99_code, derivative_type, effective_date),
+          by = c('hts_prefix', 'ch99_code', 'derivative_type')
+        )
+      write_csv(merged, output_csv)
+      message('\nWrote ', nrow(merged), ' entries to ', output_csv,
+              ' (preserved effective_date from existing)')
+    } else {
+      all_results$effective_date <- NA_character_
+      write_csv(all_results, output_csv)
+      message('\nWrote ', nrow(all_results), ' entries to ', output_csv,
+              ' (effective_date = NA — assign manually)')
+    }
+  } else {
+    message('\n[DRY RUN] Would write ', nrow(all_results), ' entries to ', output_csv)
+  }
+
+  return(invisible(all_results))
+}
+
+
+# =============================================================================
 # Per-Revision PDF Download
 # =============================================================================
 
@@ -1208,6 +1459,7 @@ if (sys.nframe() == 0) {
   dry_run <- '--dry-run' %in% args
   do_floor <- '--floor-exemptions' %in% args
   do_copper <- '--copper' %in% args
+  do_derivatives <- '--derivatives' %in% args
   do_all_modes <- '--all' %in% args
   do_download_pdfs <- '--download-pdfs' %in% args
   do_revision <- '--revision' %in% args
@@ -1248,7 +1500,11 @@ if (sys.nframe() == 0) {
       copper_result <- parse_note36_copper_products(dry_run = dry_run)
     }
 
-    if (!do_floor && !do_copper || do_all_modes) {
+    if (do_derivatives || do_all_modes) {
+      deriv_result <- parse_derivative_products(dry_run = dry_run)
+    }
+
+    if (!do_floor && !do_copper && !do_derivatives || do_all_modes) {
       result <- parse_us_note_products(dry_run = dry_run)
     }
   }
