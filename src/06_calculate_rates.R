@@ -1479,6 +1479,87 @@ calculate_rates_for_revision <- function(
     rates$is_copper_heading <- FALSE
   }
 
+  # 5c. Section 232 annex rate override (April 2026 proclamation)
+  #     Date-gated: only applies to revisions on/after the annex effective date.
+  #     Overrides single-rate 232 with per-annex rates after the old pipeline has
+  #     finished assigning rates. Annex classification comes from the static
+  #     resource file (resources/s232_annex_products.csv); when that file is empty
+  #     (pending HTS JSON), this step is a no-op.
+  annex_cfg <- if (!is.null(pp)) pp$S232_ANNEXES else NULL
+  if (!is.null(annex_cfg) && as.Date(effective_date) >= annex_cfg$effective_date) {
+    annex_map <- load_annex_products(effective_date,
+                   here('resources', annex_cfg$resource_file %||% 's232_annex_products.csv'))
+
+    if (nrow(annex_map) > 0) {
+      # Prefix-match annex classification to HTS10 codes
+      annex_pattern_map <- annex_map %>%
+        mutate(pattern = paste0('^', hts_prefix))
+      rates$s232_annex <- NA_character_
+      for (i in seq_len(nrow(annex_pattern_map))) {
+        mask <- grepl(annex_pattern_map$pattern[i], rates$hts10)
+        rates$s232_annex[mask & is.na(rates$s232_annex)] <- annex_pattern_map$s232_annex[i]
+      }
+
+      # Infer annex for primary chapter products not in resource file
+      rates <- rates %>%
+        mutate(s232_annex = case_when(
+          !is.na(s232_annex) ~ s232_annex,
+          rate_232 > 0 & substr(hts10, 1, 2) %in%
+            (annex_cfg$annexes$annex_1a$chapters %||% c('72', '73', '76', '74')) ~ 'annex_1a',
+          TRUE ~ s232_annex
+        ))
+
+      # Override rate_232 by annex
+      rates <- rates %>%
+        mutate(rate_232 = case_when(
+          s232_annex == 'annex_2' ~ 0,
+          s232_annex == 'annex_1a' ~ annex_cfg$annexes$annex_1a$rate,
+          s232_annex == 'annex_1b' ~ annex_cfg$annexes$annex_1b$rate,
+          s232_annex == 'annex_3' ~ pmax(0, annex_cfg$annexes$annex_3$floor_rate - base_rate),
+          TRUE ~ rate_232
+        ))
+
+      # UK annex-aware deal (replaces old flat 25% override for post-annex revisions)
+      uk_code <- get_country_constants()$CTY_UK %||% '4120'
+      uk_1a_chapters <- annex_cfg$annexes$annex_1a$uk_applies_to %||% c('steel', 'aluminum')
+      uk_steel_alum <- c('72', '73', '76')  # UK deal for steel/aluminum, not copper
+      rates <- rates %>%
+        mutate(rate_232 = case_when(
+          country == uk_code & s232_annex == 'annex_1a' &
+            substr(hts10, 1, 2) %in% uk_steel_alum ~ annex_cfg$annexes$annex_1a$uk_rate,
+          country == uk_code & s232_annex == 'annex_1b' &
+            substr(hts10, 1, 2) %in% uk_steel_alum ~ annex_cfg$annexes$annex_1b$uk_rate,
+          TRUE ~ rate_232
+        ))
+
+      # Annex III sunset: after sunset_date, products move to I-B rate
+      sunset <- annex_cfg$annexes$annex_3$sunset_date
+      if (!is.null(sunset) && as.Date(effective_date) > as.Date(sunset)) {
+        rates <- rates %>%
+          mutate(
+            rate_232 = if_else(s232_annex == 'annex_3',
+                                annex_cfg$annexes$annex_1b$rate, rate_232),
+            s232_annex = if_else(s232_annex == 'annex_3', 'annex_1b', s232_annex)
+          )
+        message('  Annex III sunset: reclassified to I-B')
+      }
+
+      # Update statutory_rate_232 to reflect annex overrides
+      rates <- rates %>%
+        mutate(statutory_rate_232 = if_else(!is.na(s232_annex), rate_232, statutory_rate_232))
+
+      n_by_annex <- rates %>% filter(!is.na(s232_annex), rate_232 > 0) %>% count(s232_annex)
+      if (nrow(n_by_annex) > 0) {
+        message('  Annex rate override: ',
+                paste(n_by_annex$s232_annex, n_by_annex$n, sep = '=', collapse = ', '))
+      }
+    } else {
+      rates$s232_annex <- NA_character_
+    }
+  } else {
+    rates$s232_annex <- NA_character_
+  }
+
   # 6. Apply Section 301 as blanket tariff for China
   #     301 products are defined by US Note 20/21/31 product lists (Federal Register).
   #     Like 232, these are NOT referenced via product footnotes for most products.
@@ -1725,6 +1806,20 @@ calculate_rates_for_revision <- function(
         n_floor_adjusted <- sum(rates$rate_ieepa_recip[floor_mask] != old_recip)
         message('  Floor recomputation: updated rate_ieepa_recip for ', n_floor_adjusted,
                 ' floor-type pairs (against post-MFN base_rate)')
+      }
+    }
+
+    # 6e. Recompute Annex III floor against post-MFN base_rate (same logic as 6d).
+    if (!is.null(annex_cfg) && as.Date(effective_date) >= annex_cfg$effective_date &&
+        's232_annex' %in% names(rates)) {
+      annex3_mask <- !is.na(rates$s232_annex) & rates$s232_annex == 'annex_3' &
+                     rates$base_rate < rates$statutory_base_rate
+      if (any(annex3_mask)) {
+        floor_val <- annex_cfg$annexes$annex_3$floor_rate
+        rates$rate_232[annex3_mask] <- pmax(0, floor_val - rates$base_rate[annex3_mask])
+        rates$statutory_rate_232[annex3_mask] <- rates$rate_232[annex3_mask]
+        message('  Annex III floor recomputation: updated ', sum(annex3_mask),
+                ' pairs (against post-MFN base_rate)')
       }
     }
 

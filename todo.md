@@ -16,6 +16,28 @@ Five issues confirmed via code review on 2026-04-06 (see `docs/analysis/section_
 - [x] Flat/CBO alternative pipeline for 232 heading/derivative overlaps — FIXED (2026-04-06)
   - heading-overlap per-type column reset now gated on `has_per_type` in `06_calculate_rates.R`
 
+## Section 232 annex restructuring (April 2026 proclamation)
+
+Presidential proclamation of 2 April 2026 replaces single-rate 232 with four product annexes (effective 2026-04-06). See `docs/s232/s232_metals_update_note.pdf` (SGEPT analysis).
+
+**Scaffolding complete (2026-04-06):**
+- [x] Config: `section_232_annexes` block in `policy_params.yaml` (rates, UK deal, floor, sunset, exemptions)
+- [x] Resource: `resources/s232_annex_products.csv` (header-only, pending HTS JSON)
+- [x] Helper: `load_annex_products()` in `helpers.R`
+- [x] Rate logic: step 5c annex override + step 6e Annex III floor recomputation in `06_calculate_rates.R`
+- [x] Tests: 5 unit tests (annex rates, floor formula, UK deal, date gating, empty resource)
+
+**Blocked on HTS JSON (2026_rev_5):**
+- [ ] Populate `resources/s232_annex_products.csv` from new Ch99 codes
+- [ ] Dynamic Ch99 parsing in `load_annex_products()` / `extract_section232_rates()`
+- [ ] Integration test: full rebuild + verify ~0.5pp ETR drop at April 6 transition
+- [ ] ETR export: annex-aware program classification in `generate_etrs_config.R`
+
+**Lower priority:**
+- [ ] UK content share blending (`uk_content_qualifying_share`, default 30% per SGEPT)
+- [ ] Exemption calibration (US-origin 1%, de minimis 2%, motorcycle 0.1% per SGEPT)
+- [ ] Annex III sunset (Dec 2027 → I-B rate): logic in place, needs future HTS revision to test
+
 ## Pipeline
 
 - [ ] Add generic pharma country-specific exemption shares (per TPC feedback; low priority)

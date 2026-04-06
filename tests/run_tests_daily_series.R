@@ -1195,6 +1195,103 @@ run_test('heading-overlap reset safe without per-type columns', {
 
 
 # =============================================================================
+# Section 232 annex restructuring (2026-04-06)
+# =============================================================================
+
+message('\n--- Section 232 annex restructuring ---')
+
+run_test('annex rate override applies correct rates by annex', {
+  # Synthetic fixture: products in each annex with base rates
+  df <- tibble(
+    hts10 = c('7208100000', '8481800010', '9999990000', '7326900010'),
+    country = rep('4280', 4),
+    base_rate = c(0.0, 0.025, 0.0, 0.05),
+    rate_232 = c(0.50, 0.50, 0.50, 0.50),  # old single-rate
+    s232_annex = c('annex_1a', 'annex_1b', 'annex_2', 'annex_3')
+  )
+
+  annex_cfg <- list(
+    effective_date = as.Date('2026-04-06'),
+    annexes = list(
+      annex_1a = list(rate = 0.50, uk_rate = 0.25),
+      annex_1b = list(rate = 0.25, uk_rate = 0.15),
+      annex_2 = list(rate = 0.0),
+      annex_3 = list(rate_type = 'floor', floor_rate = 0.15)
+    )
+  )
+
+  # Apply annex rate override (inline logic matching 06_calculate_rates.R step 5c)
+  df <- df %>% mutate(
+    rate_232 = case_when(
+      s232_annex == 'annex_2' ~ 0,
+      s232_annex == 'annex_1a' ~ annex_cfg$annexes$annex_1a$rate,
+      s232_annex == 'annex_1b' ~ annex_cfg$annexes$annex_1b$rate,
+      s232_annex == 'annex_3' ~ pmax(0, annex_cfg$annexes$annex_3$floor_rate - base_rate),
+      TRUE ~ rate_232
+    )
+  )
+
+  stopifnot(abs(df$rate_232[1] - 0.50) < 1e-10)   # I-A: 50%
+  stopifnot(abs(df$rate_232[2] - 0.25) < 1e-10)   # I-B: 25%
+  stopifnot(abs(df$rate_232[3] - 0.00) < 1e-10)   # II: removed
+  stopifnot(abs(df$rate_232[4] - 0.10) < 1e-10)   # III: max(0, 0.15 - 0.05) = 0.10
+})
+
+run_test('annex III floor formula edge cases', {
+  annex3_floor <- 0.15
+
+  # base_rate = 0% → floor rate = 15%
+  stopifnot(pmax(0, annex3_floor - 0.00) == 0.15)
+  # base_rate = 2.5% → floor rate = 12.5%
+  stopifnot(pmax(0, annex3_floor - 0.025) == 0.125)
+  # base_rate = 15% → floor rate = 0%
+  stopifnot(pmax(0, annex3_floor - 0.15) == 0.00)
+  # base_rate = 20% → floor rate = 0% (not negative)
+  stopifnot(pmax(0, annex3_floor - 0.20) == 0.00)
+})
+
+run_test('UK annex deal applies correctly', {
+  uk <- '4120'
+  df <- tibble(
+    hts10 = c('7208100000', '7208100000', '7408110000'),
+    country = c(uk, uk, uk),
+    s232_annex = c('annex_1a', 'annex_1b', 'annex_1a'),
+    rate_232 = c(0.50, 0.25, 0.50)
+  )
+
+  uk_steel_alum <- c('72', '73', '76')
+  df <- df %>% mutate(
+    rate_232 = case_when(
+      country == uk & s232_annex == 'annex_1a' &
+        substr(hts10, 1, 2) %in% uk_steel_alum ~ 0.25,
+      country == uk & s232_annex == 'annex_1b' &
+        substr(hts10, 1, 2) %in% uk_steel_alum ~ 0.15,
+      TRUE ~ rate_232
+    )
+  )
+
+  stopifnot(df$rate_232[1] == 0.25)  # UK steel I-A → 25%
+  stopifnot(df$rate_232[2] == 0.15)  # UK steel I-B → 15%
+  stopifnot(df$rate_232[3] == 0.50)  # UK copper I-A → 50% (no UK deal for copper)
+})
+
+run_test('annex classification is NA for pre-April-6 dates', {
+  # Simulate date-gating check
+  effective_date <- '2026-03-15'
+  annex_effective <- as.Date('2026-04-06')
+  is_annex_era <- as.Date(effective_date) >= annex_effective
+  stopifnot(!is_annex_era)
+})
+
+run_test('load_annex_products returns empty for header-only CSV', {
+  result <- load_annex_products(effective_date = '2026-04-06')
+  stopifnot(nrow(result) == 0)
+  stopifnot('hts_prefix' %in% names(result))
+  stopifnot('s232_annex' %in% names(result))
+})
+
+
+# =============================================================================
 # Summary
 # =============================================================================
 

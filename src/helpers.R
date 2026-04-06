@@ -389,6 +389,12 @@ load_policy_params <- function(yaml_path = here('config', 'policy_params.yaml'),
     }
   }
 
+  # Section 232 annexes (April 2026 proclamation)
+  if (!is.null(params$section_232_annexes)) {
+    params$S232_ANNEXES <- params$section_232_annexes
+    params$S232_ANNEXES$effective_date <- as.Date(params$section_232_annexes$effective_date)
+  }
+
   # Local paths (optional user-specific file locations)
   params$LOCAL_PATHS <- load_local_paths()
 
@@ -1521,6 +1527,41 @@ load_fentanyl_carveouts <- function(path = here('resources', 'fentanyl_carveout_
 #' Three methods:
 #'   flat: All derivative products get metal_share = flat_share (default 0.50)
 #'   cbo:  Product-level buckets from resources/cbo/ files
+#' Load Section 232 annex product classification
+#'
+#' Reads the annex product mapping from the static resource file. Returns a
+#' tibble with hts_prefix and s232_annex columns for prefix-matching in
+#' 06_calculate_rates.R. When the resource file is empty (header only), returns
+#' an empty tibble — the annex rate override step becomes a no-op.
+#'
+#' @param effective_date Date to filter entries by effective_date column
+#' @param resource_path Path to s232_annex_products.csv
+#' @return Tibble with columns: hts_prefix, s232_annex
+load_annex_products <- function(effective_date = NULL,
+                                resource_path = here('resources', 's232_annex_products.csv')) {
+  if (!file.exists(resource_path)) {
+    return(tibble(hts_prefix = character(), s232_annex = character()))
+  }
+
+  annex_map <- read_csv(resource_path, col_types = cols(.default = col_character()))
+
+  if (nrow(annex_map) == 0) {
+    message('  Annex products: resource file empty (pending HTS JSON)')
+    return(tibble(hts_prefix = character(), s232_annex = character()))
+  }
+
+  # Filter by effective_date if column is present
+  if ('effective_date' %in% names(annex_map) && !is.null(effective_date)) {
+    annex_map <- annex_map %>%
+      filter(is.na(effective_date) | effective_date <= as.character(!!effective_date))
+  }
+
+  annex_map %>%
+    select(hts_prefix, s232_annex = annex) %>%
+    distinct(hts_prefix, .keep_all = TRUE)
+}
+
+
 #'         (high=0.75, low=0.25, copper=0.90)
 #'   bea:  HS10-level shares from BEA 2017 Detail I-O table
 #'         (resources/metal_content_shares_bea_hs10.csv)

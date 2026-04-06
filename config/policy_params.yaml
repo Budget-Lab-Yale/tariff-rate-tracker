@@ -200,6 +200,48 @@ section_232_country_exemptions:
     applies_to: ['steel', 'aluminum']
     expiry_date: null
 
+# --- Section 232 annex restructuring (April 2026 proclamation) ---
+# Effective 2026-04-06: single-rate regime replaced by four product annexes.
+# Pre-April-6 revisions ignore this block entirely (date-gated in 06_calculate_rates.R).
+section_232_annexes:
+  effective_date: '2026-04-06'
+  resource_file: 'resources/s232_annex_products.csv'
+  annexes:
+    annex_1a:
+      label: 'Core metals + close derivatives'
+      rate: 0.50
+      chapters: ['72', '73', '76', '74']
+      uk_rate: 0.25
+      uk_applies_to: ['steel', 'aluminum']  # not copper
+    annex_1b:
+      label: 'Downstream manufactured articles'
+      rate: 0.25
+      uk_rate: 0.15
+      uk_applies_to: ['steel', 'aluminum']
+    annex_2:
+      label: 'Removed from scope'
+      rate: 0.0
+    annex_3:
+      label: 'Further downstream (temporary)'
+      rate_type: 'floor'
+      floor_rate: 0.15
+      sunset_date: '2027-12-31'
+      post_sunset_annex: 'annex_1b'
+  # Exemptions: infrastructure only, aggregate_share = 0 disables until calibrated
+  exemptions:
+    us_origin_metal:
+      rate: 0.10
+      aggregate_share: 0.0
+    de_minimis_weight:
+      threshold: 0.15
+      applies_to: ['annex_1b', 'annex_3']
+      excludes_chapters: ['72', '73', '74', '76']
+      aggregate_share: 0.0
+    motorcycle_parts:
+      applies_to: ['annex_1b']
+      chapters: ['84', '85', '87']
+      aggregate_share: 0.0
+
 # --- Floor rate structure (EU, Japan, S. Korea, Switzerland, Liechtenstein) ---
 floor_rates:
   eu_floor: 0.15
