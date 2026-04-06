@@ -1558,6 +1558,7 @@ load_annex_products <- function(effective_date = NULL,
 
   annex_map %>%
     select(hts_prefix, s232_annex = annex) %>%
+    mutate(s232_annex = paste0('annex_', s232_annex)) %>%
     distinct(hts_prefix, .keep_all = TRUE)
 }
 

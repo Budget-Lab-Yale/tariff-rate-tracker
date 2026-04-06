@@ -1283,12 +1283,12 @@ run_test('annex classification is NA for pre-April-6 dates', {
   stopifnot(!is_annex_era)
 })
 
-run_test('load_annex_products returns populated data from resource CSV', {
+run_test('load_annex_products returns populated data with annex_ prefix', {
   result <- load_annex_products(effective_date = '2026-04-06')
   stopifnot(nrow(result) > 0)
   stopifnot('hts_prefix' %in% names(result))
   stopifnot('s232_annex' %in% names(result))
-  stopifnot(all(result$s232_annex %in% c('1a', '1b', '2', '3')))
+  stopifnot(all(result$s232_annex %in% c('annex_1a', 'annex_1b', 'annex_2', 'annex_3')))
 })
 
 
