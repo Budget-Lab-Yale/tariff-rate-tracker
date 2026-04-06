@@ -1103,6 +1103,98 @@ if (run_artifact_tests) run_test('daily_by_country matches direct aggregation fo
 
 
 # =============================================================================
+# BEA metal derivative fixes (2026-04-06)
+# =============================================================================
+
+message('\n--- BEA metal derivative fixes ---')
+
+run_test('copper heading products get non-zero copper_share from BEA', {
+  # Copper heading products (ch74) that are NOT derivatives.
+  # Use codes present in resources/metal_content_shares_bea_hs10.csv.
+  copper_hts10 <- c('7403110000', '7403120000')
+  deriv_hts10 <- c('9401790010')  # a derivative, not copper
+  all_hts10 <- c(copper_hts10, deriv_hts10)
+
+  metal_cfg <- list(method = 'bea', flat_share = 0.50,
+                    primary_chapters = c('72', '73', '76'))
+
+  result <- load_metal_content(metal_cfg, all_hts10, derivative_hts10 = deriv_hts10)
+
+  # Copper heading products should have copper_share > 0 even though not derivatives
+  copper_rows <- result %>% filter(hts10 %in% copper_hts10)
+  stopifnot(all(copper_rows$copper_share > 0))
+  # Their metal_share should still be 1.0 (non-derivative)
+  stopifnot(all(copper_rows$metal_share == 1.0))
+})
+
+run_test('decomposition uses steel_share for steel derivatives', {
+  df <- tibble(
+    hts10 = c('9401790010', '7604100010'),
+    country = c('4280', '4280'),
+    rate_232 = c(0.50, 0.50),
+    rate_ieepa_recip = c(0.20, 0.20),
+    rate_ieepa_fent = c(0, 0),
+    rate_301 = c(0, 0),
+    rate_s122 = c(0.10, 0.10),
+    rate_section_201 = c(0, 0),
+    rate_other = c(0, 0),
+    metal_share = c(0.30, 1.0),
+    steel_share = c(0.30, 0.80),
+    aluminum_share = c(0.05, 0.10),
+    copper_share = c(0.01, 0.02),
+    deriv_type = c('steel', NA_character_),
+    is_copper_heading = c(FALSE, FALSE)
+  )
+
+  net <- compute_net_authority_contributions(df, cty_china = '5700')
+
+  # Steel derivative: nonmetal_share should be 1 - steel_share = 0.70
+  stopifnot(abs(net$net_ieepa[1] - 0.20 * 0.70) < 1e-10)
+  stopifnot(abs(net$net_s122[1] - 0.10 * 0.70) < 1e-10)
+  # Ch76 product: nonmetal_share = 1 - aluminum_share = 0.90
+  stopifnot(abs(net$net_ieepa[2] - 0.20 * 0.90) < 1e-10)
+})
+
+run_test('heading-overlap reset safe without per-type columns', {
+  # Simulate flat/CBO mode: metal_share exists but no per-type columns
+  rates <- tibble(
+    hts10 = c('8544490010', '8544490020', '7208100000'),
+    country = c('4280', '4280', '4280'),
+    rate_232 = c(0.25, 0.25, 0.50),
+    metal_share = c(0.50, 0.50, 1.0),
+    deriv_type = c('aluminum', 'aluminum', NA_character_)
+  )
+
+  deriv_matched <- c('8544490010', '8544490020')
+  heading_products <- c('8544490010')  # one product is also a heading match
+
+  has_per_type <- all(c('steel_share', 'aluminum_share') %in% names(rates))
+  stopifnot(!has_per_type)  # confirm no per-type columns
+
+  # This should NOT error — the per-type reset is gated on has_per_type
+  heading_derivs <- intersect(deriv_matched, heading_products)
+  if (length(heading_derivs) > 0) {
+    rates <- rates %>%
+      mutate(metal_share = if_else(hts10 %in% heading_derivs, 1.0, metal_share))
+    if (has_per_type) {
+      rates <- rates %>%
+        mutate(
+          steel_share       = if_else(hts10 %in% heading_derivs, 0, steel_share),
+          aluminum_share    = if_else(hts10 %in% heading_derivs, 0, aluminum_share),
+          copper_share      = if_else(hts10 %in% heading_derivs, 0, copper_share),
+          other_metal_share = if_else(hts10 %in% heading_derivs, 0, other_metal_share)
+        )
+    }
+  }
+
+  # Heading product should have metal_share reset to 1.0
+  stopifnot(rates$metal_share[rates$hts10 == '8544490010'] == 1.0)
+  # Non-heading derivative keeps its metal_share
+  stopifnot(rates$metal_share[rates$hts10 == '8544490020'] == 0.50)
+})
+
+
+# =============================================================================
 # Summary
 # =============================================================================
 

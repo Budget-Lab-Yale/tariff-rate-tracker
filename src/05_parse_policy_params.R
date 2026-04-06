@@ -688,6 +688,8 @@ extract_section232_rates <- function(ch99_data) {
   # 9903.81.91 is the content-based tariff (applies to steel content only).
   # 9903.81.89/90 are full-rate entries for products in primary steel chapters.
   # 9903.81.92 is an exemption (US-melted steel, rate=0).
+  # TODO(issue-3): Not modeled — requires product-condition exemption support.
+  # See docs/analysis/section_232_review_memo_2026-04-06.md, Issue 3.
   # 9903.81.93 is a FTZ transitional entry.
   steel_deriv_codes <- c('9903.81.89', '9903.81.90', '9903.81.91', '9903.81.93')
   steel_deriv <- steel_entries %>%

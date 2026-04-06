@@ -1124,6 +1124,7 @@ generate_other_params_yaml <- function(date, policy_params, output_dir,
     steel = 'steel',
     aluminum = 'aluminum',
     aluminum_derivatives = 'aluminum',
+    steel_derivatives = 'steel',
     copper = 'copper'
   )
 

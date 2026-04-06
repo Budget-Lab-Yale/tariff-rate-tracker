@@ -986,14 +986,17 @@ compute_net_authority_contributions <- function(df, cty_china = '5700',
 
   if (has_per_type) {
     has_copper_flag <- 'is_copper_heading' %in% names(df)
+    has_deriv_type <- 'deriv_type' %in% names(df)
     df <- df %>%
       mutate(
         .ch2 = substr(hts10, 1, 2),
         .active_type_share = case_when(
-          rate_232 > 0 & .ch2 %in% c('72', '73')              ~ steel_share,
-          rate_232 > 0 & .ch2 == '76'                          ~ aluminum_share,
-          rate_232 > 0 & has_copper_flag & is_copper_heading   ~ copper_share,
-          rate_232 > 0 & metal_share < 1.0                     ~ aluminum_share,
+          rate_232 > 0 & .ch2 %in% c('72', '73')                    ~ steel_share,
+          rate_232 > 0 & .ch2 == '76'                                ~ aluminum_share,
+          rate_232 > 0 & has_copper_flag & is_copper_heading         ~ copper_share,
+          rate_232 > 0 & has_deriv_type & deriv_type == 'steel'      ~ steel_share,
+          rate_232 > 0 & has_deriv_type & deriv_type == 'aluminum'   ~ aluminum_share,
+          rate_232 > 0 & metal_share < 1.0                           ~ aluminum_share,
           TRUE ~ 0
         ),
         nonmetal_share = if_else(rate_232 > 0 & .active_type_share > 0,
@@ -1628,7 +1631,10 @@ load_metal_content <- function(metal_cfg = NULL, hts10_codes = character(0),
              bea_copper = copper_share, bea_other = other_metal_share,
              bea_metal = metal_share)
 
-    # Only apply BEA shares to derivative products
+    # metal_share gated on is_derivative (only derivatives get < 1.0).
+    # Per-type shares populated for ALL BEA-matched products: copper heading
+    # scaling needs copper_share on non-derivative ch74 products; stacking
+    # guards on rate_232 > 0 so non-232 products are unaffected.
     result <- result %>%
       left_join(bea_shares, by = 'hts10') %>%
       mutate(
@@ -1637,10 +1643,10 @@ load_metal_content <- function(metal_cfg = NULL, hts10_codes = character(0),
           !is.na(bea_metal) ~ bea_metal,     # BEA match for derivatives
           TRUE ~ flat_share                   # fallback to flat for unmatched derivatives
         ),
-        steel_share       = if_else(is_derivative & !is.na(bea_steel), bea_steel, 0),
-        aluminum_share    = if_else(is_derivative & !is.na(bea_aluminum), bea_aluminum, 0),
-        copper_share      = if_else(is_derivative & !is.na(bea_copper), bea_copper, 0),
-        other_metal_share = if_else(is_derivative & !is.na(bea_other), bea_other, 0)
+        steel_share       = if_else(!is.na(bea_steel), bea_steel, 0),
+        aluminum_share    = if_else(!is.na(bea_aluminum), bea_aluminum, 0),
+        copper_share      = if_else(!is.na(bea_copper), bea_copper, 0),
+        other_metal_share = if_else(!is.na(bea_other), bea_other, 0)
       ) %>%
       select(-starts_with('bea_'))
 

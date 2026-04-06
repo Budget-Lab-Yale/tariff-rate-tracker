@@ -411,13 +411,16 @@ apply_232_derivatives <- function(rates, products, ch99_data, s232_rates, countr
     heading_derivs <- intersect(deriv_matched, heading_products)
     if (length(heading_derivs) > 0) {
       rates <- rates %>%
-        mutate(
-          metal_share       = if_else(hts10 %in% heading_derivs, 1.0, metal_share),
-          steel_share       = if_else(hts10 %in% heading_derivs, 0, steel_share),
-          aluminum_share    = if_else(hts10 %in% heading_derivs, 0, aluminum_share),
-          copper_share      = if_else(hts10 %in% heading_derivs, 0, copper_share),
-          other_metal_share = if_else(hts10 %in% heading_derivs, 0, other_metal_share)
-        )
+        mutate(metal_share = if_else(hts10 %in% heading_derivs, 1.0, metal_share))
+      if (has_per_type) {
+        rates <- rates %>%
+          mutate(
+            steel_share       = if_else(hts10 %in% heading_derivs, 0, steel_share),
+            aluminum_share    = if_else(hts10 %in% heading_derivs, 0, aluminum_share),
+            copper_share      = if_else(hts10 %in% heading_derivs, 0, copper_share),
+            other_metal_share = if_else(hts10 %in% heading_derivs, 0, other_metal_share)
+          )
+      }
       message('  Reset metal_share=1.0 for ', length(heading_derivs),
               ' heading/derivative overlap products')
     }
