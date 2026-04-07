@@ -84,6 +84,7 @@ compute_revision_quality <- function(ts) {
       pct_301 = round(mean(rate_301 > 0) * 100, 1),
       pct_ieepa_recip = round(mean(rate_ieepa_recip > 0) * 100, 1),
       pct_ieepa_fent = round(mean(rate_ieepa_fent > 0) * 100, 1),
+      pct_s122 = round(mean(rate_s122 > 0) * 100, 1),
       pct_usmca = round(mean(usmca_eligible, na.rm = TRUE) * 100, 1),
       n_negative_rates = sum(total_rate < 0, na.rm = TRUE),
       n_na_total = sum(is.na(total_rate)),
@@ -191,6 +192,123 @@ detect_anomalies <- function(rev_quality) {
 }
 
 
+#' Check authority timeline against expectations
+#'
+#' Loads config/expected_authorities.csv and verifies that each revision has
+#' the expected authorities active (nonzero pct) or inactive (zero pct).
+#' Expectations carry forward: an entry for revision X holds for all subsequent
+#' revisions until overridden.
+#'
+#' Maintenance: when a new revision is added to the timeseries, update the CSV
+#' if any authority activates, deactivates, or expires (e.g., S122 expiry at
+#' 2026-07-23 means the first post-expiry revision needs s122,inactive).
+#'
+#' @param rev_quality Output from compute_revision_quality()
+#' @return Tibble of authority timeline anomalies
+check_authority_timeline <- function(rev_quality) {
+  expectations_path <- here('config', 'expected_authorities.csv')
+  if (!file.exists(expectations_path)) {
+    message('  No expected_authorities.csv found — skipping authority timeline check.')
+    return(tibble(revision = character(), effective_date = as.Date(character()),
+                  anomaly_type = character(), detail = character()))
+  }
+
+  expectations <- read_csv(expectations_path, col_types = cols(
+    revision = col_character(), authority = col_character(),
+    expected = col_character(), min_pct = col_double(), note = col_character()
+  ))
+
+  # Map authority short names to pct_* columns in rev_quality
+  authority_map <- c(
+    s232 = 'pct_232', s301 = 'pct_301',
+    ieepa_recip = 'pct_ieepa_recip', ieepa_fent = 'pct_ieepa_fent',
+    s122 = 'pct_s122'
+  )
+
+  all_revisions <- rev_quality$revision
+  all_authorities <- unique(expectations$authority)
+
+  # Warn on revision names in CSV that don't appear in the timeseries
+  unknown_revs <- setdiff(expectations$revision, all_revisions)
+  if (length(unknown_revs) > 0) {
+    message('  WARNING: expected_authorities.csv references unknown revisions: ',
+            paste(unknown_revs, collapse = ', '),
+            ' — check for typos')
+  }
+
+  # Warn on authority names in CSV that don't appear in authority_map
+  unknown_auths <- setdiff(all_authorities, names(authority_map))
+  if (length(unknown_auths) > 0) {
+    message('  WARNING: expected_authorities.csv references unknown authorities: ',
+            paste(unknown_auths, collapse = ', '),
+            ' — add to authority_map in check_authority_timeline()')
+  }
+
+  # Build full expectation matrix by carrying forward
+  full_expectations <- list()
+  for (auth in all_authorities) {
+    auth_exp <- expectations %>% filter(authority == auth)
+    current_expected <- NA_character_
+    current_min_pct <- NA_real_
+    current_note <- NA_character_
+    for (rev in all_revisions) {
+      override <- auth_exp %>% filter(revision == rev)
+      if (nrow(override) > 0) {
+        current_expected <- override$expected[1]
+        current_min_pct <- override$min_pct[1]
+        current_note <- override$note[1]
+      }
+      if (!is.na(current_expected)) {
+        full_expectations[[length(full_expectations) + 1]] <- tibble(
+          revision = rev, authority = auth, expected = current_expected,
+          min_pct = current_min_pct, note = current_note
+        )
+      }
+    }
+  }
+  full_exp <- bind_rows(full_expectations)
+
+  # Check each expectation against actual pct values
+  anomalies <- tibble(revision = character(), effective_date = as.Date(character()),
+                      anomaly_type = character(), detail = character())
+
+  for (i in seq_len(nrow(full_exp))) {
+    row <- full_exp[i, ]
+    col_name <- authority_map[row$authority]
+    if (is.na(col_name) || !col_name %in% names(rev_quality)) next
+
+    rev_row <- rev_quality %>% filter(revision == row$revision)
+    if (nrow(rev_row) == 0) next
+    actual_pct <- rev_row[[col_name]]
+
+    if (row$expected == 'active' && actual_pct == 0) {
+      anomalies <- bind_rows(anomalies, tibble(
+        revision = row$revision, effective_date = rev_row$effective_date,
+        anomaly_type = 'authority_missing',
+        detail = paste0(row$authority, ' expected active but pct = 0% (',
+                        row$note, ')')
+      ))
+    } else if (row$expected == 'active' && !is.na(row$min_pct) && actual_pct < row$min_pct) {
+      anomalies <- bind_rows(anomalies, tibble(
+        revision = row$revision, effective_date = rev_row$effective_date,
+        anomaly_type = 'authority_low',
+        detail = paste0(row$authority, ' expected >= ', row$min_pct,
+                        '% but pct = ', actual_pct, '% (', row$note, ')')
+      ))
+    } else if (row$expected == 'inactive' && actual_pct > 0) {
+      anomalies <- bind_rows(anomalies, tibble(
+        revision = row$revision, effective_date = rev_row$effective_date,
+        anomaly_type = 'authority_unexpected',
+        detail = paste0(row$authority, ' expected inactive but pct = ',
+                        actual_pct, '% (', row$note, ')')
+      ))
+    }
+  }
+
+  return(anomalies)
+}
+
+
 #' Run full quality report
 #'
 #' @param timeseries_path Path to rate_timeseries.rds
@@ -259,9 +377,23 @@ run_quality_report <- function(
               ': ', anomalies$detail[r])
     }
   }
+
+  # 4. Authority timeline check
+  message('\n--- Authority Timeline Check ---')
+  auth_anomalies <- check_authority_timeline(rev_quality)
+  if (nrow(auth_anomalies) == 0) {
+    message('All authority activations match expected timeline.')
+  } else {
+    message(nrow(auth_anomalies), ' authority timeline mismatches:')
+    for (r in seq_len(nrow(auth_anomalies))) {
+      message('  [', auth_anomalies$revision[r], '] ', auth_anomalies$anomaly_type[r],
+              ': ', auth_anomalies$detail[r])
+    }
+  }
+  anomalies <- bind_rows(anomalies, auth_anomalies)
   write_csv(anomalies, file.path(output_dir, 'anomalies.csv'))
 
-  # 4. Unknown country applicability check
+  # 5. Unknown country applicability check
   message('\n--- Country Applicability Check ---')
   ch99_path <- here('data', 'processed', 'chapter99_rates.rds')
   unknown_country_rows <- tibble()
@@ -290,7 +422,7 @@ run_quality_report <- function(
     message('Ch99 data not found at ', ch99_path, ' — skipping check.')
   }
 
-  # 5. Non-China Section 301 check
+  # 6. Non-China Section 301 check
   message('\n--- Section 301 Scope Check ---')
   non_china_301 <- tibble()
   if ('rate_301' %in% names(ts) && 'country' %in% names(ts)) {
@@ -314,7 +446,7 @@ run_quality_report <- function(
     }
   }
 
-  # 6. Summary metadata
+  # 7. Summary metadata
   report <- list(
     run_time = Sys.time(),
     timeseries_path = timeseries_path,

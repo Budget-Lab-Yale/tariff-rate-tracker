@@ -1,0 +1,13 @@
+revision,authority,expected,min_pct,note
+basic,s232,active,0.5,Baseline 232 steel/aluminum
+basic,s301,active,0.1,Trump-era 301 (China only)
+basic,ieepa_recip,inactive,,Pre-IEEPA
+basic,ieepa_fent,inactive,,Pre-fentanyl EOs
+basic,s122,inactive,,Pre-S122
+rev_1,ieepa_fent,active,0.1,China fentanyl +10%
+rev_7,ieepa_recip,active,0.1,Liberation Day Phase 1
+rev_9,ieepa_recip,inactive,,Phase 1 suspended
+rev_18,ieepa_recip,active,1.0,Phase 2 + Phase 1 unsuspended (broad coverage)
+2026_rev_4,ieepa_recip,inactive,,SCOTUS invalidation
+2026_rev_4,ieepa_fent,inactive,,SCOTUS invalidation
+2026_rev_4,s122,active,0.1,Section 122 Phase 3
