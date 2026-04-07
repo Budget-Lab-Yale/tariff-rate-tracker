@@ -1685,10 +1685,10 @@ load_metal_content <- function(metal_cfg = NULL, hts10_codes = character(0),
           !is.na(bea_metal) ~ bea_metal,     # BEA match for derivatives
           TRUE ~ flat_share                   # fallback to flat for unmatched derivatives
         ),
-        steel_share       = if_else(!is.na(bea_steel), bea_steel, 0),
-        aluminum_share    = if_else(!is.na(bea_aluminum), bea_aluminum, 0),
-        copper_share      = if_else(!is.na(bea_copper), bea_copper, 0),
-        other_metal_share = if_else(!is.na(bea_other), bea_other, 0)
+        steel_share       = pmin(if_else(!is.na(bea_steel), bea_steel, 0), 1.0),
+        aluminum_share    = pmin(if_else(!is.na(bea_aluminum), bea_aluminum, 0), 1.0),
+        copper_share      = pmin(if_else(!is.na(bea_copper), bea_copper, 0), 1.0),
+        other_metal_share = pmin(if_else(!is.na(bea_other), bea_other, 0), 1.0)
       ) %>%
       select(-starts_with('bea_'))
 

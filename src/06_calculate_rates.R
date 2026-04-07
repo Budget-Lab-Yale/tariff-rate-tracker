@@ -979,9 +979,9 @@ calculate_rates_for_revision <- function(
         if (!is.null(cfg$products_file)) {
           pf_path <- here(cfg$products_file)
           if (file.exists(pf_path)) {
-            copper_list <- read_csv(pf_path, col_types = cols(.default = col_character()))
+            pf_data <- read_csv(pf_path, col_types = cols(.default = col_character()))
             # Treat HTS10 codes as prefixes (matches statistical suffixes)
-            pf_codes <- copper_list$hts10
+            pf_codes <- pf_data$hts10
             pf_pattern <- paste0('^(', paste(pf_codes, collapse = '|'), ')')
             matched <- products %>%
               filter(grepl(pf_pattern, hts10)) %>%
@@ -1178,9 +1178,14 @@ calculate_rates_for_revision <- function(
              -heading_232_rate, -heading_usmca_exempt, -heading_rate_adj)
 
     # --- Add rows for 232-covered products NOT yet in rates ---
+    # Include countries with any active 232 program (steel/aluminum/auto + heading
+    # programs like copper/wood/MHD that don't have per-country exemptions)
     s232_country_codes <- country_232 %>%
       filter(steel_rate > 0 | aluminum_rate > 0 | auto_rate > 0) %>%
       pull(country)
+    if (nrow(heading_product_rate) > 0) {
+      s232_country_codes <- unique(c(s232_country_codes, countries))
+    }
 
     all_heading_products <- if (nrow(heading_product_rate) > 0) heading_product_rate$hts10 else character(0)
     all_232_products <- unique(c(steel_products, aluminum_products, all_heading_products))
