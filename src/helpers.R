@@ -1596,6 +1596,10 @@ load_metal_content <- function(metal_cfg = NULL, hts10_codes = character(0),
 
   if (sum(is_derivative) == 0) {
     message('  Metal content: no derivative products to adjust')
+    result$steel_share <- 0
+    result$aluminum_share <- 0
+    result$copper_share <- 0
+    result$other_metal_share <- 0
     return(result)
   }
 

@@ -514,9 +514,9 @@ ieepa_invalidation_policy_date: '2026-02-20' # SCOTUS ruling date (Learning Reso
 # Set finalized to true if Congress extends (removes expiry constraint).
 section_122:
   effective_date: '2026-02-24'           # HTS date; overridden to 2026-02-20 when use_policy_dates=TRUE
-  policy_effective_date: '2026-02-20'    # SCOTUS ruling date (S122 EO signed same day)
+  policy_effective_date: '2026-02-24'    # Aligned with HTS effective date
   expiry_date: '2026-07-23'             # 150 days from HTS effective (last active day)
-  policy_expiry_date: '2026-07-19'      # 150 days from policy effective date
+  policy_expiry_date: '2026-07-23'      # Aligned with HTS expiry date
   finalized: false              # set true if Congress extends
   rate: 0.10                    # 10% non-discriminatory rate (from 9903.03.01)
   exempt_products: 'resources/s122_exempt_products.csv'

@@ -38,6 +38,32 @@ Presidential proclamation of 2 April 2026 replaces single-rate 232 with four pro
 - [ ] Exemption calibration (US-origin 1%, de minimis 2%, motorcycle 0.1% per SGEPT)
 - [ ] Annex III sunset (Dec 2027 → I-B rate): logic in place, needs future HTS revision to test
 
+## NA propagation in daily output (basic–rev_3)
+
+Daily output CSVs contain NAs for revisions `basic` through `rev_3` (2025-01-01 to 2025-03-03). Affected columns:
+
+- `daily_by_authority.csv`: `mean_ieepa`, `mean_fentanyl`, `mean_s122`, `etr_ieepa`, `etr_fentanyl`, `etr_s122`, `etr_base`
+- `daily_overall.csv`: `mean_additional_exposed`, `mean_total_exposed`, `mean_additional_all_pairs`, `mean_total_all_pairs`, `weighted_etr`, `weighted_etr_additional`
+
+Values become 0 or real starting at `rev_4` (2025-03-04).
+
+**Root cause**: `load_metal_content()` in `helpers.R:1597–1599` returns early (no per-type columns) when a revision has no derivative products. The returned tibble has only `hts10` and `metal_share` — no `steel_share`/`aluminum_share`/`copper_share`. This is the case for `basic` through `rev_3` (pre-derivative era).
+
+When `map_dfr()` binds all revision snapshots at `00_build_timeseries.R:305`, columns from rev_4+ (`steel_share`, `aluminum_share`, `copper_share`) are backfilled as NA in the early revision rows. `enforce_rate_schema()` does not cover per-type shares (not in `RATE_SCHEMA`), so NAs persist.
+
+**Propagation path**:
+1. `apply_stacking_rules()` (`helpers.R:893`) and `compute_net_authority_contributions()` (`helpers.R:991`) see `has_per_type = TRUE` (columns exist in the bound df) and enter the per-type branch
+2. `case_when` at `helpers.R:905–910` / `1000–1005` evaluates e.g. `rate_232 > 0 & ch2 == '72' ~ steel_share` — `steel_share` is NA → `.active_type_share` = NA → `nonmetal_share` = NA (via `if_else(rate_232 > 0 & NA > 0, ...)` → NA)
+3. `total_additional = rate_232 + 0 * NA + ...` → NA (R's `0 * NA = NA`), even though the zero-rate authorities contribute nothing
+4. `mean()` in `compute_agg_authority()` / `compute_agg_overall()` (`09_daily_series.R:117–118, 202–208`) has no `na.rm = TRUE`, so a single NA poisons the column
+5. `etr_base` (`09_daily_series.R:263`) and `weighted_etr` cascade to NA
+
+**NAs are not informative.** The correct values are 0 for IEEPA/fentanyl/S122 (those authorities didn't exist in basic–rev_3). The `nonmetal_share` is irrelevant when multiplied by zero rates, but R cannot infer that.
+
+**Why rev_4+ is unaffected**: rev_4 has derivatives, so `load_metal_content()` takes the BEA path and returns per-type columns (coalesced to 0 for unmatched products at lines 1688–1691). No NAs enter the bound df from rev_4 onward.
+
+**Fix**: Have `load_metal_content()` always return per-type columns, even on the early-return path (no derivatives). One-line change at `helpers.R:1599`. See plan below.
+
 ## Pipeline
 
 - [ ] Add generic pharma country-specific exemption shares (per TPC feedback; low priority)
