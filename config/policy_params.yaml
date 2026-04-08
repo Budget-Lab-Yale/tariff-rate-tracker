@@ -417,7 +417,7 @@ section_232_derivatives:
 metal_content:
   method: 'bea'          # 'flat', 'cbo', or 'bea'
   flat_share: 0.50       # fallback for unmatched derivatives (all methods)
-  primary_chapters: ['72', '73', '76', '74']  # steel/aluminum/copper chapters = 100% metal content
+  primary_chapters: ['72', '73', '76']  # steel/aluminum chapters = 100% metal (ch74 excluded: copper heading uses BEA copper_share, capped at 1.0 in ETRs)
   # CBO method params (used when method = 'cbo'):
   # cbo_high_share: 0.75
   # cbo_low_share: 0.25
