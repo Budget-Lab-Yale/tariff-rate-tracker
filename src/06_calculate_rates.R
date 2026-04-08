@@ -1463,6 +1463,9 @@ calculate_rates_for_revision <- function(
   #     content," not the full customs value. This parallels ETRs' per-type metal
   #     scaling. After scaling, is_copper_heading flags these products so stacking
   #     rules use copper_share for nonmetal_share.
+  #     Only rate_232 is scaled (for tracker stacking); statutory_rate_232 stays
+  #     at the proclaimed level so that ETRs can apply its own copper_share scaling
+  #     consistently with steel/aluminum derivatives.
   if (length(copper_products) > 0 && 'copper_share' %in% names(rates)) {
     rates <- rates %>%
       mutate(
@@ -1471,11 +1474,6 @@ calculate_rates_for_revision <- function(
           is_copper_heading & rate_232 > 0,
           rate_232 * copper_share,
           rate_232
-        ),
-        statutory_rate_232 = if_else(
-          is_copper_heading & statutory_rate_232 > 0,
-          statutory_rate_232 * copper_share,
-          statutory_rate_232
         )
       )
     n_scaled <- sum(rates$is_copper_heading & rates$rate_232 > 0)
