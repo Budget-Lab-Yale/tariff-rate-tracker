@@ -505,7 +505,7 @@ ieepa_duty_free_treatment: 'all'
 # Date when IEEPA tariff authority was invalidated by the Supreme Court.
 # All revisions with effective_date >= this date have IEEPA rates zeroed out.
 # Set to null to disable (all revisions keep IEEPA rates as parsed).
-ieepa_invalidation_date: '2026-02-24'       # HTS date; overridden to 2026-02-20 when use_policy_dates=TRUE
+ieepa_invalidation_date: '2026-02-24'       # HTS/CBP implementation date; overridden to 2026-02-20 when use_policy_dates=TRUE
 ieepa_invalidation_policy_date: '2026-02-20' # SCOTUS ruling date (Learning Resources v. Trump)
 
 # --- Section 122 (Trade Act §122, 150-day statutory limit) ---
@@ -513,8 +513,8 @@ ieepa_invalidation_policy_date: '2026-02-20' # SCOTUS ruling date (Learning Reso
 # Effective 2026-02-24; expires after 150 days unless Congress extends.
 # Set finalized to true if Congress extends (removes expiry constraint).
 section_122:
-  effective_date: '2026-02-24'           # HTS date; overridden to 2026-02-20 when use_policy_dates=TRUE
-  policy_effective_date: '2026-02-24'    # Aligned with HTS effective date
+  effective_date: '2026-02-24'           # HTS/CBP implementation date
+  policy_effective_date: '2026-02-24'    # Aligned with HTS effective date (no policy-date override)
   expiry_date: '2026-07-23'             # 150 days from HTS effective (last active day)
   policy_expiry_date: '2026-07-23'      # Aligned with HTS expiry date
   finalized: false              # set true if Congress extends

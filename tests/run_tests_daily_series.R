@@ -939,7 +939,7 @@ make_mode_test_ieepa <- function() {
   ieepa
 }
 
-run_test('calculator honors policy-date mode on 2026-02-20', {
+run_test('calculator zeroes IEEPA on 2026-02-20 while Section 122 remains HTS-dated', {
   products <- make_mode_test_products()
   ch99_data <- make_mode_test_ch99()
   ieepa_rates <- make_mode_test_ieepa()
@@ -975,20 +975,38 @@ run_test('calculator honors policy-date mode on 2026-02-20', {
   )
 
   stopifnot(all(rates_policy$rate_ieepa_recip == 0))
-  stopifnot(all(rates_policy$rate_s122 > 0))
+  stopifnot(all(rates_policy$rate_s122 == 0))
 
   stopifnot(any(rates_hts$rate_ieepa_recip > 0))
   stopifnot(all(rates_hts$rate_s122 == 0))
 })
 
-run_test('policy params differ for HTS-late 2026_rev_4 timing', {
+run_test('policy-date mode only shifts IEEPA invalidation for 2026_rev_4', {
   pp_policy <- load_policy_params(use_policy_dates = TRUE)
   pp_hts <- load_policy_params(use_policy_dates = FALSE)
+  rev_policy <- load_revision_dates(use_policy_dates = TRUE)
+  rev_hts <- load_revision_dates(use_policy_dates = FALSE)
 
   stopifnot(pp_policy$IEEPA_INVALIDATION_DATE == as.Date('2026-02-20'))
   stopifnot(pp_hts$IEEPA_INVALIDATION_DATE == as.Date('2026-02-24'))
-  stopifnot(pp_policy$SECTION_122$effective_date == as.Date('2026-02-20'))
+  stopifnot(pp_policy$SECTION_122$effective_date == as.Date('2026-02-24'))
   stopifnot(pp_hts$SECTION_122$effective_date == as.Date('2026-02-24'))
+  stopifnot(
+    rev_policy$effective_date[rev_policy$revision == '2026_rev_4'] ==
+      as.Date('2026-02-24')
+  )
+  stopifnot(
+    rev_hts$effective_date[rev_hts$revision == '2026_rev_4'] ==
+      as.Date('2026-02-24')
+  )
+  stopifnot(
+    rev_policy$effective_date[rev_policy$revision == 'rev_16'] ==
+      as.Date('2025-06-04')
+  )
+  stopifnot(
+    rev_hts$effective_date[rev_hts$revision == 'rev_16'] ==
+      as.Date('2025-06-06')
+  )
 })
 
 
@@ -1155,6 +1173,94 @@ run_test('decomposition uses steel_share for steel derivatives', {
   stopifnot(abs(net$net_ieepa[2] - 0.20 * 0.90) < 1e-10)
 })
 
+run_test('no-derivative path returns zero-filled per-type shares', {
+  metal_cfg <- list(method = 'flat', flat_share = 0.50,
+                    primary_chapters = c('72', '73', '76'))
+  result <- load_metal_content(metal_cfg, c('0101000000', '0202000000'),
+                               derivative_hts10 = character(0))
+
+  stopifnot(all(c('steel_share', 'aluminum_share', 'copper_share',
+                  'other_metal_share') %in% names(result)))
+  stopifnot(all(result$steel_share == 0))
+  stopifnot(all(result$aluminum_share == 0))
+  stopifnot(all(result$copper_share == 0))
+  stopifnot(all(result$other_metal_share == 0))
+})
+
+run_test('flat method zero-fills per-type columns when primary chapters are present', {
+  metal_cfg <- list(method = 'flat', flat_share = 1.0,
+                    primary_chapters = c('72', '73', '76'))
+  result <- load_metal_content(
+    metal_cfg,
+    c('8407901000', '7208100000'),
+    derivative_hts10 = c('8407901000')
+  )
+
+  stopifnot(all(c('steel_share', 'aluminum_share', 'copper_share',
+                  'other_metal_share') %in% names(result)))
+  stopifnot(all(result$steel_share == 0))
+  stopifnot(all(result$aluminum_share == 0))
+  stopifnot(all(result$copper_share == 0))
+  stopifnot(all(result$other_metal_share == 0))
+  stopifnot(result$metal_share[result$hts10 == '8407901000'] == 1.0)
+  stopifnot(result$metal_share[result$hts10 == '7208100000'] == 1.0)
+})
+
+run_test('flat 100 derivative keeps full 232 rate through derivative scaling and stacking', {
+  rates <- tibble(
+    hts10 = c('8407901000', '7208100000'),
+    country = c('4280', '4280'),
+    base_rate = c(0, 0),
+    rate_232 = c(0, 0),
+    statutory_rate_232 = c(0, 0),
+    rate_ieepa_recip = c(0.15, 0),
+    rate_ieepa_fent = c(0, 0),
+    rate_301 = c(0, 0),
+    rate_s122 = c(0, 0),
+    rate_section_201 = c(0, 0),
+    rate_other = c(0, 0),
+    total_additional = c(0, 0),
+    total_rate = c(0, 0)
+  )
+  products <- tibble(
+    hts10 = c('8407901000', '7208100000'),
+    base_rate = c(0, 0)
+  )
+  ch99_data <- tibble(ch99_code = '9903.81.91')
+  s232_rates <- list(
+    has_232 = TRUE,
+    derivative_exempt = character(0),
+    derivative_rate = 0,
+    steel_derivative_exempt = character(0),
+    steel_derivative_rate = 0.50
+  )
+  pp_flat <- load_policy_params()
+  pp_flat$metal_content$method <- 'flat'
+  pp_flat$metal_content$flat_share <- 1.0
+
+  scaled <- apply_232_derivatives(
+    rates,
+    products,
+    ch99_data,
+    s232_rates,
+    countries = '4280',
+    heading_products = character(0),
+    policy_params = pp_flat,
+    effective_date = as.Date('2025-08-18')
+  )
+  scaled_rates <- scaled$rates
+
+  deriv_row <- scaled_rates %>% filter(hts10 == '8407901000', country == '4280')
+  stopifnot(nrow(deriv_row) == 1)
+  stopifnot(all(c('steel_share', 'aluminum_share', 'copper_share') %in% names(scaled_rates)))
+  stopifnot(all(deriv_row %>% select(steel_share, aluminum_share, copper_share) == 0))
+  stopifnot(abs(deriv_row$rate_232 - 0.50) < 1e-10)
+  stopifnot(abs(deriv_row$metal_share - 1.0) < 1e-10)
+
+  stacked <- apply_stacking_rules(deriv_row, cty_china = '5700')
+  stopifnot(abs(stacked$total_additional - 0.50) < 1e-10)
+})
+
 run_test('heading-overlap reset safe without per-type columns', {
   # Simulate flat/CBO mode: metal_share exists but no per-type columns
   rates <- tibble(
@@ -1289,6 +1395,33 @@ run_test('load_annex_products returns populated data with annex_ prefix', {
   stopifnot('hts_prefix' %in% names(result))
   stopifnot('s232_annex' %in% names(result))
   stopifnot(all(result$s232_annex %in% c('annex_1a', 'annex_1b', 'annex_2', 'annex_3')))
+})
+
+run_test('annex prefix matching: specific prefix wins over shorter catchall', {
+  # Regression test: shorter prefix (e.g., 850300 → 1b) must not shadow
+  # longer specific prefix (e.g., 85030045 → annex_2). The loop must process
+  # longest prefixes first so the specific classification takes priority.
+  annex_map <- tibble(
+    hts_prefix  = c('850300',    '85030045',  '85030090',  '848390',    '84839020'),
+    s232_annex  = c('annex_1b',  'annex_2',   'annex_2',   'annex_1b',  'annex_3')
+  )
+  annex_pattern_map <- annex_map %>%
+    mutate(pattern = paste0('^', hts_prefix)) %>%
+    arrange(desc(nchar(hts_prefix)))
+
+  # Simulate matching against HTS10 codes
+  test_hts <- c('8503004500', '8503009000', '8503003500', '8483902000', '8483905000')
+  s232_annex <- rep(NA_character_, length(test_hts))
+  for (i in seq_len(nrow(annex_pattern_map))) {
+    mask <- grepl(annex_pattern_map$pattern[i], test_hts)
+    s232_annex[mask & is.na(s232_annex)] <- annex_pattern_map$s232_annex[i]
+  }
+
+  stopifnot(s232_annex[1] == 'annex_2')   # 8503004500 → specific 85030045 → annex_2 (not 1b)
+  stopifnot(s232_annex[2] == 'annex_2')   # 8503009000 → specific 85030090 → annex_2 (not 1b)
+  stopifnot(s232_annex[3] == 'annex_1b')  # 8503003500 → catchall 850300 → annex_1b
+  stopifnot(s232_annex[4] == 'annex_3')   # 8483902000 → specific 84839020 → annex_3 (not 1b)
+  stopifnot(s232_annex[5] == 'annex_1b')  # 8483905000 → catchall 848390 → annex_1b
 })
 
 

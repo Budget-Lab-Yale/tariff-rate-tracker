@@ -3,7 +3,8 @@
 The tracker does **not** simply use raw USITC HTS release dates for every revision. The default build uses a hybrid timing rule:
 
 - for most revisions, it follows the tracker’s curated `effective_date` chronology in [config/revision_dates.csv](config/revision_dates.csv), which is designed to reflect the tariff-policy sequence rather than the literal archive publication calendar;
-- for the two revisions where the HTS lagged the policy materially and shifting them does not create timeline collisions (`rev_16` and `2026_rev_4`), the default build uses `policy_effective_date`;
+- for the one revision where the HTS lagged the policy materially and shifting it does not create timeline collisions (`rev_16`), the default build uses `policy_effective_date`;
+- for `2026_rev_4`, the revision itself stays on the HTS date (`2026-02-24`), while the separate IEEPA invalidation parameter is advanced to the SCOTUS ruling date (`2026-02-20`);
 - users who want raw HTS timing can opt out with `--use-hts-dates`.
 
 This document explains where legal effective dates, HTS archive dates, and the tracker’s chosen modeling dates differ.
@@ -84,14 +85,13 @@ The `config/revision_dates.csv` includes a `policy_effective_date` column alongs
 
 ### Default: policy dates (where HTS was late)
 
-The pipeline defaults to using legal policy effective dates for revisions where the HTS was published **after** the legal effective date. Only two revisions qualify:
+The pipeline defaults to using legal policy effective dates for revisions where the HTS was published **after** the legal effective date and the shift is still modeled at the revision level. Only one revision currently qualifies:
 
 - **rev_16** (232 steel/aluminum 50%): HTS Jun 6 → policy Jun 4 (2 days late)
-- **2026_rev_4** (SCOTUS + S122): HTS Feb 24 → policy Feb 20 (4 days late)
 
 Revisions where HTS was published **before** the legal effective date (rev_6, rev_7, rev_11, rev_26) are NOT overridden, because shifting them later creates timeline collisions and reorderings (e.g., Liberation Day appearing after China's retaliatory escalation). For these cases, the tracker follows the HTS publication date — the date when the rates were legally in the tariff schedule — even if CBP collection began later.
 
-For the SCOTUS ruling (2026_rev_4), both IEEPA removal and Section 122 imposition are assigned to the ruling date (Feb 20, 2026), since the S122 EO was signed the same day even though CBP implementation was Feb 24. The `ieepa_invalidation_date` and `section_122.effective_date` in `policy_params.yaml` are also coordinated to Feb 20.
+For the SCOTUS ruling (`2026_rev_4`), the current build uses a split treatment: IEEPA invalidation is modeled on the ruling date (Feb 20, 2026), but Section 122 remains aligned to HTS/CBP implementation on Feb 24, 2026. The revision date therefore stays at Feb 24, while `ieepa_invalidation_date` in `policy_params.yaml` is the main policy-date override for this episode.
 
 To use raw HTS dates for all revisions instead:
 
@@ -109,6 +109,6 @@ Rscript src/00_build_timeseries.R --full --use-hts-dates
 | rev_16 (232 50%) | -0.06pp | 100% (232) | 0% | Clean — all late by 2 days (small impact) |
 | rev_17 (CA fent + copper) | +0.41pp | 0% | 100% (fentanyl) | **No gap:** copper 232 shows zero ETR impact; fentanyl is correctly dated at Jul 1. `policy_effective_date` left blank. |
 | rev_26 (MHD + copper + auto) | +0.00pp | — | — | **No gap:** zero net ETR change despite new ch99 entries. `policy_effective_date` has no effect. |
-| 2026_rev_4 (SCOTUS + S122) | -4.18pp | 67.7% (IEEPA+fent removal, Feb 20) | 32.3% (S122 addition, Feb 24) | **Bundled:** flag shifts dominant component correctly but applies S122 4 days early |
+| 2026_rev_4 (SCOTUS + S122) | -4.18pp | 67.7% (IEEPA+fent removal, Feb 20) | 32.3% (S122 addition, Feb 24) | **Split timing:** IEEPA follows the ruling date; S122 remains on HTS/CBP timing |
 
 For finer-grained control, copy `config/revision_dates.csv` and edit individual `effective_date` values directly.

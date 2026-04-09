@@ -1,5 +1,10 @@
 # Tariff Rate Tracker — TODO
 
+## Active priorities (verified 2026-04-08)
+
+1. Finish post-`2026_rev_4` Section 232 annex integration: next HTS revision/date plumbing, dynamic Ch99 parsing, annex-aware ETR export, and April 6 transition validation.
+2. Keep deferred modeling/calibration items (`9903.81.92`, UK-content blending, annex exemptions, generic pharma shares, concordance tightening, small-country outliers) behind the correctness work above.
+
 ## Section 232 / BEA metal derivatives
 
 Five issues confirmed via code review on 2026-04-06 (see `docs/analysis/section_232_review_memo_2026-04-06.md`).
@@ -22,13 +27,14 @@ Presidential proclamation of 2 April 2026 replaces single-rate 232 with four pro
 
 **Scaffolding complete (2026-04-06):**
 - [x] Config: `section_232_annexes` block in `policy_params.yaml` (rates, UK deal, floor, sunset, exemptions)
-- [x] Resource: `resources/s232_annex_products.csv` (header-only, pending HTS JSON)
+- [x] Resource: `resources/s232_annex_products.csv` populated from proclamation annex lists
 - [x] Helper: `load_annex_products()` in `helpers.R`
 - [x] Rate logic: step 5c annex override + step 6e Annex III floor recomputation in `06_calculate_rates.R`
 - [x] Tests: 5 unit tests (annex rates, floor formula, UK deal, date gating, empty resource)
 
-**Blocked on HTS JSON (2026_rev_5):**
-- [ ] Populate `resources/s232_annex_products.csv` from new Ch99 codes
+**Active follow-up (blocked on revisions after `2026_rev_4` and export parity):**
+- [x] Fix prefix-matching order: sort longest-first so specific annex classifications (e.g., `85030045` → annex 2) are not shadowed by shorter catchalls (`850300` → annex 1b) — FIXED (2026-04-09)
+- [ ] Add the next HTS revision(s) to `config/revision_dates.csv` once post-`2026_rev_4` JSON is available
 - [ ] Dynamic Ch99 parsing in `load_annex_products()` / `extract_section232_rates()`
 - [ ] Integration test: full rebuild + verify ~0.5pp ETR drop at April 6 transition
 - [ ] ETR export: annex-aware program classification in `generate_etrs_config.R`
@@ -40,29 +46,60 @@ Presidential proclamation of 2 April 2026 replaces single-rate 232 with four pro
 
 ## NA propagation in daily output (basic–rev_3)
 
-Daily output CSVs contain NAs for revisions `basic` through `rev_3` (2025-01-01 to 2025-03-03). Affected columns:
+- [x] Verified resolved in checked-in code and artifacts (2026-04-08)
+  - `load_metal_content()` now returns zero-filled per-type columns on the no-derivative early-return path
+  - `output/daily/daily_overall.csv` and `output/daily/daily_by_authority.csv` contain no blank values for `basic` through `rev_3`
+  - keep this note only as context for the related flat-method bug below
 
-- `daily_by_authority.csv`: `mean_ieepa`, `mean_fentanyl`, `mean_s122`, `etr_ieepa`, `etr_fentanyl`, `etr_s122`, `etr_base`
-- `daily_overall.csv`: `mean_additional_exposed`, `mean_total_exposed`, `mean_additional_all_pairs`, `mean_total_all_pairs`, `weighted_etr`, `weighted_etr_additional`
+## Flat metal-content alternative: NA propagation zeroes derivative 232 rates
 
-Values become 0 or real starting at `rev_4` (2025-03-04).
+- [x] Fixed and rebuilt (2026-04-08)
+  - `load_metal_content()` now returns stable zero-filled per-type columns for all paths
+  - `apply_232_derivatives()` only uses per-type scaling in BEA mode; flat/CBO methods stay on aggregate `metal_share`
+  - `apply_stacking_rules()` and `compute_net_authority_contributions()` now use per-type logic only when shares are informative (`> 0`)
+  - added regression tests for no-derivative zero-filled shares, mixed flat snapshots, and flat-100 derivative scaling/stacking
+  - rebuilt `output/alternative/daily_overall_metal_flat_100.csv`: `weighted_etr` on 2025-12-31 is now 18.92% vs baseline 14.29% (`+4.64pp`), matching the expected direction
 
-**Root cause**: `load_metal_content()` in `helpers.R:1597–1599` returns early (no per-type columns) when a revision has no derivative products. The returned tibble has only `hts10` and `metal_share` — no `steel_share`/`aluminum_share`/`copper_share`. This is the case for `basic` through `rev_3` (pre-derivative era).
+**Original issue (for context):** The `metal_flat_100` alternative (flat_share=1.0) lowered the overall ETR by ~0.40pp vs baseline at 2025-12-31 (13.89% vs 14.29%). This was the **wrong direction** — flat 100% should raise rates on derivatives (full 50% 232, no IEEPA on nonmetal) but instead effectively zeroed their 232 contribution.
 
-When `map_dfr()` binds all revision snapshots at `00_build_timeseries.R:305`, columns from rev_4+ (`steel_share`, `aluminum_share`, `copper_share`) are backfilled as NA in the early revision rows. `enforce_rate_schema()` does not cover per-type shares (not in `RATE_SCHEMA`), so NAs persist.
+**Root cause:** `load_metal_content()` with `method='flat'` sets only `metal_share` for derivatives (line 1607). It does NOT populate per-type columns (`steel_share`, `aluminum_share`, `copper_share`). However, the primary-chapters force at lines 1712–1717 creates these columns via partial assignment:
 
-**Propagation path**:
-1. `apply_stacking_rules()` (`helpers.R:893`) and `compute_net_authority_contributions()` (`helpers.R:991`) see `has_per_type = TRUE` (columns exist in the bound df) and enter the per-type branch
-2. `case_when` at `helpers.R:905–910` / `1000–1005` evaluates e.g. `rate_232 > 0 & ch2 == '72' ~ steel_share` — `steel_share` is NA → `.active_type_share` = NA → `nonmetal_share` = NA (via `if_else(rate_232 > 0 & NA > 0, ...)` → NA)
-3. `total_additional = rate_232 + 0 * NA + ...` → NA (R's `0 * NA = NA`), even though the zero-rate authorities contribute nothing
-4. `mean()` in `compute_agg_authority()` / `compute_agg_overall()` (`09_daily_series.R:117–118, 202–208`) has no `na.rm = TRUE`, so a single NA poisons the column
-5. `etr_base` (`09_daily_series.R:263`) and `weighted_etr` cascade to NA
+```r
+result$steel_share[is_primary] <- 0      # creates column: 0 for ch72/73/76, NA everywhere else
+result$aluminum_share[is_primary] <- 0   # same
+result$copper_share[is_primary] <- 0     # same
+```
 
-**NAs are not informative.** The correct values are 0 for IEEPA/fentanyl/S122 (those authorities didn't exist in basic–rev_3). The `nonmetal_share` is irrelevant when multiplied by zero rates, but R cannot infer that.
+Since the columns now exist, `has_per_type = TRUE` in both `apply_232_derivatives()` (line 370) and `apply_stacking_rules()` (line 893), routing through the per-type code paths designed for BEA data — but with NAs.
 
-**Why rev_4+ is unaffected**: rev_4 has derivatives, so `load_metal_content()` takes the BEA path and returns per-type columns (coalesced to 0 for unmatched products at lines 1688–1691). No NAs enter the bound df from rev_4 onward.
+**Propagation (two affected product classes):**
 
-**Fix**: Have `load_metal_content()` always return per-type columns, even on the early-return path (no derivatives). One-line change at `helpers.R:1599`. See plan below.
+1. **Aluminum/steel derivatives** (e.g., HTS 8407 engine from EU):
+   - Per-type scaling: `case_when(deriv_type == 'aluminum' ~ aluminum_share)` → NA
+   - `if_else(deriv & NA < 1.0, rate_232 * NA, rate_232)` → rate_232 = NA
+   - Stacking: `rate_232 > 0` → NA → treated as FALSE → falls to no-232 branch
+   - **Result:** derivative loses 232 entirely, gets only IEEPA (15% vs BEA's 16.5%)
+
+2. **Copper heading products** (e.g., HTS 7403 refined copper from Chile):
+   - Stacking: `is_copper_heading ~ copper_share` → NA → active_type_share = 0
+   - nonmetal_share = 0 (vs BEA's 1 − copper_share ≈ 0.15)
+   - **Result:** loses IEEPA on nonmetal portion (50.0% vs BEA's 51.5%)
+
+**Expected behavior (flat 100%):** Derivatives should get full statutory 232 rate (50%), nonmetal_share = 0, total = 232 + fent only. This would RAISE the overall ETR above baseline.
+
+**Implemented fix path:** stable per-type schema plus smarter routing. Flat/CBO methods now keep zero-filled share columns without entering BEA-only per-type scaling/stacking, while BEA revisions still use the richer per-type logic.
+
+**Related:** This is a sibling of the "NA propagation in daily output (basic–rev_3)" bug above — same mechanism (partial per-type columns), different trigger (flat method vs missing derivatives).
+
+**Note:** `output/alternative/daily_overall_metal_flat_100.csv` was rebuilt on 2026-04-08 after the helper/scaling/stacking fixes.
+
+## Validation / test debt
+
+- [x] Policy-date propagation fixtures updated to current intended timing split (2026-04-08)
+  - `2026_rev_4` remains HTS-dated at 2026-02-24
+  - IEEPA invalidation still shifts to the SCOTUS ruling date (2026-02-20) in policy-date mode
+  - Section 122 remains aligned to HTS/CBP implementation (2026-02-24)
+  - `Rscript tests/run_tests_daily_series.R`: 67 passed, 0 failed
 
 ## Pipeline
 

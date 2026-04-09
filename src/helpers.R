@@ -849,6 +849,19 @@ enforce_rate_schema <- function(df) {
 #' @param stacking_method 'mutual_exclusion' (default, 232/IEEPA mutual exclusion)
 #'   or 'tpc_additive' (all authorities stack additively, matching TPC methodology)
 #' @return df with total_additional and total_rate recomputed
+has_informative_per_type_shares <- function(df) {
+  required <- c('steel_share', 'aluminum_share', 'copper_share')
+  if (!all(required %in% names(df))) {
+    return(FALSE)
+  }
+
+  any(
+    coalesce(df$steel_share, 0) > 0 |
+      coalesce(df$aluminum_share, 0) > 0 |
+      coalesce(df$copper_share, 0) > 0
+  )
+}
+
 apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutual_exclusion') {
   # Ensure optional columns exist and have no NAs
   if (!'rate_s122' %in% names(df)) {
@@ -890,7 +903,7 @@ apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutu
   # (outside ch76) use aluminum_share. The deriv_type column (set by
   # apply_232_derivatives) determines which type applies.
   # IEEPA fills everything not claimed by the active 232 program's metal type.
-  has_per_type <- all(c('steel_share', 'aluminum_share', 'copper_share') %in% names(df))
+  has_per_type <- has_informative_per_type_shares(df)
 
   if (has_per_type) {
     # Determine which metal type is active per product based on chapter/product type.
@@ -988,7 +1001,7 @@ compute_net_authority_contributions <- function(df, cty_china = '5700',
     )
   }
 
-  has_per_type <- all(c('steel_share', 'aluminum_share', 'copper_share') %in% names(df))
+  has_per_type <- has_informative_per_type_shares(df)
 
   if (has_per_type) {
     has_copper_flag <- 'is_copper_heading' %in% names(df)
@@ -1589,17 +1602,23 @@ load_metal_content <- function(metal_cfg = NULL, hts10_codes = character(0),
   primary_chapters <- if (!is.null(metal_cfg)) unlist(metal_cfg$primary_chapters) else c('72', '73', '76')
 
   # Start with all products at metal_share = 1.0 (full metal / no adjustment)
-  result <- tibble(hts10 = hts10_codes, metal_share = 1.0)
+  # and zero-filled per-type columns. The zero-filled schema keeps bind_rows()
+  # stable across revisions; downstream logic decides whether these per-type
+  # shares are informative enough to use.
+  result <- tibble(
+    hts10 = hts10_codes,
+    metal_share = 1.0,
+    steel_share = 0,
+    aluminum_share = 0,
+    copper_share = 0,
+    other_metal_share = 0
+  )
 
   # Flag derivative products — only these get metal_share < 1.0
   is_derivative <- result$hts10 %in% derivative_hts10
 
   if (sum(is_derivative) == 0) {
     message('  Metal content: no derivative products to adjust')
-    result$steel_share <- 0
-    result$aluminum_share <- 0
-    result$copper_share <- 0
-    result$other_metal_share <- 0
     return(result)
   }
 
@@ -1708,6 +1727,7 @@ load_metal_content <- function(metal_cfg = NULL, hts10_codes = character(0),
   # Force primary chapters (72, 73, 76) to metal_share = 1.0 regardless of
   # derivative flag. These are base metal products — the tariff applies to
   # their full customs value, not a metal content fraction.
+  #
   is_primary <- substr(result$hts10, 1, 2) %in% primary_chapters
   if (any(is_primary)) {
     result$metal_share[is_primary] <- 1.0

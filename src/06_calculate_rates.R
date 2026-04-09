@@ -367,7 +367,9 @@ apply_232_derivatives <- function(rates, products, ch99_data, s232_rates, countr
     # Skip scaling for derivatives that also have a heading rate (e.g., auto parts
     # that are also aluminum derivatives). The heading rate dominates and shouldn't
     # be metal-scaled — ETRs handles this via per-program pmax.
-    has_per_type <- all(c('steel_share', 'aluminum_share') %in% names(rates))
+    metal_method <- if (!is.null(metal_cfg)) metal_cfg$method %||% 'flat' else 'flat'
+    has_per_type <- identical(metal_method, 'bea') &&
+      all(c('steel_share', 'aluminum_share') %in% names(rates))
 
     # Exclude primary chapter products (72/73/76) and heading products from
     # derivative metal scaling. Primary chapters get blanket 232 rates (full product);
@@ -1496,9 +1498,12 @@ calculate_rates_for_revision <- function(
                    here('resources', annex_cfg$resource_file %||% 's232_annex_products.csv'))
 
     if (nrow(annex_map) > 0) {
-      # Prefix-match annex classification to HTS10 codes
+      # Prefix-match annex classification to HTS10 codes.
+      # Sort longest-first so specific prefixes (e.g., 85030045 → annex_2)
+      # take priority over shorter catchalls (e.g., 850300 → annex_1b).
       annex_pattern_map <- annex_map %>%
-        mutate(pattern = paste0('^', hts_prefix))
+        mutate(pattern = paste0('^', hts_prefix)) %>%
+        arrange(desc(nchar(hts_prefix)))
       rates$s232_annex <- NA_character_
       for (i in seq_len(nrow(annex_pattern_map))) {
         mask <- grepl(annex_pattern_map$pattern[i], rates$hts10)

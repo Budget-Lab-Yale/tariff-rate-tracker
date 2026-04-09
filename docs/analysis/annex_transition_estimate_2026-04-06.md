@@ -6,7 +6,7 @@ Estimated the ETR impact of the April 2, 2026 Section 232 annex restructuring us
 
 ## Method
 
-- **Pre-annex snapshot**: `2026_rev_4` (effective 2026-02-20), the latest built revision
+- **Pre-annex snapshot**: `2026_rev_4` (effective 2026-02-24), the latest built revision
 - **Post-annex counterfactual**: Same snapshot with annex rate overrides applied (I-A 50%, I-B 25%, II removed, III 15% floor)
 - **Import weights**: 2024 Census data ($3,124B total)
 - **Annex classification**: 803 HTS codes parsed from proclamation PDF
@@ -22,7 +22,7 @@ Estimated the ETR impact of the April 2, 2026 Section 232 annex restructuring us
 | Section 301                    | 1.39%     | 1.39%      | +0.00pp |
 | Section 122                    | 3.91%     | 3.91%      | +0.00pp |
 
-Note: IEEPA and S122 are zero because `2026_rev_4` is post-IEEPA-invalidation (Feb 20, 2026). S122 is active but the stacking offset is negligible because no IEEPA rates are present to interact with.
+Note: IEEPA reciprocal is zero because `2026_rev_4` is post-IEEPA-invalidation. Section 122 is active in this snapshot (Feb 24, 2026 onward), but the annex counterfactual leaves its contribution unchanged.
 
 ## Decomposition by Channel
 
