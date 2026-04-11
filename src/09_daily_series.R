@@ -787,8 +787,12 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
   available <- get_available_revisions_all_years(all_revisions, archive_dir)
   revisions_to_process <- all_revisions[all_revisions %in% available]
 
-  # Process each revision
-  snapshots <- list()
+  # Process each revision — spill snapshots to disk to avoid OOM
+  tmp_dir <- tempfile(paste0('alt_snapshots_', variant_name, '_'))
+  dir.create(tmp_dir)
+  on.exit(unlink(tmp_dir, recursive = TRUE), add = TRUE)
+
+  n_saved <- 0L
   for (rev_id in revisions_to_process) {
     rev_info <- rev_dates %>% filter(revision == rev_id)
     eff_date <- rev_info$effective_date
@@ -810,19 +814,24 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
         fentanyl_rates = fentanyl_rates,
         policy_params = policy_params %||% pp_override
       )
-      snapshots[[rev_id]] <- rates
+      saveRDS(rates, file.path(tmp_dir, paste0(rev_id, '.rds')))
+      n_saved <- n_saved + 1L
+      rm(rates, hts_raw, ch99_data, products, ieepa_rates,
+         fentanyl_rates, s232_rates, usmca)
+      gc()
     }, error = function(e) {
       message('    SKIP ', rev_id, ': ', conditionMessage(e))
     })
   }
 
-  if (length(snapshots) == 0) {
+  if (n_saved == 0L) {
     warning('No snapshots built for variant: ', variant_name)
     return(invisible(tibble()))
   }
 
-  # Combine into timeseries with valid_from/valid_until
-  timeseries <- bind_rows(snapshots)
+  # Stream snapshots from disk (mirrors main build pattern)
+  snap_files <- list.files(tmp_dir, pattern = '\\.rds$', full.names = TRUE)
+  timeseries <- map_dfr(snap_files, readRDS)
   timeseries <- enforce_rate_schema(timeseries)
   timeseries <- timeseries %>% arrange(effective_date, revision, country, hts10)
 
@@ -900,19 +909,6 @@ run_alternative_series <- function(ts, imports = NULL, policy_params = NULL,
     })
   }
 
-  # --- TPC stacking alternative ---
-  tryCatch({
-    message('\n  Alternative: tpc_stacking')
-    ts_tpc <- apply_stacking_rules(ts, stacking_method = 'tpc_additive')
-    ts_tpc <- enforce_rate_schema(ts_tpc)
-    daily <- build_daily_aggregates(ts_tpc, imports = imports,
-                                     policy_params = policy_params,
-                                     stacking_method = 'tpc_additive')
-    save_alternative_output(daily$daily_overall, 'tpc_stacking')
-  }, error = function(e) {
-    message('  FAILED (tpc_stacking): ', conditionMessage(e))
-  })
-
   # --- Rebuild alternatives (only with --with-alternatives) ---
   if (rebuild) {
     message('\n  Running rebuild alternatives (this will take a while)...')
@@ -968,10 +964,11 @@ run_alternative_series <- function(ts, imports = NULL, policy_params = NULL,
       message('  FAILED (usmca_dec2025): ', conditionMessage(e))
     })
 
-    # 2. Flat metal content
+    # 2. Flat 100% metal content (upper bound: all derivative value is metal)
     tryCatch({
       pp_metal <- pp
       pp_metal$metal_content$method <- 'flat'
+      pp_metal$metal_content$flat_share <- 1.0
       build_alternative_timeseries(pp_metal, 'metal_flat', imports = imports, policy_params = pp_metal)
     }, error = function(e) {
       message('  FAILED (metal_flat): ', conditionMessage(e))
