@@ -122,3 +122,25 @@ log_error <- function(...) {
 log_debug <- function(...) {
   .log_write('debug', ...)
 }
+
+
+#' Capture message() output to the active log file
+#'
+#' Wraps an expression so that all message() calls from downstream code
+#' are written to the current log file in addition to the console.
+#' If no log file is active, the expression runs normally.
+#'
+#' @param expr Expression to evaluate
+#' @return Result of expr (invisibly)
+capture_messages <- function(expr) {
+  log_file <- .log_env$log_file
+  if (is.null(log_file)) {
+    return(force(expr))
+  }
+  withCallingHandlers(
+    expr,
+    message = function(m) {
+      cat(conditionMessage(m), file = log_file, append = TRUE)
+    }
+  )
+}

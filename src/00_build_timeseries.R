@@ -13,6 +13,7 @@
 #   Rscript src/00_build_timeseries.R --build-only  # Skip downstream (daily/ETR/quality)
 #   Rscript src/00_build_timeseries.R --core-only  # Build + downstream, but skip weighted outputs
 #   Rscript src/00_build_timeseries.R --with-alternatives  # Also run rebuild alternatives
+#   Rscript src/00_build_timeseries.R --alternatives-only  # Run only alternatives (requires existing timeseries)
 #   Rscript src/00_build_timeseries.R --refresh-usmca     # Re-download USMCA shares from DataWeb API
 #
 # Storage layout:
@@ -481,11 +482,45 @@ if (sys.nframe() == 0) {
   build_only <- '--build-only' %in% args
   core_only <- '--core-only' %in% args
   with_alternatives <- '--with-alternatives' %in% args
+  alternatives_only <- '--alternatives-only' %in% args
   refresh_usmca <- '--refresh-usmca' %in% args
   use_policy_dates <- !('--use-hts-dates' %in% args)  # default: policy dates
   start_from <- NULL
   for (i in seq_along(args)) {
     if (args[i] == '--start-from' && i < length(args)) start_from <- args[i + 1]
+  }
+
+  # --- Alternatives-only mode: skip build, load existing timeseries ---
+  if (alternatives_only) {
+    ts_path <- here('data', 'timeseries', 'rate_timeseries.rds')
+    if (!file.exists(ts_path)) {
+      stop('No existing timeseries at ', ts_path,
+           '. Run a full build first before using --alternatives-only.')
+    }
+
+    # Initialize log for alternatives-only runs
+    log_dir <- here('output', 'logs')
+    init_logging(
+      log_file = file.path(ensure_dir(log_dir),
+                           paste0('alternatives_', format(Sys.time(), '%Y%m%d_%H%M%S'), '.log')),
+      level = 'info'
+    )
+    log_info('Mode: alternatives-only')
+
+    message('Loading existing timeseries: ', ts_path)
+
+    source(here('src', '09_daily_series.R'))
+    source(here('src', 'apply_scenarios.R'))
+
+    ts <- readRDS(ts_path)
+    pp <- load_policy_params(use_policy_dates = use_policy_dates)
+    imports <- load_import_weights()
+
+    capture_messages({
+      run_alternative_series(ts, imports = imports, policy_params = pp,
+                              rebuild = TRUE)
+    })
+    return(invisible(NULL))
   }
 
   # --- Step A: Determine build mode ---
@@ -563,6 +598,10 @@ if (sys.nframe() == 0) {
     ts <- readRDS(result$timeseries_path)
     pp <- load_policy_params(use_policy_dates = use_policy_dates)
 
+    # Wrap downstream in capture_messages() so all message() output from
+    # daily series, ETR, quality, and alternatives is written to the build log.
+    capture_messages({
+
     if (core_only) {
       message('\n', strrep('=', 70))
       message('POST-BUILD: Core only (--core-only) — unweighted daily series + quality report')
@@ -607,5 +646,7 @@ if (sys.nframe() == 0) {
                                 rebuild = with_alternatives)
       }, error = function(e) message('Alternative series failed: ', conditionMessage(e)))
     }
+
+    }) # end capture_messages
   }
 }
