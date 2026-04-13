@@ -829,18 +829,16 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
     return(invisible(tibble()))
   }
 
-  # Stream snapshots from disk (mirrors main build pattern)
+  # Build revision intervals from saved snapshots (without loading data)
   snap_files <- list.files(tmp_dir, pattern = '\\.rds$', full.names = TRUE)
-  timeseries <- map_dfr(snap_files, readRDS)
-  timeseries <- enforce_rate_schema(timeseries)
-  timeseries <- timeseries %>% arrange(effective_date, revision, country, hts10)
+  revs_built <- tools::file_path_sans_ext(basename(snap_files))
 
   horizon_end <- pp_override$SERIES_HORIZON_END %||% Sys.Date()
-  last_eff <- max(rev_dates$effective_date[rev_dates$revision %in% unique(timeseries$revision)])
+  last_eff <- max(rev_dates$effective_date[rev_dates$revision %in% revs_built])
   if (horizon_end < last_eff) horizon_end <- last_eff
 
   rev_intervals <- rev_dates %>%
-    filter(revision %in% unique(timeseries$revision)) %>%
+    filter(revision %in% revs_built) %>%
     arrange(effective_date) %>%
     mutate(
       valid_from = effective_date,
@@ -849,16 +847,38 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
     mutate(valid_until = if_else(is.na(valid_until), horizon_end, valid_until)) %>%
     select(revision, valid_from, valid_until)
 
-  timeseries <- timeseries %>%
-    select(-any_of(c('valid_from', 'valid_until'))) %>%
-    left_join(rev_intervals, by = 'revision')
+  # Aggregate per-revision: load one snapshot at a time, aggregate, release.
+  # Avoids holding the full combined timeseries (~125M rows) in memory.
+  n_revs <- nrow(rev_intervals)
+  message('  Aggregating ', n_revs, ' revisions (per-revision mode)...')
+  daily_parts <- vector('list', n_revs)
+  for (i in seq_len(n_revs)) {
+    rev_id <- rev_intervals$revision[i]
+    snap_path <- file.path(tmp_dir, paste0(rev_id, '.rds'))
+    if (!file.exists(snap_path)) next
 
-  # Build daily aggregates
-  daily <- build_daily_aggregates(timeseries, imports = imports, policy_params = pp_override)
-  save_alternative_output(daily$daily_overall, variant_name)
+    snapshot <- readRDS(snap_path)
+    snapshot <- enforce_rate_schema(snapshot)
+    snapshot$valid_from <- rev_intervals$valid_from[i]
+    snapshot$valid_until <- rev_intervals$valid_until[i]
+
+    daily <- suppressMessages(
+      build_daily_aggregates(snapshot, imports = imports, policy_params = pp_override)
+    )
+    daily_parts[[i]] <- daily$daily_overall
+    rm(snapshot, daily)
+    gc()
+
+    if (i %% 10 == 0 || i == n_revs) {
+      message('    ', i, '/', n_revs, ' revisions aggregated')
+    }
+  }
+
+  daily_overall <- bind_rows(daily_parts)
+  save_alternative_output(daily_overall, variant_name)
 
   message('  Done: ', variant_name)
-  return(invisible(daily$daily_overall))
+  return(invisible(daily_overall))
 }
 
 

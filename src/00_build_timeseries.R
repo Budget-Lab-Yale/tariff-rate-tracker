@@ -520,8 +520,9 @@ if (sys.nframe() == 0) {
       run_alternative_series(ts, imports = imports, policy_params = pp,
                               rebuild = TRUE)
     })
-    return(invisible(NULL))
-  }
+
+  } else {
+  # --- Main build path (not --alternatives-only) ---
 
   # --- Step A: Determine build mode ---
   if (full_rebuild) {
@@ -649,4 +650,5 @@ if (sys.nframe() == 0) {
 
     }) # end capture_messages
   }
+  } # end else (main build path)
 }
