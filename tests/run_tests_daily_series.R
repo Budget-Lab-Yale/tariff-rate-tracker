@@ -1425,6 +1425,70 @@ run_test('annex prefix matching: specific prefix wins over shorter catchall', {
 })
 
 
+# --- Post-annex full-value stacking tests ---
+
+run_test('post-annex derivative: nonmetal_share forced to 0 (full customs value)', {
+  df <- tibble(
+    hts10 = '8481801000', country = '5880',
+    base_rate = 0.03, rate_232 = 0.25, rate_ieepa_recip = 0, rate_ieepa_fent = 0,
+    rate_301 = 0, rate_s122 = 0.10, rate_section_201 = 0, rate_other = 0,
+    metal_share = 0.60, steel_share = 0.60, aluminum_share = 0, copper_share = 0,
+    other_metal_share = 0, deriv_type = 'steel', is_copper_heading = FALSE,
+    s232_annex = 'annex_1b'
+  )
+  result <- apply_stacking_rules(df)
+  # Post-annex: 232 on full value → nonmetal_share = 0 → S122 contributes zero
+  stopifnot(abs(result$total_additional - 0.25) < 1e-6)
+})
+
+run_test('pre-annex derivative: BEA stacking preserved (s232_annex = NA)', {
+  df <- tibble(
+    hts10 = '8481801000', country = '5880',
+    base_rate = 0.03, rate_232 = 0.25, rate_ieepa_recip = 0, rate_ieepa_fent = 0,
+    rate_301 = 0, rate_s122 = 0.10, rate_section_201 = 0, rate_other = 0,
+    metal_share = 0.60, steel_share = 0.60, aluminum_share = 0, copper_share = 0,
+    other_metal_share = 0, deriv_type = 'steel', is_copper_heading = FALSE,
+    s232_annex = NA_character_
+  )
+  result <- apply_stacking_rules(df)
+  # Pre-annex: nonmetal_share = 1 - 0.60 = 0.40 → S122 contributes 0.10 * 0.40 = 0.04
+  expected <- 0.25 + 0.10 * 0.40
+  stopifnot(abs(result$total_additional - expected) < 1e-6)
+})
+
+run_test('annex II product (removed from 232): full S122 applies', {
+  df <- tibble(
+    hts10 = '8481801000', country = '5880',
+    base_rate = 0.03, rate_232 = 0, rate_ieepa_recip = 0, rate_ieepa_fent = 0,
+    rate_301 = 0, rate_s122 = 0.10, rate_section_201 = 0, rate_other = 0,
+    metal_share = 0.60, steel_share = 0.60, aluminum_share = 0, copper_share = 0,
+    other_metal_share = 0, deriv_type = 'steel', is_copper_heading = FALSE,
+    s232_annex = 'annex_2'
+  )
+  result <- apply_stacking_rules(df)
+  # Annex II: rate_232 = 0, so S122 applies at full value
+  stopifnot(abs(result$total_additional - 0.10) < 1e-6)
+})
+
+run_test('post-annex decomposition parity: net contributions match stacking total', {
+  df <- tibble(
+    hts10 = '8481801000', country = '5880',
+    base_rate = 0.03, rate_232 = 0.25, rate_ieepa_recip = 0, rate_ieepa_fent = 0,
+    rate_301 = 0, rate_s122 = 0.10, rate_section_201 = 0, rate_other = 0,
+    metal_share = 0.60, steel_share = 0.60, aluminum_share = 0, copper_share = 0,
+    other_metal_share = 0, deriv_type = 'steel', is_copper_heading = FALSE,
+    s232_annex = 'annex_1b'
+  )
+  stacked <- apply_stacking_rules(df)
+  decomp <- compute_net_authority_contributions(df)
+  decomp_total <- decomp$net_232 + decomp$net_ieepa + decomp$net_fentanyl +
+    decomp$net_301 + decomp$net_s122 + decomp$net_section_201 + decomp$net_other
+  stopifnot(abs(stacked$total_additional - decomp_total) < 1e-6)
+  # S122 net should be zero post-annex
+  stopifnot(abs(decomp$net_s122) < 1e-6)
+})
+
+
 # =============================================================================
 # Summary
 # =============================================================================

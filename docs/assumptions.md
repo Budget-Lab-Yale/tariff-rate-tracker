@@ -14,13 +14,15 @@ This document is an appendix to [methodology.md](methodology.md). It catalogs me
 
 **Evidence:** Running `tests/test_tpc_comparison.R --tpc-stacking` (additive mode) is a sensitivity analysis toggle, not a TPC-matching switch. Enhanced 232 sub-category diagnostics in `src/diagnostics.R` decompose the gap by product type (pure metal, copper, derivative, auto, other).
 
-**Implementation:** `src/helpers.R:apply_stacking_rules()`, `stacking_method` parameter (default `'mutual_exclusion'`).
+**Post-annex update (April 2026):** The annex restructuring proclamation applies Section 232 to the full customs value of all annex-classified products, eliminating the metal-content-based mutual exclusion for derivatives. For post-annex revisions (effective >= 2026-04-06), `nonmetal_share` is forced to 0 for all products with a populated `s232_annex`, meaning IEEPA/S122/fentanyl contribute zero on 232 products. Pre-annex stacking behavior is unchanged. This aligns with SGEPT's approach (dropping content shares to 100% at the transition) and is supported by the AFS Law analysis of the proclamation text.
+
+**Implementation:** `src/helpers.R:apply_stacking_rules()`, `stacking_method` parameter (default `'mutual_exclusion'`). Post-annex override keyed on `s232_annex` column presence.
 
 ---
 
 ## 2. Metal Content Shares for 232 Derivatives
 
-**Assumption:** The tariff on derivative 232 products (aluminum-containing articles outside ch76) applies only to the metal content portion of customs value. Three methods are available:
+**Assumption:** For pre-annex revisions (before 2026-04-06), the tariff on derivative 232 products applies only to the metal content portion of customs value. For post-annex revisions, the proclamation applies 232 to full customs value and metal content shares are no longer used for rate scaling or stacking (see Assumption 1 post-annex update). The metal content configuration remains relevant for pre-annex revisions and for the Annex IV de minimis weight threshold. Three methods are available:
 
 | Method | Share | Source |
 |--------|-------|--------|
@@ -200,7 +202,9 @@ Phase classification determines stacking behavior — country_eo rates stack add
 
 **Source:** Tariff-ETRs stacking logic, which applies the same per-type nonmetal scaling to all non-232 blanket authorities. No explicit Federal Register guidance specifies the interaction between Section 122 and Section 232 on overlapping products.
 
-**Implementation:** `src/helpers.R:apply_stacking_rules()` — the `case_when` branches for `rate_232 > 0` multiply `rate_s122` by `nonmetal_share`, which is computed from the active 232 program's type-specific share (0 for pure-metal products, `1 - aluminum_share` for derivatives).
+**Post-annex update (April 2026):** For annex-classified products, `nonmetal_share` is forced to 0 (see Assumption 1 post-annex update), so Section 122 contributes zero on all post-annex 232 products — not just primary chapters. The derivative row in the table above effectively becomes `nonmetal_share = 0` post-annex.
+
+**Implementation:** `src/helpers.R:apply_stacking_rules()` — the `case_when` branches for `rate_232 > 0` multiply `rate_s122` by `nonmetal_share`, which is computed from the active 232 program's type-specific share (0 for pure-metal products, `1 - aluminum_share` for derivatives). Post-annex, the `s232_annex` override forces `nonmetal_share = 0` for all annex-classified products.
 
 ---
 

@@ -130,6 +130,8 @@ In words:
 - Section 301 contributes only for China (the builder assigns `rate_301` exclusively to China-origin products). Non-China 301 is excluded from stacking to match the decomposition. If non-China Section 301 tariffs emerge in the future, they should use a dedicated authority column.
 - Section 201 and other provisions contribute at their full rates.
 
+**Post-annex (effective 2026-04-06):** The Section 232 annex restructuring proclamation applies 232 tariffs to the full customs value of imported products, eliminating the metal-content-based split for derivatives. For products with an annex classification (`s232_annex` != NA), `nonmetal_share` is forced to 0. IEEPA reciprocal, fentanyl, and Section 122 contribute zero on post-annex 232 products. Annex II products (removed from 232 scope, `rate_232 = 0`) are excluded from this override and receive full IEEPA/S122. Pre-annex stacking behavior is completely unchanged.
+
 An alternative `tpc_additive` mode exists for diagnostic comparison only.
 
 ## Key modeling choices

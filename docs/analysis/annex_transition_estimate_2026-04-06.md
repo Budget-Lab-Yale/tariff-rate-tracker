@@ -87,6 +87,16 @@ Separately evaluated whether the morning's BEA derivative fixes (copper scaling,
 - **Primary chapter per-type shares**: Ch72-73 `steel_share = 0.000`, Ch76 `aluminum_share = 0.000` (primary chapter zeroing still active at `helpers.R:1662-1665`). Stacking `nonmetal_share` for primary chapters remains 0 — no change in behavior.
 - **TPC regression**: The within-2pp drops observed in the post-fix TPC comparison (e.g., rev_6 67.5% vs prior 82.3%) are **not caused by the BEA fixes**. Root cause TBD — may stem from other rebuild differences.
 
+## Addendum: Full-Value Stacking Fix (2026-04-13)
+
+The original estimate (above) kept BEA metal content shares for stacking purposes post-annex, noting the divergence from SGEPT's approach. An AFS Law analysis of the proclamation text confirmed that Section 232 tariffs apply to the "full customs value" of imported products post-annex, eliminating the metal-content-based mutual exclusion for derivatives.
+
+**Fix:** `apply_stacking_rules()` now forces `nonmetal_share = 0` for all products with a populated `s232_annex` (post-annex revisions only). This means IEEPA/S122/fentanyl contribute zero on post-annex 232 products, matching SGEPT's approach of dropping content shares to 100% at the transition.
+
+**Expected impact on the above estimate:** The +0.92pp residual (stacking + rounding) should shrink significantly, and the overall estimate should move closer to SGEPT's -0.53pp. The Section 122 contribution on derivative 232 products was previously non-zero due to the BEA nonmetal fraction; it is now zero post-annex.
+
+**Source:** AFS Law, "The President Signs Proclamation Overhauling Section 232 Tariffs on Metals and Their Derivative Products" (April 2026). Corroborated by SGEPT methodology and proclamation text.
+
 ## Scripts
 
 - `scripts/estimate_annex_transition.R` — annex transition ETR estimate

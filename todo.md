@@ -1,8 +1,8 @@
 # Tariff Rate Tracker — TODO
 
-## Active priorities (verified 2026-04-08)
+## Active priorities (verified 2026-04-13)
 
-1. Finish post-`2026_rev_4` Section 232 annex integration: next HTS revision/date plumbing, dynamic Ch99 parsing, annex-aware ETR export, and April 6 transition validation.
+1. Annex ETR export parity: annex-aware program classification in `generate_etrs_config.R`, dynamic Ch99 parsing.
 2. Keep deferred modeling/calibration items (`9903.81.92`, UK-content blending, annex exemptions, generic pharma shares, concordance tightening, small-country outliers) behind the correctness work above.
 
 ## Section 232 / BEA metal derivatives
@@ -34,9 +34,15 @@ Presidential proclamation of 2 April 2026 replaces single-rate 232 with four pro
 
 **Active follow-up (blocked on revisions after `2026_rev_4` and export parity):**
 - [x] Fix prefix-matching order: sort longest-first so specific annex classifications (e.g., `85030045` → annex 2) are not shadowed by shorter catchalls (`850300` → annex 1b) — FIXED (2026-04-09)
-- [ ] Add the next HTS revision(s) to `config/revision_dates.csv` once post-`2026_rev_4` JSON is available
+- [x] Add `2026_rev_5` (effective 2026-04-06, annex restructuring) — DONE (2026-04-13)
+  - Downloaded JSON, set policy effective date, cleared needs_review
+- [x] Full-value stacking fix: force nonmetal_share=0 for annex-classified products — DONE (2026-04-13)
+  - `apply_stacking_rules()` and `compute_net_authority_contributions()` check `s232_annex`
+  - Aligns with SGEPT approach and AFS Law analysis of proclamation text
+  - 4 new tests; docs updated (assumptions.md, methodology.md, annex transition addendum)
+- [x] Integration test: full rebuild with `2026_rev_5` + verify ETR drop at April 6 transition — DONE (2026-04-13)
+  - Baseline ETR: 11.12% (Apr 5, pre-annex) → 8.94% (Apr 6, post-annex) = -2.18pp
 - [ ] Dynamic Ch99 parsing in `load_annex_products()` / `extract_section232_rates()`
-- [ ] Integration test: full rebuild + verify ~0.5pp ETR drop at April 6 transition
 - [ ] ETR export: annex-aware program classification in `generate_etrs_config.R`
 
 **Lower priority:**
@@ -99,7 +105,7 @@ Since the columns now exist, `has_per_type = TRUE` in both `apply_232_derivative
   - `2026_rev_4` remains HTS-dated at 2026-02-24
   - IEEPA invalidation still shifts to the SCOTUS ruling date (2026-02-20) in policy-date mode
   - Section 122 remains aligned to HTS/CBP implementation (2026-02-24)
-  - `Rscript tests/run_tests_daily_series.R`: 67 passed, 0 failed
+  - `Rscript tests/run_tests_daily_series.R`: 72 passed, 0 failed (updated 2026-04-13)
 
 ## Pipeline
 

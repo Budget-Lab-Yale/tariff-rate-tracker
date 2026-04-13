@@ -1,39 +1,40 @@
-revision,effective_date,policy_effective_date,tpc_date,policy_event,tpc_policy_revision
-basic,2025-01-01,,,Baseline (pre-Trump 2.0),
-rev_1,2025-01-27,,,China IEEPA fentanyl (+10%),
-rev_2,2025-02-01,,,,
-rev_3,2025-02-04,,,"CA/MX fentanyl (+25%); China fentanyl (+20%)",
-rev_4,2025-03-04,,,"USMCA carve-outs; 232 derivatives",
-rev_5,2025-03-05,,,,
-rev_6,2025-03-12,,2025-03-17,232 Autos (25%),
-rev_7,2025-04-02,,,IEEPA Phase 1 reciprocal (Liberation Day),
-rev_8,2025-04-03,,,China IEEPA: 34% -> 84%,
-rev_9,2025-04-05,,,"China IEEPA: 84% -> 125%; Phase 1 suspended",
-rev_10,2025-04-09,,2025-04-17,Phase 1 suspension continues,rev_7
-rev_11,2025-04-11,,,232 Auto parts,
-rev_12,2025-04-14,,,"Geneva: China 125% -> 34% (suspended to 10%)",
-rev_13,2025-04-22,,,,
-rev_14,2025-05-02,,,232 derivatives doubled (25% -> 50%),
-rev_15,2025-05-14,,,,
-rev_16,2025-06-06,2025-06-04,,232 steel/aluminum 50% (Proclamation 10947),
-rev_17,2025-07-01,,2025-07-17,"CA fentanyl: 25% -> 35%; copper 232",
-rev_18,2025-08-07,,2025-10-17,"IEEPA Phase 2 reciprocal; Brazil EO (+40%); Phase 1 unsuspended",
-rev_19,2025-08-12,,,,
-rev_20,2025-08-20,,,India EO (+25%),
-rev_21,2025-08-28,,,,
-rev_22,2025-09-03,,,,
-rev_23,2025-09-12,,,Japan floor (15%),
-rev_24,2025-09-19,,,EU exemption entries,
-rev_25,2025-09-26,,,Section 122 entries,
-rev_26,2025-10-06,,,"MHD vehicles/buses 232; copper 232; 232 auto entries",
-rev_27,2025-10-15,,,"301 cranes (100%); China fentanyl: 20% -> 10%",
-rev_28,2025-10-22,,,,
-rev_29,2025-10-31,,,,
-rev_30,2025-11-05,,,,
-rev_31,2025-11-12,,,,
-rev_32,2025-11-15,,2025-11-17,"S. Korea floor (15%); 232 auto S. Korea",
-2026_basic,2026-01-01,,,Switzerland/Liechtenstein floor (15%),
-2026_rev_1,2026-01-16,,,"Semiconductor tariffs (25%; 9903.79)",
-2026_rev_2,2026-01-30,,,,
-2026_rev_3,2026-02-12,,,"Argentina beef quota (9903.54)",
-2026_rev_4,2026-02-24,,,"IEEPA invalidated (SCOTUS); Section 122 Phase 3 (10% blanket; 9903.03)",
+revision,effective_date,policy_effective_date,tpc_date,policy_event,tpc_policy_revision,needs_review
+basic,2025-01-01,NA,NA,Baseline (pre-Trump 2.0),NA,NA
+rev_1,2025-01-27,NA,NA,China IEEPA fentanyl (+10%),NA,NA
+rev_2,2025-02-01,NA,NA,NA,NA,NA
+rev_3,2025-02-04,NA,NA,CA/MX fentanyl (+25%); China fentanyl (+20%),NA,NA
+rev_4,2025-03-04,NA,NA,USMCA carve-outs; 232 derivatives,NA,NA
+rev_5,2025-03-05,NA,NA,NA,NA,NA
+rev_6,2025-03-12,NA,2025-03-17,232 Autos (25%),NA,NA
+rev_7,2025-04-02,NA,NA,IEEPA Phase 1 reciprocal (Liberation Day),NA,NA
+rev_8,2025-04-03,NA,NA,China IEEPA: 34% -> 84%,NA,NA
+rev_9,2025-04-05,NA,NA,China IEEPA: 84% -> 125%; Phase 1 suspended,NA,NA
+rev_10,2025-04-09,NA,2025-04-17,Phase 1 suspension continues,rev_7,NA
+rev_11,2025-04-11,NA,NA,232 Auto parts,NA,NA
+rev_12,2025-04-14,NA,NA,Geneva: China 125% -> 34% (suspended to 10%),NA,NA
+rev_13,2025-04-22,NA,NA,NA,NA,NA
+rev_14,2025-05-02,NA,NA,232 derivatives doubled (25% -> 50%),NA,NA
+rev_15,2025-05-14,NA,NA,NA,NA,NA
+rev_16,2025-06-06,2025-06-04,NA,232 steel/aluminum 50% (Proclamation 10947),NA,NA
+rev_17,2025-07-01,NA,2025-07-17,CA fentanyl: 25% -> 35%; copper 232,NA,NA
+rev_18,2025-08-07,NA,2025-10-17,IEEPA Phase 2 reciprocal; Brazil EO (+40%); Phase 1 unsuspended,NA,NA
+rev_19,2025-08-12,NA,NA,NA,NA,NA
+rev_20,2025-08-20,NA,NA,India EO (+25%),NA,NA
+rev_21,2025-08-28,NA,NA,NA,NA,NA
+rev_22,2025-09-03,NA,NA,NA,NA,NA
+rev_23,2025-09-12,NA,NA,Japan floor (15%),NA,NA
+rev_24,2025-09-19,NA,NA,EU exemption entries,NA,NA
+rev_25,2025-09-26,NA,NA,Section 122 entries,NA,NA
+rev_26,2025-10-06,NA,NA,MHD vehicles/buses 232; copper 232; 232 auto entries,NA,NA
+rev_27,2025-10-15,NA,NA,301 cranes (100%); China fentanyl: 20% -> 10%,NA,NA
+rev_28,2025-10-22,NA,NA,NA,NA,NA
+rev_29,2025-10-31,NA,NA,NA,NA,NA
+rev_30,2025-11-05,NA,NA,NA,NA,NA
+rev_31,2025-11-12,NA,NA,NA,NA,NA
+rev_32,2025-11-15,NA,2025-11-17,S. Korea floor (15%); 232 auto S. Korea,NA,NA
+2026_basic,2026-01-01,NA,NA,Switzerland/Liechtenstein floor (15%),NA,NA
+2026_rev_1,2026-01-16,NA,NA,Semiconductor tariffs (25%; 9903.79),NA,NA
+2026_rev_2,2026-01-30,NA,NA,NA,NA,NA
+2026_rev_3,2026-02-12,NA,NA,Argentina beef quota (9903.54),NA,NA
+2026_rev_4,2026-02-24,NA,NA,IEEPA invalidated (SCOTUS); Section 122 Phase 3 (10% blanket; 9903.03),NA,NA
+2026_rev_5,2026-04-06,NA,NA,232 annex restructuring (4-tier: 50/25/0/15% floor; 9903.82),NA,NA

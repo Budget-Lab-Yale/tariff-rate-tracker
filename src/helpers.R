@@ -833,15 +833,18 @@ enforce_rate_schema <- function(df) {
 #'
 #' Key rules:
 #'   - 232 and IEEPA reciprocal are mutually exclusive (232 takes precedence)
-#'   - For derivative 232 products (metal_share < 1.0), IEEPA reciprocal applies
-#'     to the non-metal portion of customs value
+#'   - Pre-annex: for derivative 232 products (metal_share < 1.0), IEEPA reciprocal
+#'     applies to the non-metal portion of customs value
+#'   - Post-annex (>= 2026-04-06): proclamation applies 232 to full customs value;
+#'     nonmetal_share is forced to 0 for all annex-classified products (s232_annex != NA),
+#'     so IEEPA/S122/fentanyl contribute zero on post-annex 232 products.
 #'   - Fentanyl stacks on 232 for all countries (separate IEEPA authority)
 #'   - Section 301 only applies to China
 #'   - Section 122 is scaled by nonmetal_share on 232 products (same treatment as
-#'     IEEPA reciprocal). For pure-metal products (metal_share = 1.0), nonmetal_share = 0,
-#'     so s122 contributes zero — Section 232 already covers these at higher rates.
-#'     For derivative 232 products (metal_share < 1.0), s122 applies to the non-metal
-#'     portion. For non-232 products, s122 stacks at full value.
+#'     IEEPA reciprocal). Pre-annex: for pure-metal products (metal_share = 1.0),
+#'     nonmetal_share = 0; for derivatives, s122 applies to non-metal portion.
+#'     Post-annex: nonmetal_share = 0 for all annex-classified 232 products.
+#'     For non-232 products, s122 stacks at full value.
 #'
 #' @param df Data frame with rate_232, rate_301, rate_ieepa_recip,
 #'   rate_ieepa_fent, rate_s122, rate_other, metal_share, country columns
@@ -931,6 +934,19 @@ apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutu
     # Fallback: aggregate metal_share (backward compat for flat/cbo methods)
     df <- df %>%
       mutate(nonmetal_share = if_else(rate_232 > 0 & metal_share < 1.0, 1 - metal_share, 0))
+  }
+
+  # Post-annex override: the April 2026 proclamation applies Section 232 to the
+  # full customs value, eliminating metal-content-based mutual exclusion. Products
+  # with an annex classification (s232_annex != NA) get nonmetal_share = 0 so that
+  # IEEPA/S122/fentanyl do not leak through on a phantom non-metal fraction.
+  # Annex II products (rate_232 = 0, removed from scope) are excluded by the
+  # rate_232 > 0 guard — they receive full IEEPA/S122 as non-232 products.
+  if ('s232_annex' %in% names(df)) {
+    df <- df %>%
+      mutate(nonmetal_share = if_else(
+        !is.na(s232_annex) & rate_232 > 0, 0, nonmetal_share
+      ))
   }
 
   df <- df %>%
@@ -1025,6 +1041,14 @@ compute_net_authority_contributions <- function(df, cty_china = '5700',
   } else {
     df <- df %>%
       mutate(nonmetal_share = if_else(rate_232 > 0 & metal_share < 1.0, 1 - metal_share, 0))
+  }
+
+  # Post-annex full-value override (mirrors apply_stacking_rules)
+  if ('s232_annex' %in% names(df)) {
+    df <- df %>%
+      mutate(nonmetal_share = if_else(
+        !is.na(s232_annex) & rate_232 > 0, 0, nonmetal_share
+      ))
   }
 
   df %>%
