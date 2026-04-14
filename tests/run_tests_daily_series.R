@@ -1490,6 +1490,218 @@ run_test('post-annex decomposition parity: net contributions match stacking tota
 
 
 # =============================================================================
+# Test 18: Annex integration + export parity
+# =============================================================================
+
+message('\n--- Test 18: Annex integration + export parity ---')
+
+source(here('src', 'generate_etrs_config.R'))
+source(here('src', 'quality_report.R'))
+
+make_annex_integration_products <- function() {
+  tibble(
+    hts10 = c('7308200035', '8503003500', '8503004500', '8483902000'),
+    base_rate = c(0.05, 0.025, 0.025, 0.05),
+    n_ch99_refs = 0L,
+    ch99_refs = list(character(0), character(0), character(0), character(0))
+  )
+}
+
+make_annex_integration_ch99 <- function() {
+  tibble(
+    ch99_code = c('9903.03.01', '9903.80.01'),
+    rate = c(0.10, 0.25),
+    country_type = c('all', 'all'),
+    countries = list('all', 'all'),
+    exempt_countries = list(character(0), character(0)),
+    description = c('Section 122 test entry', 'Steel article test entry'),
+    general_raw = c('10%', '25%')
+  )
+}
+
+run_test('calculate_rates_for_revision populates annex tags through config-driven path', {
+  products <- make_annex_integration_products()
+  ch99_data <- make_annex_integration_ch99()
+  s232_rates <- extract_section232_rates(ch99_data)
+  pp <- load_policy_params()
+
+  rates <- calculate_rates_for_revision(
+    products = products,
+    ch99_data = ch99_data,
+    ieepa_rates = NULL,
+    usmca = NULL,
+    countries = '4280',
+    revision_id = '2026_rev_5',
+    effective_date = as.Date('2026-04-06'),
+    s232_rates = s232_rates,
+    fentanyl_rates = NULL,
+    policy_params = pp
+  ) %>%
+    select(hts10, base_rate, s232_annex, rate_232)
+
+  stopifnot(rates$s232_annex[match('7308200035', rates$hts10)] == 'annex_1a')
+  stopifnot(rates$s232_annex[match('8503003500', rates$hts10)] == 'annex_1b')
+  stopifnot(rates$s232_annex[match('8503004500', rates$hts10)] == 'annex_2')
+  stopifnot(rates$s232_annex[match('8483902000', rates$hts10)] == 'annex_3')
+
+  stopifnot(abs(rates$rate_232[match('7308200035', rates$hts10)] - 0.50) < 1e-8)
+  stopifnot(abs(rates$rate_232[match('8503003500', rates$hts10)] - 0.25) < 1e-8)
+  stopifnot(abs(rates$rate_232[match('8503004500', rates$hts10)] - 0.00) < 1e-8)
+  annex3_idx <- match('8483902000', rates$hts10)
+  expected_annex3 <- pmax(0, pp$S232_ANNEXES$annexes$annex_3$floor_rate - rates$base_rate[annex3_idx])
+  stopifnot(abs(rates$rate_232[annex3_idx] - expected_annex3) < 1e-8)
+})
+
+run_test('primary chapter product gets annex_1a even without pre-existing rate_232', {
+  # Simulates rev_5: old Ch99 entries (9903.80/81) removed, so ch72 products
+  # arrive at step 5c with rate_232 = 0. They should still be classified annex_1a.
+  # Include ch72 products alongside the standard test products.
+  products <- tibble(
+    hts10 = c('7208100000', '7209150000', '7308200035', '8503003500', '8503004500', '8483902000'),
+    base_rate = c(0.0, 0.0, 0.05, 0.025, 0.025, 0.05),
+    n_ch99_refs = 0L,
+    ch99_refs = list(character(0), character(0), character(0), character(0), character(0), character(0))
+  )
+  # Use the standard Ch99 fixture (has steel article entry for heading programs)
+  ch99_data <- make_annex_integration_ch99()
+  s232_rates <- extract_section232_rates(ch99_data)
+  pp <- load_policy_params()
+
+  rates <- calculate_rates_for_revision(
+    products = products, ch99_data = ch99_data,
+    ieepa_rates = NULL, usmca = NULL, countries = '4280',
+    revision_id = '2026_rev_5', effective_date = as.Date('2026-04-06'),
+    s232_rates = s232_rates, fentanyl_rates = NULL, policy_params = pp
+  )
+
+  # Ch72 products should be annex_1a at 50% even though no old 9903.80 Ch99 entries
+  stopifnot(rates$s232_annex[rates$hts10 == '7208100000'] == 'annex_1a')
+  stopifnot(rates$s232_annex[rates$hts10 == '7209150000'] == 'annex_1a')
+  stopifnot(abs(rates$rate_232[rates$hts10 == '7208100000'] - 0.50) < 1e-8)
+  stopifnot(abs(rates$rate_232[rates$hts10 == '7209150000'] - 0.50) < 1e-8)
+
+  # Annex CSV matches still work
+  stopifnot(rates$s232_annex[rates$hts10 == '8503003500'] == 'annex_1b')
+  stopifnot(abs(rates$rate_232[rates$hts10 == '8503003500'] - 0.25) < 1e-8)
+})
+
+run_test('annex-era calculator fails closed when annex resource path is invalid', {
+  products <- make_annex_integration_products()
+  ch99_data <- make_annex_integration_ch99()
+  s232_rates <- extract_section232_rates(ch99_data)
+  pp <- load_policy_params()
+  pp$S232_ANNEXES$resource_file <- file.path('resources', 'does_not_exist.csv')
+
+  err <- tryCatch(
+    {
+      calculate_rates_for_revision(
+        products = products,
+        ch99_data = ch99_data,
+        ieepa_rates = NULL,
+        usmca = NULL,
+        countries = '4280',
+        revision_id = '2026_rev_5',
+        effective_date = as.Date('2026-04-06'),
+        s232_rates = s232_rates,
+        fentanyl_rates = NULL,
+        policy_params = pp
+      )
+      NULL
+    },
+    error = function(e) e
+  )
+
+  stopifnot(inherits(err, 'error'))
+  stopifnot(grepl('annex mapping is empty', conditionMessage(err), ignore.case = TRUE))
+})
+
+run_test('export_statutory_rates uses annex programs for post-annex snapshots', {
+  products <- make_annex_integration_products()
+  ch99_data <- make_annex_integration_ch99()
+  s232_rates <- extract_section232_rates(ch99_data)
+  pp <- load_policy_params()
+
+  rates <- calculate_rates_for_revision(
+    products = products,
+    ch99_data = ch99_data,
+    ieepa_rates = NULL,
+    usmca = NULL,
+    countries = '4280',
+    revision_id = '2026_rev_5',
+    effective_date = as.Date('2026-04-06'),
+    s232_rates = s232_rates,
+    fentanyl_rates = NULL,
+    policy_params = pp
+  )
+
+  out_dir <- file.path(tempdir(), 'etrs_annex_export_test')
+  dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+  active_programs <- export_statutory_rates(
+    snapshot = rates,
+    policy_params = pp,
+    output_dir = out_dir,
+    ch99_data = ch99_data,
+    date = as.Date('2026-04-06')
+  )
+
+  stopifnot(all(c('annex_1a', 'annex_1b', 'annex_3') %in% active_programs))
+  stopifnot(!('steel_derivatives' %in% active_programs))
+  stopifnot(!('aluminum_derivatives' %in% active_programs))
+
+  exported <- read_csv(file.path(out_dir, 'statutory_rates.csv.gz'), show_col_types = FALSE)
+  stopifnot(all(c('s232_annex_1a', 's232_annex_1b', 's232_annex_3') %in% names(exported)))
+  stopifnot(!('s232_steel_derivatives' %in% names(exported)))
+  stopifnot(!('s232_aluminum_derivatives' %in% names(exported)))
+})
+
+run_test('other_params excludes annex programs from metal scaling lists', {
+  pp <- load_policy_params()
+  out_dir <- file.path(tempdir(), 'etrs_annex_params_test')
+  dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+  generate_other_params_yaml(
+    date = as.Date('2026-04-06'),
+    policy_params = pp,
+    output_dir = out_dir,
+    active_s232_programs = c('annex_1a', 'annex_1b', 'annex_3', 'steel', 'copper')
+  )
+
+  cfg <- yaml::read_yaml(file.path(out_dir, 'other_params.yaml'))
+  metal_programs <- unlist(cfg$metal_content$metal_programs)
+
+  stopifnot(all(c('steel', 'copper') %in% metal_programs))
+  stopifnot(!any(c('annex_1a', 'annex_1b', 'annex_3') %in% metal_programs))
+})
+
+run_test('check_annex_classification flags all-missing post-annex revisions', {
+  pp <- load_policy_params()
+  ts <- tibble(
+    revision = c('2026_rev_5', '2026_rev_5'),
+    effective_date = as.Date(c('2026-04-06', '2026-04-06')),
+    s232_annex = c(NA_character_, NA_character_)
+  )
+
+  anomalies <- check_annex_classification(ts, pp)
+  stopifnot(nrow(anomalies) == 1)
+  stopifnot(anomalies$revision[1] == '2026_rev_5')
+  stopifnot(anomalies$anomaly_type[1] == 'annex_missing')
+})
+
+run_test('check_annex_classification ignores pre-annex revisions', {
+  pp <- load_policy_params()
+  ts <- tibble(
+    revision = c('2026_rev_4', '2026_rev_4'),
+    effective_date = as.Date(c('2026-02-24', '2026-02-24')),
+    s232_annex = c(NA_character_, NA_character_)
+  )
+
+  anomalies <- check_annex_classification(ts, pp)
+  stopifnot(nrow(anomalies) == 0)
+})
+
+
+# =============================================================================
 # Summary
 # =============================================================================
 

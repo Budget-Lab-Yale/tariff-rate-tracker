@@ -1490,12 +1490,27 @@ calculate_rates_for_revision <- function(
   #     Date-gated: only applies to revisions on/after the annex effective date.
   #     Overrides single-rate 232 with per-annex rates after the old pipeline has
   #     finished assigning rates. Annex classification comes from the static
-  #     resource file (resources/s232_annex_products.csv); when that file is empty
-  #     (pending HTS JSON), this step is a no-op.
+  #     resource file (resources/s232_annex_products.csv). Annex-era revisions
+  #     fail closed if the mapping is missing or empty.
   annex_cfg <- if (!is.null(pp)) pp$S232_ANNEXES else NULL
   if (!is.null(annex_cfg) && as.Date(effective_date) >= annex_cfg$effective_date) {
-    annex_map <- load_annex_products(effective_date,
-                   here('resources', annex_cfg$resource_file %||% 's232_annex_products.csv'))
+    annex_resource_file <- annex_cfg$resource_file %||% file.path('resources', 's232_annex_products.csv')
+    annex_resource_path <- if (grepl('^([A-Za-z]:|/|\\\\\\\\)', annex_resource_file)) {
+      annex_resource_file
+    } else {
+      here::here(annex_resource_file)
+    }
+    annex_map <- load_annex_products(effective_date, annex_resource_path)
+
+    if (nrow(annex_map) == 0) {
+      stop(
+        'Section 232 annex mapping is empty for annex-era revision ', revision_id,
+        ' (effective ', effective_date, '). Expected non-empty mapping at ',
+        annex_resource_path
+      )
+    }
+
+    message('  Annex products loaded: ', nrow(annex_map), ' from ', annex_resource_path)
 
     if (nrow(annex_map) > 0) {
       # Prefix-match annex classification to HTS10 codes.
@@ -1510,12 +1525,26 @@ calculate_rates_for_revision <- function(
         rates$s232_annex[mask & is.na(rates$s232_annex)] <- annex_pattern_map$s232_annex[i]
       }
 
-      # Infer annex for primary chapter products not in resource file
+      # Infer annex for products not matched by the prefix CSV.
+      # Primary chapters (72/73/76/74) → annex_1a unconditionally: the proclamation
+      # covers all base metal products regardless of whether old Ch99 entries still
+      # assign rate_232 (many were removed in the annex HTS revision).
+      # Unmatched derivatives → annex_1b: if a product is in s232_derivative_products
+      # but not in the annex CSV prefix list, it belongs in the downstream tier.
+      annex_1a_chapters <- annex_cfg$annexes$annex_1a$chapters %||% c('72', '73', '76', '74')
+      deriv_prefixes <- tryCatch(
+        load_232_derivative_products(effective_date = effective_date)$hts_prefix,
+        error = function(e) character(0)
+      )
+      deriv_pattern <- if (length(deriv_prefixes) > 0) {
+        paste0('^(', paste(deriv_prefixes, collapse = '|'), ')')
+      } else NULL
+
       rates <- rates %>%
         mutate(s232_annex = case_when(
           !is.na(s232_annex) ~ s232_annex,
-          rate_232 > 0 & substr(hts10, 1, 2) %in%
-            (annex_cfg$annexes$annex_1a$chapters %||% c('72', '73', '76', '74')) ~ 'annex_1a',
+          substr(hts10, 1, 2) %in% annex_1a_chapters ~ 'annex_1a',
+          !is.null(deriv_pattern) & grepl(deriv_pattern, hts10) ~ 'annex_1b',
           TRUE ~ s232_annex
         ))
 

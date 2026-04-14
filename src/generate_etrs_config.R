@@ -288,12 +288,30 @@ export_statutory_rates <- function(snapshot, policy_params, output_dir, ch99_dat
   # All unique HTS10 with statutory 232 rate > 0
   all_hts10 <- unique(snapshot$hts10[snapshot$statutory_rate_232 > 0])
 
+  # For annex-era snapshots, prefer the tracker's explicit annex classification.
+  # This prevents post-2026-04-06 products from being forced back into the
+  # legacy chapter/derivative buckets during export.
+  annex_lookup <- character(0)
+  if ('s232_annex' %in% names(snapshot)) {
+    annex_programs <- snapshot %>%
+      filter(statutory_rate_232 > 0, !is.na(s232_annex)) %>%
+      distinct(hts10, s232_annex)
+    if (nrow(annex_programs) > 0) {
+      annex_lookup <- setNames(annex_programs$s232_annex, annex_programs$hts10)
+    }
+  }
+
   # Classify each product.
-  # Priority: blanket steel/aluminum → heading programs → derivatives.
+  # Priority: annex classification → blanket steel/aluminum → heading programs
+  # → derivatives.
   # Blanket chapters (72/73/76) are primary metal — their tariff applies to
   # full customs value. Even if they also appear in the derivative prefix list,
   # the blanket program is the correct classification.
   classify_s232_program <- function(hts10) {
+    annex_prog <- annex_lookup[[hts10]]
+    if (!is.null(annex_prog) && !is.na(annex_prog) && nzchar(annex_prog)) {
+      return(annex_prog)
+    }
     # Blanket steel/aluminum first (primary chapters)
     if (grepl(steel_pattern, hts10)) return('steel')
     if (grepl(alum_pattern, hts10)) return('aluminum')

@@ -309,6 +309,55 @@ check_authority_timeline <- function(rev_quality) {
 }
 
 
+#' Check post-annex revisions for populated s232_annex classification
+#'
+#' Fails closed on revisions on or after the Section 232 annex effective date:
+#' those revisions should contain at least some non-missing `s232_annex` values.
+#'
+#' @param ts Full rate timeseries
+#' @param policy_params Optional loaded policy params
+#' @return Tibble of annex classification anomalies
+check_annex_classification <- function(ts, policy_params = NULL) {
+  empty <- tibble(
+    revision = character(),
+    effective_date = as.Date(character()),
+    anomaly_type = character(),
+    detail = character()
+  )
+
+  required <- c('revision', 'effective_date', 's232_annex')
+  if (!all(required %in% names(ts))) {
+    return(empty)
+  }
+
+  if (is.null(policy_params)) {
+    policy_params <- tryCatch(load_policy_params(), error = function(e) NULL)
+  }
+
+  annex_cfg <- policy_params$S232_ANNEXES %||% NULL
+  annex_effective <- annex_cfg$effective_date %||% NULL
+  if (is.null(annex_effective)) {
+    return(empty)
+  }
+
+  ts %>%
+    filter(effective_date >= as.Date(annex_effective)) %>%
+    group_by(revision, effective_date) %>%
+    summarise(
+      n_rows = n(),
+      n_nonmissing_annex = sum(!is.na(s232_annex)),
+      .groups = 'drop'
+    ) %>%
+    filter(n_rows > 0, n_nonmissing_annex == 0) %>%
+    transmute(
+      revision,
+      effective_date,
+      anomaly_type = 'annex_missing',
+      detail = 'post-annex revision has 0 non-missing s232_annex values'
+    )
+}
+
+
 #' Run full quality report
 #'
 #' @param timeseries_path Path to rate_timeseries.rds
@@ -329,6 +378,7 @@ run_quality_report <- function(
   if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 
   ts <- readRDS(timeseries_path)
+  pp <- tryCatch(load_policy_params(), error = function(e) NULL)
   message('Loaded time series: ', nrow(ts), ' rows, ',
           n_distinct(ts$revision), ' revisions')
 
@@ -391,6 +441,20 @@ run_quality_report <- function(
     }
   }
   anomalies <- bind_rows(anomalies, auth_anomalies)
+
+  # 4b. Post-annex classification integrity
+  message('\n--- Section 232 Annex Check ---')
+  annex_anomalies <- check_annex_classification(ts, pp)
+  if (nrow(annex_anomalies) == 0) {
+    message('All annex-era revisions have populated s232_annex values.')
+  } else {
+    message(nrow(annex_anomalies), ' annex classification failures detected:')
+    for (r in seq_len(nrow(annex_anomalies))) {
+      message('  [', annex_anomalies$revision[r], '] ', annex_anomalies$anomaly_type[r],
+              ': ', annex_anomalies$detail[r])
+    }
+  }
+  anomalies <- bind_rows(anomalies, annex_anomalies)
   write_csv(anomalies, file.path(output_dir, 'anomalies.csv'))
 
   # 5. Unknown country applicability check
@@ -426,7 +490,6 @@ run_quality_report <- function(
   message('\n--- Section 301 Scope Check ---')
   non_china_301 <- tibble()
   if ('rate_301' %in% names(ts) && 'country' %in% names(ts)) {
-    pp <- tryCatch(load_policy_params(), error = function(e) NULL)
     cty_china <- if (!is.null(pp)) pp$CTY_CHINA %||% '5700' else '5700'
     non_china_301 <- ts %>% filter(country != cty_china & rate_301 > 0)
     if (nrow(non_china_301) > 0) {
@@ -466,6 +529,13 @@ run_quality_report <- function(
 
   message('\nQuality report saved to: ', output_dir)
   message(strrep('=', 70))
+
+  if (nrow(annex_anomalies) > 0) {
+    stop(
+      'Critical quality failure: post-annex revisions are missing s232_annex classification. ',
+      'See ', file.path(output_dir, 'anomalies.csv')
+    )
+  }
 
   return(report)
 }
