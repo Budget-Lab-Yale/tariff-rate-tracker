@@ -8,19 +8,34 @@ The repository's core product is an interval-encoded tariff panel for the 2025-2
 
 ## What this repo produces
 
-- A revision-by-revision tariff panel in `data/timeseries/`
-- Daily aggregate series in `output/daily/`
-- Optional daily product-country extracts
+The primary output is **`data/timeseries/rate_timeseries.rds`** — a complete `HTS-10 × country` tariff-rate panel with interval encoding (`valid_from` / `valid_until`). This is the full time series of product-country-level statutory tariff rates. To query rates at a specific date:
+
+```r
+source('src/helpers.R')
+ts <- readRDS('data/timeseries/rate_timeseries.rds')
+snapshot <- get_rates_at_date(ts, as.Date('2026-06-15'))
+```
+
+Additional outputs:
+
+- Per-revision snapshots in `data/timeseries/snapshot_*.rds`
+- Daily aggregate series in `output/daily/` (overall, by country, by authority)
 - Optional weighted ETR outputs in `output/etr/`
 - Validation and diagnostics outputs when benchmark data is available
 
+See [docs/build.md](docs/build.md) for the full output inventory and more query examples.
+
 ## Start here
 
+- Data sources and provenance: [DATA_SOURCES.md](DATA_SOURCES.md)
 - Build and setup: [docs/build.md](docs/build.md)
 - Methodology and tariff-regime history: [docs/methodology.md](docs/methodology.md)
 - Non-official assumptions: [docs/assumptions.md](docs/assumptions.md)
 - HTS revision chronology: [docs/revision_changelog.md](docs/revision_changelog.md)
 - Policy timing vs. HTS dates: [docs/policy_timing.md](docs/policy_timing.md)
+- Contributing: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Security reporting: [SECURITY.md](SECURITY.md)
+- Citation metadata: [CITATION.cff](CITATION.cff)
 
 ## System requirements
 
@@ -32,9 +47,9 @@ The repository's core product is an interval-encoded tariff panel for the 2025-2
 ## Quick start
 
 ```bash
-Rscript src/preflight.R
 Rscript src/install_dependencies.R --all
 Rscript src/02_download_hts.R
+Rscript src/preflight.R
 Rscript src/00_build_timeseries.R --full --core-only
 ```
 

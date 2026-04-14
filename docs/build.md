@@ -25,15 +25,7 @@ The core series is the production dataset. Comparison inputs are optional.
 
 ## First-run checklist
 
-### 1. Verify the environment
-
-```bash
-Rscript src/preflight.R
-```
-
-This checks packages, config files, committed resources, HTS JSON availability, and optional local benchmark paths.
-
-### 2. Install packages
+### 1. Install packages
 
 ```bash
 Rscript src/install_dependencies.R
@@ -54,14 +46,14 @@ Optional packages:
 - `arrow`
 - `httr`
 
-### 3. Download HTS JSON archives
+### 2. Download HTS JSON archives
 
 ```bash
 Rscript src/02_download_hts.R --dry-run
 Rscript src/02_download_hts.R
 ```
 
-### 4. Configure optional local paths
+### 3. Configure optional local paths
 
 If you want weighted outputs or benchmark comparisons:
 
@@ -76,6 +68,14 @@ Set whichever paths you have:
 - `tariff_etrs_repo`
 
 The core build does not require this file.
+
+### 4. Verify the environment
+
+```bash
+Rscript src/preflight.R
+```
+
+This checks packages, config files, committed resources, HTS JSON availability, and optional local benchmark paths.
 
 ### 5. Run the build
 
@@ -97,6 +97,14 @@ Rscript src/00_build_timeseries.R --full --refresh-usmca
 The `--refresh-usmca` flag re-downloads USMCA utilization shares from the USITC DataWeb API before building. This updates the monthly and annual share CSVs in `resources/` with the latest available data. Requires a DataWeb API token in `.env` (see `src/download_usmca_dataweb.R` for setup). The flag is optional — without it, the build uses the committed share files.
 
 By default, the pipeline uses **legal policy effective dates** where they differ from HTS revision dates (e.g., SCOTUS ruling effective Feb 20 vs. HTS revision Feb 24). Pass `--use-hts-dates` to use raw HTS revision dates instead. See [docs/policy_timing.md](policy_timing.md) for the full list of affected revisions and legal sources.
+
+### 6. Run the smoke tests
+
+```bash
+Rscript tests/run_tests_daily_series.R
+```
+
+Pass `--with-artifacts` to include the heavier artifact-dependent integration checks when local built outputs are available.
 
 ## Input inventory
 
