@@ -53,10 +53,10 @@ Critical and structural issues identified via full-repo code review.
 
 ### Structural
 
-- [ ] **`calculate_rates_for_revision()` is 1,500+ lines** (`06_calculate_rates.R:463-1979`): 17 policy steps in one function, untestable in isolation. Break into composable step functions.
-- [ ] **`helpers.R` is a 1,950-line junk drawer**: 20+ unrelated responsibilities. Split into focused modules (rate_schema.R, policy_params.R, stacking.R, concordance.R, etc.).
-- [ ] **Module-level side effects** (`06_calculate_rates.R:43-61`): policy params loaded at source time into globals; tryCatch swallows config errors. `calculate_rates_for_revision()` then shadows these with local copies.
-- [ ] **No integration tests for rate calculation engine**: `run_tests_daily_series.R` tests downstream consumers but nothing tests `calculate_rates_for_revision()` itself.
+- [x] **Module-level side effects** (`06_calculate_rates.R:43-61`): policy params loaded at source time into globals; tryCatch swallows config errors. Globals only serve `calculate_rates_fast()` and `check_country_applies()`. Fix: pass `ISO_TO_CENSUS` and `CTY_CHINA` as parameters, remove module-level globals, fail loudly at call time. ~20 line change.
+- [ ] **No integration tests for extract_* functions**: `extract_ieepa_rates()`, `extract_section232_rates()`, `extract_section122_rates()`, `extract_ieepa_fentanyl_rates()`, `extract_usmca_eligibility()` all have zero unit test coverage. These parse raw HTS JSON at the system boundary. Highest-value test: fixture-based assertions on a known revision's JSON.
+- [ ] **`helpers.R` is a 1,950-line junk drawer**: 46 functions across 12+ categories. Natural split: `policy_params.R`, `stacking.R`, `rate_schema.R`, `data_loaders.R`, `revisions.R`. Requires updating `source()` calls in 14+ files. Only worth it before onboarding collaborators.
+- [ ] **`calculate_rates_for_revision()` is 1,500+ lines** (`06_calculate_rates.R`): 17 policy steps in one function. Each step is numbered and commented; extract into composable step functions incrementally as individual steps need modification. Low operational risk.
 
 ### Minor
 
@@ -72,6 +72,7 @@ Critical and structural issues identified via full-repo code review.
 - [x] Extract `compute_nonmetal_share()` to deduplicate stacking logic (f83f1b6) (2026-04-15)
 - [x] Add `relationship = 'many-to-one'` to 21 lookup joins in `06_calculate_rates.R` (2026-04-15)
 - [x] Replace `rowwise()` expansion with pre-computed applicability mapping in `calculate_rates_fast()` (2026-04-15)
+- [x] Remove module-level side effects from `06_calculate_rates.R` — pass constants as parameters (2026-04-15)
 
 ## Pipeline
 

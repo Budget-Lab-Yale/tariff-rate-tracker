@@ -38,27 +38,8 @@ library(tidyverse)
 
 # NOTE: classify_authority(), apply_stacking_rules(), enforce_rate_schema(),
 # and RATE_SCHEMA are defined in helpers.R.
-
-# Policy params — needed throughout for IEEPA, 232, floor, MFN, etc.
-.pp <- tryCatch(
-  load_policy_params(),
-  error = function(e) {
-    # Graceful fallback when sourced before helpers.R sets working dir
-    NULL
-  }
-)
-
-# Country code constants — centralized in helpers.R, loaded from YAML with fallback
-.cc <- get_country_constants(.pp)
-CTY_CHINA  <- .cc$CTY_CHINA
-CTY_CANADA <- .cc$CTY_CANADA
-CTY_MEXICO <- .cc$CTY_MEXICO
-CTY_JAPAN  <- .cc$CTY_JAPAN
-CTY_UK     <- .cc$CTY_UK
-CTY_HK     <- .cc$CTY_HK
-STEEL_CHAPTERS <- .cc$STEEL_CHAPTERS
-ALUM_CHAPTERS  <- .cc$ALUM_CHAPTERS
-ISO_TO_CENSUS  <- .cc$ISO_TO_CENSUS
+# No module-level globals — all constants are passed as function parameters
+# from calculate_rates_for_revision() or loaded explicitly in standalone mode.
 
 
 # =============================================================================
@@ -71,7 +52,9 @@ ISO_TO_CENSUS  <- .cc$ISO_TO_CENSUS
 #' @param ch99_data Chapter 99 data
 #' @param countries Vector of country codes
 #' @return Tibble with rates
-calculate_rates_fast <- function(products, ch99_data, countries, stacking_method = 'mutual_exclusion') {
+calculate_rates_fast <- function(products, ch99_data, countries,
+                                 stacking_method = 'mutual_exclusion',
+                                 iso_to_census = NULL, cty_china = '5700') {
   message('Calculating rates (fast mode)...')
 
   # Expand products to product x country
@@ -111,7 +94,10 @@ calculate_rates_fast <- function(products, ch99_data, countries, stacking_method
   # check_country_applies() per row.
 
   # Build Census <-> ISO bidirectional lookup
-  census_to_iso <- setNames(names(ISO_TO_CENSUS), ISO_TO_CENSUS)
+  if (is.null(iso_to_census)) {
+    iso_to_census <- get_country_constants()$ISO_TO_CENSUS
+  }
+  census_to_iso <- setNames(names(iso_to_census), iso_to_census)
 
   # Pre-compute applicable Census country codes per ch99 entry
   ch99_for_map <- ch99_lookup %>%
@@ -126,14 +112,14 @@ calculate_rates_fast <- function(products, ch99_data, countries, stacking_method
       'all' = country_vec,
       'all_except' = {
         exempt_iso <- row$exempt_countries[[1]]
-        exempt_census <- as.character(ISO_TO_CENSUS[exempt_iso])
+        exempt_census <- as.character(iso_to_census[exempt_iso])
         exempt_census <- exempt_census[!is.na(exempt_census)]
         # Exempt entries may also be raw Census codes
         setdiff(country_vec, unique(c(exempt_census, exempt_iso)))
       },
       'specific' = {
         specific_iso <- row$countries[[1]]
-        specific_census <- as.character(ISO_TO_CENSUS[specific_iso])
+        specific_census <- as.character(iso_to_census[specific_iso])
         specific_census <- specific_census[!is.na(specific_census)]
         # Match country_vec against both Census-converted and raw codes
         intersect(country_vec, unique(c(specific_census, specific_iso)))
@@ -201,7 +187,7 @@ calculate_rates_fast <- function(products, ch99_data, countries, stacking_method
     )
 
   # Apply stacking rules (vectorized, from helpers.R)
-  rates_final <- apply_stacking_rules(rates_wide, CTY_CHINA, stacking_method = stacking_method)
+  rates_final <- apply_stacking_rules(rates_wide, cty_china, stacking_method = stacking_method)
 
   return(rates_final)
 }
@@ -214,13 +200,17 @@ calculate_rates_fast <- function(products, ch99_data, countries, stacking_method
 #' @param countries List of applicable countries
 #' @param exempt List of exempt countries
 #' @return Logical
-check_country_applies <- function(country, country_type, countries, exempt) {
+check_country_applies <- function(country, country_type, countries, exempt,
+                                  iso_to_census = NULL) {
   # Defensive checks
   if (length(country) == 0 || is.na(country)) return(FALSE)
   if (length(country_type) == 0 || is.na(country_type)) return(FALSE)
 
   # Convert Census to ISO for matching
-  country_iso <- names(ISO_TO_CENSUS)[match(country, ISO_TO_CENSUS)]
+  if (is.null(iso_to_census)) {
+    iso_to_census <- get_country_constants()$ISO_TO_CENSUS
+  }
+  country_iso <- names(iso_to_census)[match(country, iso_to_census)]
   if (length(country_iso) == 0 || is.na(country_iso)) country_iso <- country
 
   switch(
@@ -372,7 +362,10 @@ apply_232_derivatives <- function(rates, products, ch99_data, s232_rates, countr
   # Join metal content shares and scale derivative 232 rates.
   # For derivative products, rate_232 was set to the full rate above;
   # now scale by metal_share so that the rate reflects metal-content-only.
-  pp_local <- policy_params %||% .pp
+  if (is.null(policy_params)) {
+    stop('apply_232_derivatives() requires policy_params — cannot use NULL fallback')
+  }
+  pp_local <- policy_params
   metal_cfg <- if (!is.null(pp_local)) pp_local$metal_content else NULL
   metal_shares <- load_metal_content(metal_cfg, unique(rates$hts10), deriv_matched)
   if ('metal_share' %in% names(rates)) {
@@ -510,7 +503,10 @@ calculate_rates_for_revision <- function(
   # 1. Get footnote-based rates from calculate_rates_fast()
   #    This captures 232, 301, fentanyl, other — but NOT IEEPA reciprocal,
   #    which is a blanket tariff not referenced via product footnotes.
-  rates <- calculate_rates_fast(products, ch99_data, countries, stacking_method = stacking_method)
+  rates <- calculate_rates_fast(products, ch99_data, countries,
+                                stacking_method = stacking_method,
+                                iso_to_census = ISO_TO_CENSUS,
+                                cty_china = CTY_CHINA)
 
   if (nrow(rates) == 0) {
     message('  No footnote-linked rates for ', revision_id, ' — blanket authorities will seed rows')
@@ -2032,8 +2028,14 @@ if (sys.nframe() == 0) {
 
   message('Loaded ', length(countries), ' countries')
 
+  # Load policy params for standalone mode
+  pp <- load_policy_params()
+  cc <- get_country_constants(pp)
+
   # Calculate rates (use fast method)
-  rates <- calculate_rates_fast(products, ch99_data, countries)
+  rates <- calculate_rates_fast(products, ch99_data, countries,
+                                iso_to_census = cc$ISO_TO_CENSUS,
+                                cty_china = cc$CTY_CHINA)
 
   # Summary
   cat('\n=== Rate Summary ===\n')
