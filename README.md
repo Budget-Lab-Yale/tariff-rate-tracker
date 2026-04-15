@@ -69,7 +69,7 @@ That sequence builds the core series without requiring private benchmark data or
 
 ## Current scope
 
-The repo currently models 38 HTS revisions from January 1, 2025 through February 24, 2026, and extends the final interval through December 31, 2026 via the configured series horizon.
+The repo currently models 39 HTS revisions from January 1, 2025 through April 6, 2026, and extends the final interval through December 31, 2026 via the configured series horizon.
 
 ## Notes
 

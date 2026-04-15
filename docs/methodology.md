@@ -4,7 +4,7 @@ This document is the canonical description of the tariff regime, the repo's mode
 
 ## Scope
 
-The tracker constructs statutory U.S. tariff rates at the `HTS-10 x country` level by processing USITC HTS revisions. The current repo covers 39 revisions from January 1, 2025 through February 24, 2026, and extends the final interval through December 31, 2026 using the configured series horizon.
+The tracker constructs statutory U.S. tariff rates at the `HTS-10 x country` level by processing USITC HTS revisions. The current repo covers 39 revisions from January 1, 2025 through April 6, 2026, and extends the final interval through December 31, 2026 using the configured series horizon.
 
 The production series is built from:
 
