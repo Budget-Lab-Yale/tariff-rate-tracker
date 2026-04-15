@@ -29,6 +29,7 @@ See [docs/build.md](docs/build.md) for the full output inventory and more query 
 
 - Data sources and provenance: [DATA_SOURCES.md](DATA_SOURCES.md)
 - Build and setup: [docs/build.md](docs/build.md)
+- Code architecture and data flow: [docs/architecture.md](docs/architecture.md)
 - Methodology and tariff-regime history: [docs/methodology.md](docs/methodology.md)
 - Non-official assumptions: [docs/assumptions.md](docs/assumptions.md)
 - HTS revision chronology: [docs/revision_changelog.md](docs/revision_changelog.md)

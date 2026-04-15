@@ -55,7 +55,7 @@ Critical and structural issues identified via full-repo code review.
 
 - [x] **Module-level side effects** (`06_calculate_rates.R:43-61`): policy params loaded at source time into globals; tryCatch swallows config errors. Globals only serve `calculate_rates_fast()` and `check_country_applies()`. Fix: pass `ISO_TO_CENSUS` and `CTY_CHINA` as parameters, remove module-level globals, fail loudly at call time. ~20 line change.
 - [x] **No integration tests for extract_* functions**: `extract_ieepa_rates()`, `extract_section232_rates()`, `extract_section122_rates()`, `extract_ieepa_fentanyl_rates()`, `extract_usmca_eligibility()` all have zero unit test coverage. These parse raw HTS JSON at the system boundary. Highest-value test: fixture-based assertions on a known revision's JSON.
-- [ ] **`helpers.R` is a 1,950-line junk drawer**: 46 functions across 12+ categories. Natural split: `policy_params.R`, `stacking.R`, `rate_schema.R`, `data_loaders.R`, `revisions.R`. Requires updating `source()` calls in 14+ files. Only worth it before onboarding collaborators.
+- [x] **`helpers.R` is a 1,950-line junk drawer**: 46 functions across 12+ categories. Split into `policy_params.R`, `stacking.R`, `rate_schema.R`, `data_loaders.R`, `revisions.R`. helpers.R sources them for backward compatibility.
 - [ ] **`calculate_rates_for_revision()` is 1,500+ lines** (`06_calculate_rates.R`): 17 policy steps in one function. Each step is numbered and commented; extract into composable step functions incrementally as individual steps need modification. Low operational risk.
 
 ### Minor
@@ -73,6 +73,7 @@ Critical and structural issues identified via full-repo code review.
 - [x] Remove module-level side effects from `06_calculate_rates.R` — pass constants as parameters (2026-04-15)
 - [x] Add `tests/test_rate_calculation.R`: 50 fixture-based tests for extract_*, invariants, stacking, parsing, schema (2026-04-15)
 - [x] Wire `test_rate_calculation.R` into CI (2026-04-15)
+- [x] Split `helpers.R` into 5 focused modules + architecture doc + CONTRIBUTING update (2026-04-15)
 
 ## Pipeline
 
