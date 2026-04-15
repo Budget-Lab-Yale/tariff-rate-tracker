@@ -2,49 +2,28 @@
 
 ## Active priorities (updated 2026-04-14)
 
-1. **P0 annex correctness**: fix primary-chapter coverage gap, verify annex path fix, re-run transition comparison.
-2. **ETR export parity**: make `generate_etrs_config.R` annex-aware so post-`2026-04-06` products use annex program buckets.
-3. **Deferred modeling/calibration**: `9903.81.92`, UK 95% qualifying content, Annex IV exception buckets, generic pharma shares, concordance tightening, small-country outliers.
+1. **Dynamic Ch99 parsing**: replace static annex CSV with parsed Ch99 entries so annex classifications track future HTS revisions automatically.
+2. **Modeling gaps**: conditioned post-annex branches (UK 95% content, Annex IV exception buckets, product-condition exemptions) are approximated, not modeled.
+3. **Deferred calibration**: UK content share blending, annex exemptions, generic pharma shares, concordance tightening, small-country outliers.
 
 ## Section 232 annex restructuring (April 2026 proclamation)
 
 Presidential proclamation of 2 April 2026 replaces single-rate 232 with four product annexes (effective 2026-04-06). See `docs/s232/s232_metals_update_note.pdf` (SGEPT analysis).
 
-### P0 bugs
+### Annex transition result
 
-- [ ] **Primary chapter products (ch72/73/76) lose 232 coverage post-annex**
-  - 801 products in primary chapters lose `rate_232` at rev_4→rev_5 (-0.624pp ETR impact)
-  - Root cause: old product-specific Ch99 entries (9903.80/81) removed in rev_5; Ch99 parser no longer assigns `rate_232`. The annex I-A inference at `06_calculate_rates.R:1514-1518` is gated on `rate_232 > 0`, so it skips these products.
-  - **Not a policy change** — ch72/73/76 are unambiguously Annex I-A at 50%.
-  - Also affects 49 derivative products in s232_derivative_products.csv not in the annex CSV — should be annex I-B.
-  - **Fix**: Remove `rate_232 > 0` guard from primary chapter inference. Add fallback for unmatched derivatives.
-  - **ETR impact**: should recover ~0.56pp, bringing transition to ~-0.04pp (closer to SGEPT's -0.53pp).
-  - [ ] Remove `rate_232 > 0` guard from primary chapter annex inference
-  - [ ] Add fallback: unmatched s232_derivative_products get `annex_1b` if not already classified
-  - [ ] Add test: ch72 product with rate_232=0 still gets annex_1a post-annex
-  - [ ] Re-run annex transition comparison after fix
-
-- [x] **`s232_annex` entirely NA due to double-`resources/` path** — FIXED (2026-04-13, pending commit)
-  - `policy_params.yaml` stores `resource_file: 'resources/s232_annex_products.csv'` but code wrapped it in `here('resources', ...)`, producing `resources/resources/...`
-  - Fix: path resolution now uses config value directly; fail-closed `stop()` on empty annex map; quality report invariant added.
-
-### Completed
-
-- [x] Config, resource CSV, helper, rate logic, 5 unit tests — scaffolding (2026-04-06)
-- [x] Prefix-matching order: longest-first (2026-04-09)
-- [x] `2026_rev_5` added (effective 2026-04-06) — (2026-04-13)
-- [x] Full-value stacking fix: `nonmetal_share=0` for annex products (2026-04-13)
-- [x] Integration tests: config-driven path, fail-closed, quality invariant, export parity (2026-04-13)
+- Pre-annex ETR: 11.12% (Apr 5, rev_4)
+- Post-annex ETR: 11.79% (Apr 6, rev_5)
+- Change: **+0.67pp** (vs SGEPT -0.53pp)
+- The +1.2pp gap vs SGEPT is a known BEA vs calibrated-flat metal content divergence: our BEA shares produce low pre-annex effective rates for derivatives, making the move to 25% full-value a net increase. SGEPT's higher flat shares (steel 40%, aluminum 35%) make the pre-annex rates higher, so 25% is more often a reduction for them.
 
 ### Open work
 
-- [ ] **Test gap**: annex unit tests don't exercise the production config-driven path through `calculate_rates_for_revision()`. Add regression test for config resource resolution.
-- [ ] **ETR export**: annex-aware program classification in `generate_etrs_config.R` (code written, pending annex coverage fix to validate)
-- [ ] **Dynamic Ch99 parsing** in `load_annex_products()` / `extract_section232_rates()`
+- [ ] **Dynamic Ch99 parsing** in `load_annex_products()` / `extract_section232_rates()` — currently using static CSV
 - [ ] **Modeling gap: conditioned post-annex branches**
   - UK reduced rates with 95% qualifying-content condition
   - Annex IV exception buckets / conditioned 10% and 0% paths
-  - `9903.81.92` and other product-condition exemptions
+  - `9903.81.92` and other product-condition exemptions that don't fit the current country/product binary framework
 
 ### Lower priority
 
@@ -52,10 +31,45 @@ Presidential proclamation of 2 April 2026 replaces single-rate 232 with four pro
 - [ ] Exemption calibration (US-origin 1%, de minimis 2%, motorcycle 0.1% per SGEPT)
 - [ ] Annex III sunset (Dec 2027 → I-B rate): logic in place, needs future HTS revision to test
 
-## Section 232 / BEA metal derivatives
+### Completed
 
-- [ ] Steel-derivative US-melted exemption (`9903.81.92`) — DEFERRED
-  - Requires product-condition exemption support; TODO at `05_parse_policy_params.R:690`
+- [x] Config, resource CSV, helper, rate logic, 5 unit tests — scaffolding (2026-04-06)
+- [x] Prefix-matching order: longest-first (2026-04-09)
+- [x] `2026_rev_5` added (effective 2026-04-06) (2026-04-13)
+- [x] Full-value stacking fix: `nonmetal_share=0` for annex products (2026-04-13)
+- [x] Double-`resources/` path fix + fail-closed guard + quality invariant (2026-04-13)
+- [x] Primary chapter coverage: removed `rate_232 > 0` guard, derivative fallback to annex_1b (2026-04-14)
+- [x] ETR export: annex-aware program classification in `generate_etrs_config.R` (2026-04-14)
+- [x] Integration tests: config-driven path, fail-closed, primary chapter, export parity, quality invariant — 79 tests total (2026-04-14)
+
+## Code review findings (2026-04-15)
+
+Critical and structural issues identified via full-repo code review.
+
+### Critical
+
+- [ ] **Duplicated nonmetal_share logic** (`helpers.R`): `apply_stacking_rules()` and `compute_net_authority_contributions()` each contain identical ~50-line blocks computing `nonmetal_share` (per-type share selection, annex override, conditional branching). Any fix to one copy not mirrored to the other silently diverges total_rate from authority decomposition. Extract into a single shared helper.
+- [ ] **Silent row multiplication from unchecked left_join** (`06_calculate_rates.R`): ~15 `left_join` operations on `rates` with no before/after row-count assertions. A duplicate key in any join table silently multiplies rows, producing incorrect rates. Add `relationship = 'many-to-one'` or post-join nrow checks.
+- [ ] **rowwise() on large expansion** (`06_calculate_rates.R:122-128`): `check_country_applies()` called row-by-row via `rowwise() %>% mutate()` on potentially millions of rows. Should be vectorized.
+
+### Structural
+
+- [ ] **`calculate_rates_for_revision()` is 1,500+ lines** (`06_calculate_rates.R:463-1979`): 17 policy steps in one function, untestable in isolation. Break into composable step functions.
+- [ ] **`helpers.R` is a 1,950-line junk drawer**: 20+ unrelated responsibilities. Split into focused modules (rate_schema.R, policy_params.R, stacking.R, concordance.R, etc.).
+- [ ] **Module-level side effects** (`06_calculate_rates.R:43-61`): policy params loaded at source time into globals; tryCatch swallows config errors. `calculate_rates_for_revision()` then shadows these with local copies.
+- [ ] **No integration tests for rate calculation engine**: `run_tests_daily_series.R` tests downstream consumers but nothing tests `calculate_rates_for_revision()` itself.
+
+### Minor
+
+- [ ] **Unreachable guard after stop()** (`06_calculate_rates.R:1613-1617`): redundant `if (file.exists(...))` after `stop()` on `!file.exists(...)`.
+- [ ] **`load_usmca_product_shares()` 150-line mode switch** (`helpers.R:1339-1503`): 5 modes in nested if/else; each should be a separate helper.
+- [ ] **`.gitignore` excludes test files by pattern** (`.gitignore:36`): `test_*.R` glob may exclude `tests/test_tpc_comparison.R` from version control.
+- [ ] **`get_country_constants()` hardcoded fallbacks** (`helpers.R:412-446`): ~50 hardcoded codes that go stale if YAML changes; tryCatch hides the real failure.
+- [ ] **CI runs only smoke tests** (`ci.yml`): no rate-calculation regression test.
+
+### Completed
+
+- [x] Fix Annex III over-broad HTS prefixes for 3 headings (fee2769, closes #5) (2026-04-15)
 
 ## Pipeline
 
@@ -79,42 +93,26 @@ Five issues confirmed via code review (see `docs/analysis/section_232_review_mem
 - [x] Authority decomposition misses `deriv_type` for steel derivatives
 - [x] Exported ETR configs miss `steel_derivatives` metal metadata
 - [x] Flat/CBO pipeline for 232 heading/derivative overlaps
+- [ ] Steel-derivative US-melted exemption (`9903.81.92`) — DEFERRED (requires product-condition exemption support)
 
 </details>
 
 <details>
 <summary>NA propagation bugs (2026-04-08)</summary>
 
-- [x] Daily output NA for basic–rev_3: `load_metal_content()` early-return path now zero-fills per-type columns
-- [x] Flat metal-content alternative zeroed derivative 232 rates: stable per-type schema + smarter routing for flat/CBO methods. Root cause: partial per-type column assignment created NAs that propagated through BEA-only code paths.
+- [x] Daily output NA for basic–rev_3
+- [x] Flat metal-content alternative zeroed derivative 232 rates
 
 </details>
 
 <details>
-<summary>Pipeline rebuild (2026-03-25)</summary>
+<summary>Earlier resolved items (2026-03 / 2026-04)</summary>
 
-- [x] Full rebuild with copper + MHD fixes
-- [x] 301 List 4B suspension fix
-- [x] Fix alternative series: pass `policy_params` through
-
-</details>
-
-<details>
-<summary>Full repo review — Section 232 / alternatives / USMCA (2026-04-02)</summary>
-
-- [x] H2 USMCA aggregation, heading exclusion, derivative scraper, policy-date defaults, .pp global leak, flat/CBO fallback, --use-hts-dates, concordance, tied dates, auto-incremental, run-mode tests
-
-</details>
-
-<details>
-<summary>Other resolved items</summary>
-
-- [x] HTS archive reconciliation (2026-03-24)
-- [x] China gap / 301 List 4B suspension (2026-03-25)
-- [x] Authority ETR decomposition gap
-- [x] Blog publication (2026-03-25)
+- [x] Pipeline rebuild with copper + MHD fixes (2026-03-25)
+- [x] 301 List 4B suspension fix (2026-03-25)
+- [x] Full repo review: USMCA, derivatives, policy dates, stacking (2026-04-02)
 - [x] Public release code review (2026-04-02)
 - [x] Policy-date propagation fixtures (2026-04-08)
-- [x] rev_16 232 rate investigation (correct by rev_32)
+- [x] OOM fix: per-revision streaming for rebuild alternatives (2026-04-13)
 
 </details>

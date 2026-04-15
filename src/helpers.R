@@ -865,53 +865,25 @@ has_informative_per_type_shares <- function(df) {
   )
 }
 
-apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutual_exclusion') {
-  # Ensure optional columns exist and have no NAs
-  if (!'rate_s122' %in% names(df)) {
-    df$rate_s122 <- 0
-  } else {
-    df$rate_s122[is.na(df$rate_s122)] <- 0
-  }
-  if (!'rate_section_201' %in% names(df)) {
-    df$rate_section_201 <- 0
-  } else {
-    df$rate_section_201[is.na(df$rate_section_201)] <- 0
-  }
-  if (!'metal_share' %in% names(df)) {
-    df$metal_share <- 1.0
-  } else {
-    df$metal_share[is.na(df$metal_share)] <- 1.0
-  }
 
-  # TPC additive: all authorities stack with no mutual exclusion.
-  # TPC confirmed (March 2026) they mostly agree with mutual exclusion between
-  # 232 and IEEPA, with exceptions for copper (232 + CA/MX fentanyl) and
-  # derivatives (IEEPA on non-metal portion). This mode is retained for
-  # sensitivity analysis, not as a TPC-matching switch.
-  if (stacking_method == 'tpc_additive') {
-    return(
-      df %>%
-        mutate(
-          total_additional = rate_232 + rate_ieepa_recip + rate_ieepa_fent +
-            rate_301 + rate_s122 + rate_section_201 + rate_other,
-          total_rate = base_rate + total_additional
-        )
-    )
-  }
-
-  # Per-metal-type nonmetal_share: only count the metal types that have active
-  # 232 programs covering this product. Steel chapters → steel_share, aluminum
-  # chapters + derivatives → aluminum_share, copper → copper_share.
-  # Steel derivatives (outside ch72-73) use steel_share; aluminum derivatives
-  # (outside ch76) use aluminum_share. The deriv_type column (set by
-  # apply_232_derivatives) determines which type applies.
-  # IEEPA fills everything not claimed by the active 232 program's metal type.
+#' Compute nonmetal_share column for mutual-exclusion stacking
+#'
+#' Shared by apply_stacking_rules() and compute_net_authority_contributions().
+#' Adds a `nonmetal_share` column: for 232 products, the fraction of customs
+#' value NOT covered by the active 232 metal program. IEEPA/S122/fentanyl
+#' apply to this fraction. For non-232 products, nonmetal_share = 0.
+#'
+#' Uses per-metal-type shares (BEA) when available; falls back to aggregate
+#' metal_share (flat/CBO). Post-annex products get nonmetal_share = 0.
+#'
+#' @param df Data frame with rate_232, metal_share, and optionally
+#'   steel_share, aluminum_share, copper_share, is_copper_heading,
+#'   deriv_type, s232_annex columns
+#' @return df with nonmetal_share column added
+compute_nonmetal_share <- function(df) {
   has_per_type <- has_informative_per_type_shares(df)
 
   if (has_per_type) {
-    # Determine which metal type is active per product based on chapter/product type.
-    # Steel chapters: 72/73; aluminum chapters: 76; copper headings: flagged;
-    # derivatives: per deriv_type column (steel or aluminum).
     has_copper_flag <- 'is_copper_heading' %in% names(df)
     has_deriv_type <- 'deriv_type' %in% names(df)
     df <- df %>%
@@ -948,6 +920,46 @@ apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutu
         !is.na(s232_annex) & rate_232 > 0, 0, nonmetal_share
       ))
   }
+
+  return(df)
+}
+
+
+apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutual_exclusion') {
+  # Ensure optional columns exist and have no NAs
+  if (!'rate_s122' %in% names(df)) {
+    df$rate_s122 <- 0
+  } else {
+    df$rate_s122[is.na(df$rate_s122)] <- 0
+  }
+  if (!'rate_section_201' %in% names(df)) {
+    df$rate_section_201 <- 0
+  } else {
+    df$rate_section_201[is.na(df$rate_section_201)] <- 0
+  }
+  if (!'metal_share' %in% names(df)) {
+    df$metal_share <- 1.0
+  } else {
+    df$metal_share[is.na(df$metal_share)] <- 1.0
+  }
+
+  # TPC additive: all authorities stack with no mutual exclusion.
+  # TPC confirmed (March 2026) they mostly agree with mutual exclusion between
+  # 232 and IEEPA, with exceptions for copper (232 + CA/MX fentanyl) and
+  # derivatives (IEEPA on non-metal portion). This mode is retained for
+  # sensitivity analysis, not as a TPC-matching switch.
+  if (stacking_method == 'tpc_additive') {
+    return(
+      df %>%
+        mutate(
+          total_additional = rate_232 + rate_ieepa_recip + rate_ieepa_fent +
+            rate_301 + rate_s122 + rate_section_201 + rate_other,
+          total_rate = base_rate + total_additional
+        )
+    )
+  }
+
+  df <- compute_nonmetal_share(df)
 
   df <- df %>%
     mutate(
@@ -1017,39 +1029,7 @@ compute_net_authority_contributions <- function(df, cty_china = '5700',
     )
   }
 
-  has_per_type <- has_informative_per_type_shares(df)
-
-  if (has_per_type) {
-    has_copper_flag <- 'is_copper_heading' %in% names(df)
-    has_deriv_type <- 'deriv_type' %in% names(df)
-    df <- df %>%
-      mutate(
-        .ch2 = substr(hts10, 1, 2),
-        .active_type_share = case_when(
-          rate_232 > 0 & .ch2 %in% c('72', '73')                    ~ steel_share,
-          rate_232 > 0 & .ch2 == '76'                                ~ aluminum_share,
-          rate_232 > 0 & has_copper_flag & is_copper_heading         ~ copper_share,
-          rate_232 > 0 & has_deriv_type & deriv_type == 'steel'      ~ steel_share,
-          rate_232 > 0 & has_deriv_type & deriv_type == 'aluminum'   ~ aluminum_share,
-          rate_232 > 0 & metal_share < 1.0                           ~ aluminum_share,
-          TRUE ~ 0
-        ),
-        nonmetal_share = if_else(rate_232 > 0 & .active_type_share > 0,
-                                  1 - .active_type_share, 0)
-      ) %>%
-      select(-.ch2, -.active_type_share)
-  } else {
-    df <- df %>%
-      mutate(nonmetal_share = if_else(rate_232 > 0 & metal_share < 1.0, 1 - metal_share, 0))
-  }
-
-  # Post-annex full-value override (mirrors apply_stacking_rules)
-  if ('s232_annex' %in% names(df)) {
-    df <- df %>%
-      mutate(nonmetal_share = if_else(
-        !is.na(s232_annex) & rate_232 > 0, 0, nonmetal_share
-      ))
-  }
+  df <- compute_nonmetal_share(df)
 
   df %>%
     mutate(
