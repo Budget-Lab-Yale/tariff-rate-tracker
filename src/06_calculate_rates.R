@@ -104,28 +104,55 @@ calculate_rates_fast <- function(products, ch99_data, countries, stacking_method
 
   message('  Product-Ch99 pairs with rates: ', nrow(product_ch99_rates))
 
-  # For each product-country, determine applicable rates
-  # This requires checking country applicability for each Ch99 entry
+  # For each product-country, determine applicable rates.
+  # Pre-compute a (ch99_code, country) applicability mapping from the ~100-300
+  # ch99 entries, then inner_join against product refs. This replaces the prior
+  # expand_grid + rowwise approach that created ~2M rows and called
+  # check_country_applies() per row.
 
-  # Rename list columns to avoid name collision with the 'countries' argument
-  product_ch99_rates <- product_ch99_rates %>%
-    rename(ch99_countries = countries, ch99_exempt = exempt_countries)
+  # Build Census <-> ISO bidirectional lookup
+  census_to_iso <- setNames(names(ISO_TO_CENSUS), ISO_TO_CENSUS)
 
-  # Create full expansion: product x ch99 x country
-  country_vec <- countries  # local copy to avoid any ambiguity
+  # Pre-compute applicable Census country codes per ch99 entry
+  ch99_for_map <- ch99_lookup %>%
+    select(ch99_code, country_type, countries, exempt_countries) %>%
+    distinct(ch99_code, .keep_all = TRUE)
+
+  country_vec <- countries
+  applicable_pairs <- map_dfr(seq_len(nrow(ch99_for_map)), function(i) {
+    row <- ch99_for_map[i, ]
+    applicable <- switch(
+      row$country_type,
+      'all' = country_vec,
+      'all_except' = {
+        exempt_iso <- row$exempt_countries[[1]]
+        exempt_census <- as.character(ISO_TO_CENSUS[exempt_iso])
+        exempt_census <- exempt_census[!is.na(exempt_census)]
+        # Exempt entries may also be raw Census codes
+        setdiff(country_vec, unique(c(exempt_census, exempt_iso)))
+      },
+      'specific' = {
+        specific_iso <- row$countries[[1]]
+        specific_census <- as.character(ISO_TO_CENSUS[specific_iso])
+        specific_census <- specific_census[!is.na(specific_census)]
+        # Match country_vec against both Census-converted and raw codes
+        intersect(country_vec, unique(c(specific_census, specific_iso)))
+      },
+      character(0)  # 'unknown' and others: fail-closed, no countries
+    )
+    if (length(applicable) > 0) {
+      tibble(ch99_code = row$ch99_code, country = applicable)
+    } else {
+      tibble(ch99_code = character(), country = character())
+    }
+  })
+
+  message('  Applicability pairs: ', nrow(applicable_pairs),
+          ' (from ', nrow(ch99_for_map), ' ch99 entries x ', length(country_vec), ' countries)')
+
+  # Join: product-ch99 refs × applicable countries (replaces expand_grid + rowwise)
   full_expansion <- product_ch99_rates %>%
-    tidyr::expand_grid(country = country_vec)
-
-  message('  Full expansion: ', nrow(full_expansion))
-
-  # Check country applicability (vectorized where possible)
-  full_expansion <- full_expansion %>%
-    rowwise() %>%
-    mutate(
-      applies = check_country_applies(country, country_type, ch99_countries, ch99_exempt)
-    ) %>%
-    ungroup() %>%
-    filter(applies)
+    inner_join(applicable_pairs, by = 'ch99_code', relationship = 'many-to-many')
 
   message('  After country filtering: ', nrow(full_expansion))
 
