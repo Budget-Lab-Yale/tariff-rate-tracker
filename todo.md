@@ -60,9 +60,7 @@ Critical and structural issues identified via full-repo code review.
 
 ### Minor
 
-- [ ] **Unreachable guard after stop()** (`06_calculate_rates.R:1613-1617`): redundant `if (file.exists(...))` after `stop()` on `!file.exists(...)`.
-- [ ] **`load_usmca_product_shares()` 150-line mode switch** (`helpers.R:1339-1503`): 5 modes in nested if/else; each should be a separate helper.
-- [ ] **`get_country_constants()` hardcoded fallbacks** (`helpers.R:412-446`): ~50 hardcoded codes that go stale if YAML changes; tryCatch hides the real failure.
+- [x] **Unreachable guard after stop()** (`06_calculate_rates.R`): redundant `if (file.exists(...))` after `stop()` on `!file.exists(...)`. Removed dead branch.
 
 ### Completed
 

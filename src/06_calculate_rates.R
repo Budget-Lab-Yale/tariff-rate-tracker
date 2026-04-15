@@ -1642,8 +1642,7 @@ calculate_rates_for_revision <- function(
     stop('s301_product_lists.csv not found at ', s301_products_path,
          '\nSection 301 is a major tariff authority — cannot build without product lists.')
   }
-  if (file.exists(s301_products_path)) {
-    s301_products <- read_csv(s301_products_path, col_types = cols(
+  s301_products <- read_csv(s301_products_path, col_types = cols(
       hts8 = col_character(), list = col_character(), ch99_code = col_character()
     ))
 
@@ -1749,7 +1748,6 @@ calculate_rates_for_revision <- function(
                 n_301_total, ' China product-country pairs with 301 rate')
       }
     }
-  }
 
   # 6b. Apply Section 122 blanket tariff (non-discriminatory, all countries)
   #     Section 122 (Trade Act of 1974) is a uniform tariff applied after SCOTUS
