@@ -48,8 +48,7 @@ Critical and structural issues identified via full-repo code review.
 
 ### Critical
 
-- [ ] **Duplicated nonmetal_share logic** (`helpers.R`): `apply_stacking_rules()` and `compute_net_authority_contributions()` each contain identical ~50-line blocks computing `nonmetal_share` (per-type share selection, annex override, conditional branching). Any fix to one copy not mirrored to the other silently diverges total_rate from authority decomposition. Extract into a single shared helper.
-- [ ] **Silent row multiplication from unchecked left_join** (`06_calculate_rates.R`): ~15 `left_join` operations on `rates` with no before/after row-count assertions. A duplicate key in any join table silently multiplies rows, producing incorrect rates. Add `relationship = 'many-to-one'` or post-join nrow checks.
+- [x] **Silent row multiplication from unchecked left_join** (`06_calculate_rates.R`): ~15 `left_join` operations on `rates` with no before/after row-count assertions. A duplicate key in any join table silently multiplies rows, producing incorrect rates. Add `relationship = 'many-to-one'` or post-join nrow checks.
 - [ ] **rowwise() on large expansion** (`06_calculate_rates.R:122-128`): `check_country_applies()` called row-by-row via `rowwise() %>% mutate()` on potentially millions of rows. Should be vectorized.
 
 ### Structural
@@ -70,6 +69,8 @@ Critical and structural issues identified via full-repo code review.
 ### Completed
 
 - [x] Fix Annex III over-broad HTS prefixes for 3 headings (fee2769, closes #5) (2026-04-15)
+- [x] Extract `compute_nonmetal_share()` to deduplicate stacking logic (f83f1b6) (2026-04-15)
+- [x] Add `relationship = 'many-to-one'` to 21 lookup joins in `06_calculate_rates.R` (2026-04-15)
 
 ## Pipeline
 
