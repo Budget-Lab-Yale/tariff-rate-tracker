@@ -54,7 +54,7 @@ Critical and structural issues identified via full-repo code review.
 ### Structural
 
 - [x] **Module-level side effects** (`06_calculate_rates.R:43-61`): policy params loaded at source time into globals; tryCatch swallows config errors. Globals only serve `calculate_rates_fast()` and `check_country_applies()`. Fix: pass `ISO_TO_CENSUS` and `CTY_CHINA` as parameters, remove module-level globals, fail loudly at call time. ~20 line change.
-- [ ] **No integration tests for extract_* functions**: `extract_ieepa_rates()`, `extract_section232_rates()`, `extract_section122_rates()`, `extract_ieepa_fentanyl_rates()`, `extract_usmca_eligibility()` all have zero unit test coverage. These parse raw HTS JSON at the system boundary. Highest-value test: fixture-based assertions on a known revision's JSON.
+- [x] **No integration tests for extract_* functions**: `extract_ieepa_rates()`, `extract_section232_rates()`, `extract_section122_rates()`, `extract_ieepa_fentanyl_rates()`, `extract_usmca_eligibility()` all have zero unit test coverage. These parse raw HTS JSON at the system boundary. Highest-value test: fixture-based assertions on a known revision's JSON.
 - [ ] **`helpers.R` is a 1,950-line junk drawer**: 46 functions across 12+ categories. Natural split: `policy_params.R`, `stacking.R`, `rate_schema.R`, `data_loaders.R`, `revisions.R`. Requires updating `source()` calls in 14+ files. Only worth it before onboarding collaborators.
 - [ ] **`calculate_rates_for_revision()` is 1,500+ lines** (`06_calculate_rates.R`): 17 policy steps in one function. Each step is numbered and commented; extract into composable step functions incrementally as individual steps need modification. Low operational risk.
 
@@ -62,9 +62,7 @@ Critical and structural issues identified via full-repo code review.
 
 - [ ] **Unreachable guard after stop()** (`06_calculate_rates.R:1613-1617`): redundant `if (file.exists(...))` after `stop()` on `!file.exists(...)`.
 - [ ] **`load_usmca_product_shares()` 150-line mode switch** (`helpers.R:1339-1503`): 5 modes in nested if/else; each should be a separate helper.
-- [ ] **`.gitignore` excludes test files by pattern** (`.gitignore:36`): `test_*.R` glob may exclude `tests/test_tpc_comparison.R` from version control.
 - [ ] **`get_country_constants()` hardcoded fallbacks** (`helpers.R:412-446`): ~50 hardcoded codes that go stale if YAML changes; tryCatch hides the real failure.
-- [ ] **CI runs only smoke tests** (`ci.yml`): no rate-calculation regression test.
 
 ### Completed
 
@@ -73,6 +71,8 @@ Critical and structural issues identified via full-repo code review.
 - [x] Add `relationship = 'many-to-one'` to 21 lookup joins in `06_calculate_rates.R` (2026-04-15)
 - [x] Replace `rowwise()` expansion with pre-computed applicability mapping in `calculate_rates_fast()` (2026-04-15)
 - [x] Remove module-level side effects from `06_calculate_rates.R` — pass constants as parameters (2026-04-15)
+- [x] Add `tests/test_rate_calculation.R`: 50 fixture-based tests for extract_*, invariants, stacking, parsing, schema (2026-04-15)
+- [x] Wire `test_rate_calculation.R` into CI (2026-04-15)
 
 ## Pipeline
 

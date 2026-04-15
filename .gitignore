@@ -33,7 +33,7 @@ tmpclaude-*
 *.tmp
 *.log
 check_*.R
-test_*.R
+/test_*.R
 test_*.txt
 analyze_*.R
 _*.R

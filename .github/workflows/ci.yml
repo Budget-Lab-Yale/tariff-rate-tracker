@@ -1,0 +1,52 @@
+name: R CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up R
+        uses: r-lib/actions/setup-r@v2
+
+      - name: Install R dependencies
+        uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: |
+            any::tidyverse
+            any::jsonlite
+            any::yaml
+            any::here
+
+      - name: Cache HTS archives
+        uses: actions/cache@v4
+        with:
+          path: data/hts_archives
+          key: ${{ runner.os }}-hts-${{ hashFiles('config/revision_dates.csv', 'src/02_download_hts.R') }}
+
+      - name: Download required HTS archives
+        run: Rscript src/02_download_hts.R
+
+      - name: Run preflight
+        run: Rscript src/preflight.R
+
+      - name: Run daily-series smoke tests
+        run: Rscript tests/run_tests_daily_series.R
+
+      - name: Run rate-calculation tests
+        run: Rscript tests/test_rate_calculation.R
