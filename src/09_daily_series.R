@@ -301,7 +301,9 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   return(list(
     daily_overall = daily_overall,
     daily_by_country = daily_by_country,
-    daily_by_authority = daily_by_authority
+    daily_by_authority = daily_by_authority,
+    agg_by_country = agg_by_country,
+    agg_by_authority = agg_by_authority
   ))
 }
 
@@ -730,12 +732,51 @@ run_daily_series <- function(ts, imports = NULL, policy_params = NULL) {
 #' @param variant Character variant name (e.g., 'no_ieepa')
 #' @param out_dir Output directory
 save_alternative_output <- function(daily_overall, variant,
+                                     agg_by_authority = NULL,
+                                     agg_by_country = NULL,
                                      out_dir = here('output', 'alternative')) {
   if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
   daily_overall <- daily_overall %>% mutate(variant = variant)
   fname <- paste0('daily_overall_', variant, '.csv')
   write_csv(daily_overall, file.path(out_dir, fname))
   message('  Saved: ', fname, ' (', nrow(daily_overall), ' rows)')
+
+  # By-authority: interval-encoded (no daily expansion needed — small)
+  if (!is.null(agg_by_authority) && nrow(agg_by_authority) > 0) {
+    agg_by_authority <- agg_by_authority %>% mutate(variant = variant)
+    fname_auth <- paste0('by_authority_', variant, '.csv')
+    write_csv(agg_by_authority, file.path(out_dir, fname_auth))
+    message('  Saved: ', fname_auth, ' (', nrow(agg_by_authority), ' rows)')
+  }
+
+  # By-country: interval-encoded, trimmed columns (keeps size manageable)
+  if (!is.null(agg_by_country) && nrow(agg_by_country) > 0) {
+    # Add country names if not already present
+    if (!'country_name' %in% names(agg_by_country)) {
+      census_path <- here('resources', 'census_codes.csv')
+      if (file.exists(census_path)) {
+        cnames <- read_csv(census_path, col_types = cols(.default = col_character())) %>%
+          select(country = Code, country_name = Name)
+        partner_path <- here('resources', 'country_partner_mapping.csv')
+        if (file.exists(partner_path)) {
+          partners <- read_csv(partner_path, col_types = cols(.default = col_character())) %>%
+            select(country = cty_code, country_abbr = partner)
+          cnames <- cnames %>% left_join(partners, by = 'country')
+        }
+        agg_by_country <- agg_by_country %>%
+          left_join(cnames, by = 'country', relationship = 'many-to-one')
+      }
+    }
+    trimmed <- agg_by_country %>%
+      select(any_of(c('country', 'country_name', 'country_abbr',
+                       'revision', 'valid_from', 'valid_until',
+                       'mean_additional_exposed', 'mean_total_exposed',
+                       'weighted_etr'))) %>%
+      mutate(variant = variant)
+    fname_cty <- paste0('by_country_', variant, '.csv')
+    write_csv(trimmed, file.path(out_dir, fname_cty))
+    message('  Saved: ', fname_cty, ' (', nrow(trimmed), ' rows)')
+  }
 }
 
 
@@ -852,6 +893,8 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
   n_revs <- nrow(rev_intervals)
   message('  Aggregating ', n_revs, ' revisions (per-revision mode)...')
   daily_parts <- vector('list', n_revs)
+  auth_parts <- vector('list', n_revs)
+  country_parts <- vector('list', n_revs)
   for (i in seq_len(n_revs)) {
     rev_id <- rev_intervals$revision[i]
     snap_path <- file.path(tmp_dir, paste0(rev_id, '.rds'))
@@ -866,6 +909,8 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
       build_daily_aggregates(snapshot, imports = imports, policy_params = pp_override)
     )
     daily_parts[[i]] <- daily$daily_overall
+    auth_parts[[i]] <- daily$agg_by_authority
+    country_parts[[i]] <- daily$agg_by_country
     rm(snapshot, daily)
     gc()
 
@@ -875,7 +920,9 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
   }
 
   daily_overall <- bind_rows(daily_parts)
-  save_alternative_output(daily_overall, variant_name)
+  save_alternative_output(daily_overall, variant_name,
+                           agg_by_authority = bind_rows(auth_parts),
+                           agg_by_country = bind_rows(country_parts))
 
   message('  Done: ', variant_name)
   return(invisible(daily_overall))
@@ -923,7 +970,9 @@ run_alternative_series <- function(ts, imports = NULL, policy_params = NULL,
       ts_scenario <- apply_scenario(ts, scenario_name, scenarios_path)
       daily <- build_daily_aggregates(ts_scenario, imports = imports,
                                        policy_params = policy_params)
-      save_alternative_output(daily$daily_overall, scenario_name)
+      save_alternative_output(daily$daily_overall, scenario_name,
+                               agg_by_authority = daily$agg_by_authority,
+                               agg_by_country = daily$agg_by_country)
     }, error = function(e) {
       message('  FAILED (', scenario_name, '): ', conditionMessage(e))
     })
