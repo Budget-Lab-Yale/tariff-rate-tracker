@@ -75,6 +75,7 @@ Critical and structural issues identified via full-repo code review.
 
 ## Pipeline
 
+- [ ] **Update 2026 monthly USMCA shares**: DataWeb SPI data for Feb 2026+ not yet available. `tariff-etr-eval` carries forward Jan 2026 shares for Feb 2026 in its counterfactual ladder. Update `resources/usmca_product_shares_2026_MM.csv` files as DataWeb releases monthly data, then re-run the ETR eval R data pull.
 - [ ] Generic pharma country-specific exemption shares (per TPC feedback; low priority)
   - Planning note: `docs/analysis/generic_pharma_exemption_share_plan_2026-03-24.md`
 
