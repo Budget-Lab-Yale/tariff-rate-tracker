@@ -111,6 +111,20 @@ load_usmca_product_shares <- function(policy_params = NULL, path = NULL, effecti
     mode <- policy_params$USMCA_SHARES$mode %||% 'annual'
     year <- policy_params$USMCA_SHARES$year %||% NULL
 
+    if (mode == 'none') {
+      # Scenario: assume 0% USMCA utilization for every CA/MX product-country pair.
+      # Return an empty tibble with the correct schema. The caller in
+      # src/06_calculate_rates.R reads `pp$USMCA_SHARES$mode` directly and
+      # short-circuits the USMCA application block entirely when mode == 'none',
+      # so this tibble is never joined against real rates.
+      message('  USMCA mode = none: treating all CA/MX pairs as 0% utilization')
+      return(tibble(
+        hts10 = character(0),
+        cty_code = character(0),
+        usmca_share = numeric(0)
+      ))
+    }
+
     if (mode == 'h2_average') {
       # Average months 7-12: post-tariff steady-state USMCA utilization
       year <- year %||% 2025L

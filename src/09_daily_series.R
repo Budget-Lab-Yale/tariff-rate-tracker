@@ -800,7 +800,8 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
                                           archive_dir = here('data', 'hts_archives'),
                                           revision_dates_path = here('config', 'revision_dates.csv'),
                                           census_codes_path = here('resources', 'census_codes.csv'),
-                                          policy_params = NULL) {
+                                          policy_params = NULL,
+                                          snapshot_out_dir = NULL) {
 
   message('\n  Building alternative timeseries: ', variant_name)
 
@@ -828,10 +829,18 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
   available <- get_available_revisions_all_years(all_revisions, archive_dir)
   revisions_to_process <- all_revisions[all_revisions %in% available]
 
-  # Process each revision — spill snapshots to disk to avoid OOM
-  tmp_dir <- tempfile(paste0('alt_snapshots_', variant_name, '_'))
-  dir.create(tmp_dir)
-  on.exit(unlink(tmp_dir, recursive = TRUE), add = TRUE)
+  # Per-revision snapshots: spill to tempdir (default) or persist to a caller-
+  # specified directory (when snapshot_out_dir is non-null — used by the scenario
+  # harness to write to data/timeseries/<scenario>/).
+  if (is.null(snapshot_out_dir)) {
+    tmp_dir <- tempfile(paste0('alt_snapshots_', variant_name, '_'))
+    dir.create(tmp_dir)
+    on.exit(unlink(tmp_dir, recursive = TRUE), add = TRUE)
+  } else {
+    tmp_dir <- snapshot_out_dir
+    dir.create(tmp_dir, recursive = TRUE, showWarnings = FALSE)
+    message('  Persisting per-revision snapshots to: ', tmp_dir)
+  }
 
   n_saved <- 0L
   for (rev_id in revisions_to_process) {
@@ -855,7 +864,7 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
         fentanyl_rates = fentanyl_rates,
         policy_params = policy_params %||% pp_override
       )
-      saveRDS(rates, file.path(tmp_dir, paste0(rev_id, '.rds')))
+      saveRDS(rates, file.path(tmp_dir, paste0('snapshot_', rev_id, '.rds')))
       n_saved <- n_saved + 1L
       rm(rates, hts_raw, ch99_data, products, ieepa_rates,
          fentanyl_rates, s232_rates, usmca)
@@ -871,8 +880,8 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
   }
 
   # Build revision intervals from saved snapshots (without loading data)
-  snap_files <- list.files(tmp_dir, pattern = '\\.rds$', full.names = TRUE)
-  revs_built <- tools::file_path_sans_ext(basename(snap_files))
+  snap_files <- list.files(tmp_dir, pattern = '^snapshot_.*\\.rds$', full.names = TRUE)
+  revs_built <- sub('^snapshot_', '', tools::file_path_sans_ext(basename(snap_files)))
 
   horizon_end <- pp_override$SERIES_HORIZON_END %||% Sys.Date()
   last_eff <- max(rev_dates$effective_date[rev_dates$revision %in% revs_built])
@@ -897,7 +906,7 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
   country_parts <- vector('list', n_revs)
   for (i in seq_len(n_revs)) {
     rev_id <- rev_intervals$revision[i]
-    snap_path <- file.path(tmp_dir, paste0(rev_id, '.rds'))
+    snap_path <- file.path(tmp_dir, paste0('snapshot_', rev_id, '.rds'))
     if (!file.exists(snap_path)) next
 
     snapshot <- readRDS(snap_path)
@@ -988,8 +997,6 @@ run_alternative_series <- function(ts, imports = NULL, policy_params = NULL,
       pp_usmca <- pp
       pp_usmca$USMCA_SHARES$year <- 2025
       pp_usmca$USMCA_SHARES$mode <- 'annual'
-      pp_usmca$usmca_shares$year <- 2025
-      pp_usmca$usmca_shares$mode <- 'annual'
       build_alternative_timeseries(pp_usmca, 'usmca_annual', imports = imports, policy_params = pp_usmca)
     }, error = function(e) {
       message('  FAILED (usmca_annual): ', conditionMessage(e))
@@ -1000,8 +1007,6 @@ run_alternative_series <- function(ts, imports = NULL, policy_params = NULL,
       pp_usmca_m <- pp
       pp_usmca_m$USMCA_SHARES$mode <- 'monthly'
       pp_usmca_m$USMCA_SHARES$year <- 2025
-      pp_usmca_m$usmca_shares$mode <- 'monthly'
-      pp_usmca_m$usmca_shares$year <- 2025
       build_alternative_timeseries(pp_usmca_m, 'usmca_monthly', imports = imports, policy_params = pp_usmca_m)
     }, error = function(e) {
       message('  FAILED (usmca_monthly): ', conditionMessage(e))
@@ -1012,8 +1017,6 @@ run_alternative_series <- function(ts, imports = NULL, policy_params = NULL,
       pp_usmca_24 <- pp
       pp_usmca_24$USMCA_SHARES$year <- 2024
       pp_usmca_24$USMCA_SHARES$mode <- 'annual'
-      pp_usmca_24$usmca_shares$year <- 2024
-      pp_usmca_24$usmca_shares$mode <- 'annual'
       build_alternative_timeseries(pp_usmca_24, 'usmca_2024', imports = imports, policy_params = pp_usmca_24)
     }, error = function(e) {
       message('  FAILED (usmca_2024): ', conditionMessage(e))
@@ -1025,9 +1028,6 @@ run_alternative_series <- function(ts, imports = NULL, policy_params = NULL,
       pp_usmca_f$USMCA_SHARES$mode <- 'fixed_month'
       pp_usmca_f$USMCA_SHARES$year <- 2025
       pp_usmca_f$USMCA_SHARES$month <- 12
-      pp_usmca_f$usmca_shares$mode <- 'fixed_month'
-      pp_usmca_f$usmca_shares$year <- 2025
-      pp_usmca_f$usmca_shares$month <- 12
       build_alternative_timeseries(pp_usmca_f, 'usmca_dec2025', imports = imports, policy_params = pp_usmca_f)
     }, error = function(e) {
       message('  FAILED (usmca_dec2025): ', conditionMessage(e))

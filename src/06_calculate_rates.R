@@ -24,6 +24,7 @@
 #   5. Section 232 derivatives (blanket, product list + metal scaling)
 #   6. Section 301 (blanket, China product list)
 #   6b. Section 122 (blanket, all countries, Annex II exempt)
+#   6b2. Dense grid expansion (surface MFN-only product-country pairs)
 #   6c. MFN exemption shares (FTA/GSP preference adjustment to base_rate)
 #   6d. Floor recomputation (recompute IEEPA floor against post-MFN base_rate)
 #   7. USMCA exemptions (CA/MX eligible products)
@@ -454,6 +455,110 @@ apply_232_derivatives <- function(rates, products, ch99_data, s232_rates, countr
   }
 
   return(list(rates = rates, deriv_matched = deriv_matched))
+}
+
+
+# =============================================================================
+# Grid Densification Helper
+# =============================================================================
+
+#' Ensure rates has a row for every (hts10, country) pair
+#'
+#' Expands `rates` to cover the full HS10 x country universe. Pairs not already
+#' present are added with `base_rate` from the parsed products table and zero
+#' for every authority column. Pairs that already exist are left unchanged.
+#'
+#' Used in two contexts:
+#'   1. Unconditionally after the blanket-authority passes (232/301/s122/fent/
+#'      IEEPA recip) to surface MFN-only product-country pairs that would
+#'      otherwise be dropped by the footnote-based `calculate_rates_fast()` path.
+#'   2. Inside the IEEPA-invalidation branch, where reciprocal + fentanyl are
+#'      zeroed out and the grid expansion those passes normally perform is
+#'      skipped — this helper restores the dense grid so matched_imports
+#'      doesn't drop discontinuously.
+#'
+#' @param rates Current rates tibble (must have hts10, country, and the seven
+#'   rate_* columns enumerated in REQUIRED_RATE_COLS below)
+#' @param products Product data from parse_products()
+#' @param countries Vector of Census country codes
+#' @param context Short label used in the log message (e.g., 'MFN-only',
+#'   'post-IEEPA'). Purely informational.
+#' @return Rates tibble with full grid coverage
+ensure_dense_grid <- function(rates, products, countries, context = 'MFN-only') {
+
+  # Required input columns — function silently produces garbage if missing.
+  REQUIRED_RATE_COLS <- c(
+    'hts10', 'country',
+    'rate_232', 'rate_301', 'rate_ieepa_recip', 'rate_ieepa_fent',
+    'rate_s122', 'rate_section_201', 'rate_other'
+  )
+  missing_required <- setdiff(REQUIRED_RATE_COLS, names(rates))
+  stopifnot(
+    'ensure_dense_grid: rates is missing required columns' = length(missing_required) == 0
+  )
+
+  # Columns that may be NA on newly-added MFN-only rows. Each entry is here
+  # because an explicit downstream check (NA-guard, coalesce, or AND with a
+  # FALSE predicate) makes the NA safe. Adding a new column to `rates` upstream
+  # of this helper requires either listing it here or extending `new_pairs`
+  # below to set a default.
+  #   ieepa_type           — Step 6d floor mask ANDs with rate_ieepa_recip > 0,
+  #                          which is 0 for MFN-only rows; NA && FALSE -> FALSE.
+  #   s232_annex           — Step 6e annex3 mask uses !is.na() guard.
+  #   s232_usmca_eligible  — Step 7 USMCA share path uses coalesce(., FALSE).
+  #   deriv_type           — NA matches the line-260 initializer ("not a
+  #                          derivative"); stacking checks gate on
+  #                          !is.na(deriv_type).
+  SAFE_NA_COLUMNS <- c('ieepa_type', 's232_annex', 's232_usmca_eligible',
+                       'deriv_type')
+
+  # Columns `new_pairs` sets explicitly (must match the mutate() below).
+  # `statutory_rate_232` is set to 0 here so MFN-only rows carry a valid
+  # statutory rate, not NA, into the remaining statutory_rate_* save in 6b2.
+  EXPLICIT_SET_COLUMNS <- c(REQUIRED_RATE_COLS, 'base_rate', 'statutory_rate_232')
+
+  set_cols <- c(EXPLICIT_SET_COLUMNS, SAFE_NA_COLUMNS)
+  unaccounted <- setdiff(names(rates), set_cols)
+  if (length(unaccounted) > 0) {
+    stop(
+      'ensure_dense_grid: rates has columns not in EXPLICIT_SET_COLUMNS or ',
+      'SAFE_NA_COLUMNS — bind_rows would inject NA for new MFN-only pairs ',
+      'on these columns: ', paste(unaccounted, collapse = ', '),
+      '. Add a default to new_pairs below or list the column in SAFE_NA_COLUMNS ',
+      'with a justification comment.'
+    )
+  }
+
+  existing_pairs <- rates %>% select(hts10, country)
+
+  all_products_base <- products %>%
+    select(hts10, base_rate) %>%
+    mutate(base_rate = coalesce(base_rate, 0))
+
+  new_pairs <- all_products_base %>%
+    expand_grid(country = countries) %>%
+    anti_join(existing_pairs, by = c('hts10', 'country')) %>%
+    mutate(
+      rate_232 = 0, rate_301 = 0, rate_ieepa_recip = 0,
+      rate_ieepa_fent = 0, rate_s122 = 0,
+      rate_section_201 = 0, rate_other = 0,
+      statutory_rate_232 = 0
+    )
+
+  # At the post-IEEPA call site `rates` does not yet have statutory_rate_232
+  # (it's set in step 4c). Drop the column from new_pairs in that case so
+  # bind_rows doesn't introduce it prematurely.
+  if (!'statutory_rate_232' %in% names(rates)) {
+    new_pairs <- new_pairs %>% select(-statutory_rate_232)
+  }
+
+  if (nrow(new_pairs) > 0) {
+    message('  Grid expansion (', context, '): adding ', nrow(new_pairs),
+            ' product-country pairs (base rate only)')
+    rates <- bind_rows(rates, new_pairs)
+  }
+
+  rates
 }
 
 
@@ -917,29 +1022,8 @@ calculate_rates_for_revision <- function(
   #     Fix: expand the grid to all products x all countries with zero
   #     additional rates. Downstream blanket tariffs (232, 301, s122) then
   #     fill in their rates on this complete grid.
-  ieepa_was_invalidated <- !is.null(ieepa_invalidation) &&
-    as.Date(effective_date) >= ieepa_invalidation
-
-  if (ieepa_was_invalidated) {
-    existing_pairs <- rates %>% select(hts10, country)
-
-    all_products_base <- products %>%
-      select(hts10, base_rate) %>%
-      mutate(base_rate = coalesce(base_rate, 0))
-
-    new_grid_pairs <- all_products_base %>%
-      tidyr::expand_grid(country = countries) %>%
-      anti_join(existing_pairs, by = c('hts10', 'country')) %>%
-      mutate(
-        rate_232 = 0, rate_301 = 0, rate_ieepa_recip = 0,
-        rate_ieepa_fent = 0, rate_s122 = 0, rate_section_201 = 0, rate_other = 0
-      )
-
-    if (nrow(new_grid_pairs) > 0) {
-      message('  Post-IEEPA grid expansion: adding ', nrow(new_grid_pairs),
-              ' product-country pairs (base rate only)')
-      rates <- bind_rows(rates, new_grid_pairs)
-    }
+  if (!is.null(ieepa_invalidation) && as.Date(effective_date) >= ieepa_invalidation) {
+    rates <- ensure_dense_grid(rates, products, countries, context = 'post-IEEPA')
   }
 
   # 4. Apply Section 232 base tariff (blanket, chapter/heading)
@@ -1808,6 +1892,16 @@ calculate_rates_for_revision <- function(
             length(s122_exempt_hts8), ' HTS8 exempt)')
   }
 
+  # 6b2. Dense grid expansion.
+  #      All blanket-authority passes (232/301/s122/fent/IEEPA recip) are complete.
+  #      Any product-country pair that still isn't in `rates` has no applicable
+  #      footnote or blanket authority — it's MFN-only. Surface those pairs so
+  #      they receive FTA/GSP adjustment (6c), USMCA treatment (7), and enter
+  #      downstream aggregations with their base_rate instead of being silently
+  #      dropped. Placed before the statutory_rate_* save so new pairs pick up
+  #      statutory_rate_* = 0 naturally from the zero authority columns.
+  rates <- ensure_dense_grid(rates, products, countries, context = 'MFN-only')
+
   # Save statutory rates for all non-232 authorities (pre-USMCA, pre-stacking).
   # 232 statutory rates are already saved as statutory_rate_232 in apply_232_derivatives().
   rates <- rates %>%
@@ -1900,7 +1994,33 @@ calculate_rates_for_revision <- function(
   # enter under USMCA have share ≈ 0, fully-claiming products have share ≈ 1).
   # Also applies to 232 auto/MHD products flagged s232_usmca_eligible (T1 fix).
   # Falls back to binary eligibility (S/S+ → zero rate) if shares not available.
-  if (!is.null(usmca) && nrow(usmca) > 0) {
+  #
+  # Scenario override: USMCA_SHARES$mode == 'none' means "0% utilization — no
+  # importer claims USMCA on any product-country pair". Skip the block entirely
+  # so CA/MX rates are left at their pre-USMCA values (neither the share path
+  # nor the binary S/S+ fallback fires). The data_loader for mode='none' returns
+  # an empty tibble; the short-circuit here is what actually implements the
+  # scenario semantics.
+  usmca_mode <- pp$USMCA_SHARES$mode %||% 'h2_average'
+  if (identical(usmca_mode, 'none')) {
+    # Skip rate application, but still populate usmca_eligible from the HTS
+    # "special" field so the diagnostic flag retains its meaning in the
+    # snapshot (product has S/S+ in HTS, independent of scenario utilization).
+    # This matches the semantics of the prior sentinel-row approach on the
+    # previously-built usmca_none snapshots.
+    message('  USMCA: mode=none, skipping rate exemptions (usmca_eligible retained from HTS)')
+    if (!is.null(usmca) && nrow(usmca) > 0) {
+      rates <- rates %>%
+        left_join(
+          usmca %>% select(hts10, usmca_eligible),
+          by = 'hts10',
+          relationship = 'many-to-one'
+        ) %>%
+        mutate(usmca_eligible = coalesce(usmca_eligible, FALSE))
+    } else {
+      rates <- rates %>% mutate(usmca_eligible = FALSE)
+    }
+  } else if (!is.null(usmca) && nrow(usmca) > 0) {
     rates <- rates %>%
       left_join(
         usmca %>% select(hts10, usmca_eligible),
