@@ -509,8 +509,44 @@ ensure_dense_grid <- function(rates, products, countries, context = 'MFN-only') 
   #   deriv_type           — NA matches the line-260 initializer ("not a
   #                          derivative"); stacking checks gate on
   #                          !is.na(deriv_type).
+  #   metal_share          — apply_stacking_rules() coalesces NA -> 1.0; also
+  #                          only read when rate_232 > 0, which is 0 here.
+  #   steel_share,
+  #   aluminum_share,
+  #   copper_share,
+  #   other_metal_share    — compute_nonmetal_share() reads these only under
+  #                          rate_232 > 0 branches of case_when(); TRUE branch
+  #                          returns 0. MFN-only rows have rate_232 = 0.
+  #   is_copper_heading    — Same gating: only read under rate_232 > 0 guard
+  #                          in compute_nonmetal_share() line 82.
+  #   total_additional,
+  #   total_rate           — Stale after bind_rows; recomputed for the entire
+  #                          frame by apply_stacking_rules() at step 8
+  #                          (line ~2102) before the function returns.
+  #   statutory_base_rate  — Reassigned to base_rate for every row at step 6c
+  #                          (line ~1922), after this helper runs.
+  #   usmca_eligible       — Step 7 USMCA processing sets via
+  #                          coalesce(usmca_eligible, FALSE) or overwrites to
+  #                          FALSE for all rows when USMCA is disabled.
+  #   revision,
+  #   effective_date       — Step 9a (line ~2107) mutates these for every row
+  #                          using the revision_id / effective_date arguments.
+  #   valid_from,
+  #   valid_until          — Not set in this function; added in
+  #                          00_build_timeseries.R:335-336 after a select()
+  #                          that drops any prior values.
+  # The last nine columns only appear on rates when the calculate_rates_fast()
+  # call upstream returns 0 rows and hits the enforce_rate_schema(tibble())
+  # initializer at line 618 (small ch99 fixtures in tests); they are absent
+  # in normal production pipelines.
   SAFE_NA_COLUMNS <- c('ieepa_type', 's232_annex', 's232_usmca_eligible',
-                       'deriv_type')
+                       'deriv_type',
+                       'metal_share', 'steel_share', 'aluminum_share',
+                       'copper_share', 'other_metal_share', 'is_copper_heading',
+                       'total_additional', 'total_rate',
+                       'statutory_base_rate', 'usmca_eligible',
+                       'revision', 'effective_date',
+                       'valid_from', 'valid_until')
 
   # Columns `new_pairs` sets explicitly (must match the mutate() below).
   # `statutory_rate_232` is set to 0 here so MFN-only rows carry a valid
