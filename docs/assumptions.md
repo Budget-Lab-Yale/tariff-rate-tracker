@@ -249,3 +249,18 @@ The `nonzero_base_only` toggle partially overlaps with these product-specific ex
 **Source:** `src/expand_ieepa_exempt.R` Fix 3 (ITA prefix expansion) based on the legal text of US Note 2 subdivision (v)(iii). The tracker's interpretation is broader; Tariff-ETRs uses a narrower product list.
 
 **Implementation:** `resources/ieepa_exempt_products.csv` (4,325 HTS10 codes), expanded from the base Annex A list via `src/expand_ieepa_exempt.R`.
+
+## 16. Section 232 Semiconductor Qualifying Share and End-Use Exemptions
+
+**Assumption:** Note 39(b) scopes "semiconductor articles" via three HTS headings (8471.50, 8471.80, 8473.30) **combined with** a per-article TPP/DRAM bandwidth technical gate that can't be expressed in HTS codes — the legal scope targets Nvidia H200 and AMD MI325X class accelerators only, which likely represent a small fraction of imports under those 10 HTS10 codes. Note 39(d) further exempts imports for US data centers, R&D, startups, consumer electronics, civil industrial, and public sector end uses (9903.79.03–.09) — end-use declarations that can't be scoped by HTS code either.
+
+The tracker uses two uncalibrated parameters to approximate these:
+
+- **`qualifying_share`** (`resources/semi_qualifying_shares.csv`, per-HTS10): fraction of each HTS10's imports that meet Note 39(b)'s TPP/DRAM gate. Default **1.0** (uncalibrated upper bound — assumes every import under the 10 scoped HTS10s qualifies).
+- **`end_use_exemption_share`** (`config/policy_params.yaml` `section_232_headings.semiconductors`): blended fraction of qualifying imports routed through 9903.79.03–.09 end-use carve-outs (no duty). Default **0.0** (uncalibrated upper bound — assumes no end-use exemption).
+
+**Impact:** The defaults are upper-bound placeholders. Realistically, 8471.80.4000 (units for physical incorporation into ADP — discrete GPU / AI accelerator cards) is the primary source of qualifying imports; most other HTS10s under 8471.50 and 8473.30 are unlikely to meet the TPP gate. End-use exemptions likely carve out a substantial share of the remainder. Expect the calibrated aggregate ETR contribution to be notably smaller than the uncalibrated upper bound.
+
+**Source:** CBP CSMS #67400472 (January 2026 guidance), White House proclamation of January 14, 2026. Calibration deferred pending better CBP/CBP trade-press data on advanced-IC import shares.
+
+**Implementation:** `src/06_calculate_rates.R` heading loop (gate), post-stacking override (ensures semi rate persists through derivative and annex pipelines). `resources/s232_semi_products.csv`, `resources/semi_qualifying_shares.csv`.

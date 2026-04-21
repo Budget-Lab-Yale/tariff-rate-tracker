@@ -16,9 +16,22 @@ The Swiss and Liechtenstein floor framework is represented both by native HTS en
 
 Section 122 becomes the post-IEEPA blanket authority in the February 25, 2026 revision sequence. The repo treats it as temporary unless `section_122.finalized` is set to `true`, and enforces expiry in the build, daily outputs, and point-in-time queries.
 
-### Semiconductor tariffs
+### Semiconductor tariffs (Note 39 / 9903.79, effective 2026-01-15)
 
-Semiconductor tariff entries are handled through the normal Chapter 99 parsing path and do not require a separate override layer in the code.
+Section 232 semiconductor tariffs use Chapter 99 heading 9903.79.01 (25% on "semiconductor articles of all countries" per Note 39(a)). Unlike most Ch99 authorities, Note 39(b) scopes coverage through the combination of HTS headings **8471.50, 8471.80, 8473.30** and a per-article TPP/DRAM bandwidth technical gate that cannot be expressed in HTS codes (target: Nvidia H200, AMD MI325X class accelerators).
+
+Because Note 39 scope lives in legal text rather than per-product HTS footnotes, the tracker requires a resource-based override layer:
+
+- `resources/s232_semi_products.csv` — HTS10 scope (Note 39(b)).
+- `resources/semi_qualifying_shares.csv` — per-HTS10 blended share approximating the TPP/DRAM tech gate. Default 1.0 (uncalibrated upper bound); see `todo.md` for calibration plan.
+- `config/policy_params.yaml` `section_232_headings.semiconductors` — rate, USMCA (none under Note 39), and `end_use_exemption_share` blending for 9903.79.03–.09 carve-outs (data centers, R&D, startups, consumer, industrial, public sector). Default 0.
+
+Stacking exclusions per Note 39(a) + Note 2(v)(xvi) + Note 2(y)(xv)/(z)(xiii):
+
+- IEEPA universal + country EOs (9903.01.24–.76, plus Brazil .77, India .84), full Phase 2 reciprocal block (9903.02.01–.73, plus .80/.83/.88 floors), MX/CA fentanyl (9903.01.01, .10), all 232 paths (steel, aluminum, copper, autos, MHD, wood, and their derivatives): excluded.
+- China fentanyl (9903.01.20, below the .24 floor), Section 122 (9903.03), Section 301 (9903.88–.91): stack.
+
+These exclusions are implemented via the standard `nonmetal_share = 0` mechanism in `apply_stacking_rules()` (same pattern as copper and other 232 headings). A final per-product override in `calculate_rates_for_revision()` ensures the semi rate persists through downstream 232 pipeline stages (aluminum derivative overlap at 8473.30.20/.51, April 2026 annex restructuring).
 
 ---
 

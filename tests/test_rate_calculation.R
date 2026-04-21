@@ -280,6 +280,27 @@ run_test('has_232 is FALSE when no 232 entries', {
   stopifnot(result$has_232 == FALSE)
 })
 
+run_test('extracts semiconductor 232 rate from 9903.79.01', {
+  ch99 <- tibble(
+    ch99_code = '9903.79.01', rate = 0.25, authority = 'section_232',
+    country_type = 'unknown',
+    countries = list(character(0)),
+    exempt_countries = list(character(0)),
+    general_raw = 'The duty provided in the applicable subheading +25%',
+    other_raw = 'The duty provided in the applicable subheading +25%',
+    description = 'Semiconductor articles as provided for in subdivisions (a) and (b) of U.S. note 39 to this subchapter.'
+  )
+  result <- extract_section232_rates(ch99)
+  stopifnot(result$has_232 == TRUE)
+  stopifnot(abs(result$semi_rate - 0.25) < 1e-10)
+})
+
+run_test('semi_rate defaults to 0 when 9903.79 absent', {
+  ch99 <- make_ch99_232_fixture()
+  result <- extract_section232_rates(ch99)
+  stopifnot(result$semi_rate == 0)
+})
+
 
 # =============================================================================
 # Test 4: extract_section122_rates()
@@ -487,6 +508,11 @@ run_test('section_232 from 9903.78 (copper)', {
   stopifnot(classify_authority('9903.78.01') == 'section_232')
 })
 
+run_test('section_232 from 9903.79 (semiconductors, Note 39)', {
+  stopifnot(classify_authority('9903.79.01') == 'section_232')
+  stopifnot(classify_authority('9903.79.09') == 'section_232')
+})
+
 run_test('section_301 from 9903.86-89', {
   stopifnot(classify_authority('9903.88.15') == 'section_301')
 })
@@ -639,6 +665,108 @@ run_test('non-232 product stacks IEEPA + fentanyl + s122 fully', {
   expected <- 0.15 + 0.10
   stopifnot(abs(result$total_additional - expected) < 1e-10)
   stopifnot(abs(result$total_rate - (0.04 + expected)) < 1e-10)
+})
+
+
+# =============================================================================
+# Test 11: Note 39 semiconductor integration (snapshot-based)
+# =============================================================================
+#
+# These tests read the built 2026_basic and 2026_rev_1 snapshots and assert on
+# them. If the snapshots are missing (e.g., CI env without a full build),
+# they skip gracefully.
+
+message('\n--- Test 11: Note 39 semiconductor integration ---')
+
+semi_snapshot_path <- here('data', 'timeseries', 'snapshot_2026_rev_1.rds')
+semi_basic_path    <- here('data', 'timeseries', 'snapshot_2026_basic.rds')
+semi_products_path <- here('resources', 's232_semi_products.csv')
+
+run_test('semi product list exists with expected headings', {
+  if (!file.exists(semi_products_path)) skip_test('resource file missing')
+  semi <- read_csv(semi_products_path,
+                   col_types = cols(hts10 = col_character()),
+                   show_col_types = FALSE)
+  stopifnot(nrow(semi) >= 5)
+  # Note 39(b) scope: 8471.50, 8471.80, 8473.30
+  heads <- unique(substr(semi$hts10, 1, 6))
+  stopifnot(all(heads %in% c('847150', '847180', '847330')))
+})
+
+run_test('rev_1 applies 25% rate_232 to every semi HTS10', {
+  if (!file.exists(semi_snapshot_path)) skip_test('snapshot_2026_rev_1.rds missing')
+  if (!file.exists(semi_products_path)) skip_test('resource file missing')
+  s <- readRDS(semi_snapshot_path)
+  semi <- read_csv(semi_products_path,
+                   col_types = cols(hts10 = col_character()),
+                   show_col_types = FALSE)$hts10
+  rows <- s %>% filter(hts10 %in% semi)
+  # Every semi HTS10 × every country should carry exactly 0.25 (qualifying_share=1,
+  # end_use_exemption_share=0 defaults)
+  stopifnot(nrow(rows) > 0)
+  stopifnot(all(abs(rows$rate_232 - 0.25) < 1e-10))
+})
+
+run_test('2026_basic has no 25% rate_232 on semi HTS10s (pre-tariff baseline)', {
+  if (!file.exists(semi_basic_path)) skip_test('snapshot_2026_basic.rds missing')
+  if (!file.exists(semi_products_path)) skip_test('resource file missing')
+  s <- readRDS(semi_basic_path)
+  semi <- read_csv(semi_products_path,
+                   col_types = cols(hts10 = col_character()),
+                   show_col_types = FALSE)$hts10
+  rows <- s %>% filter(hts10 %in% semi)
+  stopifnot(nrow(rows) > 0)
+  # Baseline has various pre-existing rate_232 values (auto rebate, alum deriv);
+  # none should be exactly 0.25 since semi tariff isn't active yet
+  stopifnot(sum(abs(rows$rate_232 - 0.25) < 1e-10) == 0)
+})
+
+run_test('Note 39(a)(7)-(9) override: 8473.30.20 derivative overlap gets semi rate, not 0.5', {
+  if (!file.exists(semi_snapshot_path)) skip_test('snapshot_2026_rev_1.rds missing')
+  s <- readRDS(semi_snapshot_path)
+  # 8473302000 and 8473305100 are in both s232_derivative_products.csv (aluminum,
+  # 50%) and s232_semi_products.csv (25%). Semi rate must win per Note 39(a)(7).
+  overlap <- s %>% filter(hts10 %in% c('8473302000', '8473305100'))
+  stopifnot(nrow(overlap) > 0)
+  stopifnot(all(abs(overlap$rate_232 - 0.25) < 1e-10))
+  stopifnot(all(is.na(overlap$deriv_type)))
+})
+
+run_test('Note 2(v)(xvi): EU × semi carries total=0.25 (no Phase 2 reciprocal stack)', {
+  if (!file.exists(semi_snapshot_path)) skip_test('snapshot_2026_rev_1.rds missing')
+  s <- readRDS(semi_snapshot_path)
+  # EU (4120): Phase 2 reciprocal 15% floor (9903.02.73) would otherwise stack;
+  # Note 2(v)(xvi) excludes semi articles from 9903.02.01-.73.
+  eu_semi <- s %>%
+    filter(country == '4120', hts10 %in% c('8471801000', '8471500110'))
+  stopifnot(nrow(eu_semi) > 0)
+  stopifnot(all(abs(eu_semi$total_additional - 0.25) < 1e-10))
+})
+
+run_test('Note 39(a)(10)(11): MX/CA × semi — fentanyl does not contribute', {
+  if (!file.exists(semi_snapshot_path)) skip_test('snapshot_2026_rev_1.rds missing')
+  s <- readRDS(semi_snapshot_path)
+  # MX fentanyl 9903.01.01 (25%) and CA 9903.01.10 (35%) must NOT stack with
+  # semi rate. The mechanism is nonmetal_share=0 for semi products, which
+  # zeros rate_ieepa_fent × nonmetal_share in the stacking branch for
+  # non-China + rate_232 > 0. total_additional should equal rate_232 = 0.25.
+  mx_ca_semi <- s %>%
+    filter(country %in% c('1220', '2010'),
+           hts10 %in% c('8471801000', '8471804000', '8471500110'))
+  stopifnot(nrow(mx_ca_semi) > 0)
+  stopifnot(all(abs(mx_ca_semi$total_additional - 0.25) < 1e-10))
+})
+
+run_test('China × semi: 232 + fentanyl + 301 all stack to 60%', {
+  if (!file.exists(semi_snapshot_path)) skip_test('snapshot_2026_rev_1.rds missing')
+  s <- readRDS(semi_snapshot_path)
+  # China fentanyl 9903.01.20 (10%, below Note 39(a)(12) .24 floor) stacks;
+  # Section 301 not in exclusion list, stacks. Expect 25 + 10 + 25 = 60%.
+  cn_semi <- s %>%
+    filter(country == '5700',
+           hts10 %in% c('8471801000', '8471500110'))
+  stopifnot(nrow(cn_semi) > 0)
+  stopifnot(all(abs(cn_semi$total_additional - 0.60) < 1e-10))
 })
 
 
