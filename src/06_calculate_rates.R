@@ -1090,6 +1090,7 @@ calculate_rates_for_revision <- function(
     copper_products <- character(0)
     wood_products <- character(0)
     mhd_products <- character(0)
+    semi_products <- character(0)
     heading_product_lists <- list()
 
     if (!is.null(s232_headings)) {
@@ -1107,7 +1108,8 @@ calculate_rates_for_revision <- function(
         kitchen_cabinets = s232_rates$wood_rate > 0 || s232_rates$wood_furniture_rate > 0,
         mhd_vehicles     = s232_rates$mhd_rate > 0,
         mhd_parts        = s232_rates$mhd_rate > 0,
-        buses            = s232_rates$mhd_rate > 0
+        buses            = s232_rates$mhd_rate > 0,
+        semiconductors   = s232_rates$semi_rate > 0
       )
 
       for (tariff_name in names(s232_headings)) {
@@ -1175,6 +1177,8 @@ calculate_rates_for_revision <- function(
           wood_products <- c(wood_products, matched)
         } else if (grepl('mhd|bus|mhd_parts', tariff_name, ignore.case = TRUE)) {
           mhd_products <- c(mhd_products, matched)
+        } else if (grepl('semi', tariff_name, ignore.case = TRUE)) {
+          semi_products <- c(semi_products, matched)
         }
       }
     }
@@ -1182,6 +1186,26 @@ calculate_rates_for_revision <- function(
     copper_products <- unique(copper_products)
     wood_products <- unique(wood_products)
     mhd_products <- unique(mhd_products)
+    semi_products <- unique(semi_products)
+
+    # Note 39(a)(1)-(9) excludes semi articles from stacking with 232 autos,
+    # auto parts, MHD, MHD parts, copper, aluminum, and steel. The auto_parts
+    # HTS list (per US Note 33(g)) includes heading 8471 at the 4-digit level,
+    # which overlaps with Note 39(b) scope (8471.50, 8471.80, 8473.30). Strip
+    # semi products from non-semi heading lists so only the 25% semi rate
+    # applies, and so auto_rebate doesn't inappropriately reduce semi rates.
+    if (length(semi_products) > 0) {
+      auto_products <- setdiff(auto_products, semi_products)
+      copper_products <- setdiff(copper_products, semi_products)
+      wood_products <- setdiff(wood_products, semi_products)
+      mhd_products <- setdiff(mhd_products, semi_products)
+      for (nm in setdiff(names(heading_product_lists), 'semiconductors')) {
+        heading_product_lists[[nm]]$products <- setdiff(
+          heading_product_lists[[nm]]$products,
+          semi_products
+        )
+      }
+    }
 
     # Exclude blanket chapter products from heading lists — a Ch73 steel spring
     # that matches auto_parts prefixes is still a steel product (gets blanket 232
@@ -1200,9 +1224,10 @@ calculate_rates_for_revision <- function(
     n_copper <- length(copper_products)
     n_wood <- length(wood_products)
     n_mhd <- length(mhd_products)
+    n_semi <- length(semi_products)
     message('  Section 232 coverage: ', n_steel, ' steel + ', n_alum,
             ' aluminum + ', n_auto, ' auto + ', n_copper, ' copper + ',
-            n_wood, ' wood + ', n_mhd, ' MHD products')
+            n_wood, ' wood + ', n_mhd, ' MHD + ', n_semi, ' semi products')
 
     # --- Build product-level 232 rate lookup from heading configs ---
     # Each heading config specifies its own rate. Build an hts10 -> rate mapping.
@@ -1224,6 +1249,50 @@ calculate_rates_for_revision <- function(
           heading_usmca_exempt = any(heading_usmca_exempt),
           .groups = 'drop'
         )
+    }
+
+    # --- Semi per-HTS10 qualifying_share and end-use blending (Note 39(b), (d)) ---
+    # Note 39(b) scopes semi articles via three HTS headings plus a per-article
+    # TPP/DRAM tech gate; qualifying_share approximates the fraction of each
+    # HTS10's imports meeting the gate. Note 39(d) enumerates end-use carve-outs
+    # (9903.79.03-.09) that can't be HTS-scoped; end_use_exemption_share
+    # approximates the dutied fraction. Both default to uncalibrated upper
+    # bounds (qualifying_share = 1.0, end_use_exemption_share = 0).
+    if (length(semi_products) > 0 && nrow(heading_product_rate) > 0 &&
+        !is.null(s232_headings) && !is.null(s232_headings$semiconductors)) {
+      semi_cfg <- s232_headings$semiconductors
+      end_use_share <- semi_cfg$end_use_exemption_share %||% 0
+
+      qs_data <- tibble(hts10 = character(), qualifying_share = numeric())
+      qs_path <- semi_cfg$qualifying_shares_file %||% ''
+      if (nchar(qs_path) > 0) {
+        qs_full <- here(qs_path)
+        if (file.exists(qs_full)) {
+          qs_data <- suppressMessages(
+            read_csv(qs_full, col_types = cols(
+              hts10 = col_character(),
+              qualifying_share = col_double()
+            ))
+          ) %>% select(hts10, qualifying_share)
+        } else {
+          message('  WARNING: semi qualifying_shares_file not found: ', qs_full,
+                  ' — defaulting all shares to 1.0')
+        }
+      }
+
+      heading_product_rate <- heading_product_rate %>%
+        left_join(qs_data, by = 'hts10', relationship = 'many-to-one') %>%
+        mutate(
+          heading_232_rate = if_else(
+            hts10 %in% semi_products,
+            heading_232_rate * coalesce(qualifying_share, 1.0) * (1 - end_use_share),
+            heading_232_rate
+          )
+        ) %>%
+        select(-qualifying_share)
+
+      message('  Semi scaling: ', nrow(qs_data), ' per-HTS10 shares loaded; ',
+              'end_use_exemption_share = ', end_use_share)
     }
 
     # --- Build per-country rate lookup ---
@@ -1607,6 +1676,7 @@ calculate_rates_for_revision <- function(
                                    effective_date = effective_date)
   rates <- result$rates
   deriv_matched <- result$deriv_matched
+
 
   # 5b. Scale copper heading products by copper content share.
   #     The copper proclamation applies the tariff "upon the value of the copper
@@ -2133,6 +2203,31 @@ calculate_rates_for_revision <- function(
 
   # Clean up intermediate flag
   rates$s232_usmca_eligible <- NULL
+
+  # Note 39(a)(7)-(9): semi articles are not subject to 232 aluminum/steel
+  # derivative duties, and the April 2026 annex restructuring doesn't re-scope
+  # them. Several upstream steps (apply_232_derivatives, annex overrides,
+  # USMCA auto-content, etc.) can mutate rate_232 for semi HTS10s. Restore the
+  # semi heading rate as the final step before stacking so the 25% is what
+  # actually carries into the ETR.
+  if (exists('semi_products') && length(semi_products) > 0 &&
+      exists('heading_product_rate') && nrow(heading_product_rate) > 0) {
+    semi_override <- heading_product_rate %>%
+      filter(hts10 %in% semi_products) %>%
+      select(hts10, .semi_heading_rate = heading_232_rate)
+    if (nrow(semi_override) > 0) {
+      rates <- rates %>%
+        left_join(semi_override, by = 'hts10', relationship = 'many-to-one') %>%
+        mutate(
+          rate_232 = if_else(!is.na(.semi_heading_rate), .semi_heading_rate, rate_232),
+          deriv_type = if_else(!is.na(.semi_heading_rate), NA_character_, deriv_type),
+          statutory_rate_232 = if_else(!is.na(.semi_heading_rate), .semi_heading_rate,
+                                       statutory_rate_232)
+        ) %>%
+        select(-.semi_heading_rate)
+      message('  Semi: restored heading rate on ', nrow(semi_override), ' HTS10s')
+    }
+  }
 
   # 8. Re-apply stacking rules with updated IEEPA and 232 rates
   rates <- apply_stacking_rules(rates, CTY_CHINA, stacking_method = stacking_method)
