@@ -124,9 +124,10 @@ classify_authority <- function(ch99_code) {
   #   9903.74.xx  — MHD vehicles (US Note 38)
   #   9903.76.xx  — Wood products / lumber / furniture (US Note 37)
   #   9903.78.xx  — Copper derivatives (US Note 19)
+  #   9903.79.xx  — Semiconductors (US Note 39, effective 2026-01-16)
   #   9903.80-85  — Steel, aluminum, derivatives
   #   9903.94.xx  — Auto tariffs (US Note 25/33)
-  if (middle == 74 || middle == 76 || middle == 78 ||
+  if (middle == 74 || middle == 76 || middle == 78 || middle == 79 ||
       (middle >= 80 && middle <= 85) || middle == 94) {
     return('section_232')
   }

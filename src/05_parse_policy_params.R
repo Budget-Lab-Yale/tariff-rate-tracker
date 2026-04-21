@@ -851,8 +851,23 @@ extract_section232_rates <- function(ch99_data) {
     message('  Copper 232: ', round(copper_rate * 100), '%')
   }
 
+  # --- Semiconductors (9903.79, US Note 39) ---
+  # 9903.79.01 is the 25% rate on all-country qualifying semiconductor articles.
+  # 9903.79.02-.09 are NA-rate carve-outs (sub-b tech-gate miss, end-use
+  # exemptions); they're modeled elsewhere via qualifying_share and
+  # end_use_exemption_share, so we only extract the .01 rate here.
+  s232_semi <- ch99_data %>%
+    filter(ch99_code == '9903.79.01', !is.na(rate))
+
+  semi_rate <- 0
+  if (nrow(s232_semi) > 0) {
+    semi_rate <- max(s232_semi$rate)
+    message('  Semiconductor 232: ', round(semi_rate * 100), '%')
+  }
+
   has_232 <- (steel_rate > 0 || aluminum_rate > 0 || auto_rate > 0 || auto_has_deals ||
               wood_rate > 0 || wood_furniture_rate > 0 || mhd_rate > 0 || copper_rate > 0 ||
+              semi_rate > 0 ||
               derivative_rate > 0 || steel_derivative_rate > 0)
 
   coverage_parts <- c()
@@ -861,6 +876,7 @@ extract_section232_rates <- function(ch99_data) {
   if (wood_rate > 0 || wood_furniture_rate > 0) coverage_parts <- c(coverage_parts, 'wood')
   if (mhd_rate > 0) coverage_parts <- c(coverage_parts, 'MHD')
   if (copper_rate > 0) coverage_parts <- c(coverage_parts, 'copper')
+  if (semi_rate > 0) coverage_parts <- c(coverage_parts, 'semi')
   if (has_232) message('  232 coverage: ', paste(coverage_parts, collapse = ' + '))
 
   return(list(
@@ -873,6 +889,7 @@ extract_section232_rates <- function(ch99_data) {
     wood_furniture_rate = wood_furniture_rate,
     mhd_rate = mhd_rate,
     copper_rate = copper_rate,
+    semi_rate = semi_rate,
     steel_exempt = steel_exempt,
     aluminum_exempt = aluminum_exempt,
     auto_exempt = auto_exempt,

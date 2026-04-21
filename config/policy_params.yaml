@@ -137,6 +137,21 @@ section_232_headings:
     prefixes: ['8702']
     default_rate: 0.10
     usmca_exempt: false
+  # 9903.79.01 (Note 39, effective 2026-01-16). Note 39 has no USMCA carve-out —
+  # all countries owe the 25% on qualifying articles. Subdivision (c) routes
+  # imports under the three HTS headings that fail the TPP/DRAM tech gate
+  # through 9903.79.02 (no additional duty); qualifying_shares_file models that
+  # blend at the HTS10 level. Subdivisions (d)(i)–(vii) are end-use exemptions
+  # (data centers, R&D, startups, etc.) modeled via end_use_exemption_share.
+  # Stacking exclusions per Note 39(a) + Note 2(v)(xvi) are applied in
+  # apply_stacking_rules() based on the `is_semi` flag, not here.
+  semiconductors:
+    products_file: 'resources/s232_semi_products.csv'
+    qualifying_shares_file: 'resources/semi_qualifying_shares.csv'
+    prefixes: ['847150', '847180', '847330']  # fallback
+    default_rate: 0.25
+    usmca_exempt: false
+    end_use_exemption_share: 0.0   # uncalibrated, see todo.md Phase 5
 
 # --- Section 232 country exemptions (pre-March 2025) ---
 # TRQ/quota agreements and full exemptions from Proclamations 9705/9704.
