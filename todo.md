@@ -74,7 +74,11 @@ The existing note in `docs/revision_changelog.md:21` — "handled through the no
 
 - [ ] **Calibrate `qualifying_share` per HTS10** — target Nvidia H200, AMD MI325X class accelerators only meet Note 39(b) TPP/DRAM gate. Primary source: 8471.80.4000 (discrete GPU/AI cards); most other 8471/8473 HTS10s should calibrate to ~0. Source: CBP trade data or SIA/SEMI industry estimates.
 - [ ] **Calibrate `end_use_exemption_share`** — fraction of qualifying imports routed through 9903.79.03–.09 carve-outs (data centers, R&D, startups, consumer, industrial, public sector). Probably 0.3–0.5 based on AI/datacenter capex share.
-- [ ] **Section 122 stacking discrepancy (low priority)**: Note 39(a) doesn't exclude s122, but tracker's `nonmetal_share = 0` mechanism zeros s122 on semi products. Affects Feb 24+ only; aggregate impact small. Fix requires special-casing s122 for semi products in `apply_stacking_rules()`.
+### Section 122 × semi stacking (investigated 2026-04-21, no fix needed)
+
+Note 39(a)'s exclusion list doesn't cover 9903.03 (Section 122 Phase 3), so strictly per the legal text, s122 should stack on semi products. The tracker's `nonmetal_share = 0` mechanism for 232 products zeros s122 in stacking — conceptually wrong for semi, but the output is correct anyway because **all 8 semi HTS8 prefixes are already on `resources/s122_exempt_products.csv`** (1,656 HTS8 codes from the ITA exempt list). Verified: `rate_s122 = 0` across all 2,400 semi pairs in both rev_4 and rev_5 snapshots.
+
+Net: tracker gives the right answer (0 s122 on semi) for two independent reasons. If a future policy change removed semi products from the s122 exempt list, the stacking mechanism would still zero s122 — which would then be a bug. Defer unless that happens.
 
 ### Effective date note
 
