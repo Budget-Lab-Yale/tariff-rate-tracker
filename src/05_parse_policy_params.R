@@ -756,16 +756,16 @@ extract_section232_rates <- function(ch99_data) {
   # Extract derivative rate for use in 06_calculate_rates.R step 3a.
   alum_deriv <- aluminum_entries %>%
     filter(ch99_code %in% c('9903.85.04', '9903.85.07', '9903.85.08'))
-  derivative_rate <- if (nrow(alum_deriv) > 0) {
+  aluminum_derivative_rate <- if (nrow(alum_deriv) > 0) {
     max_rate_with_variance_log(alum_deriv$rate, 'Aluminum derivative 232 (9903.85.04/.07/.08)')
   } else aluminum_rate
-  derivative_exempt <- if (nrow(alum_deriv) > 0) {
+  aluminum_derivative_exempt <- if (nrow(alum_deriv) > 0) {
     unique(unlist(alum_deriv$exempt_countries))
   } else {
     aluminum_exempt
   }
-  if (derivative_rate > 0) {
-    message('  Aluminum derivative 232: ', round(derivative_rate * 100),
+  if (aluminum_derivative_rate > 0) {
+    message('  Aluminum derivative 232: ', round(aluminum_derivative_rate * 100),
             '% (', nrow(alum_deriv), ' Ch99 entries)')
   }
 
@@ -839,25 +839,50 @@ extract_section232_rates <- function(ch99_data) {
   )
 
   if (nrow(s232_auto) > 0) {
+    # Classify program by matching the description for known vehicle / parts
+    # phrasing. The ch99 code alone is not enough — country-specific ranges
+    # (UK .31-.33, Japan .40-.45, EU .50-.53, Korea .60-.65) each mix vehicles
+    # and parts codes. Both branches are explicit; entries matching neither
+    # are dropped with a warning rather than silently defaulting to one side
+    # (the previous fallback to 'auto_vehicles' would have silently
+    # misclassified a future entry with novel phrasing like
+    # "motor vehicle parts"). Parts branch comes first so descriptions
+    # beginning with "Parts of passenger vehicles..." don't match the
+    # vehicles regex on the "passenger vehicles" substring.
+    parts_pattern <- paste0('automobile parts',
+                            '|auto parts',
+                            '|parts of passenger',
+                            '|parts of.*(vehicles|light trucks)')
+    vehicles_pattern <- 'passenger vehicles|light trucks'
+
     auto_country <- s232_auto %>%
       filter(country_type == 'specific') %>%
       mutate(
         iso_country = map_chr(countries, ~.x[1]),
-        # Distinguish floor vs surcharge from the general_raw field
         rate_type = case_when(
           is.na(rate) ~ 'passthrough',
           !grepl('\\+', general_raw) & grepl('^[0-9]+\\.?[0-9]*%$', trimws(general_raw)) ~ 'floor',
           TRUE ~ 'surcharge'
         ),
-        # Classify program: vehicles vs parts based on description
-        # "automobile parts" or "parts of passenger vehicles" = auto_parts
-        # "passenger vehicles" without preceding "parts of" = auto_vehicles
         program = case_when(
-          grepl('automobile parts|parts of passenger|parts of.*vehicles', description, ignore.case = TRUE) ~ 'auto_parts',
-          TRUE ~ 'auto_vehicles'
+          grepl(parts_pattern, description, ignore.case = TRUE) ~ 'auto_parts',
+          grepl(vehicles_pattern, description, ignore.case = TRUE) ~ 'auto_vehicles',
+          TRUE ~ NA_character_
         )
       ) %>%
       filter(!is.na(rate), rate_type != 'passthrough')
+
+    unclassified <- auto_country %>% filter(is.na(program))
+    if (nrow(unclassified) > 0) {
+      warning('Auto deal classification: ', nrow(unclassified),
+              ' 9903.94.xx country-specific entries could not be classified ',
+              'as vehicles or parts from their description; these entries ',
+              'were dropped from auto_deal_rates. ch99_code: ',
+              paste(unclassified$ch99_code, collapse = ', '),
+              '. Extend parts_pattern / vehicles_pattern in ',
+              '05_parse_policy_params.R::extract_section232_rates() to cover them.')
+      auto_country <- auto_country %>% filter(!is.na(program))
+    }
 
     if (nrow(auto_country) > 0) {
       auto_deal_rates <- auto_country %>%
@@ -957,7 +982,7 @@ extract_section232_rates <- function(ch99_data) {
   has_232 <- (steel_rate > 0 || aluminum_rate > 0 || auto_rate > 0 || auto_has_deals ||
               wood_rate > 0 || wood_furniture_rate > 0 || mhd_rate > 0 || copper_rate > 0 ||
               semi_rate > 0 ||
-              derivative_rate > 0 || steel_derivative_rate > 0)
+              aluminum_derivative_rate > 0 || steel_derivative_rate > 0)
 
   coverage_parts <- c()
   if (steel_rate > 0 || aluminum_rate > 0) coverage_parts <- c(coverage_parts, 'steel/aluminum')
@@ -972,7 +997,7 @@ extract_section232_rates <- function(ch99_data) {
     steel_rate = steel_rate,
     aluminum_rate = aluminum_rate,
     auto_rate = auto_rate,
-    derivative_rate = derivative_rate,
+    aluminum_derivative_rate = aluminum_derivative_rate,
     steel_derivative_rate = steel_derivative_rate,
     wood_rate = wood_rate,
     wood_furniture_rate = wood_furniture_rate,
@@ -982,7 +1007,7 @@ extract_section232_rates <- function(ch99_data) {
     steel_exempt = steel_exempt,
     aluminum_exempt = aluminum_exempt,
     auto_exempt = auto_exempt,
-    derivative_exempt = derivative_exempt,
+    aluminum_derivative_exempt = aluminum_derivative_exempt,
     steel_derivative_exempt = steel_derivative_exempt,
     auto_has_deals = auto_has_deals,
     auto_deal_rates = auto_deal_rates,

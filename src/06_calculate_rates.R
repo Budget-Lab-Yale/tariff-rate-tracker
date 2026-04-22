@@ -362,8 +362,8 @@ apply_232_derivatives <- function(rates, products, ch99_data, s232_rates, countr
         if (length(alum_matched) > 0) {
           country_alum <- tibble(country = countries) %>%
             mutate(
-              deriv_exempt = map_lgl(country, ~is_232_exempt(.x, s232_rates$derivative_exempt)),
-              deriv_rate = if_else(deriv_exempt, 0, s232_rates$derivative_rate)
+              deriv_exempt = map_lgl(country, ~is_232_exempt(.x, s232_rates$aluminum_derivative_exempt)),
+              deriv_rate = if_else(deriv_exempt, 0, s232_rates$aluminum_derivative_rate)
             )
           rates <- rates %>%
             left_join(country_alum %>% select(country, .alum_deriv_rate = deriv_rate), by = 'country', relationship = 'many-to-one') %>%
@@ -1590,26 +1590,30 @@ calculate_rates_for_revision <- function(
       census_codes <- iso_to_census_vec(deal$country)
       if (length(census_codes) == 0) next
 
-      # Determine which products this deal covers (vehicles vs parts)
-      # Split auto_products into vehicles and parts using heading config prefixes
-      auto_vehicles_cfg <- s232_headings[grepl('passenger|light_truck', names(s232_headings), ignore.case = TRUE)]
-      vehicle_prefixes <- unlist(lapply(auto_vehicles_cfg, function(x) x$prefixes))
+      # Determine which products this deal covers (vehicles vs parts).
+      # Use heading_product_lists (populated via match_232_heading_products())
+      # rather than re-parsing cfg$prefixes. The heading-list path is stable if
+      # autos_passenger / autos_light_trucks ever move from inline `prefixes:`
+      # to `products_file:` — the old cfg$prefixes path would silently become
+      # empty under that migration and the vehicles-branch fallback used to
+      # return all auto_products, misapplying a vehicle-only deal to parts.
+      vehicle_heading_names <- grep('passenger|light_truck',
+                                     names(heading_product_lists),
+                                     ignore.case = TRUE, value = TRUE)
+      vehicle_products <- unique(unlist(lapply(
+        vehicle_heading_names,
+        function(nm) heading_product_lists[[nm]]$products
+      )))
       deal_products <- if (deal$program == 'auto_parts') {
-        # Parts: products NOT in passenger vehicle/light truck prefixes
-        if (length(vehicle_prefixes) > 0) {
-          veh_pattern <- paste0('^(', paste(vehicle_prefixes, collapse = '|'), ')')
-          auto_products[!grepl(veh_pattern, auto_products)]
-        } else {
-          auto_products
-        }
+        # Parts: auto_products not in the vehicle set. Empty vehicle_products
+        # (no autos_passenger/light_truck headings active in this revision)
+        # collapses to auto_products, which is the correct parts-only scope.
+        setdiff(auto_products, vehicle_products)
       } else {
-        # Vehicles: only passenger vehicle/light truck prefix products
-        if (length(vehicle_prefixes) > 0) {
-          veh_pattern <- paste0('^(', paste(vehicle_prefixes, collapse = '|'), ')')
-          auto_products[grepl(veh_pattern, auto_products)]
-        } else {
-          auto_products
-        }
+        # Vehicles: exactly the vehicle headings' products. If vehicle_products
+        # is empty the deal is a no-op rather than silently applying to all
+        # auto_products.
+        vehicle_products
       }
 
       if (deal$rate_type == 'floor') {

@@ -1229,8 +1229,8 @@ run_test('flat 100 derivative keeps full 232 rate through derivative scaling and
   ch99_data <- tibble(ch99_code = '9903.81.91')
   s232_rates <- list(
     has_232 = TRUE,
-    derivative_exempt = character(0),
-    derivative_rate = 0,
+    aluminum_derivative_exempt = character(0),
+    aluminum_derivative_rate = 0,
     steel_derivative_exempt = character(0),
     steel_derivative_rate = 0.50
   )
