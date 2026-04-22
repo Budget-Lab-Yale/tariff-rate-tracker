@@ -226,6 +226,77 @@ check_country_applies <- function(country, country_type, countries, exempt,
 
 
 # =============================================================================
+# Section 232 Heading Product Matching
+# =============================================================================
+
+#' Match HTS10 products covered by a Section 232 heading config.
+#'
+#' Resolves products via the three-way fallback used by entries in
+#' `policy_params$section_232_headings`:
+#'   1. `cfg$products_file` — CSV with an `hts10` column, treated as prefixes.
+#'      Authoritative when present. Matches are logged at INFO level.
+#'   2. `cfg$prefixes_file` — text file, one prefix per line. Appended to (3).
+#'   3. `cfg$prefixes` — inline character vector in the yaml.
+#' Source 1 takes precedence when it produces any matches. Sources 2+3 combine
+#' as fallback; they also combine for headings that have no products_file at all.
+#'
+#' Previously duplicated verbatim in two separate loops inside
+#' `calculate_rates_for_revision()` (step 4 for rate assignment, step 5 for
+#' derivative-overlap exclusion). Extracted so the two callers stay in lockstep.
+#'
+#' @param cfg Named list — a single entry from section_232_headings.
+#' @param products Tibble with an `hts10` character column.
+#' @param tariff_name Heading name, used only in log/warning text.
+#' @param verbose Step 4 calls with verbose = TRUE; step 5 re-reads the same
+#'   configs with verbose = FALSE to avoid emitting the same log line twice.
+#' @return Character vector of matched HTS10 codes (possibly empty).
+match_232_heading_products <- function(cfg, products,
+                                        tariff_name = NA_character_,
+                                        verbose = TRUE) {
+  matched <- character(0)
+
+  if (!is.null(cfg$products_file)) {
+    pf_path <- here(cfg$products_file)
+    if (file.exists(pf_path)) {
+      pf_data <- read_csv(pf_path,
+                          col_types = cols(.default = col_character()),
+                          show_col_types = FALSE)
+      pf_codes <- pf_data$hts10
+      pf_pattern <- paste0('^(', paste(pf_codes, collapse = '|'), ')')
+      matched <- products$hts10[grepl(pf_pattern, products$hts10)]
+      if (verbose) {
+        message('  232 heading "', tariff_name, '": ', length(matched),
+                ' products from ', basename(pf_path),
+                ' (', length(pf_codes), ' codes)')
+      }
+    } else if (verbose) {
+      warning('232 heading "', tariff_name, '": products_file not found: ',
+              pf_path, ' — falling back to inline prefixes')
+    }
+  }
+
+  if (length(matched) == 0) {
+    prefixes <- unlist(cfg$prefixes %||% character(0))
+    if (!is.null(cfg$prefixes_file)) {
+      pf_path <- here(cfg$prefixes_file)
+      if (file.exists(pf_path)) {
+        prefixes <- c(prefixes, trimws(readLines(pf_path, warn = FALSE)))
+      } else if (verbose) {
+        warning('232 heading "', tariff_name, '": prefixes_file not found: ', pf_path)
+      }
+    }
+    prefixes <- unique(prefixes[nchar(prefixes) > 0])
+    if (length(prefixes) > 0) {
+      pattern <- paste0('^(', paste(prefixes, collapse = '|'), ')')
+      matched <- products$hts10[grepl(pattern, products$hts10)]
+    }
+  }
+
+  matched
+}
+
+
+# =============================================================================
 # Section 232 Derivative Products
 # =============================================================================
 
@@ -247,12 +318,20 @@ check_country_applies <- function(country, country_type, countries, exempt,
 #' @param ch99_data Chapter 99 data (to check for derivative Ch99 entries)
 #' @param s232_rates Section 232 rates from extract_section232_rates()
 #' @param countries Vector of Census country codes
+#' @param deriv_products Optional pre-loaded output of
+#'   `load_232_derivative_products(effective_date)`. If NULL the function loads
+#'   it internally — but the typical caller (calculate_rates_for_revision)
+#'   passes a pre-loaded value so the same CSV isn't read twice per build
+#'   (step 5 and step 5c both need the derivative prefix list).
 #' @return List with 'rates' (updated tibble) and 'deriv_matched' (character vector)
 apply_232_derivatives <- function(rates, products, ch99_data, s232_rates, countries,
                                   heading_products = character(0),
                                   policy_params = NULL,
-                                  effective_date = NULL) {
-  deriv_products <- load_232_derivative_products(effective_date = effective_date)
+                                  effective_date = NULL,
+                                  deriv_products = NULL) {
+  if (is.null(deriv_products)) {
+    deriv_products <- load_232_derivative_products(effective_date = effective_date)
+  }
   deriv_matched <- character(0)
 
   # Initialize deriv_type column (used by stacking rules to select per-type share)
@@ -1072,8 +1151,16 @@ calculate_rates_for_revision <- function(
     s232_rates <- extract_section232_rates(ch99_data)
   }
 
-  # Load heading-level 232 config from policy params
-  s232_headings <- if (!is.null(pp)) pp$section_232_headings else NULL
+  # Load heading-level 232 config from policy params. Required — without it the
+  # pipeline silently produces output with zero autos/copper/MHD/semi/wood, since
+  # the downstream loop iterates names(s232_headings). pp itself is guaranteed
+  # non-null by the earlier `pp <- policy_params %||% load_policy_params()`.
+  s232_headings <- pp$section_232_headings
+  if (is.null(s232_headings)) {
+    stop('policy_params$section_232_headings is missing. This block drives all ',
+         'non-chapter 232 programs (autos, copper, MHD, wood, semiconductors). ',
+         'See config/policy_params.yaml.')
+  }
 
   if (s232_rates$has_232) {
     # --- Identify covered products by prefix matching ---
@@ -1112,56 +1199,29 @@ calculate_rates_for_revision <- function(
         semiconductors   = s232_rates$semi_rate > 0
       )
 
+      # Adding a heading to policy_params.yaml without registering its gate here
+      # would silently activate the heading on every revision (gate_val = NULL →
+      # old code fell through the `if (!is.null && !gate_val)` guard). Fail
+      # closed: refuse to proceed until the gate is wired up.
+      unregistered <- setdiff(names(s232_headings), names(heading_gates))
+      if (length(unregistered) > 0) {
+        stop('Section 232 heading(s) ', paste(unregistered, collapse = ', '),
+             ' are in policy_params$section_232_headings but not registered in ',
+             'heading_gates (06_calculate_rates.R). Add a gate entry or remove the ',
+             'config key. Silently defaulting to always-active would misapply the ',
+             'tariff on revisions where its Ch99 entries do not exist.')
+      }
+
       for (tariff_name in names(s232_headings)) {
         # Check if this heading's Ch99 program is active in this revision
         gate_val <- heading_gates[[tariff_name]]
-        if (!is.null(gate_val) && !gate_val) {
+        if (!gate_val) {
           message('  Skipping 232 heading "', tariff_name, '" — Ch99 entries not in this revision')
           next
         }
 
         cfg <- s232_headings[[tariff_name]]
-
-        # Product matching: prefer products_file (HTS8 prefixes, matched via startswith)
-        # over prefixes_file (text file of prefixes) over inline prefixes.
-        matched <- character(0)
-
-        if (!is.null(cfg$products_file)) {
-          pf_path <- here(cfg$products_file)
-          if (file.exists(pf_path)) {
-            pf_data <- read_csv(pf_path, col_types = cols(.default = col_character()))
-            # Treat HTS10 codes as prefixes (matches statistical suffixes)
-            pf_codes <- pf_data$hts10
-            pf_pattern <- paste0('^(', paste(pf_codes, collapse = '|'), ')')
-            matched <- products %>%
-              filter(grepl(pf_pattern, hts10)) %>%
-              pull(hts10)
-            message('  232 heading "', tariff_name, '": ', length(matched),
-                    ' products from ', basename(pf_path), ' (', length(pf_codes), ' codes)')
-          } else {
-            message('  WARNING: products_file not found: ', pf_path, ' — falling back to prefixes')
-          }
-        }
-
-        if (length(matched) == 0) {
-          # Fallback: inline prefixes + prefixes_file
-          prefixes <- unlist(cfg$prefixes)
-          if (!is.null(cfg$prefixes_file)) {
-            pf_path <- here(cfg$prefixes_file)
-            if (file.exists(pf_path)) {
-              prefixes <- c(prefixes, trimws(readLines(pf_path)))
-              prefixes <- prefixes[nchar(prefixes) > 0]
-            } else {
-              message('  WARNING: prefixes_file not found: ', pf_path)
-            }
-          }
-          if (length(prefixes) > 0) {
-            pattern <- paste0('^(', paste(prefixes, collapse = '|'), ')')
-            matched <- products %>%
-              filter(grepl(pattern, hts10)) %>%
-              pull(hts10)
-          }
-        }
+        matched <- match_232_heading_products(cfg, products, tariff_name, verbose = TRUE)
 
         heading_product_lists[[tariff_name]] <- list(
           products = matched,
@@ -1275,8 +1335,8 @@ calculate_rates_for_revision <- function(
             ))
           ) %>% select(hts10, qualifying_share)
         } else {
-          message('  WARNING: semi qualifying_shares_file not found: ', qs_full,
-                  ' — defaulting all shares to 1.0')
+          warning('semi qualifying_shares_file not found: ', qs_full,
+                  ' — defaulting all shares to 1.0 (uncalibrated upper bound)')
         }
       }
 
@@ -1466,10 +1526,27 @@ calculate_rates_for_revision <- function(
   #     Reduces effective 232 rate on auto/vehicle products by a credit reflecting
   #     US assembly content: effective_rate -= rebate_rate * us_assembly_share.
   #     Applied before metal content scaling (step 5) and before USMCA (step 7).
-  auto_rebate_cfg <- if (!is.null(pp)) pp$auto_rebate else NULL
-  rebate_rate <- if (!is.null(auto_rebate_cfg)) auto_rebate_cfg$rebate_rate %||% 0 else 0
-  assembly_share <- if (!is.null(auto_rebate_cfg)) auto_rebate_cfg$us_assembly_share %||% 0 else 0
-  us_auto_content_share <- if (!is.null(auto_rebate_cfg)) auto_rebate_cfg$us_auto_content_share %||% 1 else 1
+  #     All three keys are required — fail closed rather than silently default to
+  #     values that would quietly over- or under-state auto ETRs (a missing
+  #     us_auto_content_share previously defaulted to 1.0, producing a ~4.7pp
+  #     over-exemption of CA/MX autos relative to Tariff-ETRs).
+  auto_rebate_cfg <- pp$auto_rebate
+  if (is.null(auto_rebate_cfg)) {
+    stop('policy_params$auto_rebate is missing. Required keys: rebate_rate, ',
+         'us_assembly_share, us_auto_content_share. See config/policy_params.yaml. ',
+         'To disable the rebate entirely set rebate_rate=0 and us_assembly_share=0; ',
+         'to disable the USMCA auto-content scaling set us_auto_content_share=1.')
+  }
+  required_keys <- c('rebate_rate', 'us_assembly_share', 'us_auto_content_share')
+  missing_keys <- setdiff(required_keys, names(auto_rebate_cfg))
+  if (length(missing_keys) > 0) {
+    stop('policy_params$auto_rebate is missing required keys: ',
+         paste(missing_keys, collapse = ', '),
+         '. See config/policy_params.yaml.')
+  }
+  rebate_rate <- auto_rebate_cfg$rebate_rate
+  assembly_share <- auto_rebate_cfg$us_assembly_share
+  us_auto_content_share <- auto_rebate_cfg$us_auto_content_share
   rebate_deduction <- rebate_rate * assembly_share
 
   if (rebate_deduction > 0 && length(auto_products) > 0) {
@@ -1635,45 +1712,30 @@ calculate_rates_for_revision <- function(
   all_heading_hts10 <- character(0)
   if (!is.null(s232_headings)) {
     for (nm in names(s232_headings)) {
-      # Skip inactive headings — their products are pure derivatives
-      gate_val <- heading_gates[[nm]]
+      # Skip inactive headings — their products are pure derivatives.
+      # heading_gates is defined inside `if (s232_rates$has_232)` above; when
+      # has_232 is FALSE, s232_headings names are still iterated but no gate
+      # lookup applies — coerce a missing gate to TRUE (active) so the product
+      # list is still populated for heading/derivative-overlap exclusion.
+      gate_val <- if (exists('heading_gates', inherits = FALSE)) heading_gates[[nm]] else NULL
       if (!is.null(gate_val) && !gate_val) next
       cfg <- s232_headings[[nm]]
-      matched <- character(0)
-
-      # Prefer products_file (authoritative HTS8/10 codes)
-      if (!is.null(cfg$products_file)) {
-        pf <- here(cfg$products_file)
-        if (file.exists(pf)) {
-          prods <- read_csv(pf, show_col_types = FALSE,
-                            col_types = cols(.default = col_character()))
-          pf_pattern <- paste0('^(', paste(prods$hts10, collapse = '|'), ')')
-          matched <- products$hts10[grepl(pf_pattern, products$hts10)]
-        }
-      }
-
-      # Fallback to prefixes only if products_file didn't produce matches
-      if (length(matched) == 0) {
-        prefixes <- unlist(cfg$prefixes %||% character(0))
-        if (!is.null(cfg$prefixes_file)) {
-          pf <- here(cfg$prefixes_file)
-          if (file.exists(pf)) prefixes <- c(prefixes, trimws(readLines(pf, warn = FALSE)))
-        }
-        prefixes <- unique(prefixes[nchar(prefixes) > 0])
-        if (length(prefixes) > 0) {
-          pattern <- paste0('^(', paste(prefixes, collapse = '|'), ')')
-          matched <- products$hts10[grepl(pattern, products$hts10)]
-        }
-      }
-
+      # verbose = FALSE because step 4 already logged this heading's match count
+      matched <- match_232_heading_products(cfg, products, nm, verbose = FALSE)
       all_heading_hts10 <- c(all_heading_hts10, matched)
     }
     all_heading_hts10 <- unique(all_heading_hts10)
   }
+  # Load derivative products once — used by apply_232_derivatives (step 5) and
+  # again by the annex classification fallback in step 5c. Previously each
+  # caller re-read and re-filtered the CSV on its own.
+  deriv_products <- load_232_derivative_products(effective_date = effective_date)
+
   result <- apply_232_derivatives(rates, products, ch99_data, s232_rates, countries,
                                    heading_products = all_heading_hts10,
                                    policy_params = pp,
-                                   effective_date = effective_date)
+                                   effective_date = effective_date,
+                                   deriv_products = deriv_products)
   rates <- result$rates
   deriv_matched <- result$deriv_matched
 
@@ -1750,8 +1812,10 @@ calculate_rates_for_revision <- function(
       # Unmatched derivatives → annex_1b: if a product is in s232_derivative_products
       # but not in the annex CSV prefix list, it belongs in the downstream tier.
       annex_1a_chapters <- annex_cfg$annexes$annex_1a$chapters %||% c('72', '73', '76', '74')
+      # Reuse deriv_products loaded in step 5. tryCatch preserved in case the
+      # earlier load returned NULL (resource file missing) — treat as empty.
       deriv_prefixes <- tryCatch(
-        load_232_derivative_products(effective_date = effective_date)$hts_prefix,
+        if (!is.null(deriv_products)) deriv_products$hts_prefix else character(0),
         error = function(e) character(0)
       )
       deriv_pattern <- if (length(deriv_prefixes) > 0) {

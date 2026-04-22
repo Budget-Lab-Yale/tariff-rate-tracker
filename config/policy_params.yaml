@@ -433,25 +433,26 @@ metal_content:
   method: 'bea'          # 'flat', 'cbo', or 'bea'
   flat_share: 0.50       # fallback for unmatched derivatives (all methods)
   primary_chapters: ['72', '73', '76']  # steel/aluminum chapters = 100% metal (ch74 excluded: copper heading needs copper_share for step 5b scaling)
-  # CBO method params (used when method = 'cbo'):
-  # cbo_high_share: 0.75
-  # cbo_low_share: 0.25
-  # cbo_copper_share: 0.90
-  # BEA method params (used when method = 'bea'):
-  # Reads resources/metal_content_shares_bea_hs10.csv (HS10-level shares
-  # from 2017 BEA Detail I-O table via HS10->NAICS->BEA crosswalk chain).
-  # Matches Tariff-ETRs 'bea' detail method.
+  # CBO method (method: 'cbo') reads per-product buckets from resources/cbo/ and
+  # uses hardcoded shares (high=0.75, low=0.25, copper=0.90) unless overridden via
+  # cbo_high_share / cbo_low_share / cbo_copper_share keys here.
+  # BEA method (method: 'bea', default) reads HS10-level shares from
+  # resources/metal_content_shares_bea_hs10.csv. Matches Tariff-ETRs 'bea' detail method.
 
 # --- Section 232 auto rebate and content share ---
 # Reduces effective 232 rate on auto products by (rebate_rate * assembly_share).
 # Reflects US assembly credit: domestic content offsets a fraction of the tariff.
-# Set rebate_rate to 0 to disable.
 #
 # us_auto_content_share: scales USMCA exemption for 232 auto/MHD products.
 # USMCA-eligible vehicles contain ~60% non-originating content under rules of origin;
 # only the US/USMCA-origin share qualifies for exemption. Without this scaling,
 # the tracker over-exempts CA/MX auto imports (~4.7pp gap vs Tariff-ETRs on ch87).
-# Matches Tariff-ETRs parameter. Set to 1.0 to disable (full USMCA share applied).
+# Matches Tariff-ETRs parameter.
+#
+# REQUIRED: all three keys must be present. 06_calculate_rates.R step 4b errors
+# if the block or any key is missing, rather than silently defaulting. To disable
+# components explicitly, set values to 0 (rebate_rate, us_assembly_share) or 1
+# (us_auto_content_share → full USMCA share applied).
 auto_rebate:
   rebate_rate: 0.0375          # 3.75% rebate per Proclamation
   us_assembly_share: 0.33      # fraction of vehicle assembled in US

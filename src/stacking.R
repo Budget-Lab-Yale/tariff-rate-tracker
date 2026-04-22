@@ -13,9 +13,9 @@ library(tidyverse)
 #'
 #' Implements mutual-exclusion stacking (aligned with Tariff-ETRs):
 #'
-#'   China (232 > 0):  232 + recip*nonmetal + fentanyl + 301 + s122 + other
+#'   China (232 > 0):  232 + recip*nonmetal + fentanyl + 301 + s122*nonmetal + other
 #'   China (no 232):   reciprocal + fentanyl + 301 + s122 + other
-#'   Others (232 > 0): 232 + recip*nonmetal + fentanyl + s122 + other
+#'   Others (232 > 0): 232 + (recip + fentanyl + s122)*nonmetal + other
 #'   Others (no 232):  reciprocal + fentanyl + s122 + other
 #'
 #' Key rules:
@@ -25,13 +25,16 @@ library(tidyverse)
 #'   - Post-annex (>= 2026-04-06): proclamation applies 232 to full customs value;
 #'     nonmetal_share is forced to 0 for all annex-classified products (s232_annex != NA),
 #'     so IEEPA/S122/fentanyl contribute zero on post-annex 232 products.
-#'   - Fentanyl stacks on 232 for all countries (separate IEEPA authority)
+#'   - Fentanyl on 232 products: for China, passes through at full rate (separate
+#'     IEEPA authority, no mutual exclusion). For CA/MX (the only other fentanyl
+#'     countries), fent is scaled by nonmetal_share — same content-based split as
+#'     IEEPA reciprocal. Matches Tariff-ETRs calculations.R:1571-1575.
 #'   - Section 301 only applies to China
-#'   - Section 122 is scaled by nonmetal_share on 232 products (same treatment as
-#'     IEEPA reciprocal). Pre-annex: for pure-metal products (metal_share = 1.0),
-#'     nonmetal_share = 0; for derivatives, s122 applies to non-metal portion.
-#'     Post-annex: nonmetal_share = 0 for all annex-classified 232 products.
-#'     For non-232 products, s122 stacks at full value.
+#'   - Section 122 is scaled by nonmetal_share on 232 products for ALL countries.
+#'     Pre-annex: for pure-metal products (metal_share = 1.0), nonmetal_share = 0;
+#'     for derivatives, s122 applies to non-metal portion. Post-annex: nonmetal_share
+#'     = 0 for all annex-classified 232 products. For non-232 products, s122 stacks
+#'     at full value.
 #'
 #' @param df Data frame with rate_232, rate_301, rate_ieepa_recip,
 #'   rate_ieepa_fent, rate_s122, rate_other, metal_share, country columns
@@ -132,9 +135,12 @@ apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutu
 
   # TPC additive: all authorities stack with no mutual exclusion.
   # TPC confirmed (March 2026) they mostly agree with mutual exclusion between
-  # 232 and IEEPA, with exceptions for copper (232 + CA/MX fentanyl) and
-  # derivatives (IEEPA on non-metal portion). This mode is retained for
-  # sensitivity analysis, not as a TPC-matching switch.
+  # 232 and IEEPA. Retained for sensitivity analysis, not as a TPC match. Note
+  # that in the default 'mutual_exclusion' branch below, the content-based split
+  # applies uniformly: copper and derivatives both get the 232 rate on metal
+  # content and IEEPA/fent/s122 on the complement — there is no copper-specific
+  # carve-out for full-rate fentanyl. CA/MX fentanyl on pure-copper heading
+  # products ends up at roughly fent * (1 - copper_share).
   if (stacking_method == 'tpc_additive') {
     return(
       df %>%
@@ -164,6 +170,9 @@ apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutu
         # Fentanyl follows the same content-based split as reciprocal: 232 covers
         # the metal/copper content, fentanyl applies to the non-metal portion only.
         # For heading products (auto_parts, copper, autos), nonmetal_share ≈ 0.
+        # Matches Tariff-ETRs calculations.R:1571-1575. Only CA/MX have nonzero
+        # rate_ieepa_fent among non-China countries, so this branch primarily
+        # governs CA/MX behavior on 232 products.
         rate_232 > 0 ~
           rate_232 + rate_ieepa_recip * nonmetal_share + rate_ieepa_fent * nonmetal_share +
           rate_s122 * nonmetal_share + rate_section_201 + rate_other,

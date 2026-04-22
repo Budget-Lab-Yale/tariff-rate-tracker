@@ -547,6 +547,83 @@ extract_ieepa_fentanyl_rates <- function(hts_raw, country_lookup) {
 # Section 232 Rate Extraction
 # =============================================================================
 
+#' Max rate from a vector, with a logged note if the vector holds multiple
+#' distinct values. Used for parser extraction points where several Ch99
+#' entries may co-exist and the pipeline historically just called max() and
+#' hoped for the best. If a future subdivision introduces a different rate
+#' (e.g. a country-specific copper deal alongside the blanket 9903.78.01),
+#' the log line surfaces that variance instead of silently swallowing it.
+max_rate_with_variance_log <- function(rates, label) {
+  vals <- unique(rates[!is.na(rates)])
+  if (length(vals) > 1) {
+    message('  ', label, ': ', length(vals),
+            ' distinct rates present (',
+            paste0(round(sort(vals) * 100, 2), '%', collapse = ', '),
+            ') — taking max')
+  }
+  max(rates, na.rm = TRUE)
+}
+
+
+#' Build a Census-code => rate list from country-specific Ch99 entries.
+#'
+#' For ranges that carry country-specific deal rates (e.g. 9903.81.94-99 for
+#' UK steel, 9903.85.12-15 for UK aluminum), parse each entry's description
+#' via parse_countries(), map the resulting ISO codes to Census codes (with
+#' EU expansion), and return a named list keyed on Census code. If multiple
+#' entries resolve to the same country, keeps the max rate.
+#'
+#' Entries whose country cannot be identified from the description are
+#' rejected with a warning rather than silently attributed to the first
+#' hardcoded country in the range. Previously the steel block hardcoded
+#' '4120' (UK) for every entry in 9903.81.94-99 without inspecting the
+#' description — any future non-UK deal landing in that range would have
+#' been silently misattributed.
+#'
+#' @param entries Tibble of ch99 entries in the target range. Must have
+#'   `ch99_code`, `country_type`, `countries`, and `rate` columns.
+#' @param label Human-readable label for warning messages (e.g.
+#'   "Steel 232 country override (9903.81.94-99)").
+#' @return Named list: Census code => rate.
+extract_country_specific_overrides <- function(entries, label = 'country override') {
+  overrides <- list()
+  if (nrow(entries) == 0) return(overrides)
+
+  specific <- entries %>% filter(country_type == 'specific', !is.na(rate))
+  unattributed <- entries %>% filter(country_type != 'specific' | is.na(rate))
+
+  if (nrow(unattributed) > 0) {
+    warning(label, ': ', nrow(unattributed),
+            ' entries could not be attributed to a specific country and were skipped (ch99_code ',
+            paste(unattributed$ch99_code, collapse = ', '), ')')
+  }
+
+  if (nrow(specific) == 0) return(overrides)
+
+  for (i in seq_len(nrow(specific))) {
+    iso_codes <- specific$countries[[i]]
+    rate_i <- specific$rate[i]
+    if (length(iso_codes) == 0) next
+
+    for (iso in iso_codes) {
+      census_codes <- if (identical(iso, 'EU')) EU27_CODES else ISO_TO_CENSUS[iso]
+      census_codes <- as.character(census_codes)
+      census_codes <- census_codes[!is.na(census_codes) & nzchar(census_codes)]
+      if (length(census_codes) == 0) {
+        warning(label, ': ch99_code ', specific$ch99_code[i],
+                ' references ISO code "', iso,
+                '" which has no Census mapping; skipping')
+        next
+      }
+      for (census in census_codes) {
+        overrides[[census]] <- max(overrides[[census]] %||% 0, rate_i)
+      }
+    }
+  }
+  overrides
+}
+
+
 #' Extract Section 232 blanket rates from Chapter 99 data
 #'
 #' Section 232 tariffs are NOT linked via product footnotes.
@@ -588,25 +665,27 @@ extract_section232_rates <- function(ch99_data) {
   steel_all <- steel_parent %>% filter(country_type == 'all')
   steel_except <- steel_parent %>% filter(country_type == 'all_except')
 
-  # UK-specific steel entries (9903.81.94-99)
-  steel_uk <- steel_entries %>%
+  # Country-specific steel deal entries (9903.81.94-99). Currently used for the
+  # UK steel deal; symmetric with aluminum and robust to future additions in
+  # this range — the country is parsed from each entry's description rather
+  # than hardcoded.
+  steel_country_entries <- steel_entries %>%
     filter(grepl('^9903\\.81\\.9[4-9]', ch99_code), !is.na(rate))
-  steel_country_overrides <- list()
-  if (nrow(steel_uk) > 0) {
-    uk_rate <- max(steel_uk$rate)
-    steel_country_overrides[['4120']] <- uk_rate
-  }
+  steel_country_overrides <- extract_country_specific_overrides(
+    steel_country_entries,
+    label = 'Steel 232 country override (9903.81.94-99)'
+  )
 
   if (nrow(steel_increase) > 0) {
     steel_rate <- steel_increase$rate[1]
     steel_exempt <- character(0)
     message('  Steel 232: ', round(steel_rate * 100), '% (all countries, June 2025 increase)')
   } else if (nrow(steel_all) > 0) {
-    steel_rate <- max(steel_all$rate)
+    steel_rate <- max_rate_with_variance_log(steel_all$rate, 'Steel 232 (9903.80.xx all-country)')
     steel_exempt <- character(0)
     message('  Steel 232: ', round(steel_rate * 100), '% (all countries)')
   } else if (nrow(steel_except) > 0) {
-    steel_rate <- max(steel_except$rate)
+    steel_rate <- max_rate_with_variance_log(steel_except$rate, 'Steel 232 (9903.80.xx all-except)')
     steel_exempt <- unique(unlist(steel_except$exempt_countries))
     message('  Steel 232: ', round(steel_rate * 100), '% (all except ',
             length(steel_exempt), ' countries/groups)')
@@ -633,15 +712,21 @@ extract_section232_rates <- function(ch99_data) {
 
   alum_except <- alum_parent %>% filter(country_type == 'all_except')
 
-  # UK-specific aluminum entries (9903.85.12-15)
-  alum_uk <- aluminum_entries %>%
-    filter(grepl('^9903\\.85\\.1[2-5]', ch99_code),
-           grepl('United Kingdom', description, ignore.case = TRUE))
-  aluminum_country_overrides <- list()
-  if (nrow(alum_uk) > 0) {
-    uk_alum_rate <- max(alum_uk$rate)
-    aluminum_country_overrides[['4120']] <- uk_alum_rate
-  }
+  # Country-specific aluminum deal entries (9903.85.12-15). Currently used for
+  # the UK aluminum deal; built via parse_countries() so future deals in this
+  # range (e.g. Korea, Japan) resolve to the correct country automatically.
+  #
+  # Note: 9903.85.12 can be either the blanket "increase to 25%" entry OR a
+  # country-specific UK entry depending on revision. parse_countries() returns
+  # country_type='all' for the former (picked up by alum_25_increase above) and
+  # country_type='specific' for the latter (picked up here) — so there is no
+  # double-counting.
+  alum_country_entries <- aluminum_entries %>%
+    filter(grepl('^9903\\.85\\.1[2-5]', ch99_code), !is.na(rate))
+  aluminum_country_overrides <- extract_country_specific_overrides(
+    alum_country_entries,
+    label = 'Aluminum 232 country override (9903.85.12-15)'
+  )
 
   if (nrow(alum_increase) > 0) {
     aluminum_rate <- alum_increase$rate[1]
@@ -652,7 +737,7 @@ extract_section232_rates <- function(ch99_data) {
     aluminum_exempt <- character(0)
     message('  Aluminum 232: ', round(aluminum_rate * 100), '% (all countries, increased)')
   } else if (nrow(alum_except) > 0) {
-    aluminum_rate <- max(alum_except$rate)
+    aluminum_rate <- max_rate_with_variance_log(alum_except$rate, 'Aluminum 232 (9903.85.xx all-except)')
     aluminum_exempt <- unique(unlist(alum_except$exempt_countries))
     message('  Aluminum 232: ', round(aluminum_rate * 100), '% (all except ',
             length(aluminum_exempt), ' countries/groups)')
@@ -671,7 +756,9 @@ extract_section232_rates <- function(ch99_data) {
   # Extract derivative rate for use in 06_calculate_rates.R step 3a.
   alum_deriv <- aluminum_entries %>%
     filter(ch99_code %in% c('9903.85.04', '9903.85.07', '9903.85.08'))
-  derivative_rate <- if (nrow(alum_deriv) > 0) max(alum_deriv$rate) else aluminum_rate
+  derivative_rate <- if (nrow(alum_deriv) > 0) {
+    max_rate_with_variance_log(alum_deriv$rate, 'Aluminum derivative 232 (9903.85.04/.07/.08)')
+  } else aluminum_rate
   derivative_exempt <- if (nrow(alum_deriv) > 0) {
     unique(unlist(alum_deriv$exempt_countries))
   } else {
@@ -694,7 +781,9 @@ extract_section232_rates <- function(ch99_data) {
   steel_deriv_codes <- c('9903.81.89', '9903.81.90', '9903.81.91', '9903.81.93')
   steel_deriv <- steel_entries %>%
     filter(ch99_code %in% steel_deriv_codes, !is.na(rate), rate > 0)
-  steel_derivative_rate <- if (nrow(steel_deriv) > 0) max(steel_deriv$rate) else steel_rate
+  steel_derivative_rate <- if (nrow(steel_deriv) > 0) {
+    max_rate_with_variance_log(steel_deriv$rate, 'Steel derivative 232 (9903.81.89-93)')
+  } else steel_rate
   steel_derivative_exempt <- if (nrow(steel_deriv) > 0) {
     unique(unlist(steel_deriv$exempt_countries))
   } else {
@@ -717,11 +806,11 @@ extract_section232_rates <- function(ch99_data) {
     auto_except <- s232_auto %>% filter(country_type == 'all_except')
 
     if (nrow(auto_all) > 0) {
-      auto_rate <- max(auto_all$rate)
+      auto_rate <- max_rate_with_variance_log(auto_all$rate, 'Auto 232 (9903.94 all-country)')
       auto_exempt <- character(0)
       message('  Auto 232: ', round(auto_rate * 100), '% (all countries)')
     } else if (nrow(auto_except) > 0) {
-      auto_rate <- max(auto_except$rate)
+      auto_rate <- max_rate_with_variance_log(auto_except$rate, 'Auto 232 (9903.94 all-except)')
       auto_exempt <- unique(unlist(auto_except$exempt_countries))
       message('  Auto 232: ', round(auto_rate * 100), '% (all except ',
               length(auto_exempt), ' countries/groups)')
@@ -834,7 +923,7 @@ extract_section232_rates <- function(ch99_data) {
   if (nrow(s232_mhd) > 0) {
     # 9903.74.xx descriptions reference US Note 38, not countries,
     # so parse_countries() returns 'unknown'. Take max rate directly.
-    mhd_rate <- max(s232_mhd$rate)
+    mhd_rate <- max_rate_with_variance_log(s232_mhd$rate, 'MHD vehicles 232 (9903.74.xx)')
     message('  MHD vehicles 232: ', round(mhd_rate * 100), '%')
   }
 
@@ -847,7 +936,7 @@ extract_section232_rates <- function(ch99_data) {
     # 9903.78.01 is a blanket rate; description references US Note 36
     # subdivision, not countries, so parse_countries() returns 'unknown'.
     # Don't filter by country_type — take the max rate from any entry.
-    copper_rate <- max(s232_copper$rate)
+    copper_rate <- max_rate_with_variance_log(s232_copper$rate, 'Copper 232 (9903.78.xx)')
     message('  Copper 232: ', round(copper_rate * 100), '%')
   }
 
@@ -861,7 +950,7 @@ extract_section232_rates <- function(ch99_data) {
 
   semi_rate <- 0
   if (nrow(s232_semi) > 0) {
-    semi_rate <- max(s232_semi$rate)
+    semi_rate <- max_rate_with_variance_log(s232_semi$rate, 'Semiconductor 232 (9903.79.01)')
     message('  Semiconductor 232: ', round(semi_rate * 100), '%')
   }
 

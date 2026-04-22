@@ -1125,9 +1125,22 @@ generate_other_params_yaml <- function(date, policy_params, output_dir,
                                         etrs_resources_dir = NULL,
                                         active_s232_programs = NULL) {
 
-  # Auto rebate params
-
-  auto_rebate <- policy_params$auto_rebate %||% list()
+  # Auto rebate params — required, no silent defaults. 06_calculate_rates.R step
+  # 4b enforces the same requirement; this is the export-side mirror so anyone
+  # calling generate_etrs_config without a full policy_params gets a clear error
+  # rather than a config export silently populated with fallback values.
+  auto_rebate <- policy_params$auto_rebate
+  if (is.null(auto_rebate)) {
+    stop('policy_params$auto_rebate is missing. Required keys: rebate_rate, ',
+         'us_assembly_share, us_auto_content_share. See config/policy_params.yaml.')
+  }
+  required_keys <- c('rebate_rate', 'us_assembly_share', 'us_auto_content_share')
+  missing_keys <- setdiff(required_keys, names(auto_rebate))
+  if (length(missing_keys) > 0) {
+    stop('policy_params$auto_rebate is missing required keys: ',
+         paste(missing_keys, collapse = ', '),
+         '. See config/policy_params.yaml.')
+  }
 
   # MFN is now in the CSV (statutory_rates.csv.gz), but YAML-only configs
   # still need mfn_rates path. Include it as fallback.
@@ -1173,8 +1186,8 @@ generate_other_params_yaml <- function(date, policy_params, output_dir,
   config <- list(
     mfn_rates = mfn_rates_path,
     mfn_exemption_shares = 'resources/mfn_exemption_shares.csv',
-    us_auto_content_share = auto_rebate$us_auto_content_share %||% 0.40,
-    us_auto_assembly_share = auto_rebate$us_assembly_share %||% 0.33,
+    us_auto_content_share = auto_rebate$us_auto_content_share,
+    us_auto_assembly_share = auto_rebate$us_assembly_share,
     auto_rebate_rate = 0,  # Rebate already applied by tracker; ETRs should not re-apply
     ieepa_usmca_exception = 1,
     s122_usmca_exception = 1,
