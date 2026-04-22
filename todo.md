@@ -104,7 +104,7 @@ Investigation of `usmca_2024` / `usmca_monthly` alternatives and their behavior 
 
 - [ ] **Rebuild `usmca_monthly` snapshots under the new logic.** `data/timeseries/usmca_monthly/` and `output/alternative/*usmca_monthly*` were produced under the old clamp. Run `Rscript src/build_usmca_scenarios.R --scenarios usmca_monthly` (or the full `--with-alternatives` pass) to regenerate. Expected: Jan–Apr 2025 line at ~40–45% utilization (close to `usmca_2024`), step-up mid-2025 to ~85%, then flat at the 2026-01 level for all of 2026 until new monthly files land.
 - [ ] **Check annex-era `s232_usmca_eligible` coverage.** Diff the set of products with `s232_usmca_eligible = TRUE` against products classified as annex_1b with USMCA `special = S/S+` at `2026_rev_5`. If there are annex_1b products that should be eligible but are not, either (a) refresh the flag from `usmca` after the annex override in step 5c, or (b) add annex-level `usmca_exempt` config to `section_232_annexes.annexes.annex_1b` and apply it in step 5c alongside the rate override.
-- [ ] **Refresh 2026 monthly USMCA files.** DataWeb API returned HTTP 503 on 2026-04-20 (both attempts). Retry: `Rscript src/download_usmca_dataweb.R --year 2026 --monthly`. This replaces the "Update 2026 monthly USMCA shares" item in the Pipeline section below.
+- [ ] **Refresh 2026 monthly USMCA files.** DataWeb API has returned HTTP 503 on 2026-04-20 and again on 2026-04-21 (4 attempts across both days). Outage is outside the documented Wed 5:30-8:30 PM ET maintenance window. Retry: `Rscript src/download_usmca_dataweb.R --year 2026 --monthly`. This replaces the "Update 2026 monthly USMCA shares" item in the Pipeline section below.
 
 ## Code review findings (2026-04-15)
 
