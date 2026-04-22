@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you use this repository, please cite it using the metadata below."
+title: "Tariff Rate Tracker"
+type: software
+license: MIT
+repository-code: "https://github.com/Budget-Lab-Yale/tariff-rate-tracker"
+url: "https://github.com/Budget-Lab-Yale/tariff-rate-tracker"
+abstract: >-
+  Statutory U.S. tariff rates at the HTS-10 x country level, built from
+  USITC Harmonized Tariff Schedule archives and related policy resources.
+authors:
+  - name: "The Budget Lab at Yale"
+    email: "budgetlab@yale.edu"
+keywords:
+  - tariffs
+  - trade policy
+  - HTS
+  - Harmonized Tariff Schedule
+  - United States

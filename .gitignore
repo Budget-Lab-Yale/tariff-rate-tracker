@@ -27,6 +27,13 @@ output/
 snapshots/
 changes/
 exports/
+test_output/
+
+# Large DataWeb source dumps (re-downloaded via src/download_usmca_dataweb.R)
+resources/USITC - USMCA - *.xlsx
+
+# Diagnostic CSVs emitted by verification scripts (regenerable)
+resources/*_diagnostic.csv
 
 # Temp/diagnostic scripts
 tmpclaude-*
