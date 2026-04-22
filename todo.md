@@ -142,6 +142,7 @@ Critical and structural issues identified via full-repo code review.
 - [ ] Generic pharma country-specific exemption shares (per TPC feedback; low priority)
   - Planning note: `docs/analysis/generic_pharma_exemption_share_plan_2026-03-24.md`
 - [ ] USMCA 2026 monthly refresh — see "USMCA scenario and share-loading (2026-04-20)" above.
+- [ ] **Rerun 6 OOM-failed post-build alternatives (2026-04-22).** Full rebuild via `--full --with-alternatives` completed the main timeseries (58.5 min) and the 6 rebuild alternatives (usmca_annual/monthly/2024/dec2025, metal_flat, dutyfree_nonzero) successfully, but the 6 post-build scenarios `no_ieepa`, `no_ieepa_recip`, `no_301`, `no_232`, `no_s122`, `pre_2025` all failed with `cannot allocate vector of size 705.6 Mb` on `filter(revision == 'rev_X')` — R ran out of memory after accumulating state across the ~5-hour run. The corresponding `output/alternative/*_{no_*,pre_2025}.csv` files are stale (dated Apr 15-20, pre-dating the semi tariff work). Rerun option: a fresh R process per scenario. Either restart the machine and re-run `--full --with-alternatives`, or run each failed scenario in its own Rscript invocation (prototype: `apply_scenario(ts, name, scenarios_path) |> build_daily_aggregates(...) |> save_alternative_output(...)`). Each should take a few minutes with fresh memory.
 
 ## Low priority
 
