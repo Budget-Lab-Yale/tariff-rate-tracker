@@ -56,6 +56,83 @@ env_file <- if ('--env-file' %in% args) {
 } else {
   here('.env')
 }
+end_date_override <- if ('--end-date' %in% args) {
+  args[which(args == '--end-date') + 1]
+} else {
+  NULL
+}
+
+parse_month_year <- function(x) {
+  if (is.null(x)) return(NULL)
+  if (!grepl('^(0[1-9]|1[0-2])/[0-9]{4}$', x)) {
+    stop('--end-date must be in MM/YYYY format, got: ', x)
+  }
+  list(
+    month = as.integer(sub('^([0-9]{2})/[0-9]{4}$', '\\1', x)),
+    year = as.integer(sub('^[0-9]{2}/([0-9]{4})$', '\\1', x))
+  )
+}
+
+is_current_year <- function(year, today = Sys.Date()) {
+  as.integer(year) == as.integer(format(as.Date(today), '%Y'))
+}
+
+build_component_settings <- function(year, monthly = FALSE, today = Sys.Date(),
+                                     end_date_override = NULL) {
+  year <- as.integer(year)
+  today <- as.Date(today)
+  years_timeline <- if (monthly) 'Monthly' else 'Annual'
+  end_override <- parse_month_year(end_date_override)
+
+  # DataWeb support advised using Year-to-Date rather than full-year Annual
+  # queries for the current calendar year because the year is incomplete.
+  if (is_current_year(year, today)) {
+    current_month <- if (!is.null(end_override)) end_override$month else as.integer(format(today, '%m'))
+    current_year <- if (!is.null(end_override)) end_override$year else as.integer(format(today, '%Y'))
+    if (current_year != year) {
+      stop('--end-date year must match --year for current-year YTD queries: ',
+           current_year, ' != ', year)
+    }
+    return(list(
+      dataToReport = list(MEASURE),
+      scale = '1',
+      timeframeSelectType = 'specificDateRange',
+      years = list(as.character(year)),
+      startDate = sprintf('01/%d', year),
+      endDate = sprintf('%02d/%d', current_month, year),
+      startMonth = jsonlite::unbox(NA),
+      endMonth = jsonlite::unbox(NA),
+      yearsTimeline = years_timeline
+    ))
+  }
+
+  list(
+    dataToReport = list(MEASURE),
+    scale = '1',
+    timeframeSelectType = 'fullYears',
+    years = list(as.character(year)),
+    startDate = jsonlite::unbox(NA),
+    endDate = jsonlite::unbox(NA),
+    startMonth = jsonlite::unbox(NA),
+    endMonth = jsonlite::unbox(NA),
+    yearsTimeline = years_timeline
+  )
+}
+
+describe_timeframe <- function(year, monthly = FALSE, today = Sys.Date(),
+                               end_date_override = NULL) {
+  if (is_current_year(year, today)) {
+    end_override <- parse_month_year(end_date_override)
+    end_month <- if (!is.null(end_override)) {
+      sprintf('%02d/%d', end_override$month, end_override$year)
+    } else {
+      format(as.Date(today), '%m/%Y')
+    }
+    return(sprintf('Year-to-Date (%s through %s, %s)',
+                   year, end_month, if (monthly) 'Monthly' else 'Annual'))
+  }
+  sprintf('Full year (%s, %s)', year, if (monthly) 'Monthly' else 'Annual')
+}
 
 # --- Load token ---
 load_token <- function(env_file) {
@@ -76,6 +153,7 @@ token <- load_token(env_file)
 message('USITC DataWeb USMCA share download')
 message('  Year: ', year)
 message('  Mode: ', if (run_monthly) 'monthly' else 'annual')
+message('  DataWeb timeframe: ', describe_timeframe(year, run_monthly, end_date_override = end_date_override))
 message('  Token: ', if (nzchar(token)) 'loaded' else 'missing')
 
 # =============================================================================
@@ -149,16 +227,10 @@ build_query <- function(chapters, countries, programs = NULL, year, monthly = FA
         groupGranularity = jsonlite::unbox(NA),
         searchGranularity = jsonlite::unbox(NA)
       ),
-      componentSettings = list(
-        dataToReport = list(MEASURE),
-        scale = '1',
-        timeframeSelectType = 'fullYears',
-        years = list(as.character(year)),
-        startDate = jsonlite::unbox(NA),
-        endDate = jsonlite::unbox(NA),
-        startMonth = jsonlite::unbox(NA),
-        endMonth = jsonlite::unbox(NA),
-        yearsTimeline = if (monthly) 'Monthly' else 'Annual'
+      componentSettings = build_component_settings(
+        year,
+        monthly = monthly,
+        end_date_override = end_date_override
       ),
       countries = list(
         aggregation = 'Break Out Countries',
@@ -187,22 +259,48 @@ build_query <- function(chapters, countries, programs = NULL, year, monthly = FA
   )
 }
 
+#' POST to DataWeb with retry on 429 (rate limit)
+#' @return httr response object
+post_runreport <- function(query, token, max_retries = 4, base_wait = 5) {
+  url <- paste0(DATAWEB_BASE, '/api/v2/report2/runReport')
+  body <- toJSON(query, auto_unbox = TRUE, null = 'null', na = 'null')
+  for (attempt in seq_len(max_retries + 1L)) {
+    resp <- POST(
+      url = url,
+      add_headers(
+        'Content-Type' = 'application/json; charset=utf-8',
+        'Authorization' = paste('Bearer', token)
+      ),
+      body = body,
+      encode = 'raw'
+    )
+    if (status_code(resp) != 429 || attempt > max_retries) return(resp)
+    wait <- base_wait * 2^(attempt - 1L)
+    message('  (429 rate-limited; backing off ', wait, 's, attempt ',
+            attempt, '/', max_retries, ')')
+    Sys.sleep(wait)
+  }
+  resp
+}
+
 #' Execute a DataWeb API query and parse results
 #' @return tibble with hts10, country, value columns
 run_query <- function(query, token) {
-  resp <- POST(
-    url = paste0(DATAWEB_BASE, '/api/v2/report2/runReport'),
-    add_headers(
-      'Content-Type' = 'application/json; charset=utf-8',
-      'Authorization' = paste('Bearer', token)
-    ),
-    body = toJSON(query, auto_unbox = FALSE, null = 'null'),
-    encode = 'raw'
-  )
+  # auto_unbox = TRUE: DataWeb rejects one-element-array scalars with a 503
+  # "Site under maintenance" page, so scalars must go on the wire as scalars.
+  resp <- post_runreport(query, token)
 
   if (status_code(resp) != 200) {
-    warning('API returned status ', status_code(resp))
-    return(tibble())
+    body_txt <- tryCatch(content(resp, as = 'text', encoding = 'UTF-8'),
+                         error = function(e) '')
+    hint <- if (status_code(resp) == 503) {
+      ' (DataWeb maintenance window? Wednesdays 5:30-8:30 PM ET)'
+    } else if (status_code(resp) %in% c(401, 403)) {
+      ' (check DATAWEB_API_TOKEN in .env)'
+    } else ''
+    stop('DataWeb API returned HTTP ', status_code(resp), hint,
+         '\nFirst 300 chars of body: ',
+         substr(gsub('\\s+', ' ', body_txt), 1, 300))
   }
 
   result <- content(resp, as = 'parsed', simplifyVector = FALSE)
@@ -210,16 +308,15 @@ run_query <- function(query, token) {
   # Check for errors
   errors <- result$dto$errors
   if (length(errors) > 0) {
-    warning('API error: ', paste(errors, collapse = '; '))
-    return(tibble())
+    stop('DataWeb API error: ', paste(errors, collapse = '; '))
   }
 
   tables <- result$dto$tables
-  if (length(tables) == 0) return(tibble())
+  if (length(tables) == 0) return(tibble(hts10 = character(), country = character(), value = numeric()))
 
   # Parse rows: each row has [hts, country, description, value]
   rows <- tables[[1]]$row_groups[[1]]$rowsNew
-  if (length(rows) == 0) return(tibble())
+  if (length(rows) == 0) return(tibble(hts10 = character(), country = character(), value = numeric()))
 
   map_df(rows, function(r) {
     entries <- r$rowEntries
@@ -235,55 +332,93 @@ run_query <- function(query, token) {
 #' Execute a DataWeb API query with monthly breakdown and parse results
 #' @return tibble with month, hts10, country, value columns
 run_query_monthly <- function(query, token) {
-  resp <- POST(
-    url = paste0(DATAWEB_BASE, '/api/v2/report2/runReport'),
-    add_headers(
-      'Content-Type' = 'application/json; charset=utf-8',
-      'Authorization' = paste('Bearer', token)
-    ),
-    body = toJSON(query, auto_unbox = FALSE, null = 'null'),
-    encode = 'raw'
-  )
+  resp <- post_runreport(query, token)
 
   if (status_code(resp) != 200) {
-    warning('API returned status ', status_code(resp))
-    return(tibble())
+    body_txt <- tryCatch(content(resp, as = 'text', encoding = 'UTF-8'),
+                         error = function(e) '')
+    hint <- if (status_code(resp) == 503) {
+      ' (DataWeb maintenance window? Wednesdays 5:30-8:30 PM ET)'
+    } else if (status_code(resp) %in% c(401, 403)) {
+      ' (check DATAWEB_API_TOKEN in .env)'
+    } else ''
+    stop('DataWeb API returned HTTP ', status_code(resp), hint,
+         '\nFirst 300 chars of body: ',
+         substr(gsub('\\s+', ' ', body_txt), 1, 300))
   }
 
   result <- content(resp, as = 'parsed', simplifyVector = FALSE)
   errors <- result$dto$errors
   if (length(errors) > 0) {
-    warning('API error: ', paste(errors, collapse = '; '))
-    return(tibble())
+    stop('DataWeb API error: ', paste(errors, collapse = '; '))
   }
 
   tables <- result$dto$tables
-  if (length(tables) == 0) return(tibble())
+  empty_monthly <- tibble(month = integer(), hts10 = character(),
+                          country = character(), value = numeric())
+  if (length(tables) == 0) return(empty_monthly)
 
-  # Each table is one month; parse month from tableTitle (e.g., "January 2025")
   month_names <- c('January' = 1L, 'February' = 2L, 'March' = 3L, 'April' = 4L,
                     'May' = 5L, 'June' = 6L, 'July' = 7L, 'August' = 8L,
                     'September' = 9L, 'October' = 10L, 'November' = 11L, 'December' = 12L)
 
-  map_df(tables, function(tbl) {
-    title <- tbl$tableTitle %||% ''
-    month_word <- sub(' .*', '', title)
-    month_num <- month_names[month_word]
-    if (is.na(month_num)) return(tibble())
+  # DataWeb returns two different shapes for monthly queries:
+  #   (a) fullYears + yearsTimeline=Monthly: one table per month, month in tableTitle
+  #   (b) specificDateRange + yearsTimeline=Monthly (YTD): one table with a value
+  #       column per month, labels in column_groups[[2]]$columns[*]$label
+  month_value_cols <- function(tbl) {
+    cg <- tbl$column_groups
+    if (length(cg) < 2) return(NULL)
+    labels <- vapply(cg[[2]]$columns,
+                     function(col) col$label %||% NA_character_,
+                     character(1))
+    months <- month_names[labels]
+    if (!any(!is.na(months))) return(NULL)
+    months
+  }
 
+  parse_table <- function(tbl) {
     rows <- tbl$row_groups[[1]]$rowsNew
-    if (length(rows) == 0) return(tibble())
+    if (length(rows) == 0) return(empty_monthly)
 
-    map_df(rows, function(r) {
-      entries <- r$rowEntries
-      tibble(
-        month = month_num,
-        hts10 = entries[[1]]$value,
-        country = entries[[2]]$value,
-        value = as.numeric(gsub(',', '', entries[[length(entries)]]$value))
-      )
-    })
-  })
+    value_months <- month_value_cols(tbl)
+    if (!is.null(value_months)) {
+      n_val <- length(value_months)
+      map_df(rows, function(r) {
+        entries <- r$rowEntries
+        n <- length(entries)
+        hts10 <- entries[[1]]$value
+        country <- entries[[2]]$value
+        value_entries <- entries[(n - n_val + 1):n]
+        map_df(seq_along(value_entries), function(j) {
+          month_num <- value_months[[j]]
+          if (is.na(month_num)) return(empty_monthly)
+          tibble(
+            month = unname(month_num),
+            hts10 = hts10,
+            country = country,
+            value = as.numeric(gsub(',', '', value_entries[[j]]$value %||% '0'))
+          )
+        })
+      })
+    } else {
+      title <- tbl$tableTitle %||% ''
+      month_word <- sub(' .*', '', title)
+      month_num <- month_names[month_word]
+      if (is.na(month_num)) return(empty_monthly)
+      map_df(rows, function(r) {
+        entries <- r$rowEntries
+        tibble(
+          month = unname(month_num),
+          hts10 = entries[[1]]$value,
+          country = entries[[2]]$value,
+          value = as.numeric(gsub(',', '', entries[[length(entries)]]$value))
+        )
+      })
+    }
+  }
+
+  map_df(tables, parse_table)
 }
 
 # =============================================================================
@@ -298,7 +433,7 @@ batch_chapters <- function(chapters, batch_size = 5) {
 
 countries <- c(CTY_CANADA, CTY_MEXICO)
 chapter_batches <- batch_chapters(ALL_CHAPTERS, batch_size = 5)
-rate_limit_sec <- if (run_monthly) 1.0 else 0.5
+rate_limit_sec <- if (run_monthly) 2.0 else 0.5
 
 query_fn <- if (run_monthly) run_query_monthly else run_query
 
@@ -347,6 +482,17 @@ total_records <- map_df(seq_along(chapter_batches), function(i) {
 })
 
 message('\n  Total records: ', nrow(total_records))
+
+if (nrow(total_records) == 0) {
+  stop('DataWeb returned 0 total-import records across all ', length(chapter_batches),
+       ' chapter batches for year ', year, '. Refusing to overwrite USMCA shares ',
+       'with an empty dataset. Likely cause: DataWeb maintenance or token expiry. ',
+       'Re-run later, or skip --refresh-usmca to use existing files.')
+}
+if (nrow(usmca_records) == 0) {
+  warning('DataWeb returned 0 USMCA-program records — all shares will be 0. ',
+          'Verify this is expected for year ', year, ' before overwriting output.')
+}
 
 # =============================================================================
 # Compute product-level shares
