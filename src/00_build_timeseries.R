@@ -490,11 +490,12 @@ if (sys.nframe() == 0) {
     if (args[i] == '--start-from' && i < length(args)) start_from <- args[i + 1]
   }
 
-  # --- Alternatives-only mode: skip build, load existing timeseries ---
+  # --- Alternatives-only mode: skip build, iterate existing snapshots ---
   if (alternatives_only) {
-    ts_path <- here('data', 'timeseries', 'rate_timeseries.rds')
-    if (!file.exists(ts_path)) {
-      stop('No existing timeseries at ', ts_path,
+    snapshot_dir <- here('data', 'timeseries')
+    snap_files <- list.files(snapshot_dir, pattern = '^snapshot_.*\\.rds$')
+    if (length(snap_files) == 0) {
+      stop('No snapshots found in ', snapshot_dir,
            '. Run a full build first before using --alternatives-only.')
     }
 
@@ -507,17 +508,17 @@ if (sys.nframe() == 0) {
     )
     log_info('Mode: alternatives-only')
 
-    message('Loading existing timeseries: ', ts_path)
+    message('Using existing snapshots in: ', snapshot_dir,
+            ' (', length(snap_files), ' revisions)')
 
     source(here('src', '09_daily_series.R'))
     source(here('src', 'apply_scenarios.R'))
 
-    ts <- readRDS(ts_path)
     pp <- load_policy_params(use_policy_dates = use_policy_dates)
     imports <- load_import_weights()
 
     capture_messages({
-      run_alternative_series(ts, imports = imports, policy_params = pp,
+      run_alternative_series(imports = imports, policy_params = pp,
                               rebuild = TRUE)
     })
 
@@ -640,10 +641,13 @@ if (sys.nframe() == 0) {
       )
 
       # --- Step F: Alternative daily series ---
-      # Post-build alternatives always run; rebuild alternatives only with --with-alternatives
+      # Post-build alternatives always run; rebuild alternatives only with --with-alternatives.
+      # Release the full timeseries first — alternatives iterate per-revision snapshots
+      # and holding ts alongside them was the source of the prior OOMs.
+      rm(ts); gc()
       tryCatch({
         source(here('src', 'apply_scenarios.R'))
-        run_alternative_series(ts, imports = imports, policy_params = pp,
+        run_alternative_series(imports = imports, policy_params = pp,
                                 rebuild = with_alternatives)
       }, error = function(e) message('Alternative series failed: ', conditionMessage(e)))
     }
