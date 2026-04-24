@@ -644,7 +644,8 @@ if (sys.nframe() == 0) {
       # Post-build alternatives always run; rebuild alternatives only with --with-alternatives.
       # Release the full timeseries first — alternatives iterate per-revision snapshots
       # and holding ts alongside them was the source of the prior OOMs.
-      rm(ts); gc()
+      if (exists('ts', inherits = FALSE)) rm(ts)
+      gc()
       tryCatch({
         source(here('src', 'apply_scenarios.R'))
         run_alternative_series(imports = imports, policy_params = pp,

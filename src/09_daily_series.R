@@ -13,7 +13,7 @@
 #   build_daily_aggregates(ts, date_range, imports, policy_params) - daily ETRs
 #   expand_to_daily(ts, date_range, countries, products) - on-demand expansion
 #   run_daily_series(ts, imports, policy_params) - full pipeline wrapper
-#   run_alternative_series(ts, imports, pp, rebuild) - alternative daily series
+#   run_alternative_series(imports, pp, rebuild) - alternative daily series
 #   build_alternative_timeseries(pp_override, variant, imports) - rebuild variant
 #
 # Usage:
@@ -791,7 +791,14 @@ save_alternative_output <- function(daily_overall, variant,
 #' @param horizon_end Series horizon end date (defaults to Sys.Date())
 #' @return Tibble with columns revision, valid_from, valid_until
 build_rev_intervals <- function(revs_built, rev_dates, horizon_end = Sys.Date()) {
-  last_eff <- max(rev_dates$effective_date[rev_dates$revision %in% revs_built])
+  if (length(revs_built) == 0) {
+    stop('build_rev_intervals: revs_built is empty — no revisions to build intervals for')
+  }
+  matched <- rev_dates$effective_date[rev_dates$revision %in% revs_built]
+  if (length(matched) == 0) {
+    stop('build_rev_intervals: none of revs_built match revision_dates.csv')
+  }
+  last_eff <- max(matched)
   if (horizon_end < last_eff) horizon_end <- last_eff
 
   rev_dates %>%
@@ -836,7 +843,10 @@ aggregate_snapshots_per_revision <- function(snapshot_dir, rev_intervals,
   for (i in seq_len(n_revs)) {
     rev_id <- rev_intervals$revision[i]
     snap_path <- file.path(snapshot_dir, paste0('snapshot_', rev_id, '.rds'))
-    if (!file.exists(snap_path)) next
+    if (!file.exists(snap_path)) {
+      message('    SKIP ', rev_id, ': snapshot not found')
+      next
+    }
 
     snapshot <- readRDS(snap_path)
     snapshot <- enforce_rate_schema(snapshot)
@@ -979,7 +989,7 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
   )
 
   # Aggregate per-revision: load one snapshot at a time, aggregate, release.
-  # Avoids holding the full combined timeseries (~125M rows) in memory.
+  # Avoids holding the full combined timeseries (~185M rows) in memory.
   message('  Aggregating ', nrow(rev_intervals), ' revisions (per-revision mode)...')
   parts <- aggregate_snapshots_per_revision(
     snapshot_dir = tmp_dir,
@@ -1043,20 +1053,26 @@ run_post_build_scenarios_per_revision <- function(scenario_names,
     horizon_end = policy_params$SERIES_HORIZON_END %||% Sys.Date()
   )
 
+  n_ok <- 0L
+  failures <- character(0)
   for (scenario_name in scenario_names) {
-    tryCatch({
-      scenario <- scenarios[[scenario_name]]
-      disable <- scenario$disable %||% character(0)
-      message('\n  Scenario: ', scenario_name, ' (per-revision)')
-      message('    ', scenario$description)
-      if (length(disable) > 0) {
-        message('    Disabling: ', paste(disable, collapse = ', '))
-      }
+    scenario_spec <- scenarios[[scenario_name]]
+    disable <- scenario_spec$disable %||% character(0)
+    message('\n  Scenario: ', scenario_name, ' (per-revision)')
+    message('    ', scenario_spec$description)
+    if (length(disable) > 0) {
+      message('    Disabling: ', paste(disable, collapse = ', '))
+    }
 
-      transform <- function(snapshot) {
-        suppressMessages(apply_scenario(snapshot, scenario_name, scenarios_path))
-      }
+    # local() binds scenario_spec/name by value so the closure can't be
+    # aliased by the next loop iteration.
+    transform <- local({
+      spec <- scenario_spec
+      name <- scenario_name
+      function(snapshot) apply_scenario_spec(snapshot, spec, name)
+    })
 
+    ok <- tryCatch({
       parts <- aggregate_snapshots_per_revision(
         snapshot_dir = snapshot_dir,
         rev_intervals = rev_intervals,
@@ -1064,13 +1080,21 @@ run_post_build_scenarios_per_revision <- function(scenario_names,
         policy_params = policy_params,
         transform = transform
       )
-
       save_alternative_output(parts$daily_overall, scenario_name,
                                agg_by_authority = parts$agg_by_authority,
                                agg_by_country = parts$agg_by_country)
+      TRUE
     }, error = function(e) {
       message('  FAILED (', scenario_name, '): ', conditionMessage(e))
+      FALSE
     })
+    if (isTRUE(ok)) n_ok <- n_ok + 1L else failures <- c(failures, scenario_name)
+  }
+
+  message(sprintf('\n  Post-build scenarios: %d/%d succeeded',
+                  n_ok, length(scenario_names)))
+  if (length(failures) > 0) {
+    message('  Failed: ', paste(failures, collapse = ', '))
   }
 
   invisible(NULL)
@@ -1087,14 +1111,11 @@ run_post_build_scenarios_per_revision <- function(scenario_names,
 #' Rebuild alternatives (slow): re-run full calculation with modified policy
 #' params. Only runs when rebuild = TRUE.
 #'
-#' @param ts Unused; retained for backward compat. Post-build scenarios now
-#'   iterate per-revision snapshots directly (see
-#'   run_post_build_scenarios_per_revision).
 #' @param imports Import weights tibble (or NULL)
 #' @param policy_params Policy params list
 #' @param rebuild Logical; if TRUE, also run rebuild alternatives
 #' @return Invisible NULL
-run_alternative_series <- function(ts = NULL, imports = NULL, policy_params = NULL,
+run_alternative_series <- function(imports = NULL, policy_params = NULL,
                                     rebuild = FALSE) {
 
   message('\n', strrep('=', 70))
@@ -1102,18 +1123,25 @@ run_alternative_series <- function(ts = NULL, imports = NULL, policy_params = NU
   message(strrep('=', 70))
 
   if (is.null(imports)) imports <- load_import_weights()
+  if (!exists('apply_scenario_spec', mode = 'function')) {
+    source(here('src', 'apply_scenarios.R'))
+  }
 
   # --- Post-build alternatives (scenario-based, per-revision) ---
   # Iterates on-disk snapshots one at a time — never materializes the full
   # combined timeseries. Required to keep no_ieepa / no_232 / no_s122 within
   # memory bounds on Windows.
-  post_build_scenarios <- c('no_ieepa', 'no_ieepa_recip', 'no_301',
-                             'no_232', 'no_s122', 'pre_2025')
+  #
+  # Scenario list comes from config/scenarios.yaml (single source of truth);
+  # the 'baseline' entry is excluded since it's the no-op identity.
+  scenarios_path <- here('config', 'scenarios.yaml')
+  post_build_scenarios <- setdiff(names(load_scenarios(scenarios_path)), 'baseline')
 
   run_post_build_scenarios_per_revision(
     scenario_names = post_build_scenarios,
     imports = imports,
-    policy_params = policy_params
+    policy_params = policy_params,
+    scenarios_path = scenarios_path
   )
 
   # --- Rebuild alternatives (only with --with-alternatives) ---

@@ -50,30 +50,20 @@ load_scenarios <- function(scenarios_path = 'config/scenarios.yaml') {
 }
 
 
-#' Apply a scenario to a rates tibble
+#' Apply a pre-loaded scenario spec to a rates tibble
 #'
-#' Zeros out columns for disabled authorities, then re-applies stacking rules
-#' to recompute total_additional and total_rate.
+#' Lower-level variant of apply_scenario() that takes a resolved scenario spec
+#' (a named list with $disable and optional $description) instead of a name +
+#' file path. Use this when applying the same scenario repeatedly in a loop —
+#' avoids re-reading scenarios.yaml on every call.
 #'
 #' @param rates Tibble with standard rate columns
-#' @param scenario_name Name of scenario (must exist in scenarios YAML)
-#' @param scenarios_path Path to scenarios.yaml
+#' @param scenario_spec Named list with $disable (character vector of authority
+#'   names) and optional $description
+#' @param scenario_name Character name to tag on the result (for traceability)
 #' @return Rates tibble with scenario applied and 'scenario' column added
-apply_scenario <- function(rates, scenario_name, scenarios_path = 'config/scenarios.yaml') {
-  scenarios <- load_scenarios(scenarios_path)
-
-  if (!scenario_name %in% names(scenarios)) {
-    stop('Unknown scenario: ', scenario_name,
-         '. Available: ', paste(names(scenarios), collapse = ', '))
-  }
-
-  scenario <- scenarios[[scenario_name]]
-  disable <- scenario$disable %||% character(0)
-
-  message('Applying scenario "', scenario_name, '": ', scenario$description)
-  if (length(disable) > 0) {
-    message('  Disabling: ', paste(disable, collapse = ', '))
-  }
+apply_scenario_spec <- function(rates, scenario_spec, scenario_name = 'unnamed') {
+  disable <- scenario_spec$disable %||% character(0)
 
   # Validate authority names
   invalid <- setdiff(disable, names(AUTHORITY_COLUMNS))
@@ -95,13 +85,38 @@ apply_scenario <- function(rates, scenario_name, scenarios_path = 'config/scenar
   result <- apply_stacking_rules(result, CTY_CHINA) %>%
     mutate(scenario = scenario_name)
 
-  # Enforce canonical schema
-  result <- enforce_rate_schema(result)
+  enforce_rate_schema(result)
+}
 
-  # Summary
+
+#' Apply a scenario to a rates tibble
+#'
+#' Zeros out columns for disabled authorities, then re-applies stacking rules
+#' to recompute total_additional and total_rate. Convenience wrapper around
+#' apply_scenario_spec() that handles YAML loading and user-facing logging.
+#'
+#' @param rates Tibble with standard rate columns
+#' @param scenario_name Name of scenario (must exist in scenarios YAML)
+#' @param scenarios_path Path to scenarios.yaml
+#' @return Rates tibble with scenario applied and 'scenario' column added
+apply_scenario <- function(rates, scenario_name, scenarios_path = 'config/scenarios.yaml') {
+  scenarios <- load_scenarios(scenarios_path)
+
+  if (!scenario_name %in% names(scenarios)) {
+    stop('Unknown scenario: ', scenario_name,
+         '. Available: ', paste(names(scenarios), collapse = ', '))
+  }
+
+  scenario_spec <- scenarios[[scenario_name]]
+  message('Applying scenario "', scenario_name, '": ', scenario_spec$description)
+  disable <- scenario_spec$disable %||% character(0)
+  if (length(disable) > 0) {
+    message('  Disabling: ', paste(disable, collapse = ', '))
+  }
+
+  result <- apply_scenario_spec(rates, scenario_spec, scenario_name)
   message('  Mean total rate: ', round(mean(result$total_rate) * 100, 2), '%')
-
-  return(result)
+  result
 }
 
 
