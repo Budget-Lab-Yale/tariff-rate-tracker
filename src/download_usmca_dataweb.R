@@ -73,6 +73,14 @@ parse_month_year <- function(x) {
   )
 }
 
+strip_wrapping_quotes <- function(x) {
+  x <- trimws(x)
+  if (grepl("^['\"].*['\"]$", x)) {
+    x <- substring(x, 2, nchar(x) - 1)
+  }
+  x
+}
+
 is_current_year <- function(year, today = Sys.Date()) {
   as.integer(year) == as.integer(format(as.Date(today), '%Y'))
 }
@@ -146,7 +154,11 @@ load_token <- function(env_file) {
   if (length(token_line) == 0) {
     stop('DATAWEB_API_TOKEN not found in ', env_file)
   }
-  sub('^DATAWEB_API_TOKEN=', '', token_line[1])
+  token <- strip_wrapping_quotes(sub('^DATAWEB_API_TOKEN=', '', token_line[1]))
+  if (!nzchar(token)) {
+    stop('DATAWEB_API_TOKEN is empty in ', env_file)
+  }
+  token
 }
 
 token <- load_token(env_file)
@@ -259,28 +271,119 @@ build_query <- function(chapters, countries, programs = NULL, year, monthly = FA
   )
 }
 
-#' POST to DataWeb with retry on 429 (rate limit)
+#' Retryable transport-layer failures from the DataWeb API
+#' @param msg Error message from httr/curl
+#' @return Logical scalar
+is_retryable_transport_error <- function(msg) {
+  msg <- tolower(msg)
+  patterns <- c(
+    'timed out',
+    'timeout',
+    'could not resolve host',
+    'couldn\'t resolve host',
+    'could not connect',
+    'couldn\'t connect',
+    'failed to connect',
+    'connection reset',
+    'connection was reset',
+    'connection was aborted',
+    'failure when receiving data',
+    'recv failure',
+    'send failure',
+    'empty reply from server',
+    'server returned nothing',
+    'ssl connect error',
+    'schannel',
+    'network is unreachable',
+    'http/2 stream'
+  )
+  any(vapply(patterns, function(p) grepl(p, msg, fixed = TRUE), logical(1)))
+}
+
+is_retryable_http_status <- function(code) {
+  code %in% c(429L, 500L, 502L, 503L, 504L)
+}
+
+http_status_hint <- function(code) {
+  if (code == 503L) {
+    return(' (DataWeb maintenance window? Wednesdays 5:30-8:30 PM ET)')
+  }
+  if (code %in% c(401L, 403L)) {
+    return(' (check DATAWEB_API_TOKEN in .env)')
+  }
+  if (code == 429L) {
+    return(' (rate limited)')
+  }
+  if (code %in% c(500L, 502L, 504L)) {
+    return(' (transient server/network error)')
+  }
+  ''
+}
+
+format_http_error <- function(resp) {
+  code <- status_code(resp)
+  body_txt <- tryCatch(content(resp, as = 'text', encoding = 'UTF-8'),
+                       error = function(e) '')
+  paste0(
+    'DataWeb API returned HTTP ', code, http_status_hint(code),
+    '\nFirst 300 chars of body: ',
+    substr(gsub('\\s+', ' ', body_txt), 1, 300)
+  )
+}
+
+#' POST to DataWeb with retry on 429 / transient 5xx / transport failures
 #' @return httr response object
-post_runreport <- function(query, token, max_retries = 4, base_wait = 5) {
+post_runreport <- function(query, token, max_retries = 4, base_wait = 5,
+                           request_timeout = 180) {
   url <- paste0(DATAWEB_BASE, '/api/v2/report2/runReport')
   body <- toJSON(query, auto_unbox = TRUE, null = 'null', na = 'null')
+
   for (attempt in seq_len(max_retries + 1L)) {
-    resp <- POST(
-      url = url,
-      add_headers(
-        'Content-Type' = 'application/json; charset=utf-8',
-        'Authorization' = paste('Bearer', token)
+    resp <- tryCatch(
+      POST(
+        url = url,
+        add_headers(
+          'Content-Type' = 'application/json; charset=utf-8',
+          'Authorization' = paste('Bearer', token)
+        ),
+        timeout(request_timeout),
+        user_agent('tariff-rate-tracker-dataweb-downloader'),
+        body = body,
+        encode = 'raw'
       ),
-      body = body,
-      encode = 'raw'
+      error = function(e) e
     )
-    if (status_code(resp) != 429 || attempt > max_retries) return(resp)
+
+    if (inherits(resp, 'error')) {
+      msg <- conditionMessage(resp)
+      if (attempt <= max_retries && is_retryable_transport_error(msg)) {
+        wait <- base_wait * 2^(attempt - 1L)
+        short_msg <- strsplit(msg, '\n', fixed = TRUE)[[1]][1]
+        message('  (transport error; backing off ', wait, 's, attempt ',
+                attempt, '/', max_retries, ': ', short_msg, ')')
+        Sys.sleep(wait)
+        next
+      }
+      stop(
+        'DataWeb request failed before receiving an HTTP response',
+        if (attempt > 1L) paste0(' after ', attempt, ' attempts') else '',
+        ': ', msg,
+        '\nLikely causes: transient network failure, DataWeb outage/maintenance, ',
+        'TLS/proxy issues, or a local connectivity problem. Re-run later, or skip ',
+        '--refresh-usmca to use the existing committed files.'
+      )
+    }
+
+    code <- status_code(resp)
+    if (!is_retryable_http_status(code) || attempt > max_retries) return(resp)
+
     wait <- base_wait * 2^(attempt - 1L)
-    message('  (429 rate-limited; backing off ', wait, 's, attempt ',
-            attempt, '/', max_retries, ')')
+    message('  (HTTP ', code, http_status_hint(code), '; backing off ', wait,
+            's, attempt ', attempt, '/', max_retries, ')')
     Sys.sleep(wait)
   }
-  resp
+
+  stop('Unexpected retry-loop exit in post_runreport()')
 }
 
 #' Execute a DataWeb API query and parse results
@@ -291,16 +394,7 @@ run_query <- function(query, token) {
   resp <- post_runreport(query, token)
 
   if (status_code(resp) != 200) {
-    body_txt <- tryCatch(content(resp, as = 'text', encoding = 'UTF-8'),
-                         error = function(e) '')
-    hint <- if (status_code(resp) == 503) {
-      ' (DataWeb maintenance window? Wednesdays 5:30-8:30 PM ET)'
-    } else if (status_code(resp) %in% c(401, 403)) {
-      ' (check DATAWEB_API_TOKEN in .env)'
-    } else ''
-    stop('DataWeb API returned HTTP ', status_code(resp), hint,
-         '\nFirst 300 chars of body: ',
-         substr(gsub('\\s+', ' ', body_txt), 1, 300))
+    stop(format_http_error(resp))
   }
 
   result <- content(resp, as = 'parsed', simplifyVector = FALSE)
@@ -335,16 +429,7 @@ run_query_monthly <- function(query, token) {
   resp <- post_runreport(query, token)
 
   if (status_code(resp) != 200) {
-    body_txt <- tryCatch(content(resp, as = 'text', encoding = 'UTF-8'),
-                         error = function(e) '')
-    hint <- if (status_code(resp) == 503) {
-      ' (DataWeb maintenance window? Wednesdays 5:30-8:30 PM ET)'
-    } else if (status_code(resp) %in% c(401, 403)) {
-      ' (check DATAWEB_API_TOKEN in .env)'
-    } else ''
-    stop('DataWeb API returned HTTP ', status_code(resp), hint,
-         '\nFirst 300 chars of body: ',
-         substr(gsub('\\s+', ' ', body_txt), 1, 300))
+    stop(format_http_error(resp))
   }
 
   result <- content(resp, as = 'parsed', simplifyVector = FALSE)
@@ -377,6 +462,18 @@ run_query_monthly <- function(query, token) {
     months
   }
 
+  # Locate the "Country" column by value rather than fixed position. Around
+  # 2026-04 DataWeb began inserting an extra "Year" column at position [[2]]
+  # for monthly queries (pushing Country to [[3]]); column ordering may shift
+  # again. Searching for "Canada"/"Mexico" in non-value entries is robust.
+  find_country_idx <- function(entries, value_start) {
+    header <- entries[seq_len(value_start - 1)]
+    idx <- which(vapply(header,
+                        function(e) (e$value %||% '') %in% c('Canada', 'Mexico'),
+                        logical(1)))
+    if (length(idx) == 0) NA_integer_ else idx[[1]]
+  }
+
   parse_table <- function(tbl) {
     rows <- tbl$row_groups[[1]]$rowsNew
     if (length(rows) == 0) return(empty_monthly)
@@ -387,9 +484,12 @@ run_query_monthly <- function(query, token) {
       map_df(rows, function(r) {
         entries <- r$rowEntries
         n <- length(entries)
+        value_start <- n - n_val + 1
+        cty_idx <- find_country_idx(entries, value_start)
+        if (is.na(cty_idx)) return(empty_monthly)
         hts10 <- entries[[1]]$value
-        country <- entries[[2]]$value
-        value_entries <- entries[(n - n_val + 1):n]
+        country <- entries[[cty_idx]]$value
+        value_entries <- entries[value_start:n]
         map_df(seq_along(value_entries), function(j) {
           month_num <- value_months[[j]]
           if (is.na(month_num)) return(empty_monthly)
@@ -408,11 +508,14 @@ run_query_monthly <- function(query, token) {
       if (is.na(month_num)) return(empty_monthly)
       map_df(rows, function(r) {
         entries <- r$rowEntries
+        n <- length(entries)
+        cty_idx <- find_country_idx(entries, n)  # value is the last entry
+        if (is.na(cty_idx)) return(empty_monthly)
         tibble(
           month = unname(month_num),
           hts10 = entries[[1]]$value,
-          country = entries[[2]]$value,
-          value = as.numeric(gsub(',', '', entries[[length(entries)]]$value))
+          country = entries[[cty_idx]]$value,
+          value = as.numeric(gsub(',', '', entries[[n]]$value))
         )
       })
     }
