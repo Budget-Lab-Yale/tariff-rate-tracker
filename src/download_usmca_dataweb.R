@@ -33,6 +33,8 @@ library(here)
 library(jsonlite)
 library(httr)
 
+source(here('src', 'dataweb_parser.R'))
+
 # --- Constants ---
 DATAWEB_BASE <- 'https://datawebws.usitc.gov/dataweb'
 CTY_CANADA <- '1220'
@@ -50,7 +52,8 @@ year <- if ('--year' %in% args) {
 } else {
   2024L
 }
-run_monthly <- '--monthly' %in% args
+run_monthly   <- '--monthly' %in% args
+allow_partial <- '--allow-partial' %in% args
 env_file <- if ('--env-file' %in% args) {
   args[which(args == '--env-file') + 1]
 } else {
@@ -167,6 +170,18 @@ message('  Year: ', year)
 message('  Mode: ', if (run_monthly) 'monthly' else 'annual')
 message('  DataWeb timeframe: ', describe_timeframe(year, run_monthly, end_date_override = end_date_override))
 message('  Token: ', if (nzchar(token)) 'loaded' else 'missing')
+
+# Refuse to overwrite the canonical annual CSV with partial-year data: when
+# --year is the current calendar year, DataWeb returns YTD totals only.
+# Monthly mode is exempt (per-month writes already partition by released
+# months, gated by sum(total_value) == 0). Pass --allow-partial to override
+# for sensitivity runs that explicitly want YTD aggregates.
+if (!run_monthly && is_current_year(year) && !allow_partial) {
+  stop('Refusing to overwrite annual USMCA shares with partial-year data: ',
+       'year ', year, ' is the current calendar year and DataWeb returns ',
+       'YTD totals.\nPass --allow-partial to override (e.g., for mid-year ',
+       'sensitivity runs), or use --monthly to capture released months.')
+}
 
 # =============================================================================
 # DataWeb API query functions
@@ -386,142 +401,22 @@ post_runreport <- function(query, token, max_retries = 4, base_wait = 5,
   stop('Unexpected retry-loop exit in post_runreport()')
 }
 
-#' Execute a DataWeb API query and parse results
-#' @return tibble with hts10, country, value columns
+#' Execute a DataWeb API query and parse the annual response.
+#' Pure parsing lives in src/dataweb_parser.R; this wrapper does the HTTP.
+#' @return tibble(hts10, country, value)
 run_query <- function(query, token) {
-  # auto_unbox = TRUE: DataWeb rejects one-element-array scalars with a 503
-  # "Site under maintenance" page, so scalars must go on the wire as scalars.
   resp <- post_runreport(query, token)
-
-  if (status_code(resp) != 200) {
-    stop(format_http_error(resp))
-  }
-
-  result <- content(resp, as = 'parsed', simplifyVector = FALSE)
-
-  # Check for errors
-  errors <- result$dto$errors
-  if (length(errors) > 0) {
-    stop('DataWeb API error: ', paste(errors, collapse = '; '))
-  }
-
-  tables <- result$dto$tables
-  if (length(tables) == 0) return(tibble(hts10 = character(), country = character(), value = numeric()))
-
-  # Parse rows: each row has [hts, country, description, value]
-  rows <- tables[[1]]$row_groups[[1]]$rowsNew
-  if (length(rows) == 0) return(tibble(hts10 = character(), country = character(), value = numeric()))
-
-  map_df(rows, function(r) {
-    entries <- r$rowEntries
-    # Columns: HTS Number, Country, Description, <year>
-    tibble(
-      hts10 = entries[[1]]$value,
-      country = entries[[2]]$value,
-      value = as.numeric(gsub(',', '', entries[[length(entries)]]$value))
-    )
-  })
+  if (status_code(resp) != 200) stop(format_http_error(resp))
+  parse_annual_dto(content(resp, as = 'parsed', simplifyVector = FALSE)$dto)
 }
 
-#' Execute a DataWeb API query with monthly breakdown and parse results
-#' @return tibble with month, hts10, country, value columns
+#' Execute a DataWeb API query with monthly breakdown and parse results.
+#' Pure parsing lives in src/dataweb_parser.R; this wrapper does the HTTP.
+#' @return tibble(month, hts10, country, value)
 run_query_monthly <- function(query, token) {
   resp <- post_runreport(query, token)
-
-  if (status_code(resp) != 200) {
-    stop(format_http_error(resp))
-  }
-
-  result <- content(resp, as = 'parsed', simplifyVector = FALSE)
-  errors <- result$dto$errors
-  if (length(errors) > 0) {
-    stop('DataWeb API error: ', paste(errors, collapse = '; '))
-  }
-
-  tables <- result$dto$tables
-  empty_monthly <- tibble(month = integer(), hts10 = character(),
-                          country = character(), value = numeric())
-  if (length(tables) == 0) return(empty_monthly)
-
-  month_names <- c('January' = 1L, 'February' = 2L, 'March' = 3L, 'April' = 4L,
-                    'May' = 5L, 'June' = 6L, 'July' = 7L, 'August' = 8L,
-                    'September' = 9L, 'October' = 10L, 'November' = 11L, 'December' = 12L)
-
-  # DataWeb returns two different shapes for monthly queries:
-  #   (a) fullYears + yearsTimeline=Monthly: one table per month, month in tableTitle
-  #   (b) specificDateRange + yearsTimeline=Monthly (YTD): one table with a value
-  #       column per month, labels in column_groups[[2]]$columns[*]$label
-  month_value_cols <- function(tbl) {
-    cg <- tbl$column_groups
-    if (length(cg) < 2) return(NULL)
-    labels <- vapply(cg[[2]]$columns,
-                     function(col) col$label %||% NA_character_,
-                     character(1))
-    months <- month_names[labels]
-    if (!any(!is.na(months))) return(NULL)
-    months
-  }
-
-  # Locate the "Country" column by value rather than fixed position. Around
-  # 2026-04 DataWeb began inserting an extra "Year" column at position [[2]]
-  # for monthly queries (pushing Country to [[3]]); column ordering may shift
-  # again. Searching for "Canada"/"Mexico" in non-value entries is robust.
-  find_country_idx <- function(entries, value_start) {
-    header <- entries[seq_len(value_start - 1)]
-    idx <- which(vapply(header,
-                        function(e) (e$value %||% '') %in% c('Canada', 'Mexico'),
-                        logical(1)))
-    if (length(idx) == 0) NA_integer_ else idx[[1]]
-  }
-
-  parse_table <- function(tbl) {
-    rows <- tbl$row_groups[[1]]$rowsNew
-    if (length(rows) == 0) return(empty_monthly)
-
-    value_months <- month_value_cols(tbl)
-    if (!is.null(value_months)) {
-      n_val <- length(value_months)
-      map_df(rows, function(r) {
-        entries <- r$rowEntries
-        n <- length(entries)
-        value_start <- n - n_val + 1
-        cty_idx <- find_country_idx(entries, value_start)
-        if (is.na(cty_idx)) return(empty_monthly)
-        hts10 <- entries[[1]]$value
-        country <- entries[[cty_idx]]$value
-        value_entries <- entries[value_start:n]
-        map_df(seq_along(value_entries), function(j) {
-          month_num <- value_months[[j]]
-          if (is.na(month_num)) return(empty_monthly)
-          tibble(
-            month = unname(month_num),
-            hts10 = hts10,
-            country = country,
-            value = as.numeric(gsub(',', '', value_entries[[j]]$value %||% '0'))
-          )
-        })
-      })
-    } else {
-      title <- tbl$tableTitle %||% ''
-      month_word <- sub(' .*', '', title)
-      month_num <- month_names[month_word]
-      if (is.na(month_num)) return(empty_monthly)
-      map_df(rows, function(r) {
-        entries <- r$rowEntries
-        n <- length(entries)
-        cty_idx <- find_country_idx(entries, n)  # value is the last entry
-        if (is.na(cty_idx)) return(empty_monthly)
-        tibble(
-          month = unname(month_num),
-          hts10 = entries[[1]]$value,
-          country = entries[[cty_idx]]$value,
-          value = as.numeric(gsub(',', '', entries[[n]]$value))
-        )
-      })
-    }
-  }
-
-  map_df(tables, parse_table)
+  if (status_code(resp) != 200) stop(format_http_error(resp))
+  parse_monthly_dto(content(resp, as = 'parsed', simplifyVector = FALSE)$dto)
 }
 
 # =============================================================================
