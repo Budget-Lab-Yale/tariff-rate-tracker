@@ -679,7 +679,11 @@ if (run_monthly) {
 
 # --- Save ---
 if (run_monthly) {
-  # Save per-month files with value columns for proper aggregation
+  # Save per-month files with value columns for proper aggregation.
+  # Skip months where DataWeb returned no trade data (sum(total_value) == 0):
+  # writing such ghost files would let the monthly-mode loader silently zero
+  # out USMCA exemptions for any effective_date that falls in the unreleased
+  # month.
   months_available <- sort(unique(product_shares$month))
   for (m in months_available) {
     month_data <- product_shares %>%
@@ -689,6 +693,12 @@ if (run_monthly) {
 
     stopifnot(!anyNA(month_data$usmca_share))
     stopifnot(all(month_data$usmca_share >= 0 & month_data$usmca_share <= 1))
+
+    if (sum(month_data$total_value) == 0) {
+      message('  Skipped month ', sprintf('%02d', m),
+              ': DataWeb returned no trade data (likely not yet released)')
+      next
+    }
 
     month_path <- here('resources', sprintf('usmca_product_shares_%d_%02d.csv', year, m))
     write_csv(month_data, month_path)
