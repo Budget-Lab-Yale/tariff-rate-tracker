@@ -242,24 +242,62 @@ load_usmca_product_shares <- function(policy_params = NULL, path = NULL, effecti
       target_year  <- as.integer(format(eff, '%Y'))
       target_month <- as.integer(format(eff, '%m'))
 
-      # Walk backward one calendar month at a time until an available file is
-      # found. This lets the scenario track real utilization as long as monthly
-      # files exist, then freeze at the most recent available month when the
-      # publication series ends. Cap at 120 steps (10 years) to avoid runaway.
-      path <- NULL
+      # Walk backward to collect available monthly files. The first file found
+      # is the primary share source for trade-active pairs; subsequent files
+      # are fallback for pairs missing from the primary (typical for early-
+      # year YTD queries where DataWeb's universe is narrower than the prior
+      # year's any-month universe — ~9k tail HTS10s drop out of 2026_01 vs
+      # 2025_12 for example, ~$3.5B of 2024 import value at ~90% historical
+      # USMCA share). Cap at 6 monthly files of fallback to avoid using
+      # very stale shares; cap walkback at 120 steps (10 years) to find the
+      # primary even if there's a publication gap.
+      files_to_load <- character(0)
+      primary_y <- NA_integer_; primary_m <- NA_integer_
       y <- target_year; m <- target_month
       for (step in seq_len(120L)) {
         candidate <- here('resources', sprintf('usmca_product_shares_%d_%02d.csv', y, m))
-        if (file.exists(candidate)) { path <- candidate; break }
+        if (file.exists(candidate)) {
+          files_to_load <- c(files_to_load, candidate)
+          if (length(files_to_load) == 1L) {
+            primary_y <- y; primary_m <- m
+          }
+          if (length(files_to_load) >= 6L) break
+        }
         m <- m - 1L
         if (m < 1L) { m <- 12L; y <- y - 1L }
       }
 
-      if (!is.null(path)) {
-        if (y != target_year || m != target_month) {
+      if (length(files_to_load) > 0L) {
+        if (primary_y != target_year || primary_m != target_month) {
           message(sprintf('  Monthly USMCA file not found for %d-%02d — using most recent available: %d-%02d',
-                          target_year, target_month, y, m))
+                          target_year, target_month, primary_y, primary_m))
         }
+        primary <- read_csv(files_to_load[1L], col_types = cols(
+          hts10 = col_character(), cty_code = col_character(),
+          usmca_share = col_double(), .default = col_guess()
+        ), show_col_types = FALSE)
+        if (length(files_to_load) > 1L) {
+          augmented <- primary
+          for (extra in files_to_load[-1L]) {
+            prior <- read_csv(extra, col_types = cols(
+              hts10 = col_character(), cty_code = col_character(),
+              usmca_share = col_double(), .default = col_guess()
+            ), show_col_types = FALSE)
+            new_rows <- prior %>% anti_join(augmented, by = c('hts10', 'cty_code'))
+            if (nrow(new_rows) > 0L) augmented <- bind_rows(augmented, new_rows)
+          }
+          n_fill <- nrow(augmented) - nrow(primary)
+          if (n_fill > 0L) {
+            message(sprintf('  USMCA monthly: augmented primary %s with %d fallback rows from %d prior month(s)',
+                            basename(files_to_load[1L]), n_fill, length(files_to_load) - 1L))
+          }
+          message('  Loaded USMCA product shares (with fallback): ', nrow(augmented),
+                  ' product-country pairs')
+          return(augmented)
+        }
+        message('  Loaded USMCA product shares: ', nrow(primary),
+                ' product-country pairs from ', basename(files_to_load[1L]))
+        return(primary)
       } else {
         message('  No monthly USMCA files found — falling back to annual')
         path <- here('resources', paste0('usmca_product_shares_',

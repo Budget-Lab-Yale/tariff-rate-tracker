@@ -1051,6 +1051,58 @@ run_test('Annex-era s232_usmca_eligible refresh: non-steel/alum products inherit
   stopifnot('usmca_eligible' %in% names(s))
 })
 
+run_test('load_usmca_product_shares monthly fallback augments sparse early-year files', {
+  # Early-year 2026 monthly DataWeb files have a narrower universe than full-
+  # year 2025 (YTD query covers fewer months → fewer trade-active pairs).
+  # ~9k tail HTS10s with $3.5B of 2024 import value at ~90% historical USMCA
+  # share would otherwise revert to usmca_share = 0 in the usmca_monthly
+  # scenario. The fallback should walk back through prior months to fill them.
+  jan26_path <- here('resources', 'usmca_product_shares_2026_01.csv')
+  dec25_path <- here('resources', 'usmca_product_shares_2025_12.csv')
+  if (!file.exists(jan26_path)) skip_test('2026_01 monthly file missing')
+  if (!file.exists(dec25_path)) skip_test('2025_12 monthly file missing')
+
+  pp <- list(USMCA_SHARES = list(mode = 'monthly', year = NULL))
+  jan26_alone <- read_csv(jan26_path,
+                          col_types = cols(hts10 = col_character(),
+                                            cty_code = col_character(),
+                                            .default = col_guess()),
+                          show_col_types = FALSE)
+  augmented <- suppressMessages(
+    load_usmca_product_shares(policy_params = pp,
+                              effective_date = '2026-01-15')
+  )
+  # Augmentation should add rows; not subtract.
+  stopifnot(nrow(augmented) >= nrow(jan26_alone))
+  # No duplicate (hts10, cty_code) pairs.
+  stopifnot(n_distinct(paste(augmented$hts10, augmented$cty_code)) == nrow(augmented))
+  # Primary rows preserved exactly (Jan share wins over Dec share for the same pair).
+  primary_keys <- paste(jan26_alone$hts10, jan26_alone$cty_code)
+  aug_primary <- augmented[paste(augmented$hts10, augmented$cty_code) %in% primary_keys, ]
+  jan_lookup <- setNames(jan26_alone$usmca_share, primary_keys)
+  aug_keys <- paste(aug_primary$hts10, aug_primary$cty_code)
+  stopifnot(all(abs(aug_primary$usmca_share - jan_lookup[aug_keys]) < 1e-12))
+})
+
+run_test('load_usmca_product_shares monthly is unchanged for full-universe months', {
+  # 2025-08-15: an Aug 2025 query already has the broad universe (~20k HTS10s
+  # x 2 countries) — the fallback should add zero rows.
+  aug25_path <- here('resources', 'usmca_product_shares_2025_08.csv')
+  if (!file.exists(aug25_path)) skip_test('2025_08 monthly file missing')
+  pp <- list(USMCA_SHARES = list(mode = 'monthly', year = NULL))
+  loaded <- suppressMessages(
+    load_usmca_product_shares(policy_params = pp,
+                              effective_date = '2025-08-15')
+  )
+  raw <- read_csv(aug25_path,
+                  col_types = cols(hts10 = col_character(),
+                                    cty_code = col_character(),
+                                    .default = col_guess()),
+                  show_col_types = FALSE)
+  stopifnot(nrow(loaded) == nrow(raw))
+})
+
+
 run_test('rev_6 9903.94.01 is gated off (regression for §232 auto fix)', {
   # Production rev_6 ch99 cache should reflect the gate via
   # filter_active_ch99(): no 9903.94 entries remain after gating
