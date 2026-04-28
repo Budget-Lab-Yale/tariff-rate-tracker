@@ -711,6 +711,20 @@ calculate_rates_for_revision <- function(
 ) {
   message('Calculating rates for revision: ', revision_id, ' (', effective_date, ')')
 
+  # Date-gate Ch99 entries: drop rows whose legal effective_date_offset is
+  # AFTER this revision's effective_date. The HTS publishes new authorities
+  # before they become legally collectible (e.g., 9903.94.01 added at rev_6,
+  # 2025-03-12, with description specifying entries on or after 2025-04-03).
+  # See tariff-etr-eval/docs/tracker_audits/s232_auto_effective_date_2026-04-28.md.
+  ch99_data <- filter_active_ch99(ch99_data, as.Date(effective_date))
+
+  # If s232_rates was extracted upstream from unfiltered ch99_data
+  # (00_build_timeseries.R and 09_daily_series.R both pre-extract), re-extract
+  # so heading_gates downstream see the gated state.
+  if (!is.null(s232_rates)) {
+    s232_rates <- extract_section232_rates(ch99_data)
+  }
+
   pp <- policy_params %||% load_policy_params()
   cc <- get_country_constants(pp)
   CTY_CHINA  <- cc$CTY_CHINA

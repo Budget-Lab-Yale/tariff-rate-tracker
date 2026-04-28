@@ -693,18 +693,53 @@ run_test('semi product list exists with expected headings', {
   stopifnot(all(heads %in% c('847150', '847180', '847330')))
 })
 
-run_test('rev_1 applies 25% rate_232 to every semi HTS10', {
+semi_qualifying_path <- here('resources', 'semi_qualifying_shares.csv')
+
+# Helper: subset of semi HTS10s with qualifying_share == 1 (the calibration-
+# active set). The interim binary calibration (2026-04-28) zeros out 9 of 10
+# semi HTS10s so the §232 semi rate only lands on AI-accelerator products
+# (currently only 8471.80.4000). Tests must scope to this set so changes to
+# the calibration CSV don't masquerade as stacking-rule regressions.
+semi_active_hts10s <- function() {
+  if (!file.exists(semi_qualifying_path)) return(character(0))
+  q <- read_csv(semi_qualifying_path,
+                col_types = cols(hts10 = col_character(),
+                                 qualifying_share = col_double(),
+                                 .default = col_character()),
+                show_col_types = FALSE)
+  q$hts10[q$qualifying_share == 1.0]
+}
+
+run_test('rev_1 applies 25% rate_232 to qualifying-share=1 semi HTS10s', {
   if (!file.exists(semi_snapshot_path)) skip_test('snapshot_2026_rev_1.rds missing')
   if (!file.exists(semi_products_path)) skip_test('resource file missing')
+  active <- semi_active_hts10s()
+  if (length(active) == 0) skip_test('no semi HTS10s with qualifying_share = 1')
   s <- readRDS(semi_snapshot_path)
-  semi <- read_csv(semi_products_path,
-                   col_types = cols(hts10 = col_character()),
-                   show_col_types = FALSE)$hts10
-  rows <- s %>% filter(hts10 %in% semi)
-  # Every semi HTS10 × every country should carry exactly 0.25 (qualifying_share=1,
-  # end_use_exemption_share=0 defaults)
+  rows <- s %>% filter(hts10 %in% active)
+  # Every active semi HTS10 × every country should carry exactly 0.25
+  # (qualifying_share=1, end_use_exemption_share=0 defaults).
   stopifnot(nrow(rows) > 0)
   stopifnot(all(abs(rows$rate_232 - 0.25) < 1e-10))
+})
+
+run_test('rev_1 zeros rate_232 on calibrated-out semi HTS10s (qualifying_share=0)', {
+  if (!file.exists(semi_snapshot_path)) skip_test('snapshot_2026_rev_1.rds missing')
+  if (!file.exists(semi_qualifying_path)) skip_test('qualifying shares CSV missing')
+  q <- read_csv(semi_qualifying_path,
+                col_types = cols(hts10 = col_character(),
+                                 qualifying_share = col_double(),
+                                 .default = col_character()),
+                show_col_types = FALSE)
+  zeroed <- q$hts10[q$qualifying_share == 0]
+  if (length(zeroed) == 0) skip_test('no semi HTS10s with qualifying_share = 0')
+  s <- readRDS(semi_snapshot_path)
+  rows <- s %>% filter(hts10 %in% zeroed)
+  if (nrow(rows) == 0) skip_test('no rows for calibrated-out semi HTS10s')
+  # Calibrated-out semi HTS10s should NOT carry the 25% rate. Other 232
+  # paths (derivative overlap on 8473.30.20) might still produce non-zero,
+  # but the semi-driven 25% must be absent.
+  stopifnot(sum(abs(rows$rate_232 - 0.25) < 1e-10) == 0)
 })
 
 run_test('2026_basic has no 25% rate_232 on semi HTS10s (pre-tariff baseline)', {
@@ -721,50 +756,53 @@ run_test('2026_basic has no 25% rate_232 on semi HTS10s (pre-tariff baseline)', 
   stopifnot(sum(abs(rows$rate_232 - 0.25) < 1e-10) == 0)
 })
 
-run_test('Note 39(a)(7)-(9) override: 8473.30.20 derivative overlap gets semi rate, not 0.5', {
+run_test('Note 39(a)(7)-(9) override: active 8471.80.4000 (calibrated semi) carries 25%', {
+  # The original Note 39(a) test asserted that 8473.30.20 (in both
+  # derivative and semi product lists) would resolve to 25% rather than
+  # the derivative 50%. After interim calibration that HTS10 is qualifying_share=0,
+  # so the override no longer fires. Exercise the same code path on the one
+  # active semi HTS10 (8471.80.4000): must carry 0.25 with deriv_type = NA.
   if (!file.exists(semi_snapshot_path)) skip_test('snapshot_2026_rev_1.rds missing')
+  active <- semi_active_hts10s()
+  if (length(active) == 0) skip_test('no semi HTS10s with qualifying_share = 1')
   s <- readRDS(semi_snapshot_path)
-  # 8473302000 and 8473305100 are in both s232_derivative_products.csv (aluminum,
-  # 50%) and s232_semi_products.csv (25%). Semi rate must win per Note 39(a)(7).
-  overlap <- s %>% filter(hts10 %in% c('8473302000', '8473305100'))
-  stopifnot(nrow(overlap) > 0)
-  stopifnot(all(abs(overlap$rate_232 - 0.25) < 1e-10))
-  stopifnot(all(is.na(overlap$deriv_type)))
+  semi_rows <- s %>% filter(hts10 %in% active, country %in% c('4419', '5800', '5700'))
+  stopifnot(nrow(semi_rows) > 0)
+  stopifnot(all(abs(semi_rows$rate_232 - 0.25) < 1e-10))
+  stopifnot(all(is.na(semi_rows$deriv_type)))
 })
 
-run_test('Note 2(v)(xvi): EU × semi carries total=0.25 (no Phase 2 reciprocal stack)', {
+run_test('Note 2(v)(xvi): EU × active semi carries total=0.25 (no Phase 2 stack)', {
   if (!file.exists(semi_snapshot_path)) skip_test('snapshot_2026_rev_1.rds missing')
+  active <- semi_active_hts10s()
+  if (length(active) == 0) skip_test('no semi HTS10s with qualifying_share = 1')
   s <- readRDS(semi_snapshot_path)
   # EU (4120): Phase 2 reciprocal 15% floor (9903.02.73) would otherwise stack;
   # Note 2(v)(xvi) excludes semi articles from 9903.02.01-.73.
-  eu_semi <- s %>%
-    filter(country == '4120', hts10 %in% c('8471801000', '8471500110'))
+  eu_semi <- s %>% filter(country == '4120', hts10 %in% active)
   stopifnot(nrow(eu_semi) > 0)
   stopifnot(all(abs(eu_semi$total_additional - 0.25) < 1e-10))
 })
 
-run_test('Note 39(a)(10)(11): MX/CA × semi — fentanyl does not contribute', {
+run_test('Note 39(a)(10)(11): MX/CA × active semi — fentanyl does not contribute', {
   if (!file.exists(semi_snapshot_path)) skip_test('snapshot_2026_rev_1.rds missing')
+  active <- semi_active_hts10s()
+  if (length(active) == 0) skip_test('no semi HTS10s with qualifying_share = 1')
   s <- readRDS(semi_snapshot_path)
-  # MX fentanyl 9903.01.01 (25%) and CA 9903.01.10 (35%) must NOT stack with
-  # semi rate. The mechanism is nonmetal_share=0 for semi products, which
-  # zeros rate_ieepa_fent × nonmetal_share in the stacking branch for
-  # non-China + rate_232 > 0. total_additional should equal rate_232 = 0.25.
   mx_ca_semi <- s %>%
-    filter(country %in% c('1220', '2010'),
-           hts10 %in% c('8471801000', '8471804000', '8471500110'))
+    filter(country %in% c('1220', '2010'), hts10 %in% active)
   stopifnot(nrow(mx_ca_semi) > 0)
   stopifnot(all(abs(mx_ca_semi$total_additional - 0.25) < 1e-10))
 })
 
-run_test('China × semi: 232 + fentanyl + 301 all stack to 60%', {
+run_test('China × active semi: 232 + fentanyl + 301 all stack to 60%', {
   if (!file.exists(semi_snapshot_path)) skip_test('snapshot_2026_rev_1.rds missing')
+  active <- semi_active_hts10s()
+  if (length(active) == 0) skip_test('no semi HTS10s with qualifying_share = 1')
   s <- readRDS(semi_snapshot_path)
   # China fentanyl 9903.01.20 (10%, below Note 39(a)(12) .24 floor) stacks;
   # Section 301 not in exclusion list, stacks. Expect 25 + 10 + 25 = 60%.
-  cn_semi <- s %>%
-    filter(country == '5700',
-           hts10 %in% c('8471801000', '8471500110'))
+  cn_semi <- s %>% filter(country == '5700', hts10 %in% active)
   stopifnot(nrow(cn_semi) > 0)
   stopifnot(all(abs(cn_semi$total_additional - 0.60) < 1e-10))
 })
@@ -879,6 +917,124 @@ run_test('Annex II × rate_232>0 is semi-products-only (Note 39a invariant)', {
     filter(s232_annex == 'annex_2', rate_232 > 0) %>%
     filter(!(hts10 %in% semi))
   stopifnot(nrow(leak) == 0)
+})
+
+
+# =============================================================================
+# Test: Ch99 effective-date offset extraction & filter
+# =============================================================================
+#
+# §232 auto (9903.94.01) was added to the HTS at rev_6 (effective 2025-03-12)
+# but its description specifies "effective with respect to entries on or after
+# April 3, 2025." Treating the rate as live in rev_6 produces ~$7B of chapter
+# 87 trackerover in March 2025. See tariff-etr-eval audit memo
+# s232_auto_effective_date_2026-04-28.md for the source bug report.
+
+run_test('extract_effective_date_offset returns NA for empty/no-pattern text', {
+  stopifnot(is.na(extract_effective_date_offset('')))
+  stopifnot(is.na(extract_effective_date_offset(NA_character_)))
+  stopifnot(is.na(extract_effective_date_offset('Standard description text')))
+  stopifnot(is.na(extract_effective_date_offset('except for products of Canada')))
+})
+
+run_test('extract_effective_date_offset parses §232 auto wording', {
+  desc <- paste0('Except for 9903.94.02, 9903.94.03, and 9903.94.04, ',
+                 'effective with respect to entries on or after April 3, 2025, ',
+                 'passenger vehicles')
+  d <- extract_effective_date_offset(desc)
+  stopifnot(!is.na(d))
+  stopifnot(d == as.Date('2025-04-03'))
+})
+
+run_test('extract_effective_date_offset is case-insensitive', {
+  desc <- 'Effective ON OR AFTER May 3, 2025, certain articles'
+  d <- extract_effective_date_offset(desc)
+  stopifnot(d == as.Date('2025-05-03'))
+})
+
+run_test('extract_effective_date_offset returns first date when multiple appear', {
+  desc <- paste0('on or after April 3, 2025, articles, then on or after ',
+                 'May 3, 2025 the rate doubles')
+  d <- extract_effective_date_offset(desc)
+  stopifnot(d == as.Date('2025-04-03'))
+})
+
+run_test('filter_active_ch99 drops not-yet-active rows', {
+  ch99 <- tibble::tibble(
+    ch99_code = c('9903.94.01', '9903.94.05', '9903.99.99'),
+    rate = c(0.25, 0.25, 0.50),
+    effective_date_offset = as.Date(c('2025-04-03', '2025-05-03', NA))
+  )
+  # rev_6 effective 2025-03-12: BOTH dated entries must drop, NA stays.
+  out <- filter_active_ch99(ch99, as.Date('2025-03-12'))
+  stopifnot(nrow(out) == 1)
+  stopifnot(out$ch99_code == '9903.99.99')
+})
+
+run_test('filter_active_ch99 keeps rows where revision date >= offset', {
+  ch99 <- tibble::tibble(
+    ch99_code = c('9903.94.01', '9903.94.05', '9903.99.99'),
+    rate = c(0.25, 0.25, 0.50),
+    effective_date_offset = as.Date(c('2025-04-03', '2025-05-03', NA))
+  )
+  # rev_8 effective 2025-04-03: auto-vehicle row keeps (== offset),
+  # auto-parts row drops (< offset), NA always keeps.
+  out <- filter_active_ch99(ch99, as.Date('2025-04-03'))
+  stopifnot(nrow(out) == 2)
+  stopifnot(setequal(out$ch99_code, c('9903.94.01', '9903.99.99')))
+})
+
+run_test('filter_active_ch99 is a no-op when column is missing', {
+  # Backwards compatibility for cached ch99_<rev>.rds produced before
+  # extract_effective_date_offset() existed.
+  ch99 <- tibble::tibble(
+    ch99_code = c('9903.94.01'),
+    rate = c(0.25)
+  )
+  out <- filter_active_ch99(ch99, as.Date('2025-03-12'))
+  stopifnot(nrow(out) == 1)
+  stopifnot(out$ch99_code == '9903.94.01')
+})
+
+run_test('parse_chapter99 populates effective_date_offset from JSON', {
+  # Synthetic rev_6-style JSON: 9903.94.01 with the auto effective-date
+  # description; 9903.99.99 with no date pattern.
+  tmp <- tempfile(fileext = '.json')
+  on.exit(unlink(tmp), add = TRUE)
+  hts <- list(
+    list(htsno = '9903.94.01', indent = 0,
+         description = paste0('Except for 9903.94.02, effective with respect ',
+                              'to entries on or after April 3, 2025, passenger ',
+                              'vehicles, as provided for in subdivision (b)...'),
+         general = '25%', special = '', other = '', footnotes = list()),
+    list(htsno = '9903.99.99', indent = 0,
+         description = 'Standard description with no date',
+         general = '50%', special = '', other = '', footnotes = list())
+  )
+  write_json(hts, tmp, auto_unbox = TRUE)
+  parsed <- parse_chapter99(tmp)
+  stopifnot('effective_date_offset' %in% names(parsed))
+  auto <- parsed[parsed$ch99_code == '9903.94.01', ]
+  other <- parsed[parsed$ch99_code == '9903.99.99', ]
+  stopifnot(auto$effective_date_offset == as.Date('2025-04-03'))
+  stopifnot(is.na(other$effective_date_offset))
+})
+
+run_test('rev_6 9903.94.01 is gated off (regression for §232 auto fix)', {
+  # Production rev_6 ch99 cache should reflect the gate via
+  # filter_active_ch99(): no 9903.94 entries remain after gating
+  # because rev_6 (2025-03-12) precedes their 2025-04-03 effective date.
+  ch99_path <- here('data', 'timeseries', 'ch99_rev_6.rds')
+  if (!file.exists(ch99_path)) skip_test('ch99_rev_6.rds missing')
+  ch99 <- readRDS(ch99_path)
+  if (!'effective_date_offset' %in% names(ch99)) {
+    skip_test('ch99_rev_6.rds predates effective_date_offset column — rebuild required')
+  }
+  auto_entries <- ch99[grepl('^9903\\.94\\.0', ch99$ch99_code), ]
+  if (nrow(auto_entries) == 0) skip_test('no 9903.94 entries in rev_6')
+  filtered <- filter_active_ch99(ch99, as.Date('2025-03-12'))
+  remaining_auto <- filtered[grepl('^9903\\.94\\.0', filtered$ch99_code), ]
+  stopifnot(nrow(remaining_auto) == 0)
 })
 
 

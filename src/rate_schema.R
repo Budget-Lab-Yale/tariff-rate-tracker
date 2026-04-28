@@ -151,6 +151,88 @@ classify_authority <- function(ch99_code) {
 }
 
 
+#' Extract a legal effective-date offset from a Ch99 description
+#'
+#' HTS revisions sometimes publish new Ch99 entries with descriptions that
+#' specify a future legal effective date — e.g. 9903.94.01 was added at rev_6
+#' (HTS effective 2025-03-12) with description text starting "Except for
+#' 9903.94.02..., effective with respect to entries on or after April 3, 2025,
+#' passenger vehicles..." The HTS metadata says rev_6 is active, but the
+#' rate is not legally collectible until 2025-04-03. Treating the rate as
+#' active on the HTS effective_date over-states ~$7B of chapter 87
+#' duty in March 2025 (per tariff-etr-eval/docs/tracker_audits/
+#' s232_auto_effective_date_2026-04-28.md).
+#'
+#' Pattern is stable across revisions: "on or after [Month] [Day], [Year]"
+#' with full English month names. Returns the FIRST match if multiple dates
+#' appear; that's a conservative gate (the earliest activation wins).
+#'
+#' @param description Ch99 description text
+#' @return Date object, NA if no pattern matches or text is empty
+extract_effective_date_offset <- function(description) {
+  if (is.null(description) || length(description) == 0 ||
+      is.na(description) || description == '') {
+    return(as.Date(NA))
+  }
+  m <- regmatches(
+    description,
+    regexpr('on or after [A-Za-z]+ [0-9]{1,2}, [0-9]{4}',
+            description, ignore.case = TRUE)
+  )
+  if (length(m) == 0 || nchar(m) == 0) return(as.Date(NA))
+  date_str <- sub('^on or after ', '', m, ignore.case = TRUE)
+  # %B in as.Date expects title-case month names ("April"); normalize.
+  parts <- strsplit(date_str, ' ', fixed = TRUE)[[1]]
+  if (length(parts) >= 1 && nchar(parts[1]) > 0) {
+    parts[1] <- paste0(toupper(substr(parts[1], 1, 1)),
+                       tolower(substring(parts[1], 2)))
+    date_str <- paste(parts, collapse = ' ')
+  }
+  parsed <- as.Date(date_str, format = '%B %d, %Y')
+  if (is.na(parsed)) {
+    warning('extract_effective_date_offset: failed to parse "', date_str, '"')
+  }
+  parsed
+}
+
+
+#' Drop Ch99 entries that are not yet legally active for a given revision
+#'
+#' Filters `ch99_data` to remove rows whose `effective_date_offset` (extracted
+#' by `extract_effective_date_offset()` during `parse_chapter99()`) is strictly
+#' AFTER the revision's `effective_date`. Rows with NA offset (no future-date
+#' phrase in the description) are always retained — those are active as of
+#' their HTS publication.
+#'
+#' Centralized here so both call sites of `calculate_rates_for_revision()`
+#' (`build_full_timeseries` in 00_build_timeseries.R and
+#' `build_alternative_timeseries` in 09_daily_series.R) get the same gate.
+#'
+#' @param ch99_data Tibble from `parse_chapter99()` with `effective_date_offset`
+#' @param revision_effective_date Date (or coercible) of the revision's HTS effective date
+#' @return Filtered tibble; row count reported via message() when rows are dropped
+filter_active_ch99 <- function(ch99_data, revision_effective_date) {
+  if (is.null(ch99_data) || nrow(ch99_data) == 0) return(ch99_data)
+  if (!'effective_date_offset' %in% names(ch99_data)) {
+    # Backwards-compatible no-op for any cached ch99_<revision>.rds file
+    # produced before this column existed.
+    return(ch99_data)
+  }
+  rev_date <- as.Date(revision_effective_date)
+  not_yet_active <- !is.na(ch99_data$effective_date_offset) &
+                    ch99_data$effective_date_offset > rev_date
+  if (any(not_yet_active)) {
+    n_drop <- sum(not_yet_active)
+    earliest <- min(ch99_data$effective_date_offset[not_yet_active])
+    message('  Dropping ', n_drop, ' Ch99 entr', if (n_drop == 1) 'y' else 'ies',
+            ' not yet legally active at ', rev_date,
+            ' (earliest activation: ', earliest, ')')
+    ch99_data <- ch99_data[!not_yet_active, , drop = FALSE]
+  }
+  ch99_data
+}
+
+
 #' Check if HTS code is a valid 10-digit product code
 #'
 #' @param hts_code HTS code (with or without dots)

@@ -189,6 +189,12 @@ parse_chapter99 <- function(json_path) {
     # Parse countries
     country_info <- parse_countries(description)
 
+    # Extract a legal effective-date offset from the description, if any
+    # (e.g., "...effective with respect to entries on or after April 3, 2025...").
+    # Used by filter_active_ch99() to drop entries that exist in the HTS but
+    # aren't yet legally collectible at the revision's effective_date.
+    eff_offset <- extract_effective_date_offset(description)
+
     tibble(
       ch99_code = ch99_code,
       rate = rate,
@@ -198,7 +204,8 @@ parse_chapter99 <- function(json_path) {
       exempt_countries = list(country_info$exempt),
       general_raw = general,
       other_raw = other,
-      description = description
+      description = description,
+      effective_date_offset = eff_offset
     )
   })
 
