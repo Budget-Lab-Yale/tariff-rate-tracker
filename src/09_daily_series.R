@@ -952,9 +952,9 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
       hts_raw <- fromJSON(json_path, simplifyDataFrame = FALSE)
       ch99_data <- parse_chapter99(json_path)
       products <- parse_products(json_path)
-      ieepa_rates <- extract_ieepa_rates(hts_raw, country_lookup)
-      fentanyl_rates <- extract_ieepa_fentanyl_rates(hts_raw, country_lookup)
-      s232_rates <- extract_section232_rates(ch99_data)
+      ieepa_rates <- extract_ieepa_rates(hts_raw, country_lookup, effective_date = eff_date)
+      fentanyl_rates <- extract_ieepa_fentanyl_rates(hts_raw, country_lookup, effective_date = eff_date)
+      s232_rates <- extract_section232_rates(filter_active_ch99(ch99_data, as.Date(eff_date)))
       usmca <- extract_usmca_eligibility(hts_raw)
 
       rates <- calculate_rates_for_revision(

@@ -42,25 +42,33 @@ cat("Affected pairs (in Dec 2025, absent from Jan 2026 with positive Dec trade):
 
 # --- Pull statutory rates from rev_2026_rev_4 (latest in-window) ----------
 snap <- readRDS(here("data", "timeseries", "snapshot_2026_rev_4.rds"))
+
+# Use statutory_* columns (pre-USMCA, pre-stacking). The post-USMCA `rate_*`
+# columns in this snapshot have already been scaled by the production
+# h2_average shares (~88%) for CA/MX in step 7 of 06_calculate_rates.R, so
+# applying scenario shares on top of them would double-scale. statutory_*
+# fields are saved BEFORE the USMCA reduction at 06_calculate_rates.R
+# step 6e and represent the legal rate the importer would owe absent any
+# USMCA claim.
 affected_rates <- snap %>%
   inner_join(affected, by = c("hts10", "country" = "cty_code")) %>%
-  select(hts10, country, base_rate, statutory_base_rate,
-         starts_with("statutory_rate_"), starts_with("rate_"),
-         dec25_share, usmca_eligible)
+  transmute(
+    hts10, country,
+    base_rate         = statutory_base_rate,
+    rate_232          = statutory_rate_232,
+    rate_301          = statutory_rate_301,
+    rate_s122         = statutory_rate_s122,
+    rate_ieepa_recip  = statutory_rate_ieepa_recip,
+    rate_ieepa_fent   = statutory_rate_ieepa_fent,
+    rate_section_201  = statutory_rate_section_201,
+    rate_other        = statutory_rate_other,
+    dec25_share, usmca_eligible
+  )
 
-# Statutory_rate_232 isn't a column — rate_232 in this snapshot is post-USMCA
-# under h2_average. To compare scenarios analytically, we need the pre-USMCA
-# rate on the affected pairs. We'll use snap fields and treat them as
-# "statutory" for the subset that goes through the analytical comparison.
-# For 2026_rev_4: IEEPA recip and fent are zeroed (SCOTUS); s122 is active.
-# So the scalable rate stack on these pairs is: rate_s122 + base_rate
-# (+ rate_232 for auto/MHD with s232_usmca_eligible — none of our 1022
-#  tail pairs are autos/MHD per inspection).
-
-cat("\nRate composition on the affected pairs (rev_2026_rev_4):\n")
+cat("\nStatutory rate composition on the affected pairs (rev_2026_rev_4):\n")
 rate_stack <- affected_rates %>%
   summarise(
-    n_rows = n(),
+    n_rows            = n(),
     base_rate_avg     = mean(base_rate, na.rm = TRUE),
     rate_232_avg      = mean(rate_232, na.rm = TRUE),
     rate_301_avg      = mean(rate_301, na.rm = TRUE),

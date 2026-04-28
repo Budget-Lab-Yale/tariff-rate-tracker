@@ -1020,6 +1020,47 @@ run_test('parse_chapter99 populates effective_date_offset from JSON', {
   stopifnot(is.na(other$effective_date_offset))
 })
 
+run_test('extract_ieepa_rates gates entries by description-stated effective date', {
+  # Synthetic IEEPA items. Country extraction expects "...product of X, as
+  # provided..." or "...product of X (that are|with|...)" phrasing.
+  hts_raw <- list(
+    list(htsno = '9903.01.43', indent = 0,
+         description = paste0('Articles the product of South Korea, as provided ',
+                              'for in U.S. note 2, effective with respect to ',
+                              'entries on or after April 9, 2025.'),
+         general = '+ 25%', special = '', other = '', footnotes = list()),
+    list(htsno = '9903.01.44', indent = 0,
+         description = 'Articles the product of Japan, as provided for in U.S. note 2.',
+         general = '+ 20%', special = '', other = '', footnotes = list())
+  )
+  pre <- extract_ieepa_rates(hts_raw, test_country_lookup,
+                             effective_date = as.Date('2025-04-02'))
+  post <- extract_ieepa_rates(hts_raw, test_country_lookup,
+                              effective_date = as.Date('2025-04-09'))
+  # Pre-Apr-9: only Japan (no date phrase) should remain.
+  stopifnot(!any(pre$ch99_code == '9903.01.43'))
+  stopifnot(any(pre$ch99_code == '9903.01.44'))
+  # Apr-9 onward: both should be present.
+  stopifnot(any(post$ch99_code == '9903.01.43'))
+  stopifnot(any(post$ch99_code == '9903.01.44'))
+})
+
+run_test('extract_ieepa_fentanyl_rates respects the effective-date gate too', {
+  hts_raw <- list(
+    list(htsno = '9903.01.20', indent = 0,
+         description = paste0('Articles the product of China, as provided for ',
+                              'in U.S. note 2, effective with respect to entries ',
+                              'on or after February 4, 2025.'),
+         general = '+ 10%', special = '', other = '', footnotes = list())
+  )
+  pre <- extract_ieepa_fentanyl_rates(hts_raw, test_country_lookup,
+                                      effective_date = as.Date('2025-02-01'))
+  post <- extract_ieepa_fentanyl_rates(hts_raw, test_country_lookup,
+                                       effective_date = as.Date('2025-02-04'))
+  stopifnot(nrow(pre) == 0)
+  stopifnot(nrow(post) >= 1)
+})
+
 run_test('Annex-era s232_usmca_eligible refresh: non-steel/alum products inherit USMCA flag', {
   # Per the audit at scripts/audit_s232_usmca_eligibility.R: annex_1b products
   # that are S/S+ per HTS but were not on the pre-annex heading product lists

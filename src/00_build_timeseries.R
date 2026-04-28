@@ -203,10 +203,14 @@ build_full_timeseries <- function(
       # d. Parse products
       products <- parse_products(json_path)
 
-      # e. Extract IEEPA rates, fentanyl rates, Section 232 rates, and USMCA eligibility
-      ieepa_rates <- extract_ieepa_rates(hts_raw, country_lookup)
-      fentanyl_rates <- extract_ieepa_fentanyl_rates(hts_raw, country_lookup)
-      s232_rates <- extract_section232_rates(ch99_data)
+      # e. Extract IEEPA rates, fentanyl rates, Section 232 rates, and USMCA eligibility.
+      #    Pass eff_date so IEEPA & fentanyl extractors gate entries whose legal
+      #    effective date in their description is after this revision (mirrors
+      #    the filter_active_ch99() gate inside calculate_rates_for_revision).
+      ieepa_rates <- extract_ieepa_rates(hts_raw, country_lookup, effective_date = eff_date)
+      fentanyl_rates <- extract_ieepa_fentanyl_rates(hts_raw, country_lookup, effective_date = eff_date)
+      ch99_data_active <- filter_active_ch99(ch99_data, as.Date(eff_date))
+      s232_rates <- extract_section232_rates(ch99_data_active)
       usmca <- extract_usmca_eligibility(hts_raw)
 
       # f. Compute delta from previous revision

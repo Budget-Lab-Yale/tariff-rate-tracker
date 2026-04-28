@@ -211,7 +211,7 @@ match_countries <- function(country_names, lookup) {
 #' @param hts_raw Parsed HTS JSON (list)
 #' @param country_lookup Named vector from build_country_lookup()
 #' @return Tibble with ch99_code, rate, rate_type, phase, country_name, census_code
-extract_ieepa_rates <- function(hts_raw, country_lookup) {
+extract_ieepa_rates <- function(hts_raw, country_lookup, effective_date = NULL) {
   message('Extracting IEEPA country-specific rates...')
 
   # Filter to IEEPA entries
@@ -224,6 +224,26 @@ extract_ieepa_rates <- function(hts_raw, country_lookup) {
     grepl('^9903\\.01\\.(4[3-9]|[5-8][0-9])$', htsno) ||
       grepl('^9903\\.02\\.(0[2-9]|[1-8][0-9]|9[01])$', htsno)
   }, hts_raw)
+
+  # Date-gate entries whose description specifies a future legal activation
+  # ("...effective with respect to entries on or after [DATE]..."). Same
+  # pattern as filter_active_ch99 in rate_schema.R but applied to the raw
+  # JSON since IEEPA extraction predates the parsed ch99_data filter step.
+  if (!is.null(effective_date)) {
+    rev_date <- as.Date(effective_date)
+    n_before <- length(ieepa_items)
+    ieepa_items <- Filter(function(x) {
+      desc <- x$description %||% ''
+      offset <- extract_effective_date_offset(desc)
+      is.na(offset) || offset <= rev_date
+    }, ieepa_items)
+    n_dropped <- n_before - length(ieepa_items)
+    if (n_dropped > 0) {
+      message('  Dropping ', n_dropped, ' IEEPA entr',
+              if (n_dropped == 1) 'y' else 'ies',
+              ' not yet legally active at ', rev_date)
+    }
+  }
 
   message('  IEEPA tier entries found: ', length(ieepa_items))
 
@@ -449,7 +469,7 @@ extract_ieepa_rates <- function(hts_raw, country_lookup) {
 #'   products), or 'carveout' for product-specific lower/higher rates (e.g.,
 #'   energy/minerals, potash). The general entry is identified by "Except for
 #'   products described in" language in the description.
-extract_ieepa_fentanyl_rates <- function(hts_raw, country_lookup) {
+extract_ieepa_fentanyl_rates <- function(hts_raw, country_lookup, effective_date = NULL) {
   message('Extracting IEEPA fentanyl/initial rates...')
 
   # Filter to 9903.01.01 through 9903.01.24
@@ -457,6 +477,23 @@ extract_ieepa_fentanyl_rates <- function(hts_raw, country_lookup) {
     htsno <- x$htsno %||% ''
     grepl('^9903\\.01\\.(0[1-9]|1[0-9]|2[0-4])$', htsno)
   }, hts_raw)
+
+  # Date-gate entries with future-dated activation in the description.
+  if (!is.null(effective_date)) {
+    rev_date <- as.Date(effective_date)
+    n_before <- length(fent_items)
+    fent_items <- Filter(function(x) {
+      desc <- x$description %||% ''
+      offset <- extract_effective_date_offset(desc)
+      is.na(offset) || offset <= rev_date
+    }, fent_items)
+    n_dropped <- n_before - length(fent_items)
+    if (n_dropped > 0) {
+      message('  Dropping ', n_dropped, ' fentanyl entr',
+              if (n_dropped == 1) 'y' else 'ies',
+              ' not yet legally active at ', rev_date)
+    }
+  }
 
   message('  Fentanyl/initial entries found: ', length(fent_items))
 
