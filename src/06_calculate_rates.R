@@ -773,6 +773,35 @@ calculate_rates_for_revision <- function(
     message('  IEEPA exempt products loaded: ', length(ieepa_exempt_products))
   }
 
+  # Load country-specific EO product exemptions.
+  # See docs/country_eo_annex_overshoot.md. Country EOs (Brazil 9903.01.77,
+  # India 9903.01.84, etc.) carry their own exempt lists separate from the
+  # universal EO 14257 Annex A above. Without this, the country-EO surcharge
+  # is wrongly suppressed by Annex A.
+  country_eo_exempt_path <- here('resources', 'country_eo_exempt_products.csv')
+  country_eo_exempt <- if (file.exists(country_eo_exempt_path)) {
+    raw <- read_csv(country_eo_exempt_path, comment = '#',
+                    col_types = cols(.default = col_character()))
+    rev_date_chr <- as.character(effective_date)
+    raw %>%
+      mutate(
+        effective_date_start = if_else(is.na(effective_date_start) | effective_date_start == '',
+                                        '1900-01-01', effective_date_start),
+        effective_date_end   = if_else(is.na(effective_date_end)   | effective_date_end == '',
+                                        '2099-12-31', effective_date_end)
+      ) %>%
+      filter(rev_date_chr >= effective_date_start, rev_date_chr <= effective_date_end) %>%
+      mutate(hts8_prefix = substr(gsub('\\.', '', hts10), 1, 8)) %>%
+      distinct(ch99_code, hts8_prefix)
+  } else {
+    tibble(ch99_code = character(), hts8_prefix = character())
+  }
+  if (nrow(country_eo_exempt) > 0) {
+    message('  Country-EO exempt products active at ', effective_date, ': ',
+            nrow(country_eo_exempt), ' (HS8, ch99) pairs across ',
+            n_distinct(country_eo_exempt$ch99_code), ' EOs')
+  }
+
   # Load floor country product exemptions (EU/Japan/Korea/Swiss)
   # Products exempt from the 15% tariff floor — defined by US Note 2
   # subdivisions (v)(xx)-(xxiv) and Note 3. These are distinct from the
@@ -823,14 +852,23 @@ calculate_rates_for_revision <- function(
         arrange(type_priority, desc(rate)) %>%
         summarise(
           phase_rate = first(rate),
-          ieepa_type = first(rate_type),
+          phase_type = first(rate_type),
+          phase_ch99_code = first(ch99_code),
           .groups = 'drop'
         ) %>%
-        # Across phases: sum (Phase 2 + country_eo stack)
+        # Across phases: keep both the merged total AND the country-EO
+        # contribution separately. The latter lets us bypass the universal
+        # Annex A check for country-specific surcharges (Brazil 9903.01.77 etc.)
+        # while still applying their own per-EO exempt list.
         group_by(census_code) %>%
         summarise(
           ieepa_country_rate = sum(phase_rate),
-          ieepa_type = first(ieepa_type),
+          country_eo_rate = sum(phase_rate[phase == 'country_eo']),
+          country_eo_ch99 = {
+            ce <- phase_ch99_code[phase == 'country_eo']
+            if (length(ce) > 0) ce[1] else NA_character_
+          },
+          ieepa_type = first(phase_type),
           .groups = 'drop'
         )
 
@@ -915,6 +953,8 @@ calculate_rates_for_revision <- function(
           baseline_entries <- tibble(
             census_code = unlisted_countries,
             ieepa_country_rate = universal_baseline,
+            country_eo_rate = 0,
+            country_eo_ch99 = NA_character_,
             ieepa_type = 'surcharge'
           )
           country_ieepa <- bind_rows(country_ieepa, baseline_entries)
@@ -958,20 +998,38 @@ calculate_rates_for_revision <- function(
         rates <- rates %>% mutate(floor_exempt = FALSE)
       }
 
+      # Build a country-EO exempt key set for fast lookup. Each entry pairs
+      # (country EO ch99 code) with (HS8 prefix). A product is exempt from
+      # the country EO surcharge when both its 8-digit HS prefix and the
+      # active EO ch99 code for that country match an entry.
+      country_eo_exempt_keys <- if (nrow(country_eo_exempt) > 0) {
+        paste(country_eo_exempt$ch99_code, country_eo_exempt$hts8_prefix, sep = '|')
+      } else {
+        character(0)
+      }
+
       rates <- rates %>%
         mutate(
+          # Universal Annex A applies to phase1 + phase2 only; country_eo bypasses it
+          # but is subject to its own per-EO exempt list.
+          is_universally_exempt = hts10 %in% ieepa_exempt_products,
+          is_country_eo_exempt  = !is.na(country_eo_ch99) &
+            paste(country_eo_ch99, substr(hts10, 1, 8), sep = '|') %in% country_eo_exempt_keys,
           rate_ieepa_recip = case_when(
-            duty_free_treatment == 'nonzero_base_only' & base_rate < 0.001 ~ 0,  # duty-free exemption
-            hts10 %in% ieepa_exempt_products ~ 0,       # general IEEPA exemption (Annex A)
-            floor_exempt ~ 0,                             # floor country product exemption
-            is.na(ieepa_country_rate) ~ 0,               # country not in IEEPA list
-            ieepa_type == 'surcharge' ~ ieepa_country_rate,
+            duty_free_treatment == 'nonzero_base_only' & base_rate < 0.001 ~ 0,
+            floor_exempt ~ 0,
+            is.na(ieepa_country_rate) ~ 0,
+            ieepa_type == 'surcharge' ~
+              if_else(is_universally_exempt, 0, ieepa_country_rate - country_eo_rate) +
+              if_else(is_country_eo_exempt, 0, country_eo_rate),
+            ieepa_type == 'floor' & is_universally_exempt ~ 0,
             ieepa_type == 'floor' ~ pmax(0, ieepa_country_rate - base_rate),
             ieepa_type == 'passthrough' ~ 0,
             TRUE ~ 0
           )
         ) %>%
-        select(-ieepa_country_rate, -floor_exempt)
+        select(-ieepa_country_rate, -country_eo_rate, -country_eo_ch99,
+               -is_universally_exempt, -is_country_eo_exempt, -floor_exempt)
 
       # Also add IEEPA rows for products NOT currently in rates
       # (products with no other Ch99 duties but still subject to IEEPA)
@@ -982,8 +1040,10 @@ calculate_rates_for_revision <- function(
         filter(country %in% ieepa_countries_in_scope) %>%
         select(hts10, country)
 
+      # Don't pre-filter Annex-A products: those products may still owe a
+      # country-EO surcharge that bypasses the universal Annex A. The
+      # case_when below applies the right exemption per phase contribution.
       all_products_base <- products %>%
-        filter(!hts10 %in% ieepa_exempt_products) %>%   # exclude exempt products
         { if (duty_free_treatment == 'nonzero_base_only') filter(., base_rate > 0.001) else . } %>%
         select(hts10, base_rate) %>%
         mutate(base_rate = coalesce(base_rate, 0))
@@ -1014,15 +1074,22 @@ calculate_rates_for_revision <- function(
         mutate(
           rate_232 = 0, rate_301 = 0, rate_ieepa_fent = 0, rate_s122 = 0,
           rate_section_201 = 0, rate_other = 0,
+          is_universally_exempt = hts10 %in% ieepa_exempt_products,
+          is_country_eo_exempt  = !is.na(country_eo_ch99) &
+            paste(country_eo_ch99, substr(hts10, 1, 8), sep = '|') %in% country_eo_exempt_keys,
           rate_ieepa_recip = case_when(
-            floor_exempt ~ 0,                             # floor country product exemption
-            ieepa_type == 'surcharge' ~ ieepa_country_rate,
+            floor_exempt ~ 0,
+            ieepa_type == 'surcharge' ~
+              if_else(is_universally_exempt, 0, ieepa_country_rate - country_eo_rate) +
+              if_else(is_country_eo_exempt, 0, country_eo_rate),
+            ieepa_type == 'floor' & is_universally_exempt ~ 0,
             ieepa_type == 'floor' ~ pmax(0, ieepa_country_rate - base_rate),
             TRUE ~ 0
           )
         ) %>%
         filter(rate_ieepa_recip > 0) %>%
-        select(-ieepa_country_rate, -floor_exempt)
+        select(-ieepa_country_rate, -country_eo_rate, -country_eo_ch99,
+               -is_universally_exempt, -is_country_eo_exempt, -floor_exempt)
 
       if (nrow(new_pairs) > 0) {
         message('  Adding ', nrow(new_pairs), ' product-country pairs for IEEPA-only duties')
