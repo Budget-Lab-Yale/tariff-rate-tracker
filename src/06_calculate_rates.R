@@ -1924,6 +1924,70 @@ calculate_rates_for_revision <- function(
           TRUE ~ rate_232
         ))
 
+      # Country-specific 232 surcharges preserved under the annex regime.
+      # Per the April 2026 proclamation, Russian aluminum remains subject to
+      # the 200% rate from Proc 10522 across Annex I-A, I-B, and III. Annex II
+      # is out of scope (products removed from S232 entirely).
+      # Applied as pmax() so the surcharge wins over the annex tier rate.
+      country_surcharges <- annex_cfg$country_surcharges %||% list()
+      if (length(country_surcharges) > 0) {
+        deriv_by_type <- if (!is.null(deriv_products) && nrow(deriv_products) > 0) {
+          split(deriv_products$hts_prefix, deriv_products$derivative_type)
+        } else list()
+
+        primary_chapters_by_type <- list(
+          steel    = c('72', '73'),
+          aluminum = '76',
+          copper   = '74'
+        )
+
+        for (surcharge in country_surcharges) {
+          countries_vec   <- as.character(surcharge$countries)
+          applies_annexes <- surcharge$applies_to %||% c('annex_1a', 'annex_1b', 'annex_3')
+          metal_types     <- surcharge$metal_types %||% c('steel', 'aluminum', 'copper')
+          rate_s          <- surcharge$rate
+          if (is.null(rate_s) || !is.finite(rate_s) || rate_s <= 0) next
+
+          # Build the set of HTS10s in scope for the requested metal types.
+          # Union of (primary chapters for that type) + (derivative prefixes
+          # tagged with that type in s232_derivative_products.csv).
+          type_hts10 <- character(0)
+          all_hts10 <- unique(rates$hts10)
+          for (mt in metal_types) {
+            prim <- primary_chapters_by_type[[mt]] %||% character(0)
+            if (length(prim) > 0) {
+              type_hts10 <- c(type_hts10, all_hts10[substr(all_hts10, 1, 2) %in% prim])
+            }
+            deriv_prefixes <- deriv_by_type[[mt]] %||% character(0)
+            if (length(deriv_prefixes) > 0) {
+              deriv_pattern <- paste0('^(', paste(deriv_prefixes, collapse = '|'), ')')
+              type_hts10 <- c(type_hts10, all_hts10[grepl(deriv_pattern, all_hts10)])
+            }
+          }
+          type_hts10 <- unique(type_hts10)
+          if (length(type_hts10) == 0) next
+
+          rates <- rates %>%
+            mutate(rate_232 = if_else(
+              country %in% countries_vec &
+                s232_annex %in% applies_annexes &
+                hts10 %in% type_hts10,
+              pmax(rate_232, rate_s),
+              rate_232
+            ))
+
+          n_applied <- sum(
+            rates$country %in% countries_vec &
+            rates$s232_annex %in% applies_annexes &
+            rates$hts10 %in% type_hts10
+          )
+          message('  Annex country surcharge: ', paste(countries_vec, collapse = ','),
+                  ' @ ', round(rate_s * 100, 0), '% on ', n_applied,
+                  ' product-country pairs (', paste(metal_types, collapse = '/'),
+                  ' × ', paste(applies_annexes, collapse = '/'), ')')
+        }
+      }
+
       # Annex III sunset: after sunset_date, products move to I-B rate
       sunset <- annex_cfg$annexes$annex_3$sunset_date
       if (!is.null(sunset) && as.Date(effective_date) > as.Date(sunset)) {

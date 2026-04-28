@@ -266,6 +266,21 @@ section_232_annexes:
       applies_to: ['annex_1b']
       chapters: ['84', '85', '87']
       aggregate_share: 0.0
+  # Country-specific surcharges preserved under the annex regime.
+  # The April 2026 proclamation explicitly retains prior country-specific
+  # S232 surcharges for Russian aluminum across Annex I-A, I-B, and III.
+  # Annex II is out of scope (products removed from S232 entirely), so the
+  # surcharge does not apply there.
+  # Applied via pmax() so the surcharge wins over the annex tier rate.
+  # metal_types scope: 'steel' (ch 72/73), 'aluminum' (ch 76), 'copper' (ch 74),
+  # plus derivatives from resources/s232_derivative_products.csv filtered by
+  # derivative_type. Expand by adding entries here — no code changes needed.
+  country_surcharges:
+    - countries: ['4621']                        # Russia
+      rate: 2.0
+      applies_to: ['annex_1a', 'annex_1b', 'annex_3']
+      metal_types: ['aluminum']
+      source: 'Proclamation 10522 (2023-02-24), retained by April 2026 proclamation'
 
 # --- Floor rate structure (EU, Japan, S. Korea, Switzerland, Liechtenstein) ---
 floor_rates:

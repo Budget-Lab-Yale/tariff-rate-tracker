@@ -771,6 +771,118 @@ run_test('China × semi: 232 + fentanyl + 301 all stack to 60%', {
 
 
 # =============================================================================
+# Test 12: Annex-era country surcharges (rev_5 snapshot)
+# =============================================================================
+#
+# Validates that country-specific S232 surcharges preserved under the April
+# 2026 annex regime (configured in section_232_annexes$country_surcharges)
+# override the annex tier rate via pmax(). Also guards the semi × annex_2
+# interaction (Fix 2 regression test).
+
+message('\n--- Test 12: Annex-era country surcharges (rev_5) ---')
+
+rev5_snapshot_path  <- here('data', 'timeseries', 'snapshot_2026_rev_5.rds')
+deriv_products_path <- here('resources', 's232_derivative_products.csv')
+
+run_test('Russia aluminum 200% surcharge applies in ch 76 (Annex I-A primary aluminum)', {
+  if (!file.exists(rev5_snapshot_path)) skip_test('snapshot_2026_rev_5.rds missing')
+  s <- readRDS(rev5_snapshot_path)
+  ru_alum <- s %>% filter(country == '4621', substr(hts10, 1, 2) == '76')
+  stopifnot(nrow(ru_alum) > 0)
+  # Per Proc 10522 (retained by April 2026 proclamation), Russian aluminum
+  # primary products must carry rate_232 >= 2.0 across Annex I-A/I-B/III.
+  scoped <- ru_alum %>% filter(s232_annex %in% c('annex_1a', 'annex_1b', 'annex_3'))
+  stopifnot(nrow(scoped) > 0)
+  stopifnot(all(scoped$rate_232 >= 2.0 - 1e-10))
+})
+
+run_test('Russia aluminum derivative surcharge applies in Annex I-B', {
+  if (!file.exists(rev5_snapshot_path)) skip_test('snapshot_2026_rev_5.rds missing')
+  if (!file.exists(deriv_products_path)) skip_test('derivative products file missing')
+  s <- readRDS(rev5_snapshot_path)
+  deriv <- read_csv(deriv_products_path,
+                    col_types = cols(hts_prefix = col_character()),
+                    show_col_types = FALSE) %>%
+    filter(derivative_type == 'aluminum')
+  if (nrow(deriv) == 0) skip_test('no aluminum derivatives in product list')
+
+  deriv_pattern <- paste0('^(', paste(deriv$hts_prefix, collapse = '|'), ')')
+  ru_deriv <- s %>%
+    filter(country == '4621',
+           grepl(deriv_pattern, hts10),
+           s232_annex %in% c('annex_1a', 'annex_1b', 'annex_3'))
+  if (nrow(ru_deriv) == 0) skip_test('no Russia × aluminum-derivative rows in rev_5')
+  stopifnot(all(ru_deriv$rate_232 >= 2.0 - 1e-10))
+})
+
+run_test('Russia annex_2 products are NOT surcharged (annex II out of scope)', {
+  if (!file.exists(rev5_snapshot_path)) skip_test('snapshot_2026_rev_5.rds missing')
+  s <- readRDS(rev5_snapshot_path)
+  ru_a2 <- s %>% filter(country == '4621', s232_annex == 'annex_2')
+  if (nrow(ru_a2) == 0) skip_test('no Russia × annex_2 rows')
+  # Annex II removes products from S232 entirely; surcharge does not apply.
+  # The only non-zero rate_232 allowed here is the semi override (25%).
+  semi <- if (file.exists(here('resources', 's232_semi_products.csv'))) {
+    read_csv(here('resources', 's232_semi_products.csv'),
+             col_types = cols(hts10 = col_character()),
+             show_col_types = FALSE)$hts10
+  } else character(0)
+  non_semi_a2 <- ru_a2 %>% filter(!(hts10 %in% semi))
+  stopifnot(all(non_semi_a2$rate_232 == 0))
+})
+
+run_test('Russia steel (ch 72/73) does NOT get the aluminum-only surcharge', {
+  if (!file.exists(rev5_snapshot_path)) skip_test('snapshot_2026_rev_5.rds missing')
+  s <- readRDS(rev5_snapshot_path)
+  # Exclude HS8 prefixes classified as aluminum derivatives — those are
+  # iron/steel-chapter products legitimately covered by the aluminum
+  # surcharge via the derivative pathway (e.g., 7308.20 towers/masts under
+  # 9903.85.08). Including them would conflate "ch 72/73" with "steel".
+  alum_deriv_prefixes <- if (file.exists(deriv_products_path)) {
+    read_csv(deriv_products_path,
+             col_types = cols(hts_prefix = col_character()),
+             show_col_types = FALSE) %>%
+      filter(derivative_type == 'aluminum') %>%
+      pull(hts_prefix)
+  } else character(0)
+  ru_steel <- s %>% filter(country == '4621', substr(hts10, 1, 2) %in% c('72', '73'),
+                           s232_annex %in% c('annex_1a', 'annex_1b', 'annex_3'),
+                           !(substr(hts10, 1, 8) %in% alum_deriv_prefixes))
+  if (nrow(ru_steel) == 0) skip_test('no Russia × steel rows')
+  # Surcharge is scoped to metal_types: ['aluminum']; steel must see the
+  # standard annex rate (0.50 for I-A, 0.25 for I-B, floor-based for III),
+  # never 2.0.
+  stopifnot(all(ru_steel$rate_232 < 1.0))
+})
+
+run_test('Non-Russia countries in ch 76 do NOT get the Russia surcharge', {
+  if (!file.exists(rev5_snapshot_path)) skip_test('snapshot_2026_rev_5.rds missing')
+  s <- readRDS(rev5_snapshot_path)
+  # Sanity: other countries' aluminum should carry the standard annex rate.
+  other_alum <- s %>%
+    filter(country != '4621', substr(hts10, 1, 2) == '76',
+           s232_annex == 'annex_1a')
+  if (nrow(other_alum) == 0) skip_test('no non-Russia × ch76 × annex_1a rows')
+  stopifnot(all(other_alum$rate_232 <= 0.5 + 1e-10))
+  stopifnot(!any(other_alum$rate_232 >= 2.0 - 1e-10))
+})
+
+run_test('Annex II × rate_232>0 is semi-products-only (Note 39a invariant)', {
+  if (!file.exists(rev5_snapshot_path)) skip_test('snapshot_2026_rev_5.rds missing')
+  semi_path <- here('resources', 's232_semi_products.csv')
+  if (!file.exists(semi_path)) skip_test('s232_semi_products.csv missing')
+  s <- readRDS(rev5_snapshot_path)
+  semi <- read_csv(semi_path,
+                   col_types = cols(hts10 = col_character()),
+                   show_col_types = FALSE)$hts10
+  leak <- s %>%
+    filter(s232_annex == 'annex_2', rate_232 > 0) %>%
+    filter(!(hts10 %in% semi))
+  stopifnot(nrow(leak) == 0)
+})
+
+
+# =============================================================================
 # Summary
 # =============================================================================
 

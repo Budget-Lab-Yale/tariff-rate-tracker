@@ -144,6 +144,8 @@ Section 232 is modeled through a mix of:
 - heading or prefix coverage
 - explicit product lists for derivatives, copper, auto parts, and MHD products
 
+For annex-era revisions (effective >= 2026-04-06), the repo also applies config-driven post-annex country overrides after annex tiering. At present this is used to preserve the 200% exporter-country rule for Russian aluminum under Annex I-A, I-B, and III. The wider proclamation branch for non-Russia exporters with Russian smelt/cast provenance is not modeled because the tracker does not currently ingest shipment-level aluminum provenance fields.
+
 Derivative products use a configurable metal-share estimate. The default is the BEA-based HS10 metal-share file, which provides per-type breakdowns (`steel_share`, `aluminum_share`, `copper_share`, `other_metal_share`). Aluminum derivatives are scaled by `aluminum_share` specifically — the derivative tariff applies only to the aluminum content, not steel or copper fractions that may be present. Products that overlap between heading programs (e.g., auto parts that are also aluminum derivatives) use the heading rate at full product value rather than being metal-scaled.
 
 ### Section 301

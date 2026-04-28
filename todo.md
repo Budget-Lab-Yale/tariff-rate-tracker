@@ -1,10 +1,12 @@
 # Tariff Rate Tracker — TODO
 
-## Active priorities (updated 2026-04-14)
+## Active priorities (updated 2026-04-23)
 
-1. **Dynamic Ch99 parsing**: replace static annex CSV with parsed Ch99 entries so annex classifications track future HTS revisions automatically.
-2. **Modeling gaps**: conditioned post-annex branches (UK 95% content, Annex IV exception buckets, product-condition exemptions) are approximated, not modeled.
-3. **Deferred calibration**: UK content share blending, annex exemptions, generic pharma shares, concordance tightening, small-country outliers.
+1. **Sync published rev_5 artifacts with current code**: rebuild `2026_rev_5`, `rate_timeseries.rds`, and `metadata.rds` so the saved release outputs reflect the landed Russia fix and `tests/test_rate_calculation.R` stops failing against stale artifacts.
+2. **Close the live USMCA annex gap**: check annex-era `s232_usmca_eligible` coverage, then refresh 2026 monthly USMCA files once DataWeb stops returning HTTP 503, and rebuild `usmca_monthly` snapshots from the refreshed monthly inputs.
+3. **Replace static annex scaffolding with dynamic parsing**: move `load_annex_products()` / `extract_section232_rates()` off the static CSV path so annex classifications track future HTS revisions automatically.
+4. **Finish the biggest post-annex modeling gaps**: Russia clause (8), UK 95% qualifying-content treatment, Annex IV exception buckets, and product-condition exemptions are still approximated or unmodeled.
+5. **Then clear secondary rebuild/calibration debt**: rerun the OOM-failed post-build alternatives, calibrate semi/annex assumptions, and tackle the remaining low-priority performance and cleanup items.
 
 ## Section 232 annex restructuring (April 2026 proclamation)
 
@@ -19,6 +21,12 @@ Presidential proclamation of 2 April 2026 replaces single-rate 232 with four pro
 
 ### Open work
 
+Recommended order here: rebuild release artifacts, confirm the Russia sync in saved outputs, replace the static Ch99 path, then finish the remaining post-annex modeling/documentation items.
+
+- [ ] **Russia rev_5 release sync:** the source fix has landed (`section_232_annexes.country_surcharges` plus the post-annex `pmax()` path in step 5c), and a fresh `calculate_rates_for_revision()` run now restores the 200% rate for `country == '4621'` on Annex I-A/I-B/III aluminum and aluminum derivatives. But the checked-in `snapshot_2026_rev_5.rds` and `rate_timeseries.rds` still predate that fix, so `tests/test_rate_calculation.R` fails against the saved rev_5 artifact.
+- [ ] **Russia clause (8) is still only partially modeled.** The April 2, 2026 proclamation covers Annex I-A/I-B/III aluminum articles or derivatives that are the product of Russia **or** where any primary aluminum was smelted in Russia **or** the article was cast in Russia. Current logic only keys on exporter country (`country == '4621'`). See `docs/s232/russia_rev5_fix_plan.md`.
+- [ ] **Document (or assign) `deriv_type` in annex-era revisions.** In rev_5 all rows have `deriv_type = NA` and per-type shares = 0 because `apply_232_derivatives()` gates on pre-annex Ch99 codes (9903.81.89-93, 9903.85.04/07/08, 9903.78.01) that are absent from the rev_5 HTS. This is correct-by-policy (full-value taxation replaces metal-content scaling) but arrived at accidentally through a failing gate. Either add a comment documenting the intent, or have step 5c assign a sentinel value (e.g., `deriv_type = 'annex_1a'`) so downstream readers can distinguish "no derivative classification" from "annex-era full-value regime." See `docs/s232/rev5_baseline_review.md` §§4-5.
+- [ ] **Rebuild release artifacts from HEAD.** Re-run `2026_rev_5`, then recombine `rate_timeseries.rds` and `metadata.rds`, so published outputs match the current tree and the new Russia snapshot tests pass on saved artifacts.
 - [ ] **Dynamic Ch99 parsing** in `load_annex_products()` / `extract_section232_rates()` — currently using static CSV
 - [ ] **Modeling gap: conditioned post-annex branches**
   - UK reduced rates with 95% qualifying-content condition
@@ -30,6 +38,11 @@ Presidential proclamation of 2 April 2026 replaces single-rate 232 with four pro
 - [ ] UK content share blending (`uk_content_qualifying_share`, default 30% per SGEPT)
 - [ ] Exemption calibration (US-origin 1%, de minimis 2%, motorcycle 0.1% per SGEPT)
 - [ ] Annex III sunset (Dec 2027 → I-B rate): logic in place, needs future HTS revision to test
+
+### Ruled out (investigated 2026-04-22)
+
+- [x] **Annex_2 × rate_232 = 0.25 is not a leak**: 480 rows at 25% in rev_5 snapshot, all semi products. Intentional per semi post-stacking override at `src/06_calculate_rates.R:2275-2298` (Note 39(a) — semi articles aren't re-scoped by the April 2026 annex restructuring). Zero non-semi annex_2 rows carry non-zero rates.
+- [x] **IEEPA zeroing in rev_4+ is not a regression**: `rate_ieepa_recip = rate_ieepa_fent = 0` for all rev_4/rev_5 rows is the intended effect of `ieepa_invalidation_date: '2026-02-24'` (SCOTUS *Learning Resources v. Trump*). Section 122 replaces the blanket within the 150-day window.
 
 ### Completed
 

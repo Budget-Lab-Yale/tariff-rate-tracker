@@ -1381,6 +1381,52 @@ run_test('UK annex deal applies correctly', {
   stopifnot(df$rate_232[3] == 0.50)  # UK copper I-A → 50% (no UK deal for copper)
 })
 
+run_test('Russia annex exporter-country surcharge applies to aluminum only', {
+  products <- tibble(
+    hts10 = c('7601100000', '2106909971', '7208100000'),
+    base_rate = c(0.00, 0.05, 0.00),
+    n_ch99_refs = 0L,
+    ch99_refs = list(character(0), character(0), character(0))
+  )
+  ch99_data <- tibble(
+    ch99_code = c('9903.03.01', '9903.80.01'),
+    rate = c(0.10, 0.25),
+    country_type = c('all', 'all'),
+    countries = list('all', 'all'),
+    exempt_countries = list(character(0), character(0)),
+    description = c('Section 122 test entry', 'Steel article test entry'),
+    general_raw = c('10%', '25%')
+  )
+  s232_rates <- extract_section232_rates(ch99_data)
+  pp <- load_policy_params()
+
+  rates <- calculate_rates_for_revision(
+    products = products,
+    ch99_data = ch99_data,
+    ieepa_rates = NULL,
+    usmca = NULL,
+    countries = c('4621', '4280'),
+    revision_id = '2026_rev_5',
+    effective_date = as.Date('2026-04-06'),
+    s232_rates = s232_rates,
+    fentanyl_rates = NULL,
+    policy_params = pp
+  ) %>%
+    select(hts10, country, s232_annex, rate_232)
+
+  stopifnot(rates$s232_annex[rates$hts10 == '7601100000' & rates$country == '4621'] == 'annex_1a')
+  stopifnot(abs(rates$rate_232[rates$hts10 == '7601100000' & rates$country == '4621'] - 2.0) < 1e-8)
+
+  stopifnot(rates$s232_annex[rates$hts10 == '2106909971' & rates$country == '4621'] == 'annex_1b')
+  stopifnot(abs(rates$rate_232[rates$hts10 == '2106909971' & rates$country == '4621'] - 2.0) < 1e-8)
+
+  stopifnot(abs(rates$rate_232[rates$hts10 == '7601100000' & rates$country == '4280'] - 0.50) < 1e-8)
+  stopifnot(abs(rates$rate_232[rates$hts10 == '2106909971' & rates$country == '4280'] - 0.25) < 1e-8)
+
+  stopifnot(rates$s232_annex[rates$hts10 == '7208100000' & rates$country == '4621'] == 'annex_1a')
+  stopifnot(abs(rates$rate_232[rates$hts10 == '7208100000' & rates$country == '4621'] - 0.50) < 1e-8)
+})
+
 run_test('annex classification is NA for pre-April-6 dates', {
   # Simulate date-gating check
   effective_date <- '2026-03-15'

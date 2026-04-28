@@ -84,6 +84,18 @@ Products in both types (e.g., dairy in steel cans with aluminum lids, HTS 0402.9
 
 ---
 
+## 4b. Annex-Era Russia 200% Exporter-Country Rule
+
+**Assumption / limitation:** For post-annex revisions (effective >= 2026-04-06), the tracker models the April 2, 2026 proclamation's Russia aluminum carry-forward rule only for the direct exporter-country case. If `country == '4621'` (Russia) and the product is an aluminum article or aluminum derivative classified into Annex I-A, Annex I-B, or Annex III, `rate_232` is floored at 200% via a post-annex override.
+
+The broader clause (8) rule is not fully modeled: the proclamation also covers non-Russia exporters when any primary aluminum was smelted in Russia or the article was cast in Russia. The current repo does not contain shipment-level smelt/cast provenance data, so that branch remains outside current data capacity.
+
+**Source:** White House proclamation of April 2, 2026, clause (8). The legal rule is official; the exporter-only implementation boundary is a data-capacity limitation.
+
+**Implementation:** `config/policy_params.yaml` (`section_232_annexes.country_surcharges`) and `src/06_calculate_rates.R` (post-annex `pmax()` override after annex tiering and UK deal rates). Regression coverage in `tests/run_tests_daily_series.R` and `tests/test_rate_calculation.R`.
+
+---
+
 ## 5. Fentanyl Carve-Out Product Lists
 
 **Assumption:** 308 HTS8 products receive lower fentanyl tariff rates under three carve-out categories:
