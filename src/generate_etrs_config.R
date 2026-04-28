@@ -308,7 +308,10 @@ export_statutory_rates <- function(snapshot, policy_params, output_dir, ch99_dat
   # full customs value. Even if they also appear in the derivative prefix list,
   # the blanket program is the correct classification.
   classify_s232_program <- function(hts10) {
-    annex_prog <- annex_lookup[[hts10]]
+    # `[[` on a named character vector errors when the key is missing; use
+    # `[` and a names() check so empty/missing lookups return NA cleanly
+    # (e.g., pre-2026-04-06 snapshots where no annex classification exists).
+    annex_prog <- if (hts10 %in% names(annex_lookup)) annex_lookup[[hts10]] else NA_character_
     if (!is.null(annex_prog) && !is.na(annex_prog) && nzchar(annex_prog)) {
       return(annex_prog)
     }
