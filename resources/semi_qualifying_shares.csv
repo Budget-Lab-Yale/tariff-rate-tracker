@@ -1,11 +1,11 @@
 hts10,qualifying_share,source_note
-8471500110,1,uncalibrated upper bound; see todo.md Phase 5
-8471500150,1,uncalibrated upper bound; see todo.md Phase 5
-8471801000,1,uncalibrated upper bound; see todo.md Phase 5
-8471804000,1,uncalibrated upper bound; see todo.md Phase 5
-8471809000,1,uncalibrated upper bound; see todo.md Phase 5
-8473301140,1,uncalibrated upper bound; see todo.md Phase 5
-8473301180,1,uncalibrated upper bound; see todo.md Phase 5
-8473302000,1,uncalibrated upper bound; see todo.md Phase 5
-8473305100,1,uncalibrated upper bound; see todo.md Phase 5
-8473309100,1,uncalibrated upper bound; see todo.md Phase 5
+8471500110,0,Interim binary calibration 2026-04-28; not AI accelerator (per todo.md Phase 5 guidance)
+8471500150,0,Interim binary calibration 2026-04-28; not AI accelerator (smoking-gun trackerover cell)
+8471801000,0,Interim binary calibration 2026-04-28; control/adapter units, not AI accelerator
+8471804000,1,Interim binary calibration 2026-04-28; GPU/AI card line per todo.md (still upper bound; refine via empirical calibration)
+8471809000,0,Interim binary calibration 2026-04-28; generic catch-all, not AI accelerator
+8473301140,0,Interim binary calibration 2026-04-28; generic memory modules, HBM not represented at this HTS10
+8473301180,0,Interim binary calibration 2026-04-28; generic memory parts
+8473302000,0,Interim binary calibration 2026-04-28; mechanical parts
+8473305100,0,Interim binary calibration 2026-04-28; generic parts
+8473309100,0,Interim binary calibration 2026-04-28; generic parts
