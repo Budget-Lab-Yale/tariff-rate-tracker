@@ -35,6 +35,10 @@ resources/USITC - USMCA - *.xlsx
 # Diagnostic CSVs emitted by verification scripts (regenerable)
 resources/*_diagnostic.csv
 
+# DataWeb HTTP debugging artifacts (request payloads, raw responses)
+scripts/payload_*.json
+scripts/curl_out/
+
 # Temp/diagnostic scripts
 tmpclaude-*
 *.tmp
