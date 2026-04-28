@@ -542,6 +542,42 @@ mfn_exemption:
 #   'nonzero_base_only' = skip duty-free products (sensitivity analysis)
 ieepa_duty_free_treatment: 'all'
 
+# --- IEEPA Annex II / Annex A exempt-list scope ---
+# Controls which IEEPA tariff layers the universal exempt list
+# (resources/ieepa_exempt_products.csv, ~4,326 HTS10s built from Annex II,
+# US Note 2(v)(iii), ITA prefixes, Berman ch49/ch97, Ch98) zeros out.
+#
+# Country-specific EO surcharges (Brazil 9903.01.77, India 9903.01.84, etc.)
+# always use the SEPARATE per-EO list (resources/country_eo_exempt_products.csv),
+# regardless of this setting.
+#
+#   'all' — applies to universal baseline (9903.01.25, +10%), Phase 1
+#           surcharges (9903.01.43-.75, when active), Phase 2 surcharges
+#           (9903.02.xx country-specific), AND the 15% floor structure for
+#           EU/JP/KR/CHE/LIE. Current default. Aligns with EO text and
+#           Tariff-ETRs methodology — see legal-scope analysis below.
+#
+#   'baseline_only' — applies ONLY to the universal IEEPA baseline (9903.01.25).
+#           Country-specific Phase 1, Phase 2, and floor structures are NOT
+#           subject to the universal exempt list. DIAGNOSTIC ONLY.
+#
+# WARNING: 'baseline_only' produces legally-incorrect output. Annex II of
+# EO 14257 (as amended by EO 14326 of Jul 31, 2025 and EO 14346 of Sep 5, 2025)
+# applies uniformly to all IEEPA reciprocal authorities — universal baseline,
+# Phase 1, Phase 2 country-specific, and the 15% floor for EU/JP/KR/CHE/LIE.
+# The exemption is claimed via HTSUS 9903.01.32 against any of these layers.
+# There is no separate Phase 2 exemption list; CBP CSMS #65829726 and
+# EO 14326 §3 preserve EO 14257 exceptions across the Phase 2 reinstatement.
+# Tariff-ETRs uses the same 'all'-equivalent scope.
+#
+# 'baseline_only' exists ONLY to bound the magnitude of importer 9903.01.32
+# non-claim behavior — i.e., legally-eligible imports that filed under a
+# Ch99 dutiable code and paid duty rather than claiming the exemption. The
+# delta between 'all' and 'baseline_only' rebuilds is an upper bound on the
+# tracker-attributable share of the trackermiss gap; the residual against
+# Census is the importer non-claim channel. Do NOT use in production.
+ieepa_exempt_scope: 'all'
+
 # --- IEEPA invalidation (SCOTUS ruling) ---
 # Date when IEEPA tariff authority was invalidated by the Supreme Court.
 # All revisions with effective_date >= this date have IEEPA rates zeroed out.

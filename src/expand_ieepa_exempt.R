@@ -58,8 +58,37 @@ cat("Fix 2 - Ch98 statutory exemption: +", length(new_ch98), "codes",
     "(of", length(ch98_exempt), "total Ch98 exempt)\n")
 
 # --- Fix 3: Expand ITA prefix entries ---
-# US Notes page 183 subdivision (v)(iii) lists these broad ITA prefixes as exempt
-ita_prefixes <- c("8471", "847330", "8486", "8523", "8524", "8541", "8542")
+# US Note 2(v)(iii) (HTSUS Ch99 Subchapter III). Verified against the literal
+# subheading enumeration in data/us_notes/chapter99_2026_rev_6.txt:12791-12800.
+# Some entries appear in the legal text as bare headings (whole heading
+# exempt); others as specific subheadings. Using broad 4-digit prefixes for
+# the latter would over-extend — e.g. an "8541" prefix wrongly captures
+# 8541.42/.43 PV cells, which are NOT on Annex II. Likewise, only 8523.51
+# (solid-state semiconductor storage) is exempt under 8523, not the magnetic
+# media, optical media, or smart card subheadings. See
+# docs/ieepa_exempt_audit_2026-04-28.md for full audit.
+ita_prefixes <- c(
+  "8471",        # whole heading: computers
+  "847330",      # whole subheading: parts of computers
+  "8486",        # whole heading: semiconductor manufacturing equipment
+  "852351",      # subheading only: solid-state non-volatile storage
+  "8524",        # whole heading: electronic displays
+  # 8541 - Annex II enumerates specific subheadings only.
+  # PV cells (8541.42, 8541.43) are deliberately excluded.
+  "85411000",    # diodes, other than photosensitive
+  "85412100",    # transistors, dissipation rating <1W
+  "85412900",    # transistors, other
+  "85413000",    # thyristors, diacs and triacs
+  "85414100",    # LEDs
+  "85414910",    # photosensitive (specific subheadings)
+  "85414970",
+  "85414980",
+  "85414995",
+  "85415100",    # semiconductor-based transducers
+  "85415900",    # other photosensitive
+  "85419000",    # parts
+  "8542"         # whole heading: integrated circuits
+)
 ita_matches <- character()
 for (prefix in ita_prefixes) {
   matches <- all_hts10[substr(all_hts10, 1, nchar(prefix)) == prefix]

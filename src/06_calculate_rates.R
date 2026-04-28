@@ -761,6 +761,16 @@ calculate_rates_for_revision <- function(
     message('  IEEPA duty-free treatment: ', duty_free_treatment)
   }
 
+  # IEEPA Annex II exempt-list scope: 'all' (default, legally correct per
+  # EO 14326 §3 + CBP CSMS #65829726) zeros listed products across baseline
+  # + Phase 1/2 surcharges + floor; 'baseline_only' is a diagnostic that
+  # zeros only the universal 10% baseline. See policy_params.yaml warning.
+  ieepa_exempt_scope <- pp$ieepa_exempt_scope %||% 'all'
+  if (ieepa_exempt_scope != 'all') {
+    message('  IEEPA exempt scope: ', ieepa_exempt_scope,
+            ' (DIAGNOSTIC — produces legally-incorrect output)')
+  }
+
   # Load IEEPA product exemptions
   ieepa_exempt_path <- here('resources', 'ieepa_exempt_products.csv')
   ieepa_exempt_products <- if (file.exists(ieepa_exempt_path)) {
@@ -869,6 +879,7 @@ calculate_rates_for_revision <- function(
             if (length(ce) > 0) ce[1] else NA_character_
           },
           ieepa_type = first(phase_type),
+          is_universal_baseline_country = FALSE,
           .groups = 'drop'
         )
 
@@ -955,7 +966,8 @@ calculate_rates_for_revision <- function(
             ieepa_country_rate = universal_baseline,
             country_eo_rate = 0,
             country_eo_ch99 = NA_character_,
-            ieepa_type = 'surcharge'
+            ieepa_type = 'surcharge',
+            is_universal_baseline_country = TRUE
           )
           country_ieepa <- bind_rows(country_ieepa, baseline_entries)
           message('  Applied universal baseline (', round(universal_baseline * 100),
@@ -1010,26 +1022,34 @@ calculate_rates_for_revision <- function(
 
       rates <- rates %>%
         mutate(
-          # Universal Annex A applies to phase1 + phase2 only; country_eo bypasses it
-          # but is subject to its own per-EO exempt list.
+          # Universal Annex II applies to baseline + phase1 + phase2 surcharges
+          # AND the floor structure; country_eo bypasses it but uses its own
+          # per-EO exempt list. ieepa_exempt_scope = 'baseline_only' (diagnostic)
+          # narrows the universal exempt list to baseline-only countries.
           is_universally_exempt = hts10 %in% ieepa_exempt_products,
           is_country_eo_exempt  = !is.na(country_eo_ch99) &
             paste(country_eo_ch99, substr(hts10, 1, 8), sep = '|') %in% country_eo_exempt_keys,
+          exempt_active = is_universally_exempt & (
+            ieepa_exempt_scope == 'all' |
+            (ieepa_exempt_scope == 'baseline_only' &
+             coalesce(is_universal_baseline_country, FALSE))
+          ),
           rate_ieepa_recip = case_when(
             duty_free_treatment == 'nonzero_base_only' & base_rate < 0.001 ~ 0,
             floor_exempt ~ 0,
             is.na(ieepa_country_rate) ~ 0,
             ieepa_type == 'surcharge' ~
-              if_else(is_universally_exempt, 0, ieepa_country_rate - country_eo_rate) +
+              if_else(exempt_active, 0, ieepa_country_rate - country_eo_rate) +
               if_else(is_country_eo_exempt, 0, country_eo_rate),
-            ieepa_type == 'floor' & is_universally_exempt ~ 0,
+            ieepa_type == 'floor' & exempt_active ~ 0,
             ieepa_type == 'floor' ~ pmax(0, ieepa_country_rate - base_rate),
             ieepa_type == 'passthrough' ~ 0,
             TRUE ~ 0
           )
         ) %>%
         select(-ieepa_country_rate, -country_eo_rate, -country_eo_ch99,
-               -is_universally_exempt, -is_country_eo_exempt, -floor_exempt)
+               -is_universally_exempt, -is_country_eo_exempt, -floor_exempt,
+               -is_universal_baseline_country, -exempt_active)
 
       # Also add IEEPA rows for products NOT currently in rates
       # (products with no other Ch99 duties but still subject to IEEPA)
@@ -1077,19 +1097,25 @@ calculate_rates_for_revision <- function(
           is_universally_exempt = hts10 %in% ieepa_exempt_products,
           is_country_eo_exempt  = !is.na(country_eo_ch99) &
             paste(country_eo_ch99, substr(hts10, 1, 8), sep = '|') %in% country_eo_exempt_keys,
+          exempt_active = is_universally_exempt & (
+            ieepa_exempt_scope == 'all' |
+            (ieepa_exempt_scope == 'baseline_only' &
+             coalesce(is_universal_baseline_country, FALSE))
+          ),
           rate_ieepa_recip = case_when(
             floor_exempt ~ 0,
             ieepa_type == 'surcharge' ~
-              if_else(is_universally_exempt, 0, ieepa_country_rate - country_eo_rate) +
+              if_else(exempt_active, 0, ieepa_country_rate - country_eo_rate) +
               if_else(is_country_eo_exempt, 0, country_eo_rate),
-            ieepa_type == 'floor' & is_universally_exempt ~ 0,
+            ieepa_type == 'floor' & exempt_active ~ 0,
             ieepa_type == 'floor' ~ pmax(0, ieepa_country_rate - base_rate),
             TRUE ~ 0
           )
         ) %>%
         filter(rate_ieepa_recip > 0) %>%
         select(-ieepa_country_rate, -country_eo_rate, -country_eo_ch99,
-               -is_universally_exempt, -is_country_eo_exempt, -floor_exempt)
+               -is_universally_exempt, -is_country_eo_exempt, -floor_exempt,
+               -is_universal_baseline_country, -exempt_active)
 
       if (nrow(new_pairs) > 0) {
         message('  Adding ', nrow(new_pairs), ' product-country pairs for IEEPA-only duties')
@@ -1185,6 +1211,25 @@ calculate_rates_for_revision <- function(
           rate_ieepa_fent = if_else(!is.na(carveout_rate), carveout_rate, rate_ieepa_fent)
         ) %>%
         select(-carveout_rate, -.hts8)
+    }
+
+    # Apply Ch98 exemption (US Note 2(v)(i)) to fentanyl rate.
+    # Annex II (Note 2(v)(iii)) lists only reciprocal-related ch99 codes
+    # and does NOT extend to fentanyl (9903.01.01-.24); the broader Annex II
+    # list must therefore not be applied to rate_ieepa_fent. But the Ch98
+    # carve-out under (v)(i) IS legally separate and does cover fentanyl.
+    # The 4 Ch98 exceptions (9802.00.40/50/60/80) are already excluded
+    # from ieepa_exempt_products.csv by expand_ieepa_exempt.R Fix 2.
+    ch98_exempt_products <- ieepa_exempt_products[
+      substr(ieepa_exempt_products, 1, 2) == '98']
+    if (length(ch98_exempt_products) > 0) {
+      ch98_mask <- rates$hts10 %in% ch98_exempt_products
+      n_zeroed <- sum(ch98_mask & rates$rate_ieepa_fent > 0)
+      if (n_zeroed > 0) {
+        rates$rate_ieepa_fent[ch98_mask] <- 0
+        message('  Ch98 fentanyl exemption: zeroed rate_ieepa_fent for ',
+                n_zeroed, ' product-country pairs')
+      }
     }
 
     n_with_fent <- sum(rates$rate_ieepa_fent > 0)
