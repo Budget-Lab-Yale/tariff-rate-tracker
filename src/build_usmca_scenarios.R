@@ -9,7 +9,9 @@
 # Scenarios:
 #   usmca_none    -- 0% utilization (no CA/MX importer claims USMCA)
 #   usmca_2024    -- annual 2024 shares (pre-tariff baseline)
-#   usmca_monthly -- monthly 2025 shares (time-varying per revision date)
+#   usmca_monthly -- monthly shares (time-varying per revision date, freezing
+#                    at the latest available month when newer files have not
+#                    been published yet)
 #   usmca_h2avg   -- second-half 2025 average (production default, verified
 #                    once then populated by copy from top-level snapshots)
 #
@@ -39,7 +41,7 @@ source(here('src', '09_daily_series.R'))
 SCENARIO_SPECS <- list(
   usmca_none    = list(mode = 'none',       year = NULL),
   usmca_2024    = list(mode = 'annual',     year = 2024L),
-  usmca_monthly = list(mode = 'monthly',    year = 2025L),
+  usmca_monthly = list(mode = 'monthly',    year = NULL),
   usmca_h2avg   = list(mode = 'h2_average', year = 2025L)
 )
 

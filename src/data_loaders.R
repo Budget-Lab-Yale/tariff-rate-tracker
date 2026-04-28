@@ -239,31 +239,31 @@ load_usmca_product_shares <- function(policy_params = NULL, path = NULL, effecti
 
     } else if (mode == 'monthly' && !is.null(effective_date)) {
       eff <- as.Date(effective_date)
-      year <- year %||% as.integer(format(eff, '%Y'))
-      # Clamp to year boundaries
-      month_num <- as.integer(format(eff, '%m'))
-      if (eff < as.Date(paste0(year, '-01-01'))) month_num <- 1L
-      if (eff > as.Date(paste0(year, '-12-31'))) month_num <- 12L
-      monthly_path <- here('resources', sprintf('usmca_product_shares_%d_%02d.csv', year, month_num))
-      if (file.exists(monthly_path)) {
-        path <- monthly_path
+      target_year  <- as.integer(format(eff, '%Y'))
+      target_month <- as.integer(format(eff, '%m'))
+
+      # Walk backward one calendar month at a time until an available file is
+      # found. This lets the scenario track real utilization as long as monthly
+      # files exist, then freeze at the most recent available month when the
+      # publication series ends. Cap at 120 steps (10 years) to avoid runaway.
+      path <- NULL
+      y <- target_year; m <- target_month
+      for (step in seq_len(120L)) {
+        candidate <- here('resources', sprintf('usmca_product_shares_%d_%02d.csv', y, m))
+        if (file.exists(candidate)) { path <- candidate; break }
+        m <- m - 1L
+        if (m < 1L) { m <- 12L; y <- y - 1L }
+      }
+
+      if (!is.null(path)) {
+        if (y != target_year || m != target_month) {
+          message(sprintf('  Monthly USMCA file not found for %d-%02d — using most recent available: %d-%02d',
+                          target_year, target_month, y, m))
+        }
       } else {
-        # Try to find the latest available monthly file before this month
-        found_fallback <- FALSE
-        for (m in (month_num - 1L):1L) {
-          fallback_path <- here('resources', sprintf('usmca_product_shares_%d_%02d.csv', year, m))
-          if (file.exists(fallback_path)) {
-            message('  Monthly USMCA file not found for ', year, '-', sprintf('%02d', month_num),
-                    ' — using latest available: month ', sprintf('%02d', m))
-            path <- fallback_path
-            found_fallback <- TRUE
-            break
-          }
-        }
-        if (!found_fallback) {
-          message('  No monthly USMCA files found for ', year, ' — falling back to annual')
-          path <- here('resources', paste0('usmca_product_shares_', year, '.csv'))
-        }
+        message('  No monthly USMCA files found — falling back to annual')
+        path <- here('resources', paste0('usmca_product_shares_',
+                                          year %||% target_year, '.csv'))
       }
     } else {
       if (!is.null(year)) {

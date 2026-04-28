@@ -276,7 +276,7 @@ build_full_timeseries <- function(
       prev_ch99 <- ch99_data
       prev_products <- products
 
-      last_successful_rev <<- rev_id
+      last_successful_rev <- rev_id
       log_info('  OK: ', nrow(rates), ' product-country rates')
 
     }, error = function(e) {
@@ -441,12 +441,40 @@ detect_incremental_start <- function(
 
   metadata <- readRDS(metadata_path)
   last_rev <- metadata$last_revision
-  message('Last build: ', metadata$last_build_time, ' (', last_rev, ')')
+  snap_files <- character()
+  if (is.null(last_rev) || !nzchar(last_rev)) {
+    message('Last build: ', metadata$last_build_time,
+            ' (missing last_revision in metadata)')
+    snap_files <- list.files(output_dir, pattern = '^snapshot_.*\\.rds$',
+                             full.names = FALSE)
+  } else {
+    message('Last build: ', metadata$last_build_time, ' (', last_rev, ')')
+  }
 
   # Check for new revisions after last_rev
   rev_dates <- load_revision_dates(revision_dates_path,
                                     use_policy_dates = use_policy_dates)
   all_revisions <- rev_dates$revision
+
+  if (is.null(last_rev) || !nzchar(last_rev)) {
+    if (length(snap_files) == 0) {
+      message('No snapshot files found — full backfill')
+      return(NULL)
+    }
+
+    built_revs <- sub('^snapshot_', '', tools::file_path_sans_ext(snap_files))
+    built_ordered <- rev_dates %>%
+      filter(revision %in% built_revs) %>%
+      arrange(effective_date)
+
+    if (nrow(built_ordered) == 0) {
+      message('Snapshot files did not match revision_dates.csv — full backfill')
+      return(NULL)
+    }
+
+    last_rev <- built_ordered$revision[nrow(built_ordered)]
+    message('Inferred last revision from snapshots: ', last_rev)
+  }
 
   available <- get_available_revisions_all_years(all_revisions, archive_dir)
 
