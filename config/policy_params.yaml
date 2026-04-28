@@ -62,6 +62,16 @@ eu27_codes:
   '4700': Spain
   '4010': Sweden
 
+# --- Section 201 (Trade Act §201 safeguard) ---
+# Currently models the Solar 201 program (9903.45.21–.29). The HTS `general`
+# field shows the original Year-1 (2018) out-of-quota rate (30%) which doesn't
+# reflect the annual step-down published by USTR. Override here with the
+# current effective rate.
+#   - 2025-02-07 → 2026-02-07 (Year 8 of extension): 14.5% on out-of-quota
+#   - update annually based on USTR notice
+section_201:
+  solar_rate: 0.145
+
 # --- Authority classification ranges (9903.xx) ---
 authority_ranges:
   section_232:      [80, 81, 82, 83, 84, 85, 94, 74, 76, 78]

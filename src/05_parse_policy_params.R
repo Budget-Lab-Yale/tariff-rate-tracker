@@ -1052,6 +1052,75 @@ extract_section122_rates <- function(ch99_data) {
 }
 
 
+#' Extract Section 201 (safeguard) rates from Chapter 99 data
+#'
+#' Section 201 is a safeguard tariff under Trade Act of 1974 Section 201.
+#' The active program is:
+#'   - Solar 201 (CSPV cells/modules): 9903.45.21–.29, originally Proc 9693
+#'     (2018), extended through Feb 6 2026 by Proc 10454 (Feb 2022). Solar 201
+#'     uses a TRQ structure: in-quota imports (under 12.5 GW for cells) pay no
+#'     additional duty; out-of-quota imports pay the safeguard rate (currently
+#'     ~14.5% in Year 8 of the extension).
+#'
+#' Why we don't read the rate directly from HTS: the HTS `general` field for
+#' 9903.45.22/.25 (out-of-quota) shows 30% — the original Year 1 (2018) rate
+#' that the proclamation steps down over time. The annual step-down is in US
+#' Note 18, not in the HTS rate field. We therefore prefer a config-supplied
+#' rate (`section_201.solar_rate` in policy_params.yaml) over the HTS value.
+#' Without the config, we fall back to the most-recent step-down published by
+#' USTR (~14.5% as of 2025-2026).
+#'
+#' We also blend this over the TRQ — the effective rate is roughly
+#' `out-of-quota_rate * out_of_quota_share`, but we currently apply the rate
+#' uniformly because we don't model TRQ utilization.
+#'
+#' Note: Washing-machine 201 (9903.45.01-.06) entries persist in HTS but
+#' expired Feb 2023 — we ignore them.
+#'
+#' Country exemptions (per Proc 10454):
+#'   - Canada (Census 1220) is exempt under USMCA. Applied in 06_calculate_rates.R.
+#'   - GSP developing-country exemption list is not currently modeled.
+#'
+#' Returns has_s201 = TRUE if any 9903.45.21-.29 entries are present in the
+#' revision (signals the program is active in this snapshot).
+#'
+#' @param ch99_data Tibble of parsed Chapter 99 entries
+#' @param policy_params Optional policy params; reads section_201.solar_rate if set
+extract_section_201_rates <- function(ch99_data, policy_params = NULL) {
+  message('Extracting Section 201 (safeguard) rates...')
+
+  # Restrict to Solar 201 (9903.45.21-.29). Washing-machine 201 (9903.45.01-.06)
+  # expired Feb 2023 — ignore those entries even if still in HTS.
+  s201_entries <- ch99_data %>%
+    filter(grepl('^9903\\.45\\.(2[1-9])$', ch99_code), !is.na(rate))
+
+  if (nrow(s201_entries) == 0) {
+    message('  No Solar 201 entries (9903.45.21-.29) found')
+    return(list(s201_rates = NULL, has_s201 = FALSE, solar_rate = 0))
+  }
+
+  # Pull the configured rate, falling back to the published Year 8 (2025-26)
+  # value if not set. The HTS field is misleading because it shows the original
+  # Year 1 rate, not the current step-down.
+  s201_cfg <- if (!is.null(policy_params)) policy_params$SECTION_201 else NULL
+  solar_rate <- s201_cfg$solar_rate %||% 0.145
+
+  hts_rates <- sort(unique(round(s201_entries$rate, 4)))
+  message('  Solar 201 active: ', nrow(s201_entries),
+          ' Ch99 entries (HTS rates: ',
+          paste(hts_rates * 100, '%', collapse = ', '), ')')
+  message('  Applying configured solar_rate: ', round(solar_rate * 100, 1),
+          '% (override via section_201.solar_rate in policy_params.yaml)')
+
+  return(list(
+    s201_rates = s201_entries %>%
+      transmute(ch99_code, rate, rate_type = 'surcharge'),
+    has_s201 = TRUE,
+    solar_rate = solar_rate
+  ))
+}
+
+
 #' Check if a Census country code is exempt from Section 232
 #'
 #' Handles ISO codes, group codes ('EU'), and Census codes in the exempt list.

@@ -2066,6 +2066,46 @@ calculate_rates_for_revision <- function(
             length(s122_exempt_hts8), ' HTS8 exempt)')
   }
 
+  # 6b1. Apply Section 201 (Trade Act §201 safeguard) tariffs.
+  #      Currently models Solar 201 (Proc 9693 + Proc 10454, 9903.45.21–.25)
+  #      on CSPV cells/modules. The 201 rate stacks on top of MFN, separate
+  #      from 232/301/IEEPA. Canada is exempt under USMCA. Per-product
+  #      coverage is in resources/s201_solar_products.csv.
+  s201_results <- extract_section_201_rates(ch99_data, policy_params = pp)
+  if (s201_results$has_s201) {
+    s201_path <- here('resources', 's201_solar_products.csv')
+    if (!file.exists(s201_path)) {
+      message('  WARNING: s201_solar_products.csv not found — Section 201 rate not applied')
+    } else {
+      s201_products <- read_csv(s201_path,
+                                 col_types = cols(hts10 = col_character()))
+      solar_rate <- s201_results$solar_rate
+      s201_country_codes <- setdiff(countries, pp$country_codes$CTY_CANADA)
+
+      # Set rate_section_201 for existing rows
+      rates <- rates %>%
+        mutate(
+          rate_section_201 = if_else(
+            hts10 %in% s201_products$hts10 & country %in% s201_country_codes,
+            solar_rate, rate_section_201
+          )
+        )
+
+      # Add 201-only rows for products not yet in rates
+      s201_country_rates <- tibble(
+        country = s201_country_codes,
+        blanket_rate = solar_rate
+      )
+      rates <- add_blanket_pairs(rates, products, s201_products$hts10, s201_country_rates,
+                                  'rate_section_201', 'Section 201 (solar)')
+
+      n_with_s201 <- sum(rates$rate_section_201 > 0)
+      message('  Section 201 (solar): ', round(solar_rate * 100, 1), '% on ',
+              n_with_s201, ' product-country pairs (',
+              nrow(s201_products), ' HTS10 covered, Canada exempt)')
+    }
+  }
+
   # 6b2. Dense grid expansion.
   #      All blanket-authority passes (232/301/s122/fent/IEEPA recip) are complete.
   #      Any product-country pair that still isn't in `rates` has no applicable

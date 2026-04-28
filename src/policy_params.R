@@ -164,6 +164,13 @@ load_policy_params <- function(yaml_path = here('config', 'policy_params.yaml'),
     params$S232_ANNEXES$effective_date <- as.Date(params$section_232_annexes$effective_date)
   }
 
+  # Section 201 (Trade Act §201 safeguards). Currently models Solar 201:
+  # the HTS lists out-of-quota rates that don't reflect annual step-down,
+  # so we override with the published current rate.
+  if (!is.null(params$section_201)) {
+    params$SECTION_201 <- params$section_201
+  }
+
   # Local paths (optional user-specific file locations)
   params$LOCAL_PATHS <- load_local_paths()
 
