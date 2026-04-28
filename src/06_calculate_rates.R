@@ -2433,6 +2433,27 @@ calculate_rates_for_revision <- function(
       ) %>%
       mutate(usmca_eligible = coalesce(usmca_eligible, FALSE))
 
+    # Refresh s232_usmca_eligible for annex-classified products (April 2026
+    # proclamation). Step 4 set this flag from the pre-annex heading configs
+    # (autos_passenger, autos_light_trucks, mhd_vehicles, auto_parts,
+    # mhd_parts). Step 5c's annex restructuring pulls in additional products
+    # outside those headings — without this refresh, an annex_1b product
+    # that's S/S+ in the HTS special field but absent from the pre-annex
+    # heading lists keeps s232_usmca_eligible = FALSE and gets the full
+    # annex rate from CA/MX. Steel/aluminum chapters (72/73/76) are excluded
+    # by design — they have no legal USMCA carve-out at any point. annex_2
+    # zeros rate_232 entirely so eligibility is moot there.
+    if ('s232_annex' %in% names(rates)) {
+      rates <- rates %>%
+        mutate(s232_usmca_eligible = if_else(
+          coalesce(s232_annex %in% c('annex_1a', 'annex_1b', 'annex_3'), FALSE) &
+            coalesce(usmca_eligible, FALSE) &
+            !(substr(hts10, 1, 2) %in% c(STEEL_CHAPTERS, ALUM_CHAPTERS)),
+          TRUE,
+          coalesce(s232_usmca_eligible, FALSE)
+        ))
+    }
+
     if (!is.null(usmca_product_shares) && nrow(usmca_product_shares) > 0) {
       # Census SPI shares: apply to all CA/MX products
       rates <- rates %>%

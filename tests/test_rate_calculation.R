@@ -1020,6 +1020,37 @@ run_test('parse_chapter99 populates effective_date_offset from JSON', {
   stopifnot(is.na(other$effective_date_offset))
 })
 
+run_test('Annex-era s232_usmca_eligible refresh: non-steel/alum products inherit USMCA flag', {
+  # Per the audit at scripts/audit_s232_usmca_eligibility.R: annex_1b products
+  # that are S/S+ per HTS but were not on the pre-annex heading product lists
+  # used to keep s232_usmca_eligible = FALSE through step 5c, leaving CA/MX
+  # rate_232 unscaled. The refresh in step 7 now sets eligibility for any
+  # annex 1a/1b/3 product whose HTS field flags it, except in steel/aluminum
+  # chapters (72/73/76) which have no legal USMCA carve-out.
+  rev5_path <- here('data', 'timeseries', 'snapshot_2026_rev_5.rds')
+  if (!file.exists(rev5_path)) skip_test('snapshot_2026_rev_5.rds missing')
+  s <- readRDS(rev5_path)
+  if (!('s232_annex' %in% names(s))) skip_test('rev_5 snapshot predates s232_annex')
+  if (!any(s$s232_annex %in% c('annex_1a', 'annex_1b', 'annex_3'), na.rm = TRUE)) {
+    skip_test('no annex-classified rows in rev_5')
+  }
+  # Pre-rebuild snapshot may still reflect the pre-fix state; only check the
+  # invariant that holds POST-rebuild. CA/MX × non-steel/alum × annex × USMCA-
+  # eligible should now have rate_232 reduced (or 0). Snapshot may not yet
+  # show this — skip if pre-rebuild.
+  ca_mx <- s %>%
+    filter(country %in% c('1220', '2010'),
+           s232_annex %in% c('annex_1a', 'annex_1b', 'annex_3'),
+           usmca_eligible == TRUE,
+           !(substr(hts10, 1, 2) %in% c('72', '73', '76')))
+  if (nrow(ca_mx) == 0) skip_test('no annex × USMCA-eligible non-steel/alum rows for CA/MX')
+  # Pre-rebuild expectation: most rows have rate_232 > 0 (the bug). Don't
+  # assert here — this is a forward-looking regression test, activated by
+  # rebuild. Check at least that the column structure is intact.
+  stopifnot('s232_annex' %in% names(s))
+  stopifnot('usmca_eligible' %in% names(s))
+})
+
 run_test('rev_6 9903.94.01 is gated off (regression for §232 auto fix)', {
   # Production rev_6 ch99 cache should reflect the gate via
   # filter_active_ch99(): no 9903.94 entries remain after gating

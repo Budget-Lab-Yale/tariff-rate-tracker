@@ -101,6 +101,8 @@ Legal effective date is **Jan 15, 2026 (12:01 am EST)** per the Jan 14 proclamat
 
 Investigation of `usmca_2024` / `usmca_monthly` alternatives and their behavior in the post-SCOTUS / post-annex regime. Fix applied for the monthly scenario; two follow-ups remain.
 
+Priority order within this section: check annex-era `s232_usmca_eligible` first, refresh the 2026 monthly files once DataWeb is available, then rebuild `usmca_monthly` outputs from the refreshed monthly inputs.
+
 ### Findings
 
 - **`usmca_monthly` was frozen at Dec 2025 for every 2026 revision.** `SCENARIO_SPECS` in `src/build_usmca_scenarios.R` hardcoded `year = 2025L`, and the monthly branch of `load_usmca_product_shares()` clamped `month_num = 12` whenever `effective_date > 2025-12-31`. `resources/usmca_product_shares_2026_01.csv` existed but was never loaded. In `output/alternative/daily_overall_usmca_monthly.csv` the post-Jan-2026 line tracked `usmca_h2avg` within 0.01pp as a direct consequence.
@@ -112,12 +114,13 @@ Investigation of `usmca_2024` / `usmca_monthly` alternatives and their behavior 
 
 - [x] Rewrote monthly branch of `load_usmca_product_shares()` (`src/data_loaders.R:240-267`) to derive target year/month from `effective_date` and walk backward one calendar month at a time until a file is found. Caps at 120 steps; falls through to annual if nothing matches. Verified across 11 test dates from 2024 through 2026-10.
 - [x] Removed hardcoded `year = 2025L` from `usmca_monthly` scenario spec (`src/build_usmca_scenarios.R:42`) and from the legacy `--with-alternatives` block in `src/09_daily_series.R:1005-1013`.
+- [x] Patched `src/download_usmca_dataweb.R` so current-year queries use a Year-to-Date date range (`timeframeSelectType = 'specificDateRange'`, Jan-through-current-month) instead of `fullYears`, matching DataWeb support guidance for incomplete years.
 
 ### Open work
 
-- [ ] **Rebuild `usmca_monthly` snapshots under the new logic.** `data/timeseries/usmca_monthly/` and `output/alternative/*usmca_monthly*` were produced under the old clamp. Run `Rscript src/build_usmca_scenarios.R --scenarios usmca_monthly` (or the full `--with-alternatives` pass) to regenerate. Expected: Jan–Apr 2025 line at ~40–45% utilization (close to `usmca_2024`), step-up mid-2025 to ~85%, then flat at the 2026-01 level for all of 2026 until new monthly files land.
+- [ ] **Rebuild `usmca_monthly` snapshots under the new logic.** `data/timeseries/usmca_monthly/` and `output/alternative/*usmca_monthly*` were produced under the old clamp. Run `Rscript src/build_usmca_scenarios.R --scenarios usmca_monthly` (or the full `--with-alternatives` pass) to regenerate. Expected: Jan–Apr 2025 line at ~40–45% utilization (close to `usmca_2024`), step-up mid-2025 to ~85%, then flat at the latest available 2026 monthly file level. Per DataWeb support email on 2026-04-23, the latest published 2026 monthly data is February, so the refreshed 2026 line should freeze at the 2026-02 level until newer monthly files land.
 - [ ] **Check annex-era `s232_usmca_eligible` coverage.** Diff the set of products with `s232_usmca_eligible = TRUE` against products classified as annex_1b with USMCA `special = S/S+` at `2026_rev_5`. If there are annex_1b products that should be eligible but are not, either (a) refresh the flag from `usmca` after the annex override in step 5c, or (b) add annex-level `usmca_exempt` config to `section_232_annexes.annexes.annex_1b` and apply it in step 5c alongside the rate override.
-- [ ] **Refresh 2026 monthly USMCA files.** DataWeb API has returned HTTP 503 on 2026-04-20 and again on 2026-04-21 (4 attempts across both days). Outage is outside the documented Wed 5:30-8:30 PM ET maintenance window. Retry: `Rscript src/download_usmca_dataweb.R --year 2026 --monthly`. This replaces the "Update 2026 monthly USMCA shares" item in the Pipeline section below.
+- [ ] **Refresh 2026 monthly USMCA files.** DataWeb support (Hugh, 2026-04-23) says current-year queries should use **Year-to-Date** rather than **Annual**, because full-year annual data does not populate for an incomplete year; he also confirmed that the latest available 2026 monthly data is **February**, so April 2026 should return no results until that data is published. That downloader fix is now in place, but both a current-month retry and a February-capped retry (`--end-date 02/2026`) still returned **HTTP 503** on **2026-04-23** at the first chapter batch. Retry once DataWeb is available: `Rscript src/download_usmca_dataweb.R --year 2026 --monthly`. Expected post-refresh state: `resources/usmca_product_shares_2026_01.csv` and `resources/usmca_product_shares_2026_02.csv` present, with the monthly scenario freezing at February 2026 until newer files land.
 
 ## Code review findings (2026-04-15)
 
@@ -150,12 +153,58 @@ Critical and structural issues identified via full-repo code review.
 - [x] Wire `test_rate_calculation.R` into CI (2026-04-15)
 - [x] Split `helpers.R` into 5 focused modules + architecture doc + CONTRIBUTING update (2026-04-15)
 
+## Code review follow-ups (2026-04-22)
+
+Second critical-code-reviewer pass over the Section 232 pipeline. Three commits
+landed: `42c0cab` (blocking + required-changes), `0338405` (Phase C hardening).
+
+### Blocking fixes
+
+- [x] **Fentanyl stacking docstring/code divergence** (`src/stacking.R`): docstring claimed non-China fentanyl passes through at full rate on 232 products; code scales by `nonmetal_share`. Verified against Tariff-ETRs `calculations.R:1571-1575` — code is correct, docstring + misleading "copper exception" comment updated. Memory note corrected.
+- [x] **Silent fail-open on `us_auto_content_share`** (`src/06_calculate_rates.R` step 4b, `src/generate_etrs_config.R`): missing config key previously defaulted to `1.0` (full USMCA exemption — ~4.7pp CA/MX auto over-exemption). Now fail closed with actionable error.
+- [x] **Hardcoded UK `'4120'` for country overrides** (`src/05_parse_policy_params.R`): 9903.81.94-99 and 9903.85.12-15 previously attributed every entry to UK. New `extract_country_specific_overrides()` helper uses `parse_countries()` + ISO→Census map with EU expansion; warns on unparseable entries.
+
+### Required changes
+
+- [x] **`heading_gates` fail closed**: unregistered heading names now `stop()` with list of orphans rather than silently activating on every revision.
+- [x] **`section_232_headings` required**: NULL block now errors rather than silently skipping non-chapter 232 programs.
+- [x] **`message('WARNING: ...')` → `warning()`**: three sites (products_file, prefixes_file, semi qualifying_shares_file) — missing resources now surface in CI.
+- [x] **`max_rate_with_variance_log()` helper** (parser): 8 `max(rate)` call sites log rate divergence if a ch99 range ever introduces a different rate instead of silently picking max.
+- [x] **`match_232_heading_products()` helper** (`src/06_calculate_rates.R`): extracted the ~40-line prefix-matching logic duplicated in step 4 (rate assignment) and step 5 (derivative-overlap exclusion).
+- [x] **`load_232_derivative_products()` cached**: loaded once per build and passed into both `apply_232_derivatives()` and the step 5c annex fallback.
+- [x] **`aluminum_derivative_{rate,exempt}`**: renamed for symmetry with `steel_derivative_{rate,exempt}` (parser return, 06_calculate_rates.R consumer, test fixture).
+- [x] **`vehicle_prefixes` fragile fallback** (step 4c auto deals): vehicle/parts split now sourced from `heading_product_lists` — stable if `autos_passenger`/`autos_light_trucks` ever migrate from inline `prefixes:` to `products_file:`.
+- [x] **Auto-deal classification fail-loud** (`src/05_parse_policy_params.R`): parts regex extended (`auto parts`, `light trucks` variants); unclassifiable entries warn + drop rather than silently bucketing as `auto_vehicles`.
+
+### Repo housekeeping
+
+- [x] Repo metadata: `CITATION.cff`, `DATA_SOURCES.md`, `SECURITY.md` (`c4a4985`).
+- [x] S232 reference PDFs + `annexes_text.txt` retained in `docs/s232/`; saved-page HTM bundle removed (`5bf88c3`).
+- [x] `scripts/validate_derivative_classification.R` + `scripts/verify_scenario_differences.R` committed as durable validation tooling.
+- [x] `.gitignore` additions: `test_output/`, `resources/USITC - USMCA - *.xlsx`, `resources/*_diagnostic.csv`.
+- [x] Deleted 4 one-off migration scripts (`patch_and_test.R`, `scripts/diff_step1_refactor.R`, `scripts/verify_step2_dense.R`, `scripts/diagnose_tpc_match_shift.R`).
+
+### Suggestion-tier follow-ups (deferred; low priority)
+
+- [ ] O(N·M) annex prefix-matching at `src/06_calculate_rates.R:1797` — precompute into a hash for 10-15× speedup on large-annex revisions.
+- [ ] Verify `load_metal_content()` isn't re-reading the BEA CSV per build.
+- [ ] `statutory_rate_232` overloaded semantics — rewritten at 4 pipeline points (pre/post deal, post-annex, post-floor-recompute); consider renaming or explicit per-stage snapshots.
+
 ## Pipeline
+
+Recommended order here: finish the USMCA refresh path, then rerun the OOM-failed post-build alternatives, and leave generic pharma shares for later.
 
 - [ ] Generic pharma country-specific exemption shares (per TPC feedback; low priority)
   - Planning note: `docs/analysis/generic_pharma_exemption_share_plan_2026-03-24.md`
 - [ ] USMCA 2026 monthly refresh — see "USMCA scenario and share-loading (2026-04-20)" above.
 - [ ] **Rerun 6 OOM-failed post-build alternatives (2026-04-22).** Full rebuild via `--full --with-alternatives` completed the main timeseries (58.5 min) and the 6 rebuild alternatives (usmca_annual/monthly/2024/dec2025, metal_flat, dutyfree_nonzero) successfully, but the 6 post-build scenarios `no_ieepa`, `no_ieepa_recip`, `no_301`, `no_232`, `no_s122`, `pre_2025` all failed with `cannot allocate vector of size 705.6 Mb` on `filter(revision == 'rev_X')` — R ran out of memory after accumulating state across the ~5-hour run. The corresponding `output/alternative/*_{no_*,pre_2025}.csv` files are stale (dated Apr 15-20, pre-dating the semi tariff work). Rerun option: a fresh R process per scenario. Either restart the machine and re-run `--full --with-alternatives`, or run each failed scenario in its own Rscript invocation (prototype: `apply_scenario(ts, name, scenarios_path) |> build_daily_aggregates(...) |> save_alternative_output(...)`). Each should take a few minutes with fresh memory.
+
+## More-granular preference share construction (2026-04-28)
+
+Two share-refinement items surfaced by the eval `tracker_over_report.md` and `tracker_miss_report.md` Round 3. Both are about replacing or augmenting current preference-utilization inputs with finer, IMDB-empirical signals. Neither is a rate-parsing bug; they're calibration / new-channel work.
+
+- [ ] **Refresh DataWeb USMCA monthly shares against IMDB-realized claim shares.** `tracker_over_report.md` Action 5: ~$43.3 B of LEGIT-channel over-statement on USMCA-claimed CA/MX entries indicates the tracker's monthly DataWeb shares are systematically lower than realized claim shares for some HS10×country pairs. Drill-down by HS6×country×month comparing `resources/usmca_product_shares_*.csv` to IMDB-derived (count or value of `cty_subco = 'S'/'S+'` divided by all entries in the same HS10×country×month) will identify which pairs need refresh. Same calibration pattern as the §232 semi `qualifying_share` interim fix. Eval-side handoff is the natural place to compute the IMDB-side aggregate; tracker-side change would be ingesting the refreshed shares.
+- [ ] **Expose a statutory-vs-claimable rate split for the Annex II claim-rate channel.** `tracker_miss_report.md` Round 3 concluded the bulk of the $5–7 B Pattern 1 residual is importer non-claim of 9903.01.32 (eligible-but-unclaimed Annex II exemptions). Adding this as a behavioral channel parallel to USMCA shares requires the tracker to expose, per (HS10, country, revision), both (a) the statutory rate assuming 100% Annex II claim and (b) the rate if no Annex II is claimed. The diff is the upper-bound of the non-claim channel; the eval side then ingests an IMDB-derived claim share (count or value of `9903.01.32` filings vs. `9903.01.25/.43–.75/02.xx` filings by HS6×country×month) and decomposes via that share. The `ieepa_exempt_scope: 'baseline_only'` diagnostic toggle (committed 2026-04-28) already produces the no-claim rate; making this a first-class output requires emitting both rate columns side-by-side rather than rebuilding twice.
 
 ## Low priority
 
