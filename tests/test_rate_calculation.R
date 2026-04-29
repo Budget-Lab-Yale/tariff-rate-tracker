@@ -952,11 +952,29 @@ run_test('extract_effective_date_offset is case-insensitive', {
   stopifnot(d == as.Date('2025-05-03'))
 })
 
-run_test('extract_effective_date_offset returns first date when multiple appear', {
+run_test('extract_effective_date_offset returns earliest date when multiple appear', {
+  # Earliest-first ordering: result should equal the leftmost-and-earliest.
   desc <- paste0('on or after April 3, 2025, articles, then on or after ',
                  'May 3, 2025 the rate doubles')
-  d <- extract_effective_date_offset(desc)
-  stopifnot(d == as.Date('2025-04-03'))
+  stopifnot(extract_effective_date_offset(desc) == as.Date('2025-04-03'))
+
+  # Later-date-first ordering: result must still be the EARLIEST, not the
+  # leftmost. Regression for the original `regexpr` bug that returned the
+  # first regex match instead of min(date).
+  desc2 <- paste0('phase-in on or after May 3, 2025, then full rate ',
+                  'on or after April 3, 2025')
+  stopifnot(extract_effective_date_offset(desc2) == as.Date('2025-04-03'))
+})
+
+run_test('extract_effective_date_offset stops on unparseable matched phrase', {
+  # Pattern matches but as.Date fails (e.g. invalid day). Must error, not
+  # silently NA — silent NA leaves filter_active_ch99 keeping the row,
+  # re-introducing the pre-activation collection bug the gate prevents.
+  desc <- 'effective on or after Aprilis 99, 2025, certain articles'
+  err <- tryCatch(extract_effective_date_offset(desc),
+                  error = function(e) e)
+  stopifnot(inherits(err, 'error'))
+  stopifnot(grepl('failed to parse', err$message))
 })
 
 run_test('filter_active_ch99 drops not-yet-active rows', {
@@ -1061,35 +1079,42 @@ run_test('extract_ieepa_fentanyl_rates respects the effective-date gate too', {
   stopifnot(nrow(post) >= 1)
 })
 
-run_test('Annex-era s232_usmca_eligible refresh: non-steel/alum products inherit USMCA flag', {
-  # Per the audit at scripts/audit_s232_usmca_eligibility.R: annex_1b products
-  # that are S/S+ per HTS but were not on the pre-annex heading product lists
+run_test('Annex-era s232_usmca_eligible refresh: CA/MX rate_232 reduced vs non-USMCA partner', {
+  # Per scripts/audit_s232_usmca_eligibility.R: annex 1a/1b/3 products that
+  # are S/S+ per HTS but were not on the pre-annex heading product lists
   # used to keep s232_usmca_eligible = FALSE through step 5c, leaving CA/MX
-  # rate_232 unscaled. The refresh in step 7 now sets eligibility for any
-  # annex 1a/1b/3 product whose HTS field flags it, except in steel/aluminum
-  # chapters (72/73/76) which have no legal USMCA carve-out.
-  rev5_path <- here('data', 'timeseries', 'snapshot_2026_rev_5.rds')
-  if (!file.exists(rev5_path)) skip_test('snapshot_2026_rev_5.rds missing')
-  s <- readRDS(rev5_path)
-  if (!('s232_annex' %in% names(s))) skip_test('rev_5 snapshot predates s232_annex')
-  if (!any(s$s232_annex %in% c('annex_1a', 'annex_1b', 'annex_3'), na.rm = TRUE)) {
-    skip_test('no annex-classified rows in rev_5')
-  }
-  # Pre-rebuild snapshot may still reflect the pre-fix state; only check the
-  # invariant that holds POST-rebuild. CA/MX × non-steel/alum × annex × USMCA-
-  # eligible should now have rate_232 reduced (or 0). Snapshot may not yet
-  # show this — skip if pre-rebuild.
-  ca_mx <- s %>%
-    filter(country %in% c('1220', '2010'),
+  # rate_232 unscaled. The refresh in step 7 sets eligibility for annex
+  # 1a/1b/3 products with usmca_eligible = TRUE, excluding steel/alum
+  # chapters (72/73/76). Asserts the resulting rate_232 reduction.
+  snap_path <- here('data', 'timeseries', 'snapshot_2026_rev_6.rds')
+  if (!file.exists(snap_path)) skip_test('snapshot_2026_rev_6.rds missing')
+  s <- readRDS(snap_path)
+  if (!('s232_annex' %in% names(s))) skip_test('rev_6 snapshot predates s232_annex')
+
+  # Brazil (3510) is non-USMCA so always carries the full annex rate.
+  # Pivot CA/MX/BR rate_232 wide on the qualifying product set and assert
+  # CA or MX (or both) is strictly below Brazil for at least some rows.
+  qual <- s %>%
+    filter(country %in% c('1220', '2010', '3510'),
            s232_annex %in% c('annex_1a', 'annex_1b', 'annex_3'),
            usmca_eligible == TRUE,
-           !(substr(hts10, 1, 2) %in% c('72', '73', '76')))
-  if (nrow(ca_mx) == 0) skip_test('no annex × USMCA-eligible non-steel/alum rows for CA/MX')
-  # Pre-rebuild expectation: most rows have rate_232 > 0 (the bug). Don't
-  # assert here — this is a forward-looking regression test, activated by
-  # rebuild. Check at least that the column structure is intact.
-  stopifnot('s232_annex' %in% names(s))
-  stopifnot('usmca_eligible' %in% names(s))
+           !(substr(hts10, 1, 2) %in% c('72', '73', '76'))) %>%
+    select(hts10, country, rate_232) %>%
+    tidyr::pivot_wider(names_from = country, values_from = rate_232,
+                       names_prefix = 'r_')
+  if (nrow(qual) == 0) skip_test('no annex × USMCA-eligible non-steel/alum rows')
+
+  # Brazil column must exist and carry the unreduced annex rate (>0 floor).
+  stopifnot('r_3510' %in% names(qual))
+  br_full <- qual$r_3510 > 0
+  stopifnot(any(br_full))
+
+  # On rows where Brazil pays the full rate, CA or MX must show strict
+  # reduction on at least some products — that's the refresh firing.
+  br_pos <- qual[br_full, , drop = FALSE]
+  reduced <- (!is.na(br_pos$r_1220) & br_pos$r_1220 < br_pos$r_3510) |
+             (!is.na(br_pos$r_2010) & br_pos$r_2010 < br_pos$r_3510)
+  stopifnot(sum(reduced) >= 50)  # audit measured 281 distinct HTS10s; tolerate noise
 })
 
 run_test('load_usmca_product_shares monthly fallback augments sparse early-year files', {

@@ -164,35 +164,41 @@ classify_authority <- function(ch99_code) {
 #' s232_auto_effective_date_2026-04-28.md).
 #'
 #' Pattern is stable across revisions: "on or after [Month] [Day], [Year]"
-#' with full English month names. Returns the FIRST match if multiple dates
-#' appear; that's a conservative gate (the earliest activation wins).
+#' with full English month names. Returns the EARLIEST date across all matches
+#' in the description; that's the conservative gate (rate becomes legally
+#' collectible at the first stated activation date). Errors via stop() if a
+#' matched phrase fails to parse — silent NA would re-introduce the
+#' pre-activation collection bug this gate is meant to prevent.
 #'
-#' @param description Ch99 description text
+#' @param description Ch99 description text (scalar character)
 #' @return Date object, NA if no pattern matches or text is empty
 extract_effective_date_offset <- function(description) {
   if (is.null(description) || length(description) == 0 ||
       is.na(description) || description == '') {
     return(as.Date(NA))
   }
-  m <- regmatches(
+  matches <- regmatches(
     description,
-    regexpr('on or after [A-Za-z]+ [0-9]{1,2}, [0-9]{4}',
-            description, ignore.case = TRUE)
-  )
-  if (length(m) == 0 || nchar(m) == 0) return(as.Date(NA))
-  date_str <- sub('^on or after ', '', m, ignore.case = TRUE)
+    gregexpr('on or after [A-Za-z]+ [0-9]{1,2}, [0-9]{4}',
+             description, ignore.case = TRUE)
+  )[[1]]
+  if (length(matches) == 0) return(as.Date(NA))
+  date_strs <- sub('^on or after ', '', matches, ignore.case = TRUE)
   # %B in as.Date expects title-case month names ("April"); normalize.
-  parts <- strsplit(date_str, ' ', fixed = TRUE)[[1]]
-  if (length(parts) >= 1 && nchar(parts[1]) > 0) {
+  date_strs <- vapply(date_strs, function(s) {
+    parts <- strsplit(s, ' ', fixed = TRUE)[[1]]
     parts[1] <- paste0(toupper(substr(parts[1], 1, 1)),
                        tolower(substring(parts[1], 2)))
-    date_str <- paste(parts, collapse = ' ')
+    paste(parts, collapse = ' ')
+  }, character(1), USE.NAMES = FALSE)
+  parsed <- as.Date(date_strs, format = '%B %d, %Y')
+  if (any(is.na(parsed))) {
+    bad <- date_strs[is.na(parsed)]
+    stop('extract_effective_date_offset: failed to parse ',
+         paste(shQuote(bad), collapse = ', '),
+         ' from description: ', shQuote(description))
   }
-  parsed <- as.Date(date_str, format = '%B %d, %Y')
-  if (is.na(parsed)) {
-    warning('extract_effective_date_offset: failed to parse "', date_str, '"')
-  }
-  parsed
+  min(parsed)
 }
 
 
