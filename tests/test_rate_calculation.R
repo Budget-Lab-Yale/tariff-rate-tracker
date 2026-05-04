@@ -1186,6 +1186,143 @@ run_test('rev_6 9903.94.01 is gated off (regression for §232 auto fix)', {
   stopifnot(nrow(remaining_auto) == 0)
 })
 
+# =============================================================================
+# Test: subdivision (r) certified-share blend (US Note 33(r))
+# =============================================================================
+
+message('\n--- Test 13: Subdivision (r) certified-share blend ---')
+
+run_test('subdivision (r) products file exists and is non-empty', {
+  p <- here('resources', 's232_subdivision_r_products.csv')
+  if (!file.exists(p)) skip_test('s232_subdivision_r_products.csv missing')
+  d <- read_csv(p, col_types = cols(.default = col_character()),
+                show_col_types = FALSE)
+  stopifnot(nrow(d) > 0)
+  stopifnot('hts_prefix' %in% names(d))
+  # Scope guards: chapter 87 only, not in chapters 72/73/76 (impossible by ch87
+  # filter) and only annex_1b classifications
+  stopifnot(all(substr(d$hts_prefix, 1, 2) == '87'))
+  stopifnot(all(d$source_annex == '1b'))
+})
+
+run_test('subdivision (r) defaults to no-op (certified_share = 0)', {
+  pp <- load_policy_params()
+  cfg <- pp$auto_parts_subdivision_r
+  stopifnot(!is.null(cfg))
+  stopifnot(cfg$certified_share == 0)  # Disabled by default until calibrated
+})
+
+run_test('rev_6 snapshot matches pre-fix expectation at subdivision (r) HTS10s', {
+  # With certified_share = 0 (default), rev_6 should still show 25% rate_232 on
+  # subdivision (r) HTS10s for EU/JP/KR. This is the regression baseline:
+  # post-fix runs at certified_share > 0 must be regenerated; until then the
+  # saved snapshot reflects the over-tax. See docs/s232/subdivision_r_fix.md.
+  snap_path <- here('data', 'timeseries', 'snapshot_2026_rev_6.rds')
+  list_path <- here('resources', 's232_subdivision_r_products.csv')
+  if (!file.exists(snap_path)) skip_test('rev_6 snapshot missing')
+  if (!file.exists(list_path)) skip_test('subdivision (r) list missing')
+  s <- readRDS(snap_path)
+  d <- read_csv(list_path, col_types = cols(.default = col_character()),
+                show_col_types = FALSE)
+  pat <- paste0('^(', paste(unique(d$hts_prefix), collapse = '|'), ')')
+  EU_codes <- c('4280','4279','4759','4700','4210','4231','4239','4870','4791',
+                '4910','4351','4099','4470','4050','4840','4370','4190','4490',
+                '4510','4730','4550','4710','4850','4359','4792','4010','4330')
+  eu_jpkr <- s %>%
+    filter(grepl(pat, hts10), country %in% c(EU_codes, '5880', '5800'))
+  if (nrow(eu_jpkr) == 0) skip_test('no EU/JP/KR rows for subdivision (r) HTS10s in rev_6')
+  # All should currently be at 0.25 (annex_1b) since the fix is dormant.
+  stopifnot(all(abs(eu_jpkr$rate_232 - 0.25) < 1e-9))
+})
+
+run_test('subdivision (r) blend math: certified_share applied correctly', {
+  # Synthetic test of the blend formula. Mirrors the case_when in step 5d.
+  certified_share <- 0.5
+  floor_rate <- 0.15
+  base_rate <- 0  # 8708.92 codes typically have no MFN
+  # Pre-blend rate_232 was 0.25 (annex_1b)
+  pre <- 0.25
+  expected <- certified_share * pmax(floor_rate - base_rate, 0) +
+              (1 - certified_share) * pre
+  # 0.5 * 0.15 + 0.5 * 0.25 = 0.20
+  stopifnot(abs(expected - 0.20) < 1e-12)
+
+  # With base_rate = 2.5%, floor portion = 0.125, expected = 0.5*0.125 + 0.5*0.25 = 0.1875
+  base_rate_25 <- 0.025
+  expected_25 <- certified_share * pmax(floor_rate - base_rate_25, 0) +
+                 (1 - certified_share) * pre
+  stopifnot(abs(expected_25 - 0.1875) < 1e-12)
+
+  # certified_share = 1.0: rate_232 collapses to floor
+  expected_full <- 1.0 * pmax(floor_rate - 0, 0) + 0 * pre
+  stopifnot(abs(expected_full - 0.15) < 1e-12)
+})
+
+run_test('subdivision (r) FTA-exempt config defaults to no-op', {
+  pp <- load_policy_params()
+  fta <- pp$auto_parts_subdivision_r$fta_exempt_shares
+  stopifnot(!is.null(fta))
+  # All three default to 0 — fix is dormant until calibrated
+  stopifnot(fta$EU == 0, fta$JP == 0, fta$KR == 0)
+  # EU never gets an FTA carve-out (no EU-specific FTA covers subdivision (r))
+  # — the EU value is "structurally 0," not just uncalibrated. Document via
+  # comment in YAML; assert here.
+})
+
+run_test('subdivision (r) three-way blend: FTA + certified + non-certified', {
+  # Three-way mix formula:
+  #   rate_232 = fta_share * 0
+  #            + (1 - fta_share) * [certified * pmax(floor - base, 0)
+  #                                  + (1 - certified) * pre_annex_rate]
+  pre <- 0.25  # annex_1b
+  floor_rate <- 0.15
+  blend <- function(fta, cert, base) {
+    fta * 0 + (1 - fta) * (cert * pmax(floor_rate - base, 0) + (1 - cert) * pre)
+  }
+
+  # fta=0, cert=0.5, base=0: 0.5*0.15 + 0.5*0.25 = 0.20 (matches earlier test)
+  stopifnot(abs(blend(0, 0.5, 0) - 0.20) < 1e-12)
+
+  # fta=1, cert=anything, base=anything: rate_232 = 0
+  stopifnot(blend(1.0, 0.5, 0) == 0)
+  stopifnot(blend(1.0, 0.0, 0.025) == 0)
+
+  # fta=0.86 (KR DataWeb signal), cert=0.5, base=0:
+  # rate = 0.14 * 0.20 = 0.028
+  stopifnot(abs(blend(0.86, 0.5, 0) - 0.028) < 1e-9)
+
+  # fta=0, cert=1.0, base=2.5%: collapses to certified floor
+  # 1.0 * 0.125 = 0.125
+  stopifnot(abs(blend(0, 1.0, 0.025) - 0.125) < 1e-12)
+
+  # fta=0.5, cert=1.0, base=2.5%: half exempt, half certified
+  # 0.5 * 0 + 0.5 * 0.125 = 0.0625
+  stopifnot(abs(blend(0.5, 1.0, 0.025) - 0.0625) < 1e-12)
+})
+
+run_test('rev_6 snapshot baseline still pre-fix at subdivision (r) HTS10s with default config', {
+  # Sanity that adding fta_exempt_shares (all zero) doesn't change saved
+  # snapshot expectations: the dormant fix is gated on certified_share > 0
+  # OR any fta_exempt_share > 0. With all defaults at 0 the gate is FALSE
+  # and step 5d is skipped entirely. Re-uses the regression assertion from
+  # the original certified-share landing.
+  snap_path <- here('data', 'timeseries', 'snapshot_2026_rev_6.rds')
+  list_path <- here('resources', 's232_subdivision_r_products.csv')
+  if (!file.exists(snap_path)) skip_test('rev_6 snapshot missing')
+  if (!file.exists(list_path)) skip_test('subdivision (r) list missing')
+  s <- readRDS(snap_path)
+  d <- read_csv(list_path, col_types = cols(.default = col_character()),
+                show_col_types = FALSE)
+  pat <- paste0('^(', paste(unique(d$hts_prefix), collapse = '|'), ')')
+  EU_codes <- c('4280','4279','4759','4700','4210','4231','4239','4870','4791',
+                '4910','4351','4099','4470','4050','4840','4370','4190','4490',
+                '4510','4730','4550','4710','4850','4359','4792','4010','4330')
+  kr <- s %>% filter(grepl(pat, hts10), country == '5800')
+  if (nrow(kr) == 0) skip_test('no Korea rows for subdivision (r) in rev_6')
+  # Dormant default → all KR subdiv-r should still show 0.25 (annex_1b)
+  stopifnot(all(abs(kr$rate_232 - 0.25) < 1e-9))
+})
+
 
 # =============================================================================
 # Summary

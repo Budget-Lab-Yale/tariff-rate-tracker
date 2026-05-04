@@ -483,6 +483,51 @@ auto_rebate:
   us_assembly_share: 0.33      # fraction of vehicle assembled in US
   us_auto_content_share: 0.40  # fraction of auto value that is US/USMCA-origin
 
+# --- Section 232 auto-parts deal: subdivision (r) certification scope (EU/JP/KR) ---
+# US Note 33(r) covers EU/JP/KR auto parts NOT in subdivision (g), NOT in chapters
+# 72/73/76, NOT in Note 38(i) MHD parts, when the importer certifies the parts
+# will be used for US auto production or repair. Headings 9903.94.44, 9903.94.45,
+# 9903.94.54, 9903.94.55, 9903.94.64, 9903.94.65 cap such imports at a 15% floor
+# and explicitly EXEMPT them from the April 2026 metals annex (9903.82.02 and
+# 9903.82.04-9903.82.19).
+#
+# Without this block the post-annex tracker assigns annex_1b 25% to these parts
+# for EU/JP/KR — over-stating both the rate (should be 15% floor for the certified
+# share) and the metal-tariff stacking (should be excluded for the certified share).
+#
+# certified_share is the import-weighted fraction of EU/JP/KR imports of these
+# products that are entered with the importer certification under .44-.65. It is
+# uncalibrated; the 0.0 default leaves current behavior unchanged. Calibrate from
+# CBP entry-summary data (heading 9903.94.45/.55/.65 line counts vs 9903.82.x
+# line counts) or industry sources before turning on. See todo.md.
+auto_parts_subdivision_r:
+  products_file: 'resources/s232_subdivision_r_products.csv'
+  applies_to_iso: ['EU', 'JP', 'KR']
+  floor_rate: 0.15
+  certified_share: 0.0   # uncalibrated; 0 = current behavior, no fix applied
+  # FTA-exempt shares: fraction of EU/JP/KR subdivision (r) imports that qualify
+  # under their respective FTA / executive-order regime and are therefore EXEMPT
+  # from BOTH the 9903.94.44/.45/.54/.55/.64/.65 additional duty AND the metals
+  # annex 9903.82.02/.04-.19 (per Note 33(r)(1) carve-out). For these imports
+  # rate_232 = 0; only the underlying FTA-special tariff applies, captured via
+  # base_rate elsewhere in the pipeline.
+  #
+  # Per Note 33(r) (rev_6 ch99 text line 35836-35837), the FTA exemption covers:
+  #   - Goods qualifying under EO 14345 of September 4, 2025 (US-Japan Agreement)
+  #   - Goods qualifying under the United States-Korea FTA (KORUS)
+  # No equivalent FTA exists for EU goods in subdivision (r), so EU stays at 0.
+  #
+  # 2025 DataWeb signal (src/download_subdivision_r_share.R, ch87 imports):
+  #   - SPI=KR utilization on subdiv-r products: 85.9% ($577M of $672M)
+  #   - SPI=JP utilization on subdiv-r products: ~0% (US-Japan deal is not
+  #     auto-scoped; importers don't claim SPI=JP on these HTS10s)
+  # SPI utilization is an upper bound on fta_exempt_share since not all
+  # SPI-claimed imports may also claim under .45/.55/.65; calibration TBD.
+  fta_exempt_shares:
+    EU: 0.0   # always 0; no EU-specific FTA covers subdivision (r)
+    JP: 0.0   # uncalibrated; SPI=JP signal suggests near-zero in 2025
+    KR: 0.0   # uncalibrated; SPI=KR signal suggests up to ~0.86 in 2025
+
 # --- Fentanyl product carve-outs ---
 # Product-specific fentanyl rate carve-outs for CA/MX.
 # These entries in 9903.01.01-24 assign a lower rate to specific product

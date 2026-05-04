@@ -1961,8 +1961,30 @@ calculate_rates_for_revision <- function(
         ))
 
       # Override rate_232 by annex
+      #
+      # Important scoping: the April 2026 proclamation governs Section 232
+      # *steel / aluminum / copper* tariffs only — Annex II's "removed from
+      # scope" language reads "will not be subject to Section 232 aluminum,
+      # steel or copper tariffs" (annexes_text.txt:515). The auto-specific
+      # Section 232 (9903.94), MHD (9903.74), wood (9903.76), and
+      # semiconductor (9903.79) authorities are separate and unaffected.
+      #
+      # The static annex CSV faithfully lists what the proclamation covers
+      # — 8703 / 8704 (passenger cars / light trucks), 8708 (auto parts),
+      # 8702 (buses), 8701 (tractors), etc. all appear in Annexes I-B and II
+      # because the proclamation does remove them from the *metal-derivative*
+      # tariff. But those same products carry separate heading-program rates
+      # set in step 4 / 4c (auto blanket + EU/JP/KR floors, MHD blanket,
+      # copper deal, etc.). Without this guard the annex override would
+      # silently wipe heading-program rates: e.g. EU passenger cars under
+      # 9903.94.51 should pay max(0.15 - base, 0) ≈ 12.5pp on top of MFN, but
+      # the annex_2 catch-all `8703,2` was setting rate_232 = 0.
+      heading_program_products <- unique(c(auto_products, mhd_products,
+                                           copper_products, wood_products,
+                                           semi_products))
       rates <- rates %>%
         mutate(rate_232 = case_when(
+          hts10 %in% heading_program_products ~ rate_232,
           s232_annex == 'annex_2' ~ 0,
           s232_annex == 'annex_1a' ~ annex_cfg$annexes$annex_1a$rate,
           s232_annex == 'annex_1b' ~ annex_cfg$annexes$annex_1b$rate,
@@ -2067,6 +2089,90 @@ calculate_rates_for_revision <- function(
       if (nrow(n_by_annex) > 0) {
         message('  Annex rate override: ',
                 paste(n_by_annex$s232_annex, n_by_annex$n, sep = '=', collapse = ', '))
+      }
+
+      # 5d. Subdivision (r) blend for EU/JP/KR certified auto parts.
+      # Per US Note 33(r), EU/JP/KR auto parts not in subdivision (g) and not in
+      # Note 38(i) MHD parts get a 15% floor (9903.94.45/.55/.65) when the
+      # importer certifies them for US production/repair. Note 33(r)(1) carves
+      # them out from the metals annex (9903.82.02/.04-.19). Without this blend
+      # the post-annex tracker leaves the annex_1b 25% rate on these products
+      # for EU/JP/KR (~10pp over the legal cap on the certified share).
+      #
+      # Three-way mix per import:
+      #   1. fta_share  — qualifies under EO 14345 (Japan) or KORUS (Korea); per
+      #      Note 33(r) line 35836-37 these are EXEMPT from .44/.45/.54/.55/.64/.65
+      #      additional duty AND from the metals annex via the (r)(1) carve-out.
+      #      rate_232 = 0; only base_rate (FTA-special) applies.
+      #   2. certified_share × (1 - fta_share) — non-FTA but certified for US
+      #      production. rate_232 = pmax(floor - base, 0).
+      #   3. (1 - certified_share) × (1 - fta_share) — non-FTA, uncertified.
+      #      Falls under annex_1b (or whatever rate_232 was set to in step 5c).
+      #
+      # All shares default to 0 (dormant). IEEPA reciprocal is left at the
+      # existing annex-zeroed value, matching subdivision (g) treatment today.
+      subdiv_r_cfg <- pp$auto_parts_subdivision_r
+      certified_share <- subdiv_r_cfg$certified_share %||% 0
+      fta_shares_cfg <- subdiv_r_cfg$fta_exempt_shares %||% list()
+      any_fta_share <- any(unlist(fta_shares_cfg) > 0)
+
+      if (!is.null(subdiv_r_cfg) && (certified_share > 0 || any_fta_share)) {
+        subdiv_r_path <- here(subdiv_r_cfg$products_file)
+        if (!file.exists(subdiv_r_path)) {
+          stop('auto_parts_subdivision_r$products_file not found: ', subdiv_r_path)
+        }
+        subdiv_r <- read_csv(subdiv_r_path, col_types = cols(.default = col_character()))
+        prefixes <- unique(subdiv_r$hts_prefix)
+        if (length(prefixes) > 0) {
+          eligible_pattern <- paste0('^(', paste(prefixes, collapse = '|'), ')')
+          applies_iso <- subdiv_r_cfg$applies_to_iso %||% c('EU', 'JP', 'KR')
+          floor_rate_r <- subdiv_r_cfg$floor_rate %||% 0.15
+
+          # Build per-country fta_share lookup (census-coded)
+          iso_to_census_vec <- function(iso) {
+            if (iso == 'EU') {
+              if (!is.null(pp)) names(pp$eu27_codes) else EU27_CODES
+            } else {
+              as.character(pp$ISO_TO_CENSUS[iso])
+            }
+          }
+          fta_share_by_country <- map_dfr(applies_iso, function(iso) {
+            cs <- iso_to_census_vec(iso)
+            cs <- cs[!is.na(cs) & nchar(cs) > 0]
+            tibble(country = cs,
+                    fta_share = fta_shares_cfg[[iso]] %||% 0)
+          })
+          census_codes <- unique(fta_share_by_country$country)
+
+          rates <- rates %>%
+            left_join(fta_share_by_country, by = 'country',
+                      relationship = 'many-to-one') %>%
+            mutate(
+              fta_share = coalesce(fta_share, 0),
+              .subdiv_r = grepl(eligible_pattern, hts10) & country %in% census_codes,
+              .floor_232 = pmax(floor_rate_r - base_rate, 0),
+              .non_fta_blend = certified_share * .floor_232 +
+                                (1 - certified_share) * rate_232,
+              rate_232 = if_else(
+                .subdiv_r,
+                fta_share * 0 + (1 - fta_share) * .non_fta_blend,
+                rate_232
+              ),
+              statutory_rate_232 = if_else(.subdiv_r, rate_232, statutory_rate_232)
+            ) %>%
+            select(-.subdiv_r, -.floor_232, -.non_fta_blend, -fta_share)
+
+          n_blended <- sum(grepl(eligible_pattern, rates$hts10) & rates$country %in% census_codes)
+          fta_summary <- paste(
+            sprintf('%s=%.2f', names(fta_shares_cfg %||% list()),
+                    unlist(fta_shares_cfg %||% list())),
+            collapse = ', '
+          )
+          message('  Subdiv (r) blend: certified_share=', certified_share,
+                  '; fta_exempt_shares=[', fta_summary,
+                  '] applied to ', n_blended, ' product-country pairs (',
+                  length(prefixes), ' prefixes × ', length(census_codes), ' countries)')
+        }
       }
     } else {
       rates$s232_annex <- NA_character_
