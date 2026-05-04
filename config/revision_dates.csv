@@ -39,4 +39,4 @@ rev_32,2025-11-15,NA,2025-11-17,S. Korea floor (15%); 232 auto S. Korea,NA,NA
 2026_rev_4,2026-02-24,NA,NA,IEEPA invalidated (SCOTUS); Section 122 Phase 3 (10% blanket; 9903.03),NA,NA
 2026_rev_5,2026-04-06,NA,NA,"232 annex restructuring (4-tier: 50/25/0/15% floor; 9903.82); corrected by HTS rev_7 published 2026-04-29 (Note 16(a)/(e) amendments + 9903.82.01 zero-metal-content carve-out, all retroactive to April 6)",NA,NA
 2026_rev_6,2026-04-23,NA,NA,"232 USMCA vehicle-parts carve-out (9903.82.18 steel +25%, 9903.82.19 aluminum +25%; Commerce-authorized limited quantities; Proc. 10984 / 91 FR 21790)",NA,NA
-2026_rev_7,2026-04-29,NA,NA,"[REVIEW] added 2026-05-03 — effective_date is publication date, not policy date",NA,TRUE
+2026_rev_7,2026-04-29,NA,NA,"232 annex Note 16(a)/(e) corrections + 9903.82.01 zero-metal-content carve-out; corrections retroactive to April 6 (already applied to rev_5 source files); no functional rate-engine impact vs rev_6 (carve-out not currently modeled)",NA,NA
