@@ -9,7 +9,7 @@
 # =============================================================================
 
 # 2024 Census import weights (HS10 x country x GTAP sector RDS).
-# Required by: src/08_weighted_etr.R, src/09_daily_series.R, src/apply_scenarios.R.
+# Required by: src/09_daily_series.R (weighted ETR outputs).
 #
 # How to obtain:
 #   1. Download Census IMDByymm.ZIP files (monthly imports) — see docs/weights.md.

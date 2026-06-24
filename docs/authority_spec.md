@@ -150,9 +150,9 @@ logic (metal-share assignment, USMCA scaling, stacking) re-runs on the delta for
 free — "the calculator still holds," structurally guaranteed.
 
 We do **not** synthesize fake JSON (Layer A), and we do **not** post-process the
-output panel (Layer C) — which is what the current `src/apply_scenarios.R` does,
-and exactly why it is limited to column edits and cannot introduce coverage or
-set archetype tags correctly.
+output panel (Layer C) — which is what the legacy post-build patch engine
+(`apply_scenarios.R`, deleted in Phase 7) did, and exactly why it was limited to
+column edits and could not introduce coverage or set archetype tags correctly.
 
 ## The schema
 
@@ -457,8 +457,8 @@ of an existing program). Each carries `effective_from`.
 - Unknown authority/program id, unknown census code, or `primary_metal` without a
   `metal.type` → **hard error**, never a silent no-op.
 
-**The timeline splitter is new work, not a reuse of `collect_patch_split_dates()`**
-(`apply_scenarios.R:292`, which only reads `patches[].filter.from_date`). A synthetic
+**The timeline splitter is new work, not a reuse of the old `collect_patch_split_dates()`**
+(from the Phase-7-deleted `apply_scenarios.R`, which only read `patches[].filter.from_date`). A synthetic
 revision must build a modified spec set, recompute coverage, assign a synthetic
 revision id, and append the forward interval(s) — which the current
 `09_daily_series.R` interval-splitting does **not** do.

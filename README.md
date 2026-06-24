@@ -108,7 +108,7 @@ manifest contents.
 
 ## Current scope
 
-The repo currently models 39 HTS revisions from January 1, 2025 through April 6, 2026, and extends the final interval through December 31, 2026 via the configured series horizon.
+The repo currently models 43 HTS revisions from January 1, 2025 through June 8, 2026, and extends the final interval through December 31, 2026 via the configured series horizon.
 
 ## Notes
 
