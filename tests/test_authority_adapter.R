@@ -39,7 +39,7 @@ extract_section122_rates <- function(ch99_data) S122_SENTINEL
 is_232_exempt <- function(census_code, exempt_list) isTRUE(census_code %in% exempt_list)
 # Pass-1.5: build_authority_specs now bakes the IEEPA floor exempt set onto the
 # spec via load_revision_floor_exemptions (data_loaders.R, not sourced here).
-load_revision_floor_exemptions <- function(revision_id)
+load_revision_floor_exemptions <- function(revision_id, effective_date = NULL)
   tibble::tibble(hts8 = character(), country_group = character())
 
 source(here('src', 'authority_adapter.R'))

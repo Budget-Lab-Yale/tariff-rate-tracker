@@ -44,7 +44,7 @@ default_reference <- local({
   r <- tryCatch(load_local_paths()$model_data_root, error = function(e) NULL)
   if (is.null(r) || !nzchar(r)) NULL else file.path(r, 'latest')
 })
-reference_root <- get_arg('--reference', default_reference)
+reference_root <- get_arg('--reference', get_arg('--golden', default_reference))  # --golden is an alias for --reference
 candidate_root <- get_arg('--candidate', here())
 # Default to the daily series — the consumable a published vintage carries.
 # (A vintage stores snapshots as partitioned parquet, not snapshot_*.rds, so

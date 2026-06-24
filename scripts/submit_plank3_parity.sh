@@ -12,7 +12,7 @@
 #   REFERENCE=tests/golden/9f9837d sbatch scripts/submit_plank3_parity.sh
 
 set -euo pipefail
-cd /nfs/roberts/project/pi_nrs36/jar335/Repositories/tariff-rate-tracker
+# Run from the repo root (the sbatch submission directory); no hardcoded path.
 
 REFERENCE="${REFERENCE:-tests/golden/9f9837d}"
 ARTIFACTS="${ARTIFACTS:-snapshot,daily_overall,daily_by_authority,daily_by_country,daily_by_category}"
