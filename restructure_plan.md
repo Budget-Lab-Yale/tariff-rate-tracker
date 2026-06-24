@@ -32,10 +32,15 @@ area**, not correctness:
 
 ---
 
-## Phase 0 — Pre-presentation minimum (THIS PR, zero numeric risk)
+## Phase 0 — Pre-presentation minimum  ☑ DONE (commit `b1dfdf0`, pushed)
 
 Doc fixes + archive dead one-offs + status banners. Nothing that changes a build
-output; every moved `src/` file was verified sourced-by-nobody.
+output; every moved `src/` file was verified sourced-by-nobody. Test suites green
+(daily-series 81, weights 16, annex 25; rate-calc 102 pass + 3 pre-existing
+stale-snapshot failures unrelated to the change). All items below completed;
+the root-clutter housekeeping (`.Rhistory`, `build.log`, `test_output/`,
+`check_revisions.R`, `test_two_revisions.R`) turned out to be already gitignored,
+so no repo action was needed there.
 
 ### 0a. README correctness
 - ☐ Remove `--publish-internal` bullet + the two commands using it
@@ -104,8 +109,8 @@ Add a one-line `STATUS:` banner so a reader isn't misled:
   `tools/` dir; update test source paths + README.
 
 ### 1e. Docs + housekeeping
-- ⏸ Expand `architecture.md` to a complete one-line-per-file table (3-layer
-  model).
+- ☑ Expand `architecture.md` to a complete one-line-per-file table (3-layer
+  model) + the two in-progress-migration notes. **DONE.**
 - ⏸ Move internal process docs (`theseus_*`, `codex_*`, `*_plan.md`,
   `bugfix_decisions_*`, `phase6_*`) to `docs/internal/`.
 - ⏸ Gitignore/clean repo-root clutter (`.Rhistory`, `build.log`,
