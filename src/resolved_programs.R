@@ -1,6 +1,11 @@
 # =============================================================================
 # resolved_programs.R — the resolved-program intermediate table (Phase 3b)
 # =============================================================================
+# STATUS: PROTOTYPE, DEFAULT-OFF. Gated by use_resolved_stacking() (see the
+# call site at src/06_calculate_rates.R). Baseline production uses the fast wide
+# stacking path (stacking.R); this long-table path is bit-identical but ~7x the
+# rows, kept for the scenario-mutation model. Not on the production hot path.
+#
 # A LONG representation of a resolved rate panel: one row per
 # (hts10, country, authority) carrying the per-authority rate plus the metadata
 # stacking needs. This is the substrate the scenario layer manipulates and the

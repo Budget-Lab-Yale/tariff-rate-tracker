@@ -1,9 +1,14 @@
 # =============================================================================
 # timeline.R — unified schedule-boundary splitter (Phase 3c)
 # =============================================================================
-# STATUS: standalone + unit-tested. NOT yet wired into the pipeline — the swap-in
-# (replacing helpers.R get_expiry_split_points + the calc's per-gate handling)
-# is the next step, gated by a baseline parity run.
+# STATUS: PARTIALLY WIRED. The build side uses this: discover_boundaries() +
+# build_boundary_mints() run in src/00_build_timeseries.R to mint synthetic
+# boundary snapshots. The DOWNSTREAM daily-series side (src/09_daily_series.R)
+# still uses the legacy helpers.R get_expiry_split_points()/apply_expiry_zeroing()
+# path. Fully retiring the legacy splitter in 09 is the remaining step, gated by
+# a baseline parity run. The two paths use OPPOSITE day conventions (see below),
+# which is why a suite of equivalence tests (test_timeline_swap.R,
+# test_mint_equals_zeroing.R) keeps them reconciled.
 #
 # WHY. Today TWO mechanisms decide when a tariff switches on/off within a
 # revision's date window, with OPPOSITE day conventions:

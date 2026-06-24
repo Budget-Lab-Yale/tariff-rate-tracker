@@ -252,41 +252,36 @@ To generate configs for all revision dates at once, use `generate_etrs_configs_a
 
 ## Publishing
 
-There are two publication modes, each off by default and independently
-toggleable. Pick whichever fits the audience; they can also run together.
+There are two publication destinations. Pick whichever fits the audience.
 
-| Mode | Flag | Destination | Audience | History |
+| Mode | How | Destination | Audience | History |
 |------|------|-------------|----------|---------|
-| Internal | `--publish-internal` | Shared NFS tree (`/nfs/.../shared/model_data/Tariff-Rate-Tracker/<vintage>/`) | Other Budget Lab models on the same NFS share | Immutable dated vintages, all preserved on disk |
+| Internal | array flow (`scripts/submit_build_array.sh --config …`) | Shared NFS tree (`<model_data_root>/<vintage>/`) | Other Budget Lab models on the same NFS share | Immutable dated vintages, all preserved on disk |
 | Git | `--publish-git` | `release/` in the repo | Public consumers reading via GitHub | Only latest on disk; history via `git log -- release/` |
 
-Both modes share the same staleness principle: they refuse to ship outputs that
-predate the current build. Internal publish uses fresh `metadata.rds` as the
-snapshot-panel finalization marker; git publish skips stale daily CSVs. Internal
-publish requires `arrow` and `digest`; git publish requires `digest` and only
-needs `arrow` if a parquet output is reintroduced. A failed publish logs a
-warning but does not fail the build.
+Git publish refuses to ship outputs that predate the current build (it skips
+stale daily CSVs) and requires `digest` (`arrow` only if a parquet output is
+reintroduced). A failed publish logs a warning but does not fail the build.
 
 ---
 
-### `--publish-internal` (shared NFS vintage)
+### Internal shared NFS vintage (array flow)
 
-Each publish writes an immutable, dated vintage; a `latest` symlink points at the most recent one.
+The internal shared tree is written by the config-driven array build, not by a
+flag on `00_build_timeseries.R`. Each run writes an immutable, dated vintage; a
+`latest` symlink points at the most recent one.
 
 #### Trigger
 
 ```bash
-Rscript src/00_build_timeseries.R --full --core-only --publish-internal
-Rscript src/00_build_timeseries.R --full --with-alternatives --publish-internal
-Rscript src/00_build_timeseries.R --alternatives-only --publish-internal
+sbatch scripts/submit_build_array.sh --config config/build/<name>.yaml
 ```
 
-Or publish whatever is on disk in a separate step:
-
-```bash
-Rscript src/publish_internal.R              # publish current local outputs
-Rscript src/publish_internal.R --dry-run    # plan only, no writes
-```
+The build config names the `model_data_root`, the scenarios to build, and the
+verify/`update_latest` behaviour (see `src/build_config.R` and
+[scripts/README.md](../scripts/README.md)). The gather + finalize steps
+(`scripts/build_gather.R`, `scripts/publish_vintage.R`) write the vintage below
+and repoint `latest`.
 
 #### Shared layout
 
@@ -313,7 +308,7 @@ Tariff-Rate-Tracker/
 #### Vintage rules
 
 - Default vintage is today's date (`YYYY-MM-DD`). A second publish on the same day uses `_2`, then `_3`, etc.
-- Vintages are immutable. `--alternatives-only --publish-internal` writes a new vintage with the panel re-copied (each vintage is self-contained).
+- Vintages are immutable. A scenarios-only re-run writes a new vintage with the panel re-copied (each vintage is self-contained).
 - Files older than the build start are not copied — a vintage only contains files written during the build that produced it.
 - The `latest` symlink is updated atomically (write `.latest.tmp`, then rename).
 
@@ -341,7 +336,6 @@ Writes a smaller, public-facing subset of outputs into `release/` with publicati
 
 ```bash
 Rscript src/00_build_timeseries.R --full --core-only --publish-git
-Rscript src/00_build_timeseries.R --full --core-only --publish-internal --publish-git   # both
 ```
 
 Or publish whatever is on disk in a separate step:

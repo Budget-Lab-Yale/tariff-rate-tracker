@@ -22,6 +22,7 @@ data/hts_archives/_archive/
 data/hts_change_record/
 data/processed/
 data/timeseries/
+data/timeseries_olddates/
 data/timeseries_parallel/
 data/timeseries_specs/
 data/timeseries_specs_full/

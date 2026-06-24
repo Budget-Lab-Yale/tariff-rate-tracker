@@ -295,16 +295,9 @@ if (sys.nframe() == 0) {
     } else FALSE
     explicit || !is.null(autodetected)
   }
-  has_tpc <- file.exists(file.path(base_dir, 'data', 'tpc', 'tariff_by_flow_day.csv'))
-
   modes <- c(
     'core'               = !any_required_missing && has_json,
-    'core_plus_weights'  = !any_required_missing && has_json && has_weights,
-    'compare_tpc'        = !any_required_missing && has_json && has_tpc,
-    'compare_etrs'       = !any_required_missing && has_json && tryCatch({
-      lp2 <- yaml::read_yaml(local_paths_file)
-      !is.null(lp2$tariff_etrs_repo) && dir.exists(lp2$tariff_etrs_repo)
-    }, error = function(e) FALSE)
+    'core_plus_weights'  = !any_required_missing && has_json && has_weights
   )
 
   for (mode in names(modes)) {
