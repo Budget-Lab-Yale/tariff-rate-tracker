@@ -11,10 +11,10 @@ suppressPackageStartupMessages({
   library(here); library(tidyverse)
 })
 suppressMessages({
-  source(here('src', 'authority_spec.R'))
-  source(here('src', 'policy_params.R'))
-  source(here('src', 'authority_adapter.R'))
-  source(here('src', 'stacking.R'))
+  source(here('src', 'model', 'authority_spec.R'))
+  source(here('src', 'model', 'policy_params.R'))
+  source(here('src', 'model', 'authority_adapter.R'))
+  source(here('src', 'model', 'stacking.R'))
 })
 
 pass <- 0L; fail <- 0L

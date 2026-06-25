@@ -2,7 +2,7 @@
 # Tests: §232 Annex Parser
 # =============================================================================
 #
-# Covers the post-restructure annex parser in src/scrape_us_notes.R:
+# Covers the post-restructure annex parser in tools/scrape_us_notes.R:
 #   - parse_annex_products(): Note 16(c) PDF extraction
 #   - build_annex_products_for_revision(): merge with curator entries
 #   - latest_local_chapter99_revision(): auto-detect from data/us_notes/
@@ -28,7 +28,7 @@ suppressPackageStartupMessages({
   library(here)
   library(yaml)
 })
-source(here('src', 'scrape_us_notes.R'))
+source(here('tools', 'scrape_us_notes.R'))
 
 pass_count <- 0
 fail_count <- 0

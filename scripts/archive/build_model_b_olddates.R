@@ -26,7 +26,7 @@
 # =============================================================================
 
 library(here)
-source(here('src', '00_build_timeseries.R'))  # defines build_full_timeseries; main is sys.nframe()-guarded
+source(here('src', 'pipeline', '00_build_timeseries.R'))  # defines build_full_timeseries; main is sys.nframe()-guarded
 
 result <- build_full_timeseries(
   output_dir = 'data/timeseries_olddates',

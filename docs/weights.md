@@ -23,7 +23,7 @@ The build pipeline checks for the weight file as a pre-run step. Behavior on
 a missing file:
 
 1. **Default (`weight_mode: required`)** — `00_build_timeseries.R` auto-builds
-   the weight file at startup by invoking `src/build_import_weights.R`. This
+   the weight file at startup by invoking `src/io/build_import_weights.R`. This
    takes 15-20 minutes one-time (downloads 12 monthly Census ZIPs, parses,
    aggregates). Subsequent builds find the cached file via auto-detect and
    skip this step.
@@ -31,7 +31,7 @@ a missing file:
    pre-run step is skipped, weighted outputs are skipped, and the core
    series still builds.
 
-The pre-run step is wired in `src/00_build_timeseries.R` right after the HTS
+The pre-run step is wired in `src/pipeline/00_build_timeseries.R` right after the HTS
 JSON download step. It also runs at the top of `--alternatives-only` mode
 (which needs weights). Skipped under `--build-only` and `--core-only` since
 neither uses weighted outputs.
@@ -40,28 +40,28 @@ If the pre-run auto-build fails (e.g., Census Bureau URL changed), the error
 is loud and directs you here. Manual fallback:
 
 ```bash
-Rscript src/build_import_weights.R --year 2024
+Rscript src/io/build_import_weights.R --year 2024
 ```
 
 …then re-run the build.
 
 ## Building the file from scratch
 
-The repo ships `src/build_import_weights.R`, which downloads the 12 monthly
+The repo ships `src/io/build_import_weights.R`, which downloads the 12 monthly
 Census Bureau IMDByymm.ZIPs, parses the IMP_DETL.TXT fixed-width files,
 aggregates HS10 × country consumption imports, and joins the in-repo GTAP
 crosswalk.
 
 ```bash
 # Default: 2024 consumption imports, output to data/weights/hs10_by_country_gtap_2024_con.rds
-Rscript src/build_import_weights.R --year 2024
+Rscript src/io/build_import_weights.R --year 2024
 
 # General imports instead of consumption
-Rscript src/build_import_weights.R --year 2024 --type gen \
+Rscript src/io/build_import_weights.R --year 2024 --type gen \
     --out data/weights/hs10_by_country_gtap_2024_gen.rds
 
 # Use already-downloaded ZIPs (skips network)
-Rscript src/build_import_weights.R --year 2024 \
+Rscript src/io/build_import_weights.R --year 2024 \
     --raw-dir /path/to/IMDByymm/cache
 ```
 
@@ -99,7 +99,7 @@ The Census Foreign Trade Reference catalog publishes the URL pattern. If they
 re-organize it (this has happened before), override the template:
 
 ```bash
-Rscript src/build_import_weights.R --year 2024 \
+Rscript src/io/build_import_weights.R --year 2024 \
     --url-template 'https://example.gov/.../IMDB{yy}{mm}.ZIP'
 ```
 

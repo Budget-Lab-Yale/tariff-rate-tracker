@@ -19,12 +19,12 @@ config/scenarios/<name>/
 
 At load time, `load_policy_params(scenario = name)` (or `TARIFF_SCENARIO=<name>`)
 deep-merges the overlay onto the baseline config (`.deep_merge_lists()` in
-`src/policy_params.R`: maps merge field-by-field, everything else replaces
+`src/model/policy_params.R`: maps merge field-by-field, everything else replaces
 wholesale; `key: ~` deletes a baseline key). The rest of the pipeline runs
 unchanged on the merged params, so every downstream column — stacking, daily
 series, ETR exports — recomputes consistently.
 
-The registry (`src/scenario_registry.R`) reads the folders:
+The registry (`src/model/scenario_registry.R`) reads the folders:
 
 - `list_scenarios()` — names, kinds, descriptions
 - `resolve_alternatives_selector('all' | 'alternatives' | 'counterfactuals' | 'a,b,c')`
@@ -43,9 +43,9 @@ The registry (`src/scenario_registry.R`) reads the folders:
 ## Running alternatives
 
 ```bash
-Rscript src/00_build_timeseries.R --alternatives all
-Rscript src/00_build_timeseries.R --alternatives no_301,metal_flat
-Rscript src/00_build_timeseries.R --alternatives counterfactuals --alternatives-only
+Rscript src/pipeline/00_build_timeseries.R --alternatives all
+Rscript src/pipeline/00_build_timeseries.R --alternatives no_301,metal_flat
+Rscript src/pipeline/00_build_timeseries.R --alternatives counterfactuals --alternatives-only
 ```
 
 Legacy spellings still work (`--with-alternatives` == `--alternatives
@@ -68,7 +68,7 @@ Names come from the config's `authority_columns` map (section_232, section_301,
 section_301_content_split, ieepa_reciprocal, ieepa_fentanyl, section_122,
 other). `calculate_rates_for_revision()` zeroes the mapped rate columns just
 before stacking (step 7g → `apply_authority_disables()` in
-`src/rate_schema.R`), so totals and contribution shares recompute on what
+`src/model/rate_schema.R`), so totals and contribution shares recompute on what
 remains. Unknown names fail loud; the key is absent in baseline, so baseline
 output is byte-identical.
 

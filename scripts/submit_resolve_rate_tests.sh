@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Plank 0 unit gate: the compositional rate schema (src/authority_spec.R).
+# Plank 0 unit gate: the compositional rate schema (src/model/authority_spec.R).
 #
 # Usage:
 #   sbatch scripts/submit_resolve_rate_tests.sh

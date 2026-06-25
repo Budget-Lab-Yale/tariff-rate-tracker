@@ -2,8 +2,8 @@ suppressPackageStartupMessages({
   library(tidyverse)
   library(here)
 })
-source(here::here("src", "helpers.R"))
-source(here::here("src", "09_daily_series.R"))
+source(here::here("src", "core", "helpers.R"))
+source(here::here("src", "pipeline", "09_daily_series.R"))
 
 alt <- here::here("output", "alternative")
 eu  <- as.character(get_country_constants()$EU27_CODES)

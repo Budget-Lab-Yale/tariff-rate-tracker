@@ -29,13 +29,13 @@ the previous good vintage, and the scratch intact.
 ## Alternatives / counterfactuals (2026-06-10 unification)
 
 Every non-baseline variant is a folder under `config/scenarios/<name>/`
-(`meta.yaml` + `overlay.yaml`; registry in `src/scenario_registry.R`). Request
+(`meta.yaml` + `overlay.yaml`; registry in `src/model/scenario_registry.R`). Request
 them on the main entrypoint with the canonical selector:
 
 ```bash
-Rscript src/00_build_timeseries.R --alternatives all                  # every alternative + counterfactual
-Rscript src/00_build_timeseries.R --alternatives no_301,metal_flat    # by name
-Rscript src/00_build_timeseries.R --alternatives counterfactuals     # all kind=counterfactual
+Rscript src/pipeline/00_build_timeseries.R --alternatives all                  # every alternative + counterfactual
+Rscript src/pipeline/00_build_timeseries.R --alternatives no_301,metal_flat    # by name
+Rscript src/pipeline/00_build_timeseries.R --alternatives counterfactuals     # all kind=counterfactual
 ```
 
 Legacy spellings `--with-alternatives` (== `--alternatives alternatives`) and

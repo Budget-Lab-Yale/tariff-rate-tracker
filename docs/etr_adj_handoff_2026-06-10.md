@@ -38,7 +38,7 @@ commodity records (ch99 filings are reported under the underlying HTS10;
 codes return nothing. Direct filing shares exist only in CBP confidential
 data. The tracker now measures this itself by **realized-rate inversion**
 (`claim_share = (stat_other + full_301 − cal_dut/con_val) / full_301`) —
-module `src/calibrate_s301_exclusions.R`, design + caveats in
+module `tools/calibrate_s301_exclusions.R`, design + caveats in
 `docs/s301_exclusion_calibration.md`. **What the eval can still add:** an
 independent check of the inversion on its own IMDB panel (same `cal_dut`
 field), and judgment on how much of the residual on these 144 lines is

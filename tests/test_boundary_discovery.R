@@ -1,8 +1,8 @@
 # =============================================================================
 # Tests: discover_boundaries() / build_boundary_mints() (unified timeline / P2-1)
 # =============================================================================
-# Pure-logic gate for the mintable-boundary discovery (src/timeline.R) and the
-# idempotency of the minting wrapper (src/00_build_timeseries.R). Uses the live
+# Pure-logic gate for the mintable-boundary discovery (src/model/timeline.R) and the
+# idempotency of the minting wrapper (src/pipeline/00_build_timeseries.R). Uses the live
 # policy params + the cached ch99_<rev>.rds parses in data/timeseries; the Ch99
 # scan assertions skip_test when those caches are absent (config + §232-exemption
 # boundaries still resolve without them).
@@ -24,8 +24,8 @@
 # =============================================================================
 
 suppressPackageStartupMessages({ library(here); library(dplyr) })
-source(here('src', 'helpers.R'))               # loads tidyverse + timeline.R
-source(here('src', '00_build_timeseries.R'))   # build_boundary_mints
+source(here('src', 'core', 'helpers.R'))               # loads tidyverse + timeline.R
+source(here('src', 'pipeline', '00_build_timeseries.R'))   # build_boundary_mints
 
 pass <- 0L; skip <- 0L
 check <- function(cond, msg) {

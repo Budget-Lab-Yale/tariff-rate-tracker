@@ -134,7 +134,7 @@ the presentation-readiness pass. None are regressions from this branch.
    These plank gates would fail if run as-is. Either restore the missing files
    or update the wrappers.
 2. **Dangling `apply_scenarios.R`** (deleted file) still referenced by
-   `src/rate_schema.R` (comment) and docs (`authority_spec.md`, `scenarios.md`,
+   `src/model/rate_schema.R` (comment) and docs (`authority_spec.md`, `scenarios.md`,
    `phase6_embed_seed_plan.md`, `theseus_review_findings_detail.md`). Scenario
    application now lives in the config-overlay + `scenario_registry.R` path.
 3. **No `src/scenario_ops.R`** — earlier notes/memory referred to a

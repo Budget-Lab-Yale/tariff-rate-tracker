@@ -4,7 +4,7 @@ This guide covers first-run setup, required and optional inputs, build modes, an
 
 ## System requirements
 
-- **R 4.3+** with packages listed in `src/install_dependencies.R`
+- **R 4.3+** with packages listed in `tools/install_dependencies.R`
 - **RAM**: The full pipeline (`--full`) expands a product × country matrix of roughly 19,000 products × 240 countries during rate calculation. **32 GB RAM is recommended.** Machines with 16 GB may run out of memory during the IEEPA broadcasting step in `06_calculate_rates.R`. If you are memory-constrained, you can build individual revisions rather than running `--full`, since each revision is processed independently.
 - **Disk**: The `data/` directory (HTS JSON archives + processed snapshots) requires approximately 2 GB.
 - **OS**: Tested on Windows 10/11, macOS, and Linux. No platform-specific dependencies.
@@ -23,15 +23,15 @@ The repo is designed to run in progressively richer modes depending on what loca
 
 The core series is the production dataset. Comparison inputs are optional.
 
-> **Weights are required by default and auto-built when missing.** If neither `config/local_paths.yaml:import_weights` is set nor a file is found at `data/weights/hs10_by_country_gtap_<year>_con.rds`, `00_build_timeseries.R` invokes `src/build_import_weights.R` as a pre-run step (~15-20 min one-time download from the Census Bureau). Skip with `--unweighted` or `weight_mode: unweighted`.
+> **Weights are required by default and auto-built when missing.** If neither `config/local_paths.yaml:import_weights` is set nor a file is found at `data/weights/hs10_by_country_gtap_<year>_con.rds`, `00_build_timeseries.R` invokes `src/io/build_import_weights.R` as a pre-run step (~15-20 min one-time download from the Census Bureau). Skip with `--unweighted` or `weight_mode: unweighted`.
 
 ## First-run checklist
 
 ### 1. Install packages
 
 ```bash
-Rscript src/install_dependencies.R
-Rscript src/install_dependencies.R --all
+Rscript tools/install_dependencies.R
+Rscript tools/install_dependencies.R --all
 ```
 
 Required packages:
@@ -51,23 +51,23 @@ Optional packages:
 ### 2. Download HTS JSON archives
 
 ```bash
-Rscript src/02_download_hts.R --dry-run
-Rscript src/02_download_hts.R
+Rscript src/pipeline/02_download_hts.R --dry-run
+Rscript src/pipeline/02_download_hts.R
 ```
 
 ### 3. Import weights — automatic on first build
 
 Weighted outputs are required by default, but you don't need to fetch them
-manually. The first `Rscript src/00_build_timeseries.R` invocation runs a
+manually. The first `Rscript src/pipeline/00_build_timeseries.R` invocation runs a
 pre-run step that checks for `data/weights/hs10_by_country_gtap_<year>_con.rds`
-and, if missing, invokes `src/build_import_weights.R` to fetch and parse
+and, if missing, invokes `src/io/build_import_weights.R` to fetch and parse
 Census Bureau monthly imports (~15-20 min one-time). Subsequent builds find
 the cached file via auto-detect and skip this step.
 
 If you want to build the file ahead of time:
 
 ```bash
-Rscript src/build_import_weights.R --year 2024
+Rscript src/io/build_import_weights.R --year 2024
 ```
 
 If you do not need weighted outputs, opt out:
@@ -104,31 +104,31 @@ This checks packages, config files, committed resources, HTS JSON availability, 
 ### 5. Run the build
 
 ```bash
-Rscript src/00_build_timeseries.R --full
+Rscript src/pipeline/00_build_timeseries.R --full
 ```
 
 For an unweighted run (no weight file built):
 
 ```bash
-Rscript src/00_build_timeseries.R --full --unweighted
+Rscript src/pipeline/00_build_timeseries.R --full --unweighted
 # or equivalently --core-only
 ```
 
 Useful variants:
 
 ```bash
-Rscript src/00_build_timeseries.R
-Rscript src/00_build_timeseries.R --full
-Rscript src/00_build_timeseries.R --build-only
-Rscript src/00_build_timeseries.R --with-alternatives
-Rscript src/00_build_timeseries.R --with-alternatives --rebuild-alts metal_flat,usmca_2024
-Rscript src/00_build_timeseries.R --full --use-hts-dates
-Rscript src/00_build_timeseries.R --full --refresh-usmca
+Rscript src/pipeline/00_build_timeseries.R
+Rscript src/pipeline/00_build_timeseries.R --full
+Rscript src/pipeline/00_build_timeseries.R --build-only
+Rscript src/pipeline/00_build_timeseries.R --with-alternatives
+Rscript src/pipeline/00_build_timeseries.R --with-alternatives --rebuild-alts metal_flat,usmca_2024
+Rscript src/pipeline/00_build_timeseries.R --full --use-hts-dates
+Rscript src/pipeline/00_build_timeseries.R --full --refresh-usmca
 ```
 
 The `--rebuild-alts` flag subsets the slow rebuild alternatives (each is roughly comparable to a full daily-series build). Available scenario names: `usmca_annual`, `usmca_monthly`, `usmca_2024`, `usmca_dec2025`, `metal_flat`, `dutyfree_nonzero`, `subdivision_r_mid`. Pass a comma-separated list. Omit the flag to run all of them (default). Has no effect without `--with-alternatives` or `--alternatives-only`.
 
-The `--refresh-usmca` flag re-downloads USMCA utilization shares from the USITC DataWeb API before building. This updates the monthly and annual share CSVs in `resources/` with the latest available data. Requires a DataWeb API token in `.env` (see `src/download_usmca_dataweb.R` for setup). The flag is optional — without it, the build uses the committed share files.
+The `--refresh-usmca` flag re-downloads USMCA utilization shares from the USITC DataWeb API before building. This updates the monthly and annual share CSVs in `resources/` with the latest available data. Requires a DataWeb API token in `.env` (see `tools/download_usmca_dataweb.R` for setup). The flag is optional — without it, the build uses the committed share files.
 
 By default, the pipeline uses **legal policy effective dates** where they differ from HTS revision dates (e.g., SCOTUS ruling effective Feb 20 vs. HTS revision Feb 24). Pass `--use-hts-dates` to use raw HTS revision dates instead. See [docs/policy_timing.md](policy_timing.md) for the full list of affected revisions and legal sources.
 
@@ -146,24 +146,24 @@ Pass `--with-artifacts` to include the heavier artifact-dependent integration ch
 
 | Input | Path | Status | Role | Regeneration |
 |---|---|---|---|---|
-| HTS JSON archives | `data/hts_archives/*.json` | auto-download | official tariff schedule by revision | `src/02_download_hts.R` |
+| HTS JSON archives | `data/hts_archives/*.json` | auto-download | official tariff schedule by revision | `src/pipeline/02_download_hts.R` |
 | Policy config | `config/policy_params.yaml` | committed | tariff logic, dates, and assumptions | manual update when policy changes |
-| Revision schedule | `config/revision_dates.csv` | committed | HTS effective dates and benchmark alignment | `src/01_scrape_revision_dates.R` discovers new revisions via USITC API; placeholder dates require manual review |
+| Revision schedule | `config/revision_dates.csv` | committed | HTS effective dates and benchmark alignment | `src/pipeline/01_scrape_revision_dates.R` discovers new revisions via USITC API; placeholder dates require manual review |
 | Census country codes | `resources/census_codes.csv` | committed | country dimension | manual refresh |
 | Country-partner mapping | `resources/country_partner_mapping.csv` | committed | partner aggregates for reporting | manual refresh |
-| Section 301 product list | `resources/s301_product_lists.csv` | committed | blanket 301 coverage | `src/scrape_us_notes.R` (validates anchor coverage; refuses partial writes) |
+| Section 301 product list | `resources/s301_product_lists.csv` | committed | blanket 301 coverage | `tools/scrape_us_notes.R` (validates anchor coverage; refuses partial writes) |
 | IEEPA exempt products | `resources/ieepa_exempt_products.csv` | committed | reciprocal exemptions | regenerate when exemption logic changes |
 | Section 232 derivative products | `resources/s232_derivative_products.csv` | committed | derivative 232 coverage (aluminum + steel, 568 HTS8 prefixes) | manual / FR 2025-15819; future: `scrape_us_notes.R --232-derivatives` |
-| Section 232 annex products (post-2026-04-06) | `resources/s232_annex_products.csv` | committed | annex tier mapping (1a/1b/2/3) for the four-annex regime | `Rscript src/scrape_us_notes.R --annex` (auto-detects latest revision; merges parser output with curator overrides). See [docs/s232/annex_parser.md](s232/annex_parser.md). |
-| Copper 232 product list | `resources/s232_copper_products.csv` | committed | copper 232 coverage (80 HTS8 prefixes) | `src/scrape_us_notes.R --copper` (validates >= 60 codes; refuses reduced overwrites) |
+| Section 232 annex products (post-2026-04-06) | `resources/s232_annex_products.csv` | committed | annex tier mapping (1a/1b/2/3) for the four-annex regime | `Rscript tools/scrape_us_notes.R --annex` (auto-detects latest revision; merges parser output with curator overrides). See [docs/s232/annex_parser.md](s232/annex_parser.md). |
+| Copper 232 product list | `resources/s232_copper_products.csv` | committed | copper 232 coverage (80 HTS8 prefixes) | `tools/scrape_us_notes.R --copper` (validates >= 60 codes; refuses reduced overwrites) |
 | Auto and MHD product lists | `resources/s232_auto_parts.txt`, `resources/s232_mhd_parts.txt` | committed | 232 auto and MHD coverage | manual refresh from official notes |
 | Fentanyl carve-outs | `resources/fentanyl_carveout_products.csv` | committed | reduced fentanyl rates for carve-out products | manual / documented refresh |
-| USMCA product shares | `resources/usmca_product_shares_2024.csv`, `resources/usmca_product_shares_2025.csv` | committed | product-level USMCA utilization | `src/download_usmca_dataweb.R` |
+| USMCA product shares | `resources/usmca_product_shares_2024.csv`, `resources/usmca_product_shares_2025.csv` | committed | product-level USMCA utilization | `tools/download_usmca_dataweb.R` |
 | MFN exemption shares | `resources/mfn_exemption_shares.csv` | committed | effective MFN base-rate adjustment | regenerate from source trade data if methodology changes |
 | Metal content shares | `resources/metal_content_shares_bea_hs10.csv` | committed | derivative 232 metal-share estimation | regenerate from BEA workflow if needed |
-| Floor exemptions | `resources/floor_exempt_products.csv` plus revision-specific `data/us_notes/floor_exempt_{revision}.csv` | committed plus auto-scrape | floor-country exemptions | `src/scrape_us_notes.R --floor-exemptions` (validates anchor coverage; refuses partial overwrites) |
+| Floor exemptions | `resources/floor_exempt_products.csv` plus revision-specific `data/us_notes/floor_exempt_{revision}.csv` | committed plus auto-scrape | floor-country exemptions | `tools/scrape_us_notes.R --floor-exemptions` (validates anchor coverage; refuses partial overwrites) |
 | Section 122 exemptions | `resources/s122_exempt_products.csv` | committed | Annex II exemptions | manual refresh when authority changes |
-| Import weights | `data/weights/hs10_by_country_gtap_<year>_con.rds` (gitignored) or path set in `config/local_paths.yaml` | built locally; auto-detected | HS10×country import value for weighted ETRs, weighted daily series, sector aggregates | `Rscript src/build_import_weights.R --year 2024` — see [docs/weights.md](weights.md) |
+| Import weights | `data/weights/hs10_by_country_gtap_<year>_con.rds` (gitignored) or path set in `config/local_paths.yaml` | built locally; auto-detected | HS10×country import value for weighted ETRs, weighted daily series, sector aggregates | `Rscript src/io/build_import_weights.R --year 2024` — see [docs/weights.md](weights.md) |
 
 > Required by default. Skip with `--unweighted` or `weight_mode: unweighted` in `config/local_paths.yaml`.
 
@@ -223,7 +223,7 @@ variants (the USMCA-share rebuilds: `usmca_annual`, `usmca_monthly`, `usmca_2024
 `output/alternative/`.
 
 ```bash
-Rscript src/00_build_timeseries.R --alternatives-only   # rebuild alternatives only
+Rscript src/pipeline/00_build_timeseries.R --alternatives-only   # rebuild alternatives only
 ```
 
 ## Comparison workflows
@@ -243,7 +243,7 @@ Rscript src/run_comparisons.R --etr
 To export tracker rates into Tariff-ETRs-compatible config format:
 
 ```bash
-Rscript src/generate_etrs_config.R 2026-04-01 ../Tariff-ETRs/config/baseline/2026-04-01
+Rscript tools/generate_etrs_config.R 2026-04-01 ../Tariff-ETRs/config/baseline/2026-04-01
 ```
 
 This writes `statutory_rates.csv.gz` (dense per-authority statutory rates at HTS10 × country level) and `other_params.yaml` (adjustment parameters: metal content, USMCA, auto rebate). The CSV is the primary lossless interface — ETRs reads it directly and applies all adjustments (USMCA scaling, metal content, stacking). Legacy per-authority YAML generators are also available for backward compatibility.
@@ -278,7 +278,7 @@ sbatch scripts/submit_build_array.sh --config config/build/<name>.yaml
 ```
 
 The build config names the `model_data_root`, the scenarios to build, and the
-verify/`update_latest` behaviour (see `src/build_config.R` and
+verify/`update_latest` behaviour (see `src/core/build_config.R` and
 [scripts/README.md](../scripts/README.md)). The gather + finalize steps
 (`scripts/build_gather.R`, `scripts/publish_vintage.R`) write the vintage below
 and repoint `latest`.
@@ -335,15 +335,15 @@ Writes a smaller, public-facing subset of outputs into `release/` with publicati
 #### Trigger
 
 ```bash
-Rscript src/00_build_timeseries.R --full --core-only --publish-git
+Rscript src/pipeline/00_build_timeseries.R --full --core-only --publish-git
 ```
 
 Or publish whatever is on disk in a separate step:
 
 ```bash
-Rscript src/publish_git.R                   # publish current local outputs
-Rscript src/publish_git.R --dry-run         # plan only, no writes
-Rscript src/publish_git.R --date 2026-05-21 # override the publication date in filenames
+Rscript src/io/publish_git.R                   # publish current local outputs
+Rscript src/io/publish_git.R --dry-run         # plan only, no writes
+Rscript src/io/publish_git.R --date 2026-05-21 # override the publication date in filenames
 ```
 
 After a successful `--publish-git`, the new `release/` files are written to disk but **not auto-committed**. Review with `git status release/`, then commit deliberately so each publication is a reviewable git commit.
@@ -363,7 +363,7 @@ release/
 
 #### What gets published (git)
 
-A deliberately narrow, public-facing subset — defined explicitly in `RELEASE_OUTPUTS` at the top of `src/publish_git.R`:
+A deliberately narrow, public-facing subset — defined explicitly in `RELEASE_OUTPUTS` at the top of `src/io/publish_git.R`:
 
 - ✅ `output/actual/daily/daily_overall.csv`, `daily_by_country.csv`, `daily_by_authority.csv`, `daily_by_category.csv` → `<name>_<date>.csv`
 - ❌ Full rate panel, quality, ETRs config, alternatives — internal tree only for now
@@ -378,24 +378,24 @@ published only through the internal per-interval snapshot layout.
 
 ## Updating when a new HTS revision is published
 
-1. Run `Rscript src/01_scrape_revision_dates.R` or update `config/revision_dates.csv`.
-2. Download the new JSON with `src/02_download_hts.R`.
+1. Run `Rscript src/pipeline/01_scrape_revision_dates.R` or update `config/revision_dates.csv`.
+2. Download the new JSON with `src/pipeline/02_download_hts.R`.
 3. If the Chapter 99 PDF changed, regenerate affected resource files.
 4. Re-run the build, usually without `--full`.
 
 ## Troubleshooting
 
-- If `preflight.R` reports missing packages, run `src/install_dependencies.R --all`.
-- If the pre-run import-weights auto-build fails (Census URL change, network issues), run `src/build_import_weights.R` manually with override flags or set `weight_mode: unweighted` (see [docs/weights.md](weights.md)).
+- If `preflight.R` reports missing packages, run `tools/install_dependencies.R --all`.
+- If the pre-run import-weights auto-build fails (Census URL change, network issues), run `src/io/build_import_weights.R` manually with override flags or set `weight_mode: unweighted` (see [docs/weights.md](weights.md)).
 - If benchmark comparisons are skipped, confirm the configured TPC path exists.
-- If no HTS JSON archives are found, run `src/02_download_hts.R`.
+- If no HTS JSON archives are found, run `src/pipeline/02_download_hts.R`.
 
 ## Querying built data
 
 Point-in-time queries:
 
 ```r
-source('src/helpers.R')
+source('src/core/helpers.R')
 ts <- readRDS('data/timeseries/rate_timeseries.rds')
 snapshot <- get_rates_at_date(ts, as.Date('2026-06-15'))
 ```
@@ -403,8 +403,8 @@ snapshot <- get_rates_at_date(ts, as.Date('2026-06-15'))
 Filtered daily extracts:
 
 ```r
-source('src/helpers.R')
-source('src/09_daily_series.R')
+source('src/core/helpers.R')
+source('src/pipeline/09_daily_series.R')
 ts <- readRDS('data/timeseries/rate_timeseries.rds')
 pp <- load_policy_params()
 

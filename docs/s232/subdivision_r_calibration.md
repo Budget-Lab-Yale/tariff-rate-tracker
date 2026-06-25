@@ -5,7 +5,7 @@
 **Scope**: post-April 6, 2026 §232 metals annex regime, EU / Japan / Korea auto-parts trade in chapter 87 outside the standard subdivision (g) auto-parts list.
 
 **Affected code**:
-- `src/06_calculate_rates.R` step 5d (within the post-annex block, after step 5c annex override).
+- `src/pipeline/06_calculate_rates.R` step 5d (within the post-annex block, after step 5c annex override).
 - `config/policy_params.yaml` `auto_parts_subdivision_r` block.
 - `resources/s232_subdivision_r_products.csv` (8 prefixes, rebuild via `scripts/build_subdivision_r_products.R`).
 - `tests/test_rate_calculation.R` Test 13 (7 cases).
@@ -202,7 +202,7 @@ A drop from 25% to 20% on these 22 8708 HTS10s × 27 EU countries.
 
 ## 7. Alternative scenario: `subdivision_r_mid`
 
-Added to the `--with-alternatives` rebuild block in `src/09_daily_series.R` (after the `dutyfree_nonzero` scenario). Sets:
+Added to the `--with-alternatives` rebuild block in `src/pipeline/09_daily_series.R` (after the `dutyfree_nonzero` scenario). Sets:
 
 ```r
 pp_subdiv_r$auto_parts_subdivision_r$certified_share <- 0.5
@@ -211,7 +211,7 @@ pp_subdiv_r$auto_parts_subdivision_r$fta_exempt_shares$KR <- 0.5
 
 EU and JP `fta_exempt_shares` remain at 0 (EU has no carve-out, JP utilization signal near zero). The scenario is a sensitivity bracket — not a calibrated estimate. Rebuild output lands in `output/alternative/*subdivision_r_mid*.csv`.
 
-This is a *rebuild* alternative (re-runs `calculate_rates_for_revision()` with overridden policy_params), not a post-build patch. Triggered by `Rscript src/00_build_timeseries.R --with-alternatives` or the equivalent invocation in `09_daily_series.R`.
+This is a *rebuild* alternative (re-runs `calculate_rates_for_revision()` with overridden policy_params), not a post-build patch. Triggered by `Rscript src/pipeline/00_build_timeseries.R --with-alternatives` or the equivalent invocation in `09_daily_series.R`.
 
 ## 8. Future work
 

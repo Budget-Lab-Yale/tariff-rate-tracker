@@ -18,7 +18,7 @@ PROPOSED, not law — modeled as the successor to the §122 10% blanket, turning
 ## How it's built (the scenario harness)
 
 A scenario = baseline `config/policy_params.yaml` **deep-merged** with
-`config/scenarios/<name>/overlay.yaml` (`src/policy_params.R`), written to an isolated
+`config/scenarios/<name>/overlay.yaml` (`src/model/policy_params.R`), written to an isolated
 `data/timeseries/<name>/`. `--scenario actual` (or unset) = the baseline, byte-identical.
 
 The forced-labor authority `section_301_forced_labor` is a **content-split**

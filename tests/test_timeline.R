@@ -7,7 +7,7 @@
 # =============================================================================
 
 suppressPackageStartupMessages(library(here))
-source(here('src', 'timeline.R'))
+source(here('src', 'model', 'timeline.R'))
 
 pass <- 0L
 check <- function(cond, msg) {

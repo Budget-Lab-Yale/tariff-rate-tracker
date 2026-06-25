@@ -10,8 +10,8 @@ suppressPackageStartupMessages({
   library(tibble)
 })
 
-source(here('src', 'parity.R'))
-source(here('src', 'policy_params.R'))   # load_local_paths() -> model_data_root
+source(here('src', 'core', 'parity.R'))
+source(here('src', 'model', 'policy_params.R'))   # load_local_paths() -> model_data_root
 
 `%||%` <- function(x, y) if (is.null(x)) y else x
 

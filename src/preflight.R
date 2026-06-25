@@ -183,7 +183,7 @@ if (sys.nframe() == 0) {
                 if (length(json_files) > 0) 'OK' else '!!',
                 length(json_files)))
     if (length(json_files) == 0) {
-      cat('  >> Run: Rscript src/02_download_hts.R\n')
+      cat('  >> Run: Rscript src/pipeline/02_download_hts.R\n')
       any_required_missing <- TRUE
     }
   } else {
@@ -241,7 +241,7 @@ if (sys.nframe() == 0) {
     } else {
       cat('  [!!] import_weights: not configured and no file in data/weights/\n')
       cat('       Build will ERROR. Either:\n')
-      cat('         - run: Rscript src/build_import_weights.R --year 2024\n')
+      cat('         - run: Rscript src/io/build_import_weights.R --year 2024\n')
       cat('         - set import_weights in config/local_paths.yaml, or\n')
       cat('         - set weight_mode: unweighted to opt out.\n')
       any_required_missing <- TRUE
@@ -312,9 +312,9 @@ if (sys.nframe() == 0) {
   } else {
     cat('STATUS: All required items present. Ready to build.\n')
     cat('\nQuick start:\n')
-    cat('  Rscript src/02_download_hts.R          # Download HTS JSON if needed\n')
-    cat('  Rscript src/00_build_timeseries.R --full  # Full build\n')
-    cat('  Rscript src/00_build_timeseries.R --core-only  # Build without weighted outputs\n')
+    cat('  Rscript src/pipeline/02_download_hts.R          # Download HTS JSON if needed\n')
+    cat('  Rscript src/pipeline/00_build_timeseries.R --full  # Full build\n')
+    cat('  Rscript src/pipeline/00_build_timeseries.R --core-only  # Build without weighted outputs\n')
     quit(status = 0)
   }
 }

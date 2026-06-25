@@ -16,9 +16,9 @@ suppressPackageStartupMessages({
   library(here)
 })
 
-source(here('src', 'helpers.R'))
-source(here('src', 'stacking.R'))
-source(here('src', 'policy_params.R'))
+source(here('src', 'core', 'helpers.R'))
+source(here('src', 'model', 'stacking.R'))
+source(here('src', 'model', 'policy_params.R'))
 
 BEEF_PREFIXES <- c('0201', '0202')
 OUT_DIR <- here('output', 'beef')

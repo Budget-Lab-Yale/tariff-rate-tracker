@@ -27,12 +27,12 @@ suppressPackageStartupMessages({
   library(jsonlite)
 })
 suppressMessages({
-  source(here('src', '00_build_timeseries.R'))   # build helpers + scheduled activations
-  source(here('src', 'revisions.R'))
-  source(here('src', 'policy_params.R'))
-  source(here('src', '09_daily_series.R'))
-  source(here('src', 'quality_report.R'))
-  source(here('src', 'build_import_weights.R'))
+  source(here('src', 'pipeline', '00_build_timeseries.R'))   # build helpers + scheduled activations
+  source(here('src', 'model', 'revisions.R'))
+  source(here('src', 'model', 'policy_params.R'))
+  source(here('src', 'pipeline', '09_daily_series.R'))
+  source(here('src', 'io', 'quality_report.R'))
+  source(here('src', 'io', 'build_import_weights.R'))
 })
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -45,7 +45,7 @@ allow_partial <- '--allow-partial' %in% args   # opt out of the completeness gat
 # writes an isolated data/timeseries/<name>/ panel, REUSING the baseline real-
 # revision snapshots (symlinked below) — only the synthetic future revisions are
 # rebuilt with the scenario's pp. 'actual'/'baseline'/unset => the canonical
-# baseline, byte-identical. See src/policy_params.R (.deep_merge_lists).
+# baseline, byte-identical. See src/model/policy_params.R (.deep_merge_lists).
 scenario <- ''
 for (i in seq_along(args)) if (args[i] == '--scenario' && i < length(args)) scenario <- args[i + 1]
 if (!nzchar(scenario)) scenario <- Sys.getenv('TARIFF_SCENARIO', '')
@@ -53,7 +53,7 @@ is_baseline <- !nzchar(scenario) || scenario %in% c('actual', 'baseline')
 # Propagate to any nested load_policy_params().
 Sys.setenv(TARIFF_SCENARIO = if (is_baseline) '' else scenario)
 
-# Downstream output placement is series-aware (src/output_paths.R): the writers route
+# Downstream output placement is series-aware (src/io/output_paths.R): the writers route
 # their section dir through series_section_dir(), which reads TARIFF_SERIES — 'actual'
 # -> output_root()/actual/<section>, a scenario name -> output_root()/scenarios/<name>/
 # <section>. The orchestrator (scripts/submit_build_array.sh) sets TARIFF_SERIES +

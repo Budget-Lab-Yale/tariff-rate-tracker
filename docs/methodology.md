@@ -65,13 +65,13 @@ Daily outputs are derived from this interval representation rather than stored a
 
 ## Revision discovery and dating
 
-New HTS revisions are discovered automatically via the USITC REST API (`hts.usitc.gov/reststop/releaseList`). The scraper (`src/01_scrape_revision_dates.R`) also checks whether the Chapter 99 PDF has changed by comparing SHA-256 hashes, which can detect amendments that have not yet been published as a separate API release.
+New HTS revisions are discovered automatically via the USITC REST API (`hts.usitc.gov/reststop/releaseList`). The scraper (`src/pipeline/01_scrape_revision_dates.R`) also checks whether the Chapter 99 PDF has changed by comparing SHA-256 hashes, which can detect amendments that have not yet been published as a separate API release.
 
 **Important:** The API returns *publication dates* (when USITC posted the revision), not *policy effective dates* (when the tariff took effect). These regularly differ by weeks. When the scraper adds a new revision, it uses the publication date as a placeholder and marks the `policy_event` column with `[REVIEW]`. The pipeline treats this date as the policy date for timeseries intervals until manually corrected. The correct policy effective date should be set in `config/revision_dates.csv` before running a production build.
 
 ## HTS product concordance
 
-Product codes can change between HTS revisions — codes are renamed, split, merged, or dropped. The concordance builder (`src/build_hts_concordance.R`) tracks these changes by comparing consecutive revision JSONs using Jaccard word-overlap similarity within same 4-digit headings (inspired by Pierce & Schott 2012). The output is `resources/hts_concordance.csv`.
+Product codes can change between HTS revisions — codes are renamed, split, merged, or dropped. The concordance builder (`tools/build_hts_concordance.R`) tracks these changes by comparing consecutive revision JSONs using Jaccard word-overlap similarity within same 4-digit headings (inspired by Pierce & Schott 2012). The output is `resources/hts_concordance.csv`.
 
 The concordance is used in `compare_etrs.R` to remap Census import codes (which reflect the 2024 HTS edition) to match snapshot codes from later revisions. Without this remapping, products that were renumbered between the import data vintage and the snapshot revision would drop out of the import-weighted ETR numerator, artificially depressing the ETR for countries concentrated in affected products.
 
@@ -174,7 +174,7 @@ The recomputation is implemented as Step 6d in `06_calculate_rates.R`, after MFN
 
 ### IEEPA exempt products and ITA prefix expansion
 
-The repo identifies ~4,325 HTS10 products as exempt from IEEPA reciprocal tariffs, based on US Note 2 subdivision (v)(iii) (Annex A), Chapter 98 statutory exemptions, and country-specific carve-outs. The expansion pipeline (`src/expand_ieepa_exempt.R`) includes ITA (Information Technology Agreement) prefix entries for headings such as 8471, 8473.30, 8486, 8523, 8524, 8541, and 8542, adding ~125 more HTS8 codes than the Tariff-ETRs project lists.
+The repo identifies ~4,325 HTS10 products as exempt from IEEPA reciprocal tariffs, based on US Note 2 subdivision (v)(iii) (Annex A), Chapter 98 statutory exemptions, and country-specific carve-outs. The expansion pipeline (`tools/expand_ieepa_exempt.R`) includes ITA (Information Technology Agreement) prefix entries for headings such as 8471, 8473.30, 8486, 8523, 8524, 8541, and 8542, adding ~125 more HTS8 codes than the Tariff-ETRs project lists.
 
 This difference primarily affects Taiwan and Malaysia in weighted ETR comparisons (−6.9pp and −5.9pp respectively versus Tariff-ETRs at January 1, 2026), because both are major electronics and semiconductor exporters concentrated in Chapters 84–85. The gap vanishes after IEEPA invalidation (February 24, 2026) since these products are no longer subject to IEEPA reciprocal tariffs under either methodology.
 

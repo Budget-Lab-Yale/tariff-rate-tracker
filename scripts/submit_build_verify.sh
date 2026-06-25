@@ -7,7 +7,7 @@
 #   sbatch scripts/submit_build_verify.sh
 #
 # What it runs:
-#   1. Rscript src/00_build_timeseries.R --full          (rebuild all snapshots + downstream)
+#   1. Rscript src/pipeline/00_build_timeseries.R --full          (rebuild all snapshots + downstream)
 #   2. Rscript scripts/verify_build.R                    (shared verification gate:
 #      rate-calculation test suite + Russia rev_5 + rev_10/Annex I-C + panel
 #      NA-interval checks — see verify_build.R for the full expectation list)
@@ -64,7 +64,7 @@ echo "=========================================================="
 
 echo ">>> STEP 1: full rebuild (--full)"
 BUILD_RC=0
-Rscript src/00_build_timeseries.R --full || BUILD_RC=$?
+Rscript src/pipeline/00_build_timeseries.R --full || BUILD_RC=$?
 echo ">>> build exit: $BUILD_RC"
 
 if [ "$BUILD_RC" -ne 0 ]; then

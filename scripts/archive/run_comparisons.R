@@ -22,7 +22,7 @@
 library(tidyverse)
 library(here)
 
-source(here('src', 'helpers.R'))
+source(here('src', 'core', 'helpers.R'))
 
 
 # =============================================================================
@@ -62,7 +62,7 @@ run_tpc_validation <- function(
   if (is.null(ts)) {
     ts_path <- here('data', 'timeseries', 'rate_timeseries.rds')
     if (!file.exists(ts_path)) {
-      stop('Timeseries not found. Run the build first: Rscript src/00_build_timeseries.R --full')
+      stop('Timeseries not found. Run the build first: Rscript src/pipeline/00_build_timeseries.R --full')
     }
     ts <- readRDS(ts_path)
   }
@@ -85,7 +85,7 @@ run_tpc_validation <- function(
   message('Validating ', nrow(tpc_revisions), ' revision-date pairs against TPC')
 
   # Source validation functions
-  source(here('src', '07_validate_tpc.R'))
+  source(here('src', 'pipeline', '07_validate_tpc.R'))
 
   if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 

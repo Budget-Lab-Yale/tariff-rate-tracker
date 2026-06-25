@@ -23,7 +23,7 @@ suppressPackageStartupMessages({
   library(tidyverse)
   library(here)
 })
-source(here('src', 'scrape_us_notes.R'))
+source(here('tools', 'scrape_us_notes.R'))
 
 base_targets <- tribble(
   ~ch99_code,    ~category,          ~country_group,

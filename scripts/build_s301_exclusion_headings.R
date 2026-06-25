@@ -4,7 +4,7 @@
 #
 # Identifies Chapter 99 headings that EXCLUDE products from §301 duties
 # ("The duty provided in the applicable subheading" — rate parses to NA) and
-# registers them for the 6a-excl hook in src/06_calculate_rates.R, which
+# registers them for the 6a-excl hook in src/pipeline/06_calculate_rates.R, which
 # scales rate_301 by (1 - coverage_share) for products referencing an
 # in-window exclusion heading.
 #
@@ -40,7 +40,7 @@ suppressPackageStartupMessages({
   library(tidyverse)
   library(here)
 })
-source(here('src', 'rate_schema.R'))
+source(here('src', 'model', 'rate_schema.R'))
 
 args <- commandArgs(trailingOnly = TRUE)
 ts_dir <- here('data', 'timeseries')

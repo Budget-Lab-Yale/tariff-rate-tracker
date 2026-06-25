@@ -2,7 +2,7 @@
 # parity comparator unit tests
 # =============================================================================
 #
-# Pure-logic checks for src/parity.R on synthetic fixtures — no model data,
+# Pure-logic checks for src/core/parity.R on synthetic fixtures — no model data,
 # runs in seconds. Covers: exact match, within/beyond tolerance per column
 # class (rate vs etr), NA handling, row missing/extra, schema diffs.
 #
@@ -15,7 +15,7 @@ suppressPackageStartupMessages({
   library(tibble)
 })
 
-source(here('src', 'parity.R'))
+source(here('src', 'core', 'parity.R'))
 
 pass_count <- 0L
 check <- function(cond, msg) {

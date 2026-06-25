@@ -37,10 +37,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: data/hts_archives
-          key: ${{ runner.os }}-hts-${{ hashFiles('config/revision_dates.csv', 'src/02_download_hts.R') }}
+          key: ${{ runner.os }}-hts-${{ hashFiles('config/revision_dates.csv', 'src/pipeline/02_download_hts.R') }}
 
       - name: Download required HTS archives
-        run: Rscript src/02_download_hts.R
+        run: Rscript src/pipeline/02_download_hts.R
 
       - name: Opt out of weighted outputs (CI runs smoke tests only)
         # The smoke tests do not need import weights (~1.5GB Census ZIP build).

@@ -67,7 +67,7 @@ curator-reviewed before promotion, never auto-written to the registry.
 | Piece | File |
 |---|---|
 | Affected-lines mapping | `scripts/build_s301_exclusion_lines.R` → `resources/s301_exclusion_lines.csv` (heading → referencing HTS10, unioned over cached revisions) |
-| Measurement | `src/calibrate_s301_exclusions.R` (IMDB parse + statutory join + inversion) |
+| Measurement | `tools/calibrate_s301_exclusions.R` (IMDB parse + statutory join + inversion) |
 | Per-line shares | `resources/s301_exclusion_claim_shares.csv` (covered months, value-weighted) |
 | Per-heading summary | `resources/s301_exclusion_claim_shares_by_heading.csv` (candidate registry `coverage_share` values) |
 | Monthly detail | `output/diagnostics/s301_exclusion_claims_monthly.csv` (all months incl. lapsed/partial) |
@@ -84,7 +84,7 @@ Census only with `--download`.
 
 Run used for the first calibration (2026-06-11):
 
-    Rscript src/calibrate_s301_exclusions.R \
+    Rscript tools/calibrate_s301_exclusions.R \
         --imdb-dir ../tariff-etr-eval/data/imdb/raw \
         --snapshots-dir "<vintage 2026-06-10-22>/actual/snapshots" \
         --start 2025-01 --end 2026-03

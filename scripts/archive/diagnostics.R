@@ -34,7 +34,7 @@ CTY_CHINA <- if (!is.null(.pp_09)) .pp_09$CTY_CHINA else '5700'
 report_301_coverage_gap <- function(our_rates, tpc_path, census_codes, target_date = NULL) {
   message('\n=== Section 301 Coverage Gap Analysis ===\n')
 
-  source(here('src', '07_validate_tpc.R'), local = TRUE)
+  source(here('src', 'pipeline', '07_validate_tpc.R'), local = TRUE)
 
   name_to_code <- create_country_name_map(census_codes)
   tpc_data <- load_tpc_data(tpc_path, name_to_code)
@@ -724,6 +724,6 @@ decompose_tpc_discrepancies <- function(comparison_path, revision_filter = NULL)
 
 if (sys.nframe() == 0) {
   library(here)
-  source(here('src', 'helpers.R'))
+  source(here('src', 'core', 'helpers.R'))
   run_all_diagnostics()
 }

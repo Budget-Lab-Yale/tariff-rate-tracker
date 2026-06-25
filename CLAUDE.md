@@ -26,7 +26,7 @@ Pick the venue by memory footprint:
 |------|-------|-------|
 | Smoke / unit tests, unweighted runs | **Local** (interactive) | Light; the four CI test scripts run fine |
 | Single-snapshot inspection, parsing, config edits | **Local** | |
-| Full rebuild `src/00_build_timeseries.R --full` | **Slurm** | OOMs locally |
+| Full rebuild `src/pipeline/00_build_timeseries.R --full` | **Slurm** | OOMs locally |
 | Weighted-output build | **Slurm** | Needs the ~1.5 GB Census ZIP build + memory |
 
 Full rebuild + verify is a ready-made batch job (4 h walltime, **192 GB**, 4 CPUs):

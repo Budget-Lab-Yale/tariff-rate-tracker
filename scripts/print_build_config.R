@@ -2,7 +2,7 @@
 # =============================================================================
 # print_build_config.R — bash bridge for the build-run config
 # =============================================================================
-# Reads a build-config YAML (arg 1) via src/build_config.R and prints shell-
+# Reads a build-config YAML (arg 1) via src/core/build_config.R and prints shell-
 # eval'able KEY='value' lines so the bash orchestrator and the R steps parse the
 # SAME config exactly once. Usage (in submit_build_array.sh):
 #   eval "$(Rscript scripts/print_build_config.R config/build/production.yaml)"
@@ -12,7 +12,7 @@
 # =============================================================================
 
 suppressPackageStartupMessages(library(here))
-source(here('src', 'build_config.R'))
+source(here('src', 'core', 'build_config.R'))
 
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) < 1) { message('usage: print_build_config.R <config.yaml>'); quit(status = 2) }

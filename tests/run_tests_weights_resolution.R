@@ -19,8 +19,8 @@ suppressPackageStartupMessages({
   library(here)
   library(yaml)
 })
-source(here('src', 'helpers.R'))
-source(here('src', '09_daily_series.R'))
+source(here('src', 'core', 'helpers.R'))
+source(here('src', 'pipeline', '09_daily_series.R'))
 
 pass_count <- 0
 fail_count <- 0
@@ -208,7 +208,7 @@ message('\n=== ensure_import_weights() ===')
 # Source the helper (kept in build_import_weights.R so this file doesn't pull
 # in the full builder unless needed). load_local_paths()/autodetect already
 # came from helpers.R above.
-source(here('src', 'build_import_weights.R'))
+source(here('src', 'io', 'build_import_weights.R'))
 
 run_test('weight_mode = unweighted is a no-op (returns NULL)', {
   result <- suppressMessages(ensure_import_weights(weight_mode = 'unweighted'))

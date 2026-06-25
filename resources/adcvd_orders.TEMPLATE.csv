@@ -1,7 +1,7 @@
 # =============================================================================
 # adcvd_orders.csv — TEMPLATE (curated AD/CVD orders for the rate_adcvd layer)
 # =============================================================================
-# Rename to resources/adcvd_orders.csv once populated. src/load_adcvd_layer.R
+# Rename to resources/adcvd_orders.csv once populated. src/experimental/load_adcvd_layer.R
 # reads it (skipping these '#' comment lines). Until a non-comment data row
 # exists, the loader returns an empty layer (rate_adcvd = 0 everywhere), so the
 # pipeline is unaffected.

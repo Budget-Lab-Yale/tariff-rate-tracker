@@ -19,8 +19,8 @@
 library(tidyverse)
 library(here)
 
-source(here('src', 'helpers.R'))
-source(here('src', '07_validate_tpc.R'))
+source(here('src', 'core', 'helpers.R'))
+source(here('src', 'pipeline', '07_validate_tpc.R'))
 
 pp <- load_policy_params()
 CTY_CHINA <- pp$CTY_CHINA %||% '5700'

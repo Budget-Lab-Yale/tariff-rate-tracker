@@ -133,7 +133,7 @@ change; not required).
 2. **Rebuild the rev_5 snapshot** — the tests read the cached
    `data/timeseries/snapshot_2026_rev_5.rds` (a build artifact, not git-tracked,
    currently dated 2026-06-05). There is **no `--revision` single-snapshot flag**
-   in `src/00_build_timeseries.R`; the entry points are `--full` (full backfill,
+   in `src/pipeline/00_build_timeseries.R`; the entry points are `--full` (full backfill,
    writes every `snapshot_*.rds`), `--build-only` (skip downstream daily/ETR/
    quality), and the incremental `start_from` path (requires cached
    `ch99_<rev>.rds` / `products_<rev>.rds` state). Simplest reliable rebuild:
@@ -141,7 +141,7 @@ change; not required).
    # bare R + CRAN bundle lib path (R is not on PATH):
    export R_LIBS=/apps/software/2024a/software/R-bundle-CRAN/2024.11-foss-2024a:$HOME/r_libs_4.4
    RS=/apps/software/2024a/software/R/4.4.2-gfbf-2024a-bare/bin/Rscript
-   $RS src/00_build_timeseries.R --full --build-only   # rebuilds all snapshots, skips downstream
+   $RS src/pipeline/00_build_timeseries.R --full --build-only   # rebuilds all snapshots, skips downstream
    ```
    (32 GB RAM recommended for `--full`. If memory-constrained, use the
    `start_from` incremental path against the revision before rev_5.)

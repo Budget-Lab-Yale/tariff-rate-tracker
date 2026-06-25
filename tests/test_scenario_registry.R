@@ -23,8 +23,8 @@ suppressPackageStartupMessages({
   library(here)
   library(yaml)
 })
-source(here('src', 'helpers.R'))
-source(here('src', '09_daily_series.R'))
+source(here('src', 'core', 'helpers.R'))
+source(here('src', 'pipeline', '09_daily_series.R'))
 
 pass_count <- 0
 fail_count <- 0

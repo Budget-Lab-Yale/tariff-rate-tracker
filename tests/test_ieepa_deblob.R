@@ -1,7 +1,7 @@
 # =============================================================================
 # Plank 4b / S1 — IEEPA reciprocal de-blob: adapter-vs-calc equivalence
 # =============================================================================
-# .resolve_ieepa_reciprocal() (src/authority_adapter.R) relocates the calculator's
+# .resolve_ieepa_reciprocal() (src/model/authority_adapter.R) relocates the calculator's
 # reciprocal phase-collapse + surcharge->floor override out of 06_calculate_rates.R
 # and into the adapter, emitting structured per-country rate layers. This test runs
 # the ORIGINAL calc code (copied verbatim below as the ORACLE) on a realistic
@@ -17,7 +17,7 @@ suppressPackageStartupMessages({
   library(dplyr)
   library(tibble)
 })
-source(here('src', 'authority_spec.R'))
+source(here('src', 'model', 'authority_spec.R'))
 
 # stubs so authority_adapter.R sources + the end-to-end build run without the
 # parser pipeline (mirrors tests/test_authority_adapter.R).
@@ -34,7 +34,7 @@ is_232_exempt            <- function(census_code, exempt_list) isTRUE(census_cod
 # spec via load_revision_floor_exemptions (data_loaders.R, not sourced here).
 load_revision_floor_exemptions <- function(revision_id)
   tibble::tibble(hts8 = character(), country_group = character())
-source(here('src', 'authority_adapter.R'))
+source(here('src', 'model', 'authority_adapter.R'))
 
 pass <- 0L
 check <- function(cond, msg) {

@@ -3,7 +3,7 @@
 # rate column). content_split scales the contribution by nonmetal_share when rate_232>0,
 # so a whole-article §232 good (nonmetal_share=0) contributes ~0 Brazil §301.
 suppressPackageStartupMessages(library(tidyverse))
-source(here::here('src', 'stacking.R'))   # compute_nonmetal_share
+source(here::here('src', 'model', 'stacking.R'))   # compute_nonmetal_share
 TS <- 'data/timeseries/new_301'; BR <- '3510'
 
 s  <- readRDS(file.path(TS, 'snapshot_bnd_2026-07-24.rds'))

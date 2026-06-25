@@ -10,7 +10,7 @@
 # =============================================================================
 
 suppressPackageStartupMessages(library(here))
-source(here('src', 'policy_params.R'))
+source(here('src', 'model', 'policy_params.R'))
 
 pass <- 0L
 check <- function(cond, msg) {

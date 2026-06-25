@@ -1,7 +1,7 @@
 # =============================================================================
 # classify_s232_annex unit tests (Plank 4c — slice 1: shared classifier)
 # =============================================================================
-# Pure-logic checks for the shared §232 annex classifier in src/data_loaders.R
+# Pure-logic checks for the shared §232 annex classifier in src/model/data_loaders.R
 # (the single source of truth used by BOTH the calculator and the spec adapter).
 # Pins the load-bearing behaviors that, if drifted, would red the parity gate:
 #   - longest-prefix-first, first-match-wins,
@@ -17,7 +17,7 @@ suppressPackageStartupMessages({
   library(dplyr)
   library(tibble)
 })
-source(here('src', 'data_loaders.R'))
+source(here('src', 'model', 'data_loaders.R'))
 
 pass <- 0L
 check <- function(cond, msg) {

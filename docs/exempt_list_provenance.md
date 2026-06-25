@@ -11,7 +11,7 @@ exempt-list prune. Conclusion up front: **the IEEPA pollution did not spread to
 codes** (~$380B 2024 imports) with no basis in the printed IEEPA Annex II
 enumeration (US Note 2(v)(iii)(a)). They entered via the Tariff-ETRs
 `ieepa_reciprocal.yaml` merge (commit `df1bf3b`) and the HTS10 expansion
-(`01e8e76`, `src/expand_ieepa_exempt.R`), which imported every ETRs `rate=0`
+(`01e8e76`, `tools/expand_ieepa_exempt.R`), which imported every ETRs `rate=0`
 line — bundling ETRs-zeroed residue, §232 program members (handled by stacking,
 not a list entry), and universal Ch88 aircraft. Pruned in `552693d`
 (audit `d6c8d9a`); see `scripts/prune_ieepa_exempt_untraceable.R` and the

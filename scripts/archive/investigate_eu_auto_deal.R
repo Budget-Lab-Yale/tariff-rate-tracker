@@ -3,8 +3,8 @@ suppressPackageStartupMessages({
   library(here)
   library(jsonlite)
 })
-source(here('src', 'helpers.R'))
-source(here('src', 'rate_schema.R'))
+source(here('src', 'core', 'helpers.R'))
+source(here('src', 'model', 'rate_schema.R'))
 
 pp <- load_policy_params()
 ch99 <- readRDS(here('data', 'timeseries', 'ch99_2026_rev_6.rds'))
@@ -33,7 +33,7 @@ if (nrow(eu_autos) > 0) {
 }
 
 cat('\n--- Check parsing classification ---\n')
-source(here('src', '05_parse_policy_params.R'))
+source(here('src', 'pipeline', '05_parse_policy_params.R'))
 s232_rates <- extract_section232_rates(ch99)
 cat('auto_deal_rates (from extract_section232_rates):\n')
 print(s232_rates$auto_deal_rates)
@@ -50,9 +50,9 @@ print(snap %>% filter(country == '4280', substr(hts10, 1, 6) == '870322') %>%
         arrange(hts10))
 
 cat('\n--- Trace: what does 06_calculate_rates produce for Germany on 870322? ---\n')
-source(here('src', '03_parse_chapter99.R'))
-source(here('src', '04_parse_products.R'))
-source(here('src', '06_calculate_rates.R'))
+source(here('src', 'pipeline', '03_parse_chapter99.R'))
+source(here('src', 'pipeline', '04_parse_products.R'))
+source(here('src', 'pipeline', '06_calculate_rates.R'))
 
 json_path <- normalizePath(here('data', 'hts_archives', 'hts_2026_rev_6.json'),
                             winslash = '/', mustWork = TRUE)

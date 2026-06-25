@@ -1,14 +1,14 @@
 # =============================================================================
 # authority_spec datatype unit tests
 # =============================================================================
-# Pure-logic checks for src/authority_spec.R — constructors, validation
+# Pure-logic checks for src/model/authority_spec.R — constructors, validation
 # (fail-loud rules), set bundling, serialization round-trip. No model data.
 #
 # Usage (via Slurm): Rscript tests/test_authority_spec.R
 # =============================================================================
 
 suppressPackageStartupMessages(library(here))
-source(here('src', 'authority_spec.R'))
+source(here('src', 'model', 'authority_spec.R'))
 
 pass <- 0L
 check <- function(cond, msg) {

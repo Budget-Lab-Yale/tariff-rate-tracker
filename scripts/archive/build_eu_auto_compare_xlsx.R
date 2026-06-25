@@ -17,8 +17,8 @@ suppressPackageStartupMessages({
   library(openxlsx)
 })
 
-source(here('src', 'helpers.R'))
-source(here('src', '09_daily_series.R'))   # for load_import_weights()
+source(here('src', 'core', 'helpers.R'))
+source(here('src', 'pipeline', '09_daily_series.R'))   # for load_import_weights()
 
 alt_dir <- here('output', 'alternative')
 out_path <- file.path(alt_dir, 'eu_auto_25pct_compare.xlsx')
@@ -29,7 +29,7 @@ read_alt <- function(name, variant) {
   path <- file.path(alt_dir, paste0(name, '_', variant, '.csv'))
   if (!file.exists(path)) {
     stop('Missing input file: ', path,
-         '\nRun: Rscript -e "source(\'src/09_daily_series.R\'); ',
+         '\nRun: Rscript -e "source(\'src/pipeline/09_daily_series.R\'); ',
          'run_post_build_scenarios_per_revision(c(\'', variant, '\'), ',
          'imports = load_import_weights(), policy_params = load_policy_params())"')
   }

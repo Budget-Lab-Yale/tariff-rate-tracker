@@ -19,7 +19,7 @@
 library(tidyverse)
 library(here)
 
-source(here('src', 'helpers.R'))
+source(here('src', 'core', 'helpers.R'))
 
 pp <- load_policy_params()
 annex_cfg <- pp$S232_ANNEXES

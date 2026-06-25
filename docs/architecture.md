@@ -132,7 +132,7 @@ HTS JSON archives
 ## Module dependencies
 
 `helpers.R` sources the nine extracted modules listed under Core, so any file
-that does `source(here('src', 'helpers.R'))` gets the full function set. Files
+that does `source(here('src', 'core', 'helpers.R'))` gets the full function set. Files
 that only need a slice can source a module directly:
 
 - `policy_params.R`, `stacking.R`, `rate_schema.R`, `output_paths.R`,

@@ -44,7 +44,7 @@ suppressPackageStartupMessages({
   library(jsonlite)
 })
 
-source(here('src', 'dataweb_parser.R'))
+source(here('src', 'io', 'dataweb_parser.R'))
 
 DATAWEB_BASE <- 'https://datawebws.usitc.gov/dataweb'
 

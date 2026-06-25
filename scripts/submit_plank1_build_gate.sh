@@ -51,7 +51,7 @@ echo "remaining snapshots after clear: $(ls data/timeseries/snapshot_*.rds 2>/de
 
 echo; echo "--- Step 1: --full --core-only build (recompute all 43 revisions) ---"
 RC=0
-Rscript src/00_build_timeseries.R --full --core-only || RC=$?
+Rscript src/pipeline/00_build_timeseries.R --full --core-only || RC=$?
 echo "Build exit: $RC"
 if [ "$RC" -ne 0 ]; then echo "FAIL: build returned non-zero; skipping parity check."; exit "$RC"; fi
 echo "snapshots rebuilt: $(ls data/timeseries/snapshot_*.rds 2>/dev/null | wc -l) (expect 43)"

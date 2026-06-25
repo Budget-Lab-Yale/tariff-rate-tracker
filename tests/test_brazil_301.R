@@ -1,5 +1,5 @@
 # =============================================================================
-# Brazil §301 unit checks — .build_section_301_brazil (src/authority_adapter.R)
+# Brazil §301 unit checks — .build_section_301_brazil (src/model/authority_adapter.R)
 # =============================================================================
 # Pure-logic: exercises the new scenario authority builder in isolation (no build
 # data, no full adapter scaffold). Mirrors the date-gating + content_split + usmca
@@ -8,8 +8,8 @@
 # =============================================================================
 
 suppressPackageStartupMessages(library(here))
-source(here('src', 'authority_spec.R'))
-source(here('src', 'authority_adapter.R'))
+source(here('src', 'model', 'authority_spec.R'))
+source(here('src', 'model', 'authority_adapter.R'))
 
 pass <- 0L
 check <- function(cond, msg) {

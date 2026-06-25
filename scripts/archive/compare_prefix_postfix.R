@@ -3,7 +3,7 @@
 library(tidyverse)
 library(here)
 
-source(here('src', 'helpers.R'))
+source(here('src', 'core', 'helpers.R'))
 
 pre_path  <- here('snapshot_rev32_prefix.rds')
 post_path <- here('data', 'timeseries', 'snapshot_rev_32.rds')

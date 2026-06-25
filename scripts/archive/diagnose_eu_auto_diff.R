@@ -2,9 +2,9 @@ suppressPackageStartupMessages({
   library(tidyverse)
   library(here)
 })
-source(here('src', 'helpers.R'))
+source(here('src', 'core', 'helpers.R'))
 source(here('src', 'apply_scenarios.R'))
-source(here('src', '09_daily_series.R'))
+source(here('src', 'pipeline', '09_daily_series.R'))
 
 snap <- readRDS(here('data', 'timeseries', 'snapshot_2026_rev_6.rds'))
 pp <- load_policy_params()

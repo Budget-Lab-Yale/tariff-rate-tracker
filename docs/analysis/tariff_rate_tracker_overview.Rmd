@@ -28,7 +28,7 @@ library(tidyverse)
 library(here)
 library(scales)
 library(knitr)
-source(here('src', 'helpers.R'))
+source(here('src', 'core', 'helpers.R'))
 
 # Load data
 daily_overall   <- read_csv(here('output/daily/daily_overall.csv'))

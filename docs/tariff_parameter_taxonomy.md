@@ -193,7 +193,7 @@ effective_from`) and cuts at all of them. One list, one cutter, nothing missed.
 
 ### Build state — mostly built, on a leash 🟡
 
-`src/timeline.R` (115 lines, unit-tested) already implements it:
+`src/model/timeline.R` (115 lines, unit-tested) already implements it:
 - `collect_schedule_boundaries()` — **comprehensive collector** (knows IEEPA
   invalidation + s122/Swiss + spec `active.from/until`). Built + validated.
 - `timeline_split_points()` — the splitter. **Wired live at `09:330`.**

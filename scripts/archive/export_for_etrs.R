@@ -19,10 +19,10 @@ library(tidyverse)
 
 # Source helpers if not already loaded
 if (!exists('get_rates_at_date')) {
-  source(here::here('src', 'helpers.R'))
+  source(here::here('src', 'core', 'helpers.R'))
 }
 if (!exists('apply_stacking_rules')) {
-  source(here::here('src', 'helpers.R'))
+  source(here::here('src', 'core', 'helpers.R'))
 }
 
 

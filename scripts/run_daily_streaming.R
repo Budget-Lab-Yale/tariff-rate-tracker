@@ -11,11 +11,11 @@
 # =============================================================================
 suppressPackageStartupMessages({ library(here); library(tidyverse) })
 suppressMessages({
-  source(here('src', '00_build_timeseries.R'))
-  source(here('src', 'revisions.R'))
-  source(here('src', 'policy_params.R'))
-  source(here('src', '09_daily_series.R'))
-  source(here('src', 'build_import_weights.R'))
+  source(here('src', 'pipeline', '00_build_timeseries.R'))
+  source(here('src', 'model', 'revisions.R'))
+  source(here('src', 'model', 'policy_params.R'))
+  source(here('src', 'pipeline', '09_daily_series.R'))
+  source(here('src', 'io', 'build_import_weights.R'))
 })
 
 ts_dir <- Sys.getenv('TARIFF_TS_DIR', unset = here('data', 'timeseries'))

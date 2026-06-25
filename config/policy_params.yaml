@@ -524,7 +524,7 @@ section_301_rates:
 # usually cover a slice of an HTS10 line). Phase-2 calibration (2026-06-11)
 # promoted measured per-heading values into the registry (9903.88.69 = 0.35,
 # .70 = 0.20; realized-rate inversion, stable window 2025Q3-2026Q1 — see
-# docs/s301_exclusion_calibration.md and src/calibrate_s301_exclusions.R).
+# docs/s301_exclusion_calibration.md and tools/calibrate_s301_exclusions.R).
 # Delete this block (`section_301_exclusions: ~` in an overlay) to disable
 # the hook.
 #

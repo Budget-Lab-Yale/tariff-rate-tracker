@@ -9,7 +9,7 @@
 # turning ON 2026-07-24.
 #
 # This overlay is the ONLY diff vs config/policy_params.yaml. Deep-merged at load
-# (src/policy_params.R). Run:  build with TARIFF_SCENARIO=forced_labor (or
+# (src/model/policy_params.R). Run:  build with TARIFF_SCENARIO=forced_labor (or
 # scripts/build_gather.R --scenario forced_labor) -> data/timeseries/forced_labor/.
 # It inherits everything baseline has (incl. the pharma Sept-29 activation).
 # See memory [[forced-labor-301-scenario]] + plan dapper-singing-pearl.md.

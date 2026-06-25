@@ -4,7 +4,7 @@
 # The hand-curated product-exemption SETS (universal IEEPA Annex II, country-EO,
 # floor, §122) used to be loaded inline by 06_calculate_rates.R from resource
 # CSVs. They are now relocated into the adapter (.resolve_ieepa_exempt_products /
-# .resolve_country_eo_exempt / .resolve_s122_exempt, src/authority_adapter.R) and
+# .resolve_country_eo_exempt / .resolve_s122_exempt, src/model/authority_adapter.R) and
 # baked onto the spec as program-level `$exempt_products`; the calc READS them and
 # keeps the product-grid masking. This test runs the ORIGINAL calc load+date-gate
 # code (copied verbatim below as the ORACLE) against the real resource CSVs and
@@ -21,7 +21,7 @@ suppressPackageStartupMessages({
   library(tibble)
   library(readr)
 })
-source(here('src', 'authority_spec.R'))
+source(here('src', 'model', 'authority_spec.R'))
 
 # stubs so authority_adapter.R's end-to-end build runs without the parser
 # pipeline (mirrors tests/test_authority_adapter.R + test_ieepa_deblob.R).
@@ -40,7 +40,7 @@ is_232_exempt            <- function(census_code, exempt_list) isTRUE(census_cod
 FLOOR_SENTINEL <- tibble(hts8 = c('72081000', '76069100'),
                          country_group = c('eu', 'japan'))
 load_revision_floor_exemptions <- function(revision_id, effective_date = NULL) FLOOR_SENTINEL
-source(here('src', 'authority_adapter.R'))
+source(here('src', 'model', 'authority_adapter.R'))
 
 pass <- 0L
 check <- function(cond, msg) {

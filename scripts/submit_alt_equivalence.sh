@@ -48,7 +48,7 @@ set -euo pipefail
 mkdir -p output/logs ~/slurm-logs
 
 # Top-level R is single-threaded; alt workers each pin their own BLAS/OMP
-# threads to 1 (see src/parallel.R:.alt_runner_parallel).
+# threads to 1 (see src/core/parallel.R:.alt_runner_parallel).
 export OPENBLAS_NUM_THREADS=1
 export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
@@ -91,7 +91,7 @@ ls "$BASELINE_DIR" | wc -l | xargs -I {} echo "Baseline file count: {}"
 echo
 echo "--- Step 2: running --alternatives-only --parallel --alt-workers 2 ---"
 RC=0
-Rscript src/00_build_timeseries.R \
+Rscript src/pipeline/00_build_timeseries.R \
   --alternatives-only \
   --parallel \
   --alt-workers 2 || RC=$?
