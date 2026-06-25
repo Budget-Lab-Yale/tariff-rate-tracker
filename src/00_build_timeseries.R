@@ -1265,7 +1265,7 @@ if (sys.nframe() == 0) {
       )
 
       tryCatch(
-        run_quality_report(result$timeseries_path),
+        run_quality_report(ts = ts, timeseries_path = result$timeseries_path),
         error = function(e) message('Quality report failed: ', conditionMessage(e))
       )
     } else {
