@@ -1,30 +1,35 @@
 # =============================================================================
 # timeline.R — unified schedule-boundary splitter (Phase 3c)
 # =============================================================================
-# STATUS: PARTIALLY WIRED. The build side uses this: discover_boundaries() +
-# build_boundary_mints() run in src/00_build_timeseries.R to mint synthetic
-# boundary snapshots. The DOWNSTREAM daily-series side (src/09_daily_series.R)
-# still uses the legacy helpers.R get_expiry_split_points()/apply_expiry_zeroing()
-# path. Fully retiring the legacy splitter in 09 is the remaining step, gated by
-# a baseline parity run. The two paths use OPPOSITE day conventions (see below),
-# which is why a suite of equivalence tests (test_timeline_swap.R,
-# test_mint_equals_zeroing.R) keeps them reconciled.
+# STATUS: CANONICAL SPLITTER (both sides). This module is the single source of
+# interval splitting. The build side mints synthetic boundary snapshots via
+# discover_boundaries() + build_boundary_mints() (src/00_build_timeseries.R);
+# the downstream daily-series side (src/09_daily_series.R) splits revision
+# intervals via timeline_split_points() fed expiry_boundaries(). The legacy
+# helpers.R get_expiry_split_points() splitter has been RETIRED (Phase 1b); its
+# behaviour is subsumed here under the canonical +1 boundary mapping below.
 #
-# WHY. Today TWO mechanisms decide when a tariff switches on/off within a
-# revision's date window, with OPPOSITE day conventions:
+# NOT a splitter, and intentionally NOT migrated: helpers.R apply_expiry_zeroing()
+# still runs downstream in 09 to zero the SECTION_122 / SWISS rate columns past
+# their expiries. That is a deliberate, permanent division of labour — the
+# MUTUAL-EXCLUSION RULE below explains why the SWISS revert cannot be reproduced
+# by a recompute/mint. The two are kept disjoint (discover_boundaries SUBTRACTS
+# expiry_boundaries), and the boundary that the zeroing acts on is still emitted
+# by this module — so there is one splitter, not two.
 #
-#   A. Downstream expiry splitter (helpers.R get_expiry_split_points /
-#      apply_expiry_zeroing): splits a revision interval at SECTION_122 / SWISS
-#      expiries using `> expiry` — i.e. the expiry date is the LAST LIVE day.
-#      It only knows those two hardcoded expiries.
+# WHY the +1 mapping exists. Historically two conventions described the same
+# state change, off by a day:
+#
+#   A. The (now-retired) downstream expiry splitter zeroed SECTION_122 / SWISS
+#      using `> expiry` — i.e. the expiry date was the LAST LIVE day.
 #   B. The calculator's effective_date gates (06): IEEPA invalidation uses
 #      `>= until` — i.e. `until` is the FIRST DEAD day; annex activation /
 #      annex_3 sunset / Ch99 offsets gate per-revision at the revision's date.
 #
-# Because A only knows two expiries, any OTHER mid-window switch (the annex
-# turning on, a Ch99 offset activating between revision dates) is missed: the
-# window carries one rate straight across the switch. And A vs B disagree by a
-# day, so naively merging them shifts some tariffs.
+# A only knew two hardcoded expiries, so any OTHER mid-window switch (the annex
+# turning on, a Ch99 offset activating between revision dates) was missed: the
+# window carried one rate straight across the switch. Folding everything onto a
+# single convention here both fixes that and removes the A-vs-B day disagreement.
 #
 # CANONICAL CONVENTION (this module). A `boundary` is the FIRST day of a NEW
 # state — so (boundary - 1) is the last day of the prior state. Both legacy
@@ -32,9 +37,10 @@
 #   - a "last live day" expiry  E  ->  boundary = E + 1   (first dead day)
 #   - a "first dead day" until   U  ->  boundary = U        (already first dead)
 # A split at boundary B inside a revision window (valid_from, valid_until] yields
-# sub-intervals [.., B-1] and [B, ..]. This reproduces the existing
-# get_expiry_split_points() behaviour after the +1 mapping (unit-tested), while
-# ALSO admitting the boundaries mechanism A misses.
+# sub-intervals [.., B-1] and [B, ..]. This reproduces the old splitter's
+# behaviour after the +1 mapping (unit-tested: tests/test_timeline.R,
+# tests/test_timeline_realdata.R), while ALSO admitting the boundaries the old
+# two-expiry splitter missed.
 # =============================================================================
 
 `%||%` <- function(x, y) if (is.null(x)) y else x
@@ -97,10 +103,10 @@ collect_schedule_boundaries <- function(policy_params = NULL, specs = NULL,
 #' sub-interval STARTS. A boundary B splits (valid_from, valid_until] when
 #' valid_from < B <= valid_until, giving [.., B-1] and [B, ..].
 #'
-#' Equivalence to the legacy splitter: legacy get_expiry_split_points() returns
-#' E (= B - 1, the last live day) and 09 starts the next sub-interval at E + 1.
+#' Equivalence to the retired splitter: the old get_expiry_split_points() returned
+#' E (= B - 1, the last live day) and 09 started the next sub-interval at E + 1.
 #' Feeding boundary_from_expiry(E) = E + 1 here returns that same start date, so
-#' c(valid_from, timeline_split_points(...)) reproduces the legacy sub-interval
+#' c(valid_from, timeline_split_points(...)) reproduces the old sub-interval
 #' starts exactly (unit-tested) — and catches the extra boundaries too.
 #'
 #' @return sorted unique Date vector of sub-interval start days (empty == no split)

@@ -343,9 +343,9 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   # EXPIRY boundaries (SECTION_122 / SWISS) — the schedule boundaries that fall
   # strictly INSIDE a revision interval on the baseline grid (intervals are
   # gapless/exclusive, valid_until = next_rev - 1, so every revision-dated policy
-  # event sits on an edge, not inside). Splits are therefore IDENTICAL to the legacy
-  # get_expiry_split_points path — verified on the REAL grid
-  # (tests/test_timeline_realdata.R).
+  # event sits on an edge, not inside). This is the sole interval splitter here —
+  # the old get_expiry_split_points path was retired in Phase 1b after its splits
+  # were verified identical on the REAL grid (tests/test_timeline_realdata.R).
   #
   # collect_schedule_boundaries() is the comprehensive collector (invalidation +
   # expiries + spec active windows). It is NOT fed here because the real-data test

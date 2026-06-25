@@ -141,18 +141,25 @@ that only need a slice can source a module directly:
 - `resolved_programs.R` — depends on `stacking.R`.
 - `authority_adapter.R` — depends on `authority_spec.R` and `policy_params.R`.
 
-## Two in-progress migrations (known complexity)
+## Coexisting mechanisms (known complexity)
 
-Reviewers will notice two places where an old and a new mechanism coexist:
+Reviewers will notice two places worth understanding:
 
-1. **Schedule-boundary splitting.** The build side mints synthetic boundary
-   snapshots via `discover_boundaries()` / `build_boundary_mints()`
-   (`timeline.R`, called from `00`). The downstream daily series
-   (`09_daily_series.R`) still uses the legacy
-   `get_expiry_split_points()` / `apply_expiry_zeroing()` path. The two use
-   opposite day conventions (last-live-day vs first-dead-day); a suite of
-   equivalence tests (`test_timeline_swap.R`, `test_mint_equals_zeroing.R`)
-   keeps them reconciled. Retiring the legacy path in `09` is pending.
+1. **Schedule-boundary splitting (settled).** `timeline.R` is the single
+   interval splitter on both sides: the build side mints synthetic boundary
+   snapshots via `discover_boundaries()` / `build_boundary_mints()` (called from
+   `00`), and the downstream daily series (`09_daily_series.R`) splits intervals
+   via `timeline_split_points()` fed `expiry_boundaries()`. The legacy
+   `get_expiry_split_points()` splitter has been **retired** (Phase 1b); its
+   last-live-day convention is subsumed by the canonical first-day-of-new-state
+   boundary (`E -> E+1`). What remains downstream is `apply_expiry_zeroing()`,
+   which is **not a splitter** — it zeros the `SECTION_122` / `SWISS` rate
+   columns past expiry, and stays downstream **by design**: the SWISS revert
+   forces CH/LI reciprocal to 0 (the pre-floor surcharge isn't stored in the
+   snapshot), which a recompute/mint would *not* reproduce. The two are kept
+   disjoint (`discover_boundaries()` subtracts `expiry_boundaries()`); the
+   `test_mint_equals_zeroing.R` guard enforces that mutual exclusion, and
+   `test_boundary_discovery.R` / `test_timeline_realdata.R` pin the geometry.
 
 2. **Stacking representation.** Production uses the fast wide
    `apply_stacking_rules()` (`stacking.R`). `resolved_programs.R` is a

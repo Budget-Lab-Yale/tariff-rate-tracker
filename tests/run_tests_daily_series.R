@@ -264,17 +264,18 @@ message('\n--- Test 6: Generic expiry split points ---')
 
 run_test('split points detected for spanning interval', {
   pp <- make_test_policy_params()
-  splits <- get_expiry_split_points(
-    as.Date('2026-01-01'), as.Date('2026-12-31'), pp)
-  # Should find both s122 (2026-07-23) and swiss (2026-03-31)
-  stopifnot(as.Date('2026-07-23') %in% splits)
-  stopifnot(as.Date('2026-03-31') %in% splits)
+  splits <- timeline_split_points(
+    as.Date('2026-01-01'), as.Date('2026-12-31'), expiry_boundaries(pp))
+  # First-dead-day boundaries: s122 expiry 2026-07-23 -> 2026-07-24,
+  # swiss expiry 2026-03-31 -> 2026-04-01
+  stopifnot(as.Date('2026-07-24') %in% splits)
+  stopifnot(as.Date('2026-04-01') %in% splits)
 })
 
 run_test('no split points for interval before all expiries', {
   pp <- make_test_policy_params()
-  splits <- get_expiry_split_points(
-    as.Date('2026-01-01'), as.Date('2026-03-01'), pp)
+  splits <- timeline_split_points(
+    as.Date('2026-01-01'), as.Date('2026-03-01'), expiry_boundaries(pp))
   stopifnot(length(splits) == 0)
 })
 
@@ -319,18 +320,18 @@ run_test('swiss framework active on exact expiry date', {
   stopifnot(nrow(on_expiry) > 0)
 })
 
-run_test('split point lands exactly on expiry date', {
+run_test('split lands on first-dead-day boundary', {
   pp <- make_test_policy_params()
-  splits <- get_expiry_split_points(
-    as.Date('2026-07-23'), as.Date('2026-08-01'), pp)
-  # Expiry date is 2026-07-23 — split should be at that boundary
-  stopifnot(as.Date('2026-07-23') %in% splits)
+  splits <- timeline_split_points(
+    as.Date('2026-07-23'), as.Date('2026-08-01'), expiry_boundaries(pp))
+  # s122 expiry 2026-07-23 (last live day) -> boundary 2026-07-24, inside (vf, vu]
+  stopifnot(as.Date('2026-07-24') %in% splits)
 })
 
 run_test('split points empty when interval starts after all expiries', {
   pp <- make_test_policy_params()
-  splits <- get_expiry_split_points(
-    as.Date('2026-08-01'), as.Date('2026-12-31'), pp)
+  splits <- timeline_split_points(
+    as.Date('2026-08-01'), as.Date('2026-12-31'), expiry_boundaries(pp))
   stopifnot(length(splits) == 0)
 })
 

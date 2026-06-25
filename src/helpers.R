@@ -460,33 +460,6 @@ apply_post_interval_adjustments_point <- function(snapshot, query_date, policy_p
 }
 
 
-#' Get expiry split points within a revision interval
-#'
-#' Returns a sorted vector of dates at which policy adjustments take effect
-#' within the given interval. Used by build_daily_aggregates() to split
-#' revision intervals into sub-intervals with different policy states.
-#'
-#' @param valid_from Interval start date
-#' @param valid_until Interval end date
-#' @param policy_params Policy params list from load_policy_params()
-#' @return Sorted Date vector of split points (each is the last active day before zeroing)
-get_expiry_split_points <- function(valid_from, valid_until, policy_params) {
-  if (is.null(policy_params)) return(as.Date(character()))
-
-  adjustments <- collect_expiry_adjustments(policy_params)
-  split_dates <- as.Date(character())
-
-  for (adj in adjustments) {
-    exp <- as.Date(adj$expiry_date)
-    if (valid_from <= exp && valid_until > exp) {
-      split_dates <- c(split_dates, exp)
-    }
-  }
-
-  return(sort(unique(split_dates)))
-}
-
-
 #' Apply expiry zeroing to a snapshot for a given sub-interval
 #'
 #' Given a sub-interval start date, zeros any columns whose expiry_date < sub_start.
