@@ -114,7 +114,8 @@ for (E in exemption_expiries) {
 }
 
 if (have_ch99) {
-  expected <- c('2025-03-12', '2025-11-14', '2026-02-20', '2026-09-29', '2026-11-10')
+  expected <- c('2025-03-12', '2025-06-01', '2025-09-01', '2025-11-14',
+                '2026-02-20', '2026-09-29', '2026-11-10')
   check(setequal(as.character(b$date), expected),
         paste0('discovered mint set == {', paste(expected, collapse = ', '), '} on the real grid'))
 } else {

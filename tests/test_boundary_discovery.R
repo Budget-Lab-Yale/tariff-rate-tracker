@@ -7,12 +7,14 @@
 # scan assertions skip_test when those caches are absent (config + §232-exemption
 # boundaries still resolve without them).
 #
-# Verified mintable set on the production policy grid (2026-06-06):
-#   2025-03-12  owner rev_4        §232 metal country-exemption expiry  [IN-WINDOW]
-#   2026-02-20  owner 2026_rev_3   IEEPA invalidation (SCOTUS)          [out-of-window]
-#   2025-11-14  owner rev_29       Swiss/Liechtenstein floor starts     [out-of-window]
-#   2026-09-29  owner 2026_rev_9   pharma §232 turn-on override         [out-of-window]
-#   2026-11-10  owner 2026_rev_9   §301 cranes/chassis turn-on          [out-of-window]
+# Verified mintable set on the production policy grid (2026-06-25):
+#   2025-03-12  owner rev_4        §232 metal country-exemption expiry  [s232 expiry]
+#   2025-06-01  owner rev_13       Ch99 rate-less heading expiry (+1)    [ch99 expiry]
+#   2025-09-01  owner rev_20       Ch99 rate-less heading expiry (+1)    [ch99 expiry]
+#   2025-11-14  owner rev_29       Swiss/Liechtenstein floor starts      [config]
+#   2026-02-20  owner 2026_rev_3   IEEPA invalidation (SCOTUS)           [config]
+#   2026-09-29  owner 2026_rev_10  pharma §232 turn-on override          [override]
+#   2026-11-10  owner 2026_rev_10  §301 cranes/chassis turn-on           [ch99]
 # Edge-coincident boundaries that must NOT mint: 2025-05-03 (auto parts = rev_11
 # edge), 2025-04-09 (Phase-1 country rates = rev_8 edge), 2026-04-06 (§232 annex =
 # 2026_rev_5 edge). Expiry boundaries that must NOT mint (downstream zeroing owns
@@ -90,13 +92,20 @@ for (edge in c('2025-04-09', '2026-04-06')) {
 if (have_ch99) {
   check('2026-11-10' %in% emitted,
         '2026-11-10 (§301 cranes/chassis turn-on) is discovered from the Ch99 scan')
-  check(identical(owner_of('2026-11-10'), '2026_rev_9'),
-        '2026-11-10 owner resolves to 2026_rev_9 (tip interval)')
+  check(identical(owner_of('2026-11-10'), '2026_rev_10'),
+        '2026-11-10 owner resolves to 2026_rev_10 (tip interval)')
   check(grepl('ch99', src_of('2026-11-10')), '2026-11-10 sourced from a Ch99 offset')
+  # Ch99 rate-less heading expiries (expiry-mirror scan): state flips on expiry+1.
+  check(identical(owner_of('2025-06-01'), 'rev_13') && grepl('ch99_expiry', src_of('2025-06-01')),
+        '2025-06-01 (Ch99 heading expiry) discovered, owner rev_13')
+  check(identical(owner_of('2025-09-01'), 'rev_20') && grepl('ch99_expiry', src_of('2025-09-01')),
+        '2025-09-01 (Ch99 heading expiry) discovered, owner rev_20')
   check(!('2025-05-03' %in% emitted),
         '2025-05-03 (auto parts = rev_11 edge) is NOT minted')
-  # On the production grid exactly these five boundaries are mintable.
-  expected <- c('2025-03-12', '2025-11-14', '2026-02-20', '2026-09-29', '2026-11-10')
+  # On the production grid exactly these seven boundaries are mintable (incl. the
+  # two Ch99 rate-less heading expiries 2025-06-01 / 2025-09-01).
+  expected <- c('2025-03-12', '2025-06-01', '2025-09-01', '2025-11-14',
+                '2026-02-20', '2026-09-29', '2026-11-10')
   check(setequal(emitted, expected),
         paste0('exactly {', paste(expected, collapse = ', '), '} discovered on the live grid'))
   check(all(!is.na(b$owner_rev)),
