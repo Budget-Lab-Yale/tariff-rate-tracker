@@ -110,7 +110,13 @@ for (E in exemption_expiries) {
 }
 
 if (have_ch99) {
-  expected <- c('2025-03-12', '2025-11-14', '2026-02-20', '2026-09-29', '2026-11-10')
+  # 2026-07-24 = SECTION_122 sunset, minted since 2026-06-25 (boundary_overrides +
+  # collect_schedule_boundaries; expiry_boundaries() no longer subtracts it). The
+  # 2026-11-10 §301 cranes/chassis turn-on is discovered by the Ch99 effective_date
+  # offset scan, so it appears only when data/timeseries holds FRESH ch99 caches for
+  # the owning revision — a stale/partial local scratch can omit it (rebuild to
+  # refresh). The other four are config/exemption-derived and always resolve.
+  expected <- c('2025-03-12', '2025-11-14', '2026-02-20', '2026-07-24', '2026-09-29', '2026-11-10')
   check(setequal(as.character(b$date), expected),
         paste0('discovered mint set == {', paste(expected, collapse = ', '), '} on the real grid'))
 } else {
