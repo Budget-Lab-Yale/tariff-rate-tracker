@@ -36,6 +36,37 @@ library(jsonlite)
 # Daily Aggregates
 # =============================================================================
 
+#' Shared per-revision preamble for the compute_agg_* helpers.
+#'
+#' Clips an already-filtered revision slice to its active sub-interval
+#' (expiry zeroing), then applies stacking. The stacking policy is NOT uniform
+#' across the aggregates, so it is selected explicitly — a single shared rule
+#' here would silently change behavior:
+#'   "conditional" — stack only if rate_s122/rate_ieepa_recip present (overall)
+#'   "always"      — stack unconditionally (country, category)
+#'   "none"        — caller applies stacking itself: inside an nrow(>0) guard
+#'                   (weighted overall) or via compute_net_authority_contributions
+#'                   (authority)
+#'
+#' @param rev_data Revision slice (already filtered, and joined where needed)
+#' @param sub_start Sub-interval start passed to apply_expiry_zeroing
+#' @param policy_params Policy params list
+#' @param stacking_method Stacking method passed through to apply_stacking_rules
+#' @param stacking One of "always", "conditional", "none"
+#' @return rev_data after expiry zeroing and (mode-dependent) stacking
+prepare_interval_data <- function(rev_data, sub_start, policy_params,
+                                  stacking_method,
+                                  stacking = c('always', 'conditional', 'none')) {
+  stacking <- match.arg(stacking)
+  rev_data <- apply_expiry_zeroing(rev_data, sub_start, policy_params)
+  if (stacking == 'always' ||
+      (stacking == 'conditional' &&
+       any(c('rate_s122', 'rate_ieepa_recip') %in% names(rev_data)))) {
+    rev_data <- apply_stacking_rules(rev_data, stacking_method = stacking_method)
+  }
+  rev_data
+}
+
 #' Build daily aggregate statistics
 #'
 #' Since rates only change at revision boundaries, computes one aggregate per
@@ -125,11 +156,9 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
 
   # Helper: compute aggregates for one revision interval (or sub-interval)
   compute_agg_overall <- function(revision, valid_from, valid_until, sub_start = valid_from) {
-    rev_data <- ts %>% filter(revision == !!revision)
-    rev_data <- apply_expiry_zeroing(rev_data, sub_start, policy_params)
-    if (any(c('rate_s122', 'rate_ieepa_recip') %in% names(rev_data))) {
-      rev_data <- apply_stacking_rules(rev_data, stacking_method = stacking_method)
-    }
+    rev_data <- prepare_interval_data(ts %>% filter(revision == !!revision),
+                                      sub_start, policy_params, stacking_method,
+                                      stacking = 'conditional')
     n_products <- n_distinct(rev_data$hts10)
     n_countries <- n_distinct(rev_data$country)
     n_pairs <- nrow(rev_data)
@@ -149,8 +178,9 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
       n_all_pairs = n_all_pairs
     )
     if (has_weights) {
-      wt_data <- ts_weighted %>% filter(revision == !!revision)
-      wt_data <- apply_expiry_zeroing(wt_data, sub_start, policy_params)
+      wt_data <- prepare_interval_data(ts_weighted %>% filter(revision == !!revision),
+                                       sub_start, policy_params, stacking_method,
+                                       stacking = 'none')
       if (nrow(wt_data) > 0) {
         wt_data <- apply_stacking_rules(wt_data, stacking_method = stacking_method)
         row$weighted_etr <- sum(wt_data$total_rate * wt_data$imports) / total_imports
@@ -168,9 +198,9 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   }
 
   compute_agg_country <- function(revision, valid_from, valid_until, sub_start = valid_from) {
-    rev_data <- ts %>% filter(revision == !!revision)
-    rev_data <- apply_expiry_zeroing(rev_data, sub_start, policy_params)
-    rev_data <- apply_stacking_rules(rev_data, stacking_method = stacking_method)
+    rev_data <- prepare_interval_data(ts %>% filter(revision == !!revision),
+                                      sub_start, policy_params, stacking_method,
+                                      stacking = 'always')
     n_products_rev <- n_distinct(rev_data$hts10)
     row <- rev_data %>%
       group_by(country) %>%
@@ -187,9 +217,9 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
         n_products_total = n_products_rev
       )
     if (has_weights) {
-      wt_data <- ts_weighted %>% filter(revision == !!revision)
-      wt_data <- apply_expiry_zeroing(wt_data, sub_start, policy_params)
-      wt_data <- apply_stacking_rules(wt_data, stacking_method = stacking_method)
+      wt_data <- prepare_interval_data(ts_weighted %>% filter(revision == !!revision),
+                                       sub_start, policy_params, stacking_method,
+                                       stacking = 'always')
       country_total_imp <- imports %>%
         group_by(cty_code) %>%
         summarise(country_total_imports = sum(imports), .groups = 'drop') %>%
@@ -213,8 +243,9 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   }
 
   compute_agg_authority <- function(revision, valid_from, valid_until, sub_start = valid_from) {
-    rev_data <- ts %>% filter(revision == !!revision)
-    rev_data <- apply_expiry_zeroing(rev_data, sub_start, policy_params)
+    rev_data <- prepare_interval_data(ts %>% filter(revision == !!revision),
+                                      sub_start, policy_params, stacking_method,
+                                      stacking = 'none')
 
     # Use shared net authority decomposition from helpers.R
     net_data <- compute_net_authority_contributions(rev_data, cty_china = CTY_CHINA,
@@ -237,8 +268,9 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
       mean_other = mean(net_data$net_other)
     )
     if (has_weights) {
-      wt_data <- ts_weighted %>% filter(revision == !!revision)
-      wt_data <- apply_expiry_zeroing(wt_data, sub_start, policy_params)
+      wt_data <- prepare_interval_data(ts_weighted %>% filter(revision == !!revision),
+                                       sub_start, policy_params, stacking_method,
+                                       stacking = 'none')
       if (nrow(wt_data) > 0) {
         wt_net <- compute_net_authority_contributions(wt_data, cty_china = CTY_CHINA,
                                                       stacking_method = stacking_method)
@@ -259,12 +291,12 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   }
 
   compute_agg_category <- function(revision, valid_from, valid_until, sub_start = valid_from) {
-    rev_data <- ts %>%
-      filter(revision == !!revision) %>%
-      left_join(gtap_xwalk, by = c('hts10' = 'hs10')) %>%
-      mutate(gtap_code = coalesce(gtap_code, 'unmapped'))
-    rev_data <- apply_expiry_zeroing(rev_data, sub_start, policy_params)
-    rev_data <- apply_stacking_rules(rev_data, stacking_method = stacking_method)
+    rev_data <- prepare_interval_data(
+      ts %>%
+        filter(revision == !!revision) %>%
+        left_join(gtap_xwalk, by = c('hts10' = 'hs10')) %>%
+        mutate(gtap_code = coalesce(gtap_code, 'unmapped')),
+      sub_start, policy_params, stacking_method, stacking = 'always')
     n_products_rev <- n_distinct(rev_data$hts10)
     row <- rev_data %>%
       group_by(gtap_code) %>%
@@ -282,12 +314,12 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
         n_products_total = n_products_rev
       )
     if (has_weights) {
-      wt_data <- ts_weighted %>%
-        filter(revision == !!revision) %>%
-        left_join(gtap_xwalk, by = c('hts10' = 'hs10')) %>%
-        mutate(gtap_code = coalesce(gtap_code, 'unmapped'))
-      wt_data <- apply_expiry_zeroing(wt_data, sub_start, policy_params)
-      wt_data <- apply_stacking_rules(wt_data, stacking_method = stacking_method)
+      wt_data <- prepare_interval_data(
+        ts_weighted %>%
+          filter(revision == !!revision) %>%
+          left_join(gtap_xwalk, by = c('hts10' = 'hs10')) %>%
+          mutate(gtap_code = coalesce(gtap_code, 'unmapped')),
+        sub_start, policy_params, stacking_method, stacking = 'always')
       wt_sector <- wt_data %>%
         group_by(gtap_code) %>%
         summarise(
