@@ -134,15 +134,20 @@ expiry_boundaries <- function(policy_params) {
 # by EXACTLY ONE mechanism:
 #   - mint  (this module): boundaries the calc re-resolves on recompute — Ch99
 #     effective_date_offsets, IEEPA invalidation (06 `>= until` gate), §232
-#     country-exemption expiries (authority_adapter `rev_date < expiry` gate).
-#   - downstream zeroing (09 + helpers.R apply_expiry_zeroing): the SECTION_122 /
-#     SWISS expiries. These are NOT minted. SECTION_122's calc gate IS equivalent
-#     to the zeroing (06 `effective_date <= expiry_date`), but the SWISS revert is
-#     NOT: apply_expiry_zeroing drops CH/LI reciprocal to 0 (the pre-floor
-#     surcharge is not stored in the snapshot), whereas a recompute would revert to
-#     the underlying surcharge. They genuinely differ, so the expiries stay with
-#     the downstream zeroing. discover_boundaries therefore SUBTRACTS
-#     expiry_boundaries() from the config set. See tests/test_mint_equals_zeroing.R.
+#     country-exemption expiries (authority_adapter `rev_date < expiry` gate), and
+#     (since 2026-06-25) the SECTION_122 sunset. S122's calc gate (06 `effective_date
+#     <= expiry_date`) re-resolves rate_s122 = 0 on recompute, so a mint EQUALS the
+#     old downstream zeroing (tests/test_mint_equals_zeroing.R) — but unlike zeroing
+#     it reaches the published snapshot panel that tariff-model reads. So it moved
+#     to minting: collect_schedule_boundaries() carries it, expiry_boundaries() no
+#     longer lists it (so it is not subtracted below), and boundary_overrides anchors
+#     it explicitly.
+#   - downstream zeroing (09 + helpers.R apply_expiry_zeroing): the SWISS expiry
+#     ONLY. NOT minted: a Swiss recompute reverts CH/LI to the underlying pre-floor
+#     surcharge (not stored in the snapshot), whereas apply_expiry_zeroing drops it
+#     to 0 — they genuinely differ. discover_boundaries therefore SUBTRACTS
+#     expiry_boundaries() (now SWISS-only) from the config set. See
+#     tests/test_mint_equals_zeroing.R.
 
 #' Discover the mintable boundary set for a build.
 #'
@@ -237,9 +242,10 @@ discover_boundaries <- function(rev_dates, snapshot_dir = NULL, policy_params = 
   }
 
   # (b) Config boundaries the CALC re-resolves on recompute: collect_schedule_
-  #     boundaries() minus the SECTION_122 / SWISS expiries (handled downstream;
-  #     see mutual-exclusion note above). Today this leaves the IEEPA invalidation
-  #     date (+ any spec active windows, none populated).
+  #     boundaries() minus the SWISS expiry only (still handled downstream; see
+  #     mutual-exclusion note above). Today this leaves the IEEPA invalidation date,
+  #     the SECTION_122 sunset (now minted), and the Swiss effective date (+ any
+  #     spec active windows, none populated).
   cfg <- collect_schedule_boundaries(policy_params = policy_params, specs = specs)
   cfg <- setdiff(as.Date(cfg), expiry_boundaries(policy_params))
   for (d in cfg) add_rec(as.Date(d, origin = '1970-01-01'), owner_of(as.Date(d, origin = '1970-01-01')),

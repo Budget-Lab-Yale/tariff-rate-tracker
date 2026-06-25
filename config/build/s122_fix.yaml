@@ -1,0 +1,18 @@
+# S122-sunset-fix build — actual + new_301, validating the 2026-06-25 fix that
+# mints the §122 sunset (2026-07-24) into the snapshot panel instead of zeroing it
+# daily-only. Builds a fresh vintage and VERIFIES it, but does NOT move `latest`
+# (production 2026-06-23-10 stays put until the corrected vintage is reviewed and
+# `latest` is repointed deliberately).
+#   bash scripts/submit_build_array.sh --config config/build/s122_fix.yaml
+
+model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker
+policy_params_path: config/policy_params.yaml
+
+scenarios:
+  - new_301
+
+use_hts_dates: false
+weight_mode: required
+update_latest: false        # review the corrected vintage before repointing latest
+allow_partial: false
+verify: true                # finalize runs scripts/verify_build.R against the vintage

@@ -133,3 +133,85 @@ stopifnot(
   sum(x$imports) > 2e12  # 2024 consumption imports are ~$3.1T
 )
 ```
+
+---
+
+# Published panel-keyed import weights (`<vintage>/weights/`)
+
+The file above (`hs10_by_country_gtap_2024_con.rds`) is keyed on the HTS
+statistical-suffix vintage that *traded in 2024*. The published rate panel is
+enumerated from the *current* HTS revision. USITC/Census split, merge, and
+renumber 10th-digit suffixes between vintages, so a chunk of 2024 import value
+sits on retired 10-digit codes with no exact match in the current panel
+(~5.2% / ~$164B against the current vintage). A downstream model that wants to
+import-weight the rate panel up to GTAP/BEA can't join the two cleanly.
+
+So each published vintage also ships an import-weight base **re-keyed to the
+tracker's own current HTS10 universe**, under `<vintage>/weights/`:
+
+| File | Contents |
+|---|---|
+| `import_weights_hs10_country.parquet` | the weight base (primary) |
+| `import_weights_hs10_country.csv.gz` | identical rows, CSV fallback |
+| `hts10_revision_crosswalk.csv` | the forward map applied to retired codes (audit / reuse) |
+
+`import_weights_hs10_country.parquet` schema:
+
+| Column | Type | Description |
+|---|---|---|
+| `hts10` | chr | 10-digit code, drawn from the **current** rate-panel vintage |
+| `country` | chr | 4-digit U.S. Census `cty_code` — same code system as the rate panel's `country` |
+| `imports` | dbl | 2024 customs-value imports, **raw USD** |
+| `import_value_year` | int | `2024` |
+| `hts_vintage` | chr | revision the codes are keyed to (the latest interval's revision) |
+
+No GTAP/BEA codes are added — that bucketing stays on the consumer's side by
+design. Zero-import panel pairs are omitted (a consumer treats a missing pair
+as weight 0).
+
+## The forward-map
+
+Built by `src/build_panel_import_weights.R`, called automatically from
+`src/publish_internal.R` for every vintage. It is deterministic:
+
+1. **Target universe = the current vintage's codes** — the *latest* interval's
+   HS10 set (`current_panel_codes()`), i.e. "the current HTS codes". A vintage
+   is a time series of snapshots whose code set drifts as suffixes renumber, so
+   the union of all intervals is *not* a single point in time; only the tip is.
+2. Every 2024 code that **exists** in that universe is kept verbatim.
+3. Every 2024 code that **doesn't** (a retired suffix) has its value
+   redistributed onto the panel codes sharing its longest common HTS prefix —
+   **HS8 heading first**, then HS6 subheading, HS4 heading, HS2 chapter, and a
+   whole-panel split as a last resort. Within a prefix group the split is
+   proportional to each target's own directly-matched 2024 value (the suffixes
+   that actually absorb the trade); even split if none traded. Country is
+   preserved throughout.
+
+This **conserves the dollar total exactly** (orphan value is moved, never
+dropped) and guarantees **every output code is in the current panel**. Against
+the live current vintage: 94.75% of value matches exactly, ~99.8% recovers at
+the HS8 heading, and the cascade lands the remainder within the correct
+chapter — so the rollup joins the current rate panel **100%** on
+`(hts10, country)`. Older intervals match ≥99.6% (their codes predate later
+renumbering — inherent to one frozen 2024 base, not a defect).
+
+`hts10_revision_crosswalk.csv` (`old_hts10, new_hts10, split_weight, level`)
+records only the remapped (retired) codes; `split_weight` sums to 1 per
+`old_hts10`. Codes absent from it mapped to themselves. A consumer can apply it
+to its own copy of the 2024 base to reproduce the re-keying.
+
+## (Re)building for an already-published vintage
+
+`publish_internal.R` emits `weights/` on every publish, but you can (re)build it
+against an existing published vintage without a rebuild:
+
+```bash
+module load R/4.4.2-gfbf-2024a
+Rscript src/build_panel_import_weights.R \
+    --vintage-dir /nfs/.../Tariff-Rate-Tracker/latest
+# --base <rds>  override the 2024 base (default: auto-detect data/weights/)
+# --out-dir <dir>  default <vintage-dir>/weights ; --dry-run to validate only
+```
+
+The builder hard-fails if value is not conserved or any output code falls
+outside the panel, so a bad run can't publish silently.
