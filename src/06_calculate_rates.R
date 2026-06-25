@@ -980,6 +980,564 @@ ensure_dense_grid <- function(rates, products, countries, context = 'MFN-only') 
 #'   blob] / fentanyl_rates) from it via *_from_specs(). (Plank 7: the specs-less
 #'   dual signature is retired — the calc no longer accepts bespoke rate args.)
 #' @return Tibble with rate columns + revision, effective_date, usmca_eligible
+# =============================================================================
+# Pipeline step functions for calculate_rates_for_revision()
+# -----------------------------------------------------------------------------
+# Each function below is one named step of the per-revision rate pipeline,
+# extracted verbatim from the former monolithic body so the driver reads as a
+# short sequence of named stages. Bodies are unchanged — the refactor is
+# behavior-preserving and parity-gated (Phase 1a). Steps that only transform the
+# `rates` table take it as the first argument and return it; the §232 cluster
+# returns a small bag of locals consumed by the later USMCA step.
+# =============================================================================
+
+# --- Step 6b: Section 122 blanket tariff -------------------------------------
+apply_section122 <- function(rates, specs, pp, products, countries, effective_date) {
+  # 6b. Apply Section 122 blanket tariff (non-discriminatory, all countries)
+  #     Section 122 (Trade Act of 1974) is a uniform tariff applied after SCOTUS
+  #     invalidated IEEPA. Product exemptions from Annex II list; 232 mutual
+  #     exclusion handled by apply_stacking_rules().
+  #     Section 122 has a 150-day statutory limit; gate on expiry unless finalized.
+  # Plank 3: Section 122 is de-blobbed — the rate lives in the spec's compositional
+  # rate$default layer; the calc READS it via resolve_rate() (value > 0 is the
+  # has_s122 gate, matching the old blob's has_s122 ≡ rate>0).
+  s122_value <- resolve_rate(specs[['section_122']]$programs[[1]]$rate)$value
+  s122_rates <- if (isTRUE(s122_value > 0)) list(s122_rate = s122_value, has_s122 = TRUE)
+                else                        list(s122_rate = 0,          has_s122 = FALSE)
+
+  s122_in_force <- TRUE
+  if (!is.null(pp$SECTION_122) && !pp$SECTION_122$finalized) {
+    s122_in_force <- (as.Date(effective_date) >= pp$SECTION_122$effective_date &&
+                      as.Date(effective_date) <= pp$SECTION_122$expiry_date)
+  }
+
+  if (s122_rates$has_s122 && !s122_in_force) {
+    message('  Section 122 expired (', pp$SECTION_122$expiry_date, ') — not applied')
+  }
+
+  if (s122_rates$has_s122 && s122_in_force) {
+    s122_rate <- s122_rates$s122_rate
+
+    # Product exemptions (Annex II) — read from the spec (Pass-1.5; the adapter
+    # bakes section_122$programs[[1]]$exempt_products$hts8). Masking stays below.
+    s122_exempt_hts8 <- specs[['section_122']]$programs[[1]]$exempt_products$hts8 %||% character(0)
+    if (length(s122_exempt_hts8) > 0) {
+      message('  Section 122 exempt products: ', length(s122_exempt_hts8), ' HTS8 codes')
+    }
+
+    # Set rate_s122 for all existing rows
+    rates <- rates %>%
+      mutate(
+        rate_s122 = if_else(
+          substr(hts10, 1, 8) %in% s122_exempt_hts8,
+          0, s122_rate
+        )
+      )
+
+    # Add s122-only rows for products not yet in rates
+    s122_country_rates <- tibble(
+      country = countries,
+      blanket_rate = s122_rate
+    )
+    # All products are covered (non-exempt)
+    non_exempt_hts10 <- products %>%
+      filter(!substr(hts10, 1, 8) %in% s122_exempt_hts8) %>%
+      pull(hts10)
+    rates <- add_blanket_pairs(rates, products, non_exempt_hts10, s122_country_rates,
+                               'rate_s122', 'Section 122 duties')
+
+    n_with_s122 <- sum(rates$rate_s122 > 0)
+    message('  Section 122: ', round(s122_rate * 100), '% on ',
+            n_with_s122, ' product-country pairs (',
+            length(s122_exempt_hts8), ' HTS8 exempt)')
+  }
+
+  rates
+}
+
+# --- Step 6b-fl: Section 301 forced-labor duties (scenario) ------------------
+apply_section301_forced_labor <- function(rates, specs, products, countries) {
+  # 6b-fl. Apply Section 301 forced-labor duties (SCENARIO authority).
+  #     Per-country two tiers (10% / 12.5%) on ALL products of the in-scope
+  #     economies EXCEPT the Annex A exclusion list (hts8). Stacks like the
+  #     reciprocal/§122 — content_split (displaced by §232) + USMCA-eligible
+  #     (applied in step 7 + apply_stacking_rules). The authority is built only
+  #     when the merged config carries `section_301_forced_labor`
+  #     (config/scenarios/forced_labor/) AND is DATE-GATED to >= effective_date,
+  #     so by_country is empty in baseline / pre-turn-on revisions and rate_s301fl
+  #     stays all-zero; the all-zero column is DROPPED before return (see end of
+  #     function), keeping baseline byte-identical with no RATE_SCHEMA change.
+  fl_spec <- specs[['section_301_forced_labor']]
+  fl_by_country <- if (is.null(fl_spec)) numeric(0) else {
+    bc <- .rate_get(fl_spec$programs[[1]]$rate, 'by_country')
+    if (.rate_is_hollow(bc)) numeric(0) else bc
+  }
+  rates$rate_s301fl <- 0   # present for the USMCA step; dropped at end if all-zero
+  if (length(fl_by_country) > 0) {
+    fl_exempt_hts8 <- fl_spec$programs[[1]]$exempt_products$hts8 %||% character(0)
+    fl_scope <- intersect(names(fl_by_country), countries)
+    fl_tbl <- tibble(country = names(fl_by_country),
+                     .fl_rate = unname(as.numeric(fl_by_country)))
+    rates <- rates %>%
+      left_join(fl_tbl, by = 'country', relationship = 'many-to-one') %>%
+      mutate(rate_s301fl = if_else(
+        !is.na(.fl_rate) & !(substr(hts10, 1, 8) %in% fl_exempt_hts8),
+        .fl_rate, 0)) %>%
+      select(-.fl_rate)
+    # Seed all-products pairs for in-scope economies (blanket), excluding Annex A.
+    fl_country_rates <- tibble(country = fl_scope,
+                               blanket_rate = unname(as.numeric(fl_by_country[fl_scope])))
+    fl_non_exempt_hts10 <- products %>%
+      filter(!substr(hts10, 1, 8) %in% fl_exempt_hts8) %>% pull(hts10)
+    rates <- add_blanket_pairs(rates, products, fl_non_exempt_hts10, fl_country_rates,
+                               'rate_s301fl', 'Section 301 forced labor')
+    message('  Section 301 forced labor: 10%/12.5% on ', sum(rates$rate_s301fl > 0),
+            ' product-country pairs across ', length(fl_scope), ' economies (',
+            length(fl_exempt_hts8), ' Annex A HTS8 exempt)')
+  }
+
+  rates
+}
+
+# --- Step 6b-br: Section 301 Brazil duties (scenario) ------------------------
+apply_section301_brazil <- function(rates, specs, products, countries) {
+  # 6b-br. Apply Section 301 Brazil duties (SCENARIO authority). 25% on ALL goods
+  #     of Brazil (census 3510) EXCEPT the Annex exclusion list (hts8). Stacks
+  #     ADDITIVELY with the forced-labor §301 (both are distinct §301 authorities;
+  #     §301 is statutorily "in addition to" — neither FR notice carves out the
+  #     other). content_split (displaced by §232 via nonmetal_share in stacking —
+  #     this implements the notice's hard §232 carve-out, incl. autos/MHD which
+  #     get nonmetal_share=0). usmca 'none' (Brazil isn't USMCA), so NO USMCA-share
+  #     reduction is applied below (Brazil rows are never CA/MX anyway). Built only
+  #     when the merged config carries `section_301_brazil` (config/scenarios/new_301/)
+  #     AND date-gated to >= effective_date; rate_s301br stays all-zero otherwise and
+  #     the column is DROPPED before return — baseline byte-identical, no schema change.
+  br_spec <- specs[['section_301_brazil']]
+  br_by_country <- if (is.null(br_spec)) numeric(0) else {
+    bc <- .rate_get(br_spec$programs[[1]]$rate, 'by_country')
+    if (.rate_is_hollow(bc)) numeric(0) else bc
+  }
+  rates$rate_s301br <- 0   # present for stacking; dropped at end if all-zero
+  if (length(br_by_country) > 0) {
+    br_exempt_hts8 <- br_spec$programs[[1]]$exempt_products$hts8 %||% character(0)
+    br_scope <- intersect(names(br_by_country), countries)
+    br_tbl <- tibble(country = names(br_by_country),
+                     .br_rate = unname(as.numeric(br_by_country)))
+    rates <- rates %>%
+      left_join(br_tbl, by = 'country', relationship = 'many-to-one') %>%
+      mutate(rate_s301br = if_else(
+        !is.na(.br_rate) & !(substr(hts10, 1, 8) %in% br_exempt_hts8),
+        .br_rate, 0)) %>%
+      select(-.br_rate)
+    # Seed all-products pairs for in-scope economies (blanket), excluding the Annex.
+    br_country_rates <- tibble(country = br_scope,
+                               blanket_rate = unname(as.numeric(br_by_country[br_scope])))
+    br_non_exempt_hts10 <- products %>%
+      filter(!substr(hts10, 1, 8) %in% br_exempt_hts8) %>% pull(hts10)
+    rates <- add_blanket_pairs(rates, products, br_non_exempt_hts10, br_country_rates,
+                               'rate_s301br', 'Section 301 Brazil')
+    message('  Section 301 Brazil: 25% on ', sum(rates$rate_s301br > 0),
+            ' product-country pairs across ', length(br_scope), ' economies (',
+            length(br_exempt_hts8), ' Annex HTS8 exempt)')
+  }
+
+  rates
+}
+
+# --- Step 6b1: Section 201 safeguard (solar) ---------------------------------
+apply_section201 <- function(rates, ch99_data, specs, pp, products, countries) {
+  # 6b1. Apply Section 201 (Trade Act §201 safeguard) tariffs.
+  #      Currently models Solar 201 (Proc 9693 + Proc 10454, 9903.45.21–.25)
+  #      on CSPV cells/modules. The 201 rate stacks on top of MFN, separate
+  #      from 232/301/IEEPA. Canada is exempt under USMCA. Per-product
+  #      coverage is in resources/s201_solar_products.csv.
+  s201_results <- extract_section_201_rates(ch99_data, policy_params = pp)
+  if (s201_results$has_s201) {
+    s201_path <- here('resources', 's201_solar_products.csv')
+    if (!file.exists(s201_path)) {
+      message('  WARNING: s201_solar_products.csv not found — Section 201 rate not applied')
+    } else {
+      s201_products <- read_csv(s201_path,
+                                 col_types = cols(hts10 = col_character()))
+      solar_rate <- s201_results$solar_rate
+      # Plank 2: Section 201 country scope is data, not a Canada hardcode. The spec
+      # carries country_scope = {include: all, exclude: Canada}, which
+      # resolve_country_scope() turns into setdiff(countries, Canada). A scenario
+      # re-scopes/disables it via scenario_ops (section_201 is SCOPE_DRIVEN).
+      s201_country_codes <- resolve_country_scope(specs[['section_201']]$programs[[1]]$country_scope, countries)
+
+      # Set rate_section_201 for existing rows
+      rates <- rates %>%
+        mutate(
+          rate_section_201 = if_else(
+            hts10 %in% s201_products$hts10 & country %in% s201_country_codes,
+            solar_rate, rate_section_201
+          )
+        )
+
+      # Add 201-only rows for products not yet in rates
+      s201_country_rates <- tibble(
+        country = s201_country_codes,
+        blanket_rate = solar_rate
+      )
+      rates <- add_blanket_pairs(rates, products, s201_products$hts10, s201_country_rates,
+                                  'rate_section_201', 'Section 201 (solar)')
+
+      n_with_s201 <- sum(rates$rate_section_201 > 0)
+      message('  Section 201 (solar): ', round(solar_rate * 100, 1), '% on ',
+              n_with_s201, ' product-country pairs (',
+              nrow(s201_products), ' HTS10 covered, Canada exempt)')
+    }
+  }
+
+  rates
+}
+
+# --- Step 6: Section 301 blanket + USTR exclusions ---------------------------
+apply_section301 <- function(rates, specs, pp, ch99_data, products, countries, effective_date) {
+  # 6. Apply Section 301 as blanket tariff for China
+  #     301 products are defined by US Note 20/21/31 product lists (Federal Register).
+  #     Like 232, these are NOT referenced via product footnotes for most products.
+  #     Source: USITC "China Tariffs" reference document (hts.usitc.gov).
+  #
+  #     Scope note: This blanket step is intentionally limited to the China
+  #     Section 301 product lists maintained in resources/s301_product_lists.csv.
+  #     It does not use 9903.89.xx, which belongs to the separate large civil
+  #     aircraft dispute with the EU/UK and is assumed suspended from 2021 onward
+  #     for the current series horizon.
+  s301_products_path <- here('resources', 's301_product_lists.csv')
+  if (!file.exists(s301_products_path)) {
+    stop('s301_product_lists.csv not found at ', s301_products_path,
+         '\nSection 301 is a major tariff authority — cannot build without product lists.')
+  }
+  s301_products <- read_csv(s301_products_path, col_types = cols(
+      hts8 = col_character(), list = col_character(), ch99_code = col_character()
+    ))
+
+    # Get active 301 ch99 codes from this revision's Ch99 data
+    # Use SECTION_301_RATES config for reliable rate values
+    s301_rate_lookup <- if (!is.null(pp)) {
+      pp$SECTION_301_RATES
+    } else {
+      tibble(ch99_pattern = character(), s301_rate = numeric())
+    }
+
+    # Filter to 301 codes present in this revision's Ch99 data, excluding any
+    # that are marked as suspended (e.g. 9903.88.16 List 4B since rev_4).
+    # The HTS JSON retains suspended entries with their original rate but adds
+    # "[Compiler's note: provision suspended.]" to the description.
+    active_301_codes <- ch99_data %>%
+      filter(ch99_code %in% s301_rate_lookup$ch99_pattern) %>%
+      filter(!grepl('provision suspended', description, ignore.case = TRUE)) %>%
+      pull(ch99_code) %>%
+      unique()
+
+    suspended_301 <- setdiff(
+      ch99_data$ch99_code[ch99_data$ch99_code %in% s301_rate_lookup$ch99_pattern],
+      active_301_codes
+    )
+    if (length(suspended_301) > 0) {
+      message('  Section 301: excluding suspended codes: ',
+              paste(suspended_301, collapse = ', '))
+    }
+
+    # A2: split the active 301 codes into the two stacking flavors. Codes named in
+    # config `section_301_content_split_codes` ride rate_301_cs (content_split —
+    # yields to a 232 like the reciprocal/122); everything else stays legacy-additive
+    # rate_301. EMPTY list (baseline) => cs set empty => add set == active_301_codes
+    # => the rate_301 path below is byte-identical and rate_301_cs stays 0. A code is
+    # in exactly one bucket, so the two flavors never double-count the SAME code (two
+    # different codes mapping to one hts8 can legitimately stack both, per "China can
+    # be subject to both").
+    cs_301_codes_cfg <- as.character(pp$section_301_content_split_codes %||% character(0))
+    cs_301_codes  <- intersect(active_301_codes, cs_301_codes_cfg)
+    add_301_codes <- setdiff(active_301_codes, cs_301_codes_cfg)
+    if (length(cs_301_codes) > 0) {
+      message('  Section 301: content-split flavor for ', length(cs_301_codes),
+              ' code(s): ', paste(cs_301_codes, collapse = ', '))
+    }
+
+    if (length(active_301_codes) > 0) {
+      # HTS8 -> 301 (additive) rate tier: MAX(s301_rate) per hts8 across the active
+      # additive codes (supersession — for the 8 products on both Trump 9903.88.xx and
+      # Biden 9903.91.xx lists, Biden >= Trump, so MAX picks the superseding rate).
+      #
+      # Plank 1: the BUILD resolves this tier in the adapter and parks it on the spec's
+      # by_product_tier; we READ it back here via resolve_rate's by_product_tier layer.
+      # The `is.numeric(s301_tier)` ternary below keeps the inline recompute arm for the
+      # 'from_list' rate sentinel — a STATE, not a signature, concern (it is 0-row in
+      # baseline and short-circuited by the nrow() > 0 guard), so Plank 7 leaves it.
+      s301_tier <- specs[['section_301']]$programs[[1]]$rate$by_product_tier
+      s301_lookup <- if (is.numeric(s301_tier) && length(s301_tier) && !is.null(names(s301_tier))) {
+        tibble(hts8 = names(s301_tier), blanket_301 = as.numeric(s301_tier))
+      } else {
+        s301_products %>%
+          filter(ch99_code %in% add_301_codes) %>%
+          inner_join(
+            s301_rate_lookup,
+            by = c('ch99_code' = 'ch99_pattern')
+          ) %>%
+          group_by(hts8) %>%
+          summarise(blanket_301 = max(s301_rate), .groups = 'drop')
+      }
+
+      if (nrow(s301_lookup) > 0) {
+        # Phase 2e: Section 301 country scope is data, not a China hardcode.
+        # scope_301 comes from the spec (defaults to {China} → byte-identical to
+        # the old `country == CTY_CHINA`); a scenario can re-scope it (301 → VN).
+        scope_301 <- resolve_country_scope(specs[['section_301']]$programs[[1]]$country_scope, countries)
+
+        # Update rate_301 for in-scope product-country pairs; ZERO it out of scope.
+        # Out-of-scope was already 0 (no non-China seed), so baseline is unchanged
+        # — and the explicit zero lets the stacker key on rate_301 > 0 instead of
+        # `country == china` (see stacking.R), which is what makes re-scoping work.
+        rates <- rates %>%
+          mutate(hts8 = substr(hts10, 1, 8)) %>%
+          left_join(s301_lookup, by = 'hts8', relationship = 'many-to-one') %>%
+          mutate(
+            blanket_301 = coalesce(blanket_301, 0),
+            rate_301 = if_else(
+              country %in% scope_301,
+              pmax(rate_301, blanket_301),
+              0
+            )
+          ) %>%
+          select(-hts8, -blanket_301)
+
+        # Add 301-only rows for in-scope products NOT yet in rates (products with
+        # no other Ch99 duties but subject to 301). Phase 2e: generalized to every
+        # country in scope_301. Looping per-country keeps the baseline ({China})
+        # result BYTE-IDENTICAL (one iteration, original setdiff order) while a
+        # re-scope scenario (301 -> Vietnam) seeds 301-only rows for new countries.
+        s301_hts8_codes <- s301_lookup$hts8
+        s301_hts10 <- products %>%
+          mutate(hts8 = substr(hts10, 1, 8)) %>%
+          filter(hts8 %in% s301_hts8_codes) %>%
+          pull(hts10)
+
+        new_301_pairs <- bind_rows(lapply(scope_301, function(.ctry) {
+          existing_ctry <- rates %>% filter(country == .ctry) %>% pull(hts10)
+          new_products <- setdiff(s301_hts10, existing_ctry)
+          if (length(new_products) == 0) return(NULL)
+          products %>%
+            filter(hts10 %in% new_products) %>%
+            select(hts10, base_rate) %>%
+            mutate(
+              base_rate = coalesce(base_rate, 0),
+              hts8 = substr(hts10, 1, 8),
+              country = .ctry
+            ) %>%
+            left_join(s301_lookup, by = 'hts8', relationship = 'many-to-one') %>%
+            mutate(
+              rate_232 = 0, rate_301_cs = 0, rate_ieepa_recip = 0,
+              rate_ieepa_fent = 0, rate_s122 = 0, rate_section_201 = 0, rate_other = 0,
+              rate_301 = coalesce(blanket_301, 0)
+            ) %>%
+            filter(rate_301 > 0) %>%
+            select(-hts8, -blanket_301)
+        }))
+
+        if (nrow(new_301_pairs) > 0) {
+          message('  Adding ', nrow(new_301_pairs),
+                  ' product-country pairs for 301-only duties')
+          rates <- bind_rows(rates, new_301_pairs)
+        }
+
+        n_301_total <- sum(rates$rate_301 > 0)
+        message('  Section 301 blanket: ', nrow(s301_lookup), ' HTS8 codes, ',
+                n_301_total, ' product-country pairs with 301 rate')
+      }
+
+      # --- A2: content-split 301 flavor (rate_301_cs) --------------------------
+      # Mirror of the additive block above, writing rate_301_cs (content_split).
+      # DORMANT in baseline (cs_301_codes empty => skipped => byte-identical). When
+      # codes are classified in, rate_301_cs rises here, is scaled by USMCA in step 7
+      # (both 301 columns), and is displaced by a 232 via nonmetal_share in stacking
+      # — exactly the reciprocal/122 content-split behavior.
+      if (length(cs_301_codes) > 0) {
+        s301_cs_lookup <- s301_products %>%
+          filter(ch99_code %in% cs_301_codes) %>%
+          inner_join(s301_rate_lookup, by = c('ch99_code' = 'ch99_pattern')) %>%
+          group_by(hts8) %>%
+          summarise(blanket_301_cs = max(s301_rate), .groups = 'drop')
+
+        if (nrow(s301_cs_lookup) > 0) {
+          # Same spec-driven scope as the additive flavor (set_country_scope on
+          # section_301 re-scopes both); defaults to {China}.
+          scope_301_cs <- resolve_country_scope(specs[['section_301']]$programs[[1]]$country_scope, countries)
+
+          rates <- rates %>%
+            mutate(hts8 = substr(hts10, 1, 8)) %>%
+            left_join(s301_cs_lookup, by = 'hts8', relationship = 'many-to-one') %>%
+            mutate(
+              blanket_301_cs = coalesce(blanket_301_cs, 0),
+              rate_301_cs = if_else(
+                country %in% scope_301_cs,
+                pmax(rate_301_cs, blanket_301_cs),
+                0
+              )
+            ) %>%
+            select(-hts8, -blanket_301_cs)
+
+          s301_cs_hts8_codes <- s301_cs_lookup$hts8
+          s301_cs_hts10 <- products %>%
+            mutate(hts8 = substr(hts10, 1, 8)) %>%
+            filter(hts8 %in% s301_cs_hts8_codes) %>%
+            pull(hts10)
+
+          new_301_cs_pairs <- bind_rows(lapply(scope_301_cs, function(.ctry) {
+            existing_ctry <- rates %>% filter(country == .ctry) %>% pull(hts10)
+            new_products <- setdiff(s301_cs_hts10, existing_ctry)
+            if (length(new_products) == 0) return(NULL)
+            products %>%
+              filter(hts10 %in% new_products) %>%
+              select(hts10, base_rate) %>%
+              mutate(
+                base_rate = coalesce(base_rate, 0),
+                hts8 = substr(hts10, 1, 8),
+                country = .ctry
+              ) %>%
+              left_join(s301_cs_lookup, by = 'hts8', relationship = 'many-to-one') %>%
+              mutate(
+                rate_232 = 0, rate_301 = 0, rate_ieepa_recip = 0,
+                rate_ieepa_fent = 0, rate_s122 = 0, rate_section_201 = 0, rate_other = 0,
+                rate_301_cs = coalesce(blanket_301_cs, 0)
+              ) %>%
+              filter(rate_301_cs > 0) %>%
+              select(-hts8, -blanket_301_cs)
+          }))
+
+          if (nrow(new_301_cs_pairs) > 0) {
+            message('  Adding ', nrow(new_301_cs_pairs),
+                    ' product-country pairs for content-split 301 duties')
+            rates <- bind_rows(rates, new_301_cs_pairs)
+          }
+        }
+      }
+    }
+
+  # 6a-excl. Section 301 USTR exclusion headings (e.g. 9903.88.69). These
+  #     headings carry NO rate ("The duty provided in the applicable
+  #     subheading") and EXCLUDE the referencing product from §301 duties
+  #     while their window is in force. The NA rate drops them from the
+  #     footnote-rate join in calculate_rates_fast(), so without this step
+  #     the engine charges full §301 mid-exclusion (todo.md §"§301 exclusion
+  #     headings"). The registry CSV names known exclusion headings +
+  #     coverage_share; the validity window comes from THIS revision's own
+  #     heading text (windows are recomputed from the description right here,
+  #     so the step is immune to ch99_<rev>.rds caches that predate the
+  #     expiry_date_offset column), with the CSV's validity_start/_end as
+  #     curator overrides. Phase 1: coverage_share = 1.0 full-line zeroing,
+  #     the flagged UPPER BOUND on the correction (exclusions are product-
+  #     description-scoped and usually cover a slice of an HTS10 line);
+  #     Phase 2 replaces it with IMDB-realized exclusion claim shares.
+  excl_cfg <- pp$section_301_exclusions
+  if (!is.null(excl_cfg)) {
+    excl_path <- here(excl_cfg$headings_file %||% 'resources/s301_exclusion_headings.csv')
+    if (!file.exists(excl_path)) {
+      stop('section_301_exclusions configured but headings file not found: ',
+           excl_path)
+    }
+    excl_registry <- suppressMessages(read_csv(excl_path, col_types = cols(
+      ch99_code = col_character(), validity_start = col_date(),
+      validity_end = col_date(), coverage_share = col_double(),
+      .default = col_character()
+    )))
+
+    eff_d <- as.Date(effective_date)
+    active_excl <- ch99_data %>%
+      filter(ch99_code %in% excl_registry$ch99_code) %>%
+      mutate(
+        win_start = as.Date(vapply(description, function(d)
+          as.character(extract_effective_date_offset(d)), character(1),
+          USE.NAMES = FALSE)),
+        win_end = as.Date(vapply(description, function(d)
+          as.character(extract_expiry_date_offset(d)), character(1),
+          USE.NAMES = FALSE))
+      ) %>%
+      distinct(ch99_code, win_start, win_end) %>%
+      inner_join(excl_registry, by = 'ch99_code') %>%
+      mutate(
+        win_start = coalesce(validity_start, win_start),
+        win_end   = coalesce(validity_end,   win_end)
+      ) %>%
+      filter(coverage_share > 0,
+             is.na(win_start) | win_start <= eff_d,
+             is.na(win_end)   | eff_d <= win_end)
+
+    if (nrow(active_excl) > 0) {
+      excl_shares <- products %>%
+        select(hts10, ch99_refs) %>%
+        unnest(ch99_refs) %>%
+        rename(ch99_code = ch99_refs) %>%
+        inner_join(active_excl %>% select(ch99_code, coverage_share),
+                   by = 'ch99_code') %>%
+        group_by(hts10) %>%
+        summarise(excl_coverage = max(coverage_share), .groups = 'drop')
+
+      # Optional per-HTS10 refinement (Phase-2 calibration): when
+      # section_301_exclusions.line_coverage_file is configured, lines present
+      # in the file use their measured coverage_share instead of the heading
+      # value; affected lines absent from the file keep the heading value.
+      # Scope is unchanged — the file only ever OVERRIDES coverage for lines
+      # that already reference an in-window heading, so out-of-window dates
+      # are untouched. Absent config key = dormant (heading-level only).
+      # Provenance: src/calibrate_s301_exclusions.R,
+      # docs/s301_exclusion_calibration.md.
+      if (!is.null(excl_cfg$line_coverage_file)) {
+        line_cov_path <- here(excl_cfg$line_coverage_file)
+        if (!file.exists(line_cov_path)) {
+          stop('section_301_exclusions.line_coverage_file configured but ',
+               'not found: ', line_cov_path)
+        }
+        line_cov <- suppressMessages(read_csv(line_cov_path, col_types = cols(
+          hts10 = col_character(), coverage_share = col_double(),
+          .default = col_character()
+        ))) %>%
+          select(hts10, line_coverage = coverage_share)
+        if (any(is.na(line_cov$line_coverage)) ||
+            any(line_cov$line_coverage < 0) || any(line_cov$line_coverage > 1)) {
+          stop('line_coverage_file has coverage_share outside [0, 1] or NA: ',
+               line_cov_path)
+        }
+        if (any(duplicated(line_cov$hts10))) {
+          stop('line_coverage_file has duplicated hts10 rows: ', line_cov_path)
+        }
+        n_overridden <- sum(excl_shares$hts10 %in% line_cov$hts10)
+        excl_shares <- excl_shares %>%
+          left_join(line_cov, by = 'hts10', relationship = 'one-to-one') %>%
+          mutate(excl_coverage = coalesce(line_coverage, excl_coverage)) %>%
+          select(-line_coverage)
+        message('  Section 301 exclusions: per-line coverage overrides for ',
+                n_overridden, ' of ', nrow(excl_shares), ' affected lines (',
+                basename(line_cov_path), ')')
+      }
+
+      if (nrow(excl_shares) > 0) {
+        n_pairs_before <- sum(rates$rate_301 > 0)
+        rates <- rates %>%
+          left_join(excl_shares, by = 'hts10', relationship = 'many-to-one') %>%
+          mutate(
+            rate_301 = if_else(!is.na(excl_coverage),
+                               rate_301 * (1 - excl_coverage), rate_301),
+            rate_301_cs = if_else(!is.na(excl_coverage),
+                                  rate_301_cs * (1 - excl_coverage), rate_301_cs)
+          ) %>%
+          select(-excl_coverage)
+        message('  Section 301 exclusions: ', nrow(excl_shares),
+                ' products reference ', nrow(active_excl),
+                ' active exclusion heading',
+                if (nrow(active_excl) == 1) '' else 's', ' (',
+                paste(active_excl$ch99_code, collapse = ', '),
+                '); pairs with rate_301 > 0: ', n_pairs_before,
+                ' -> ', sum(rates$rate_301 > 0))
+      }
+    }
+  }
+
+  rates
+}
+
 calculate_rates_for_revision <- function(
   products, ch99_data, usmca,
   countries, revision_id, effective_date,
@@ -2607,527 +3165,20 @@ calculate_rates_for_revision <- function(
     rates$s232_annex <- NA_character_
   }
 
-  # 6. Apply Section 301 as blanket tariff for China
-  #     301 products are defined by US Note 20/21/31 product lists (Federal Register).
-  #     Like 232, these are NOT referenced via product footnotes for most products.
-  #     Source: USITC "China Tariffs" reference document (hts.usitc.gov).
-  #
-  #     Scope note: This blanket step is intentionally limited to the China
-  #     Section 301 product lists maintained in resources/s301_product_lists.csv.
-  #     It does not use 9903.89.xx, which belongs to the separate large civil
-  #     aircraft dispute with the EU/UK and is assumed suspended from 2021 onward
-  #     for the current series horizon.
-  s301_products_path <- here('resources', 's301_product_lists.csv')
-  if (!file.exists(s301_products_path)) {
-    stop('s301_product_lists.csv not found at ', s301_products_path,
-         '\nSection 301 is a major tariff authority — cannot build without product lists.')
-  }
-  s301_products <- read_csv(s301_products_path, col_types = cols(
-      hts8 = col_character(), list = col_character(), ch99_code = col_character()
-    ))
+  # 6 + 6a-excl. Section 301 blanket + USTR exclusions (see apply_section301)
+  rates <- apply_section301(rates, specs, pp, ch99_data, products, countries, effective_date)
 
-    # Get active 301 ch99 codes from this revision's Ch99 data
-    # Use SECTION_301_RATES config for reliable rate values
-    s301_rate_lookup <- if (!is.null(pp)) {
-      pp$SECTION_301_RATES
-    } else {
-      tibble(ch99_pattern = character(), s301_rate = numeric())
-    }
+  # 6b. Apply Section 122 blanket tariff (see apply_section122)
+  rates <- apply_section122(rates, specs, pp, products, countries, effective_date)
 
-    # Filter to 301 codes present in this revision's Ch99 data, excluding any
-    # that are marked as suspended (e.g. 9903.88.16 List 4B since rev_4).
-    # The HTS JSON retains suspended entries with their original rate but adds
-    # "[Compiler's note: provision suspended.]" to the description.
-    active_301_codes <- ch99_data %>%
-      filter(ch99_code %in% s301_rate_lookup$ch99_pattern) %>%
-      filter(!grepl('provision suspended', description, ignore.case = TRUE)) %>%
-      pull(ch99_code) %>%
-      unique()
+  # 6b-fl. Section 301 forced-labor duties (see apply_section301_forced_labor)
+  rates <- apply_section301_forced_labor(rates, specs, products, countries)
 
-    suspended_301 <- setdiff(
-      ch99_data$ch99_code[ch99_data$ch99_code %in% s301_rate_lookup$ch99_pattern],
-      active_301_codes
-    )
-    if (length(suspended_301) > 0) {
-      message('  Section 301: excluding suspended codes: ',
-              paste(suspended_301, collapse = ', '))
-    }
+  # 6b-br. Section 301 Brazil duties (see apply_section301_brazil)
+  rates <- apply_section301_brazil(rates, specs, products, countries)
 
-    # A2: split the active 301 codes into the two stacking flavors. Codes named in
-    # config `section_301_content_split_codes` ride rate_301_cs (content_split —
-    # yields to a 232 like the reciprocal/122); everything else stays legacy-additive
-    # rate_301. EMPTY list (baseline) => cs set empty => add set == active_301_codes
-    # => the rate_301 path below is byte-identical and rate_301_cs stays 0. A code is
-    # in exactly one bucket, so the two flavors never double-count the SAME code (two
-    # different codes mapping to one hts8 can legitimately stack both, per "China can
-    # be subject to both").
-    cs_301_codes_cfg <- as.character(pp$section_301_content_split_codes %||% character(0))
-    cs_301_codes  <- intersect(active_301_codes, cs_301_codes_cfg)
-    add_301_codes <- setdiff(active_301_codes, cs_301_codes_cfg)
-    if (length(cs_301_codes) > 0) {
-      message('  Section 301: content-split flavor for ', length(cs_301_codes),
-              ' code(s): ', paste(cs_301_codes, collapse = ', '))
-    }
-
-    if (length(active_301_codes) > 0) {
-      # HTS8 -> 301 (additive) rate tier: MAX(s301_rate) per hts8 across the active
-      # additive codes (supersession — for the 8 products on both Trump 9903.88.xx and
-      # Biden 9903.91.xx lists, Biden >= Trump, so MAX picks the superseding rate).
-      #
-      # Plank 1: the BUILD resolves this tier in the adapter and parks it on the spec's
-      # by_product_tier; we READ it back here via resolve_rate's by_product_tier layer.
-      # The `is.numeric(s301_tier)` ternary below keeps the inline recompute arm for the
-      # 'from_list' rate sentinel — a STATE, not a signature, concern (it is 0-row in
-      # baseline and short-circuited by the nrow() > 0 guard), so Plank 7 leaves it.
-      s301_tier <- specs[['section_301']]$programs[[1]]$rate$by_product_tier
-      s301_lookup <- if (is.numeric(s301_tier) && length(s301_tier) && !is.null(names(s301_tier))) {
-        tibble(hts8 = names(s301_tier), blanket_301 = as.numeric(s301_tier))
-      } else {
-        s301_products %>%
-          filter(ch99_code %in% add_301_codes) %>%
-          inner_join(
-            s301_rate_lookup,
-            by = c('ch99_code' = 'ch99_pattern')
-          ) %>%
-          group_by(hts8) %>%
-          summarise(blanket_301 = max(s301_rate), .groups = 'drop')
-      }
-
-      if (nrow(s301_lookup) > 0) {
-        # Phase 2e: Section 301 country scope is data, not a China hardcode.
-        # scope_301 comes from the spec (defaults to {China} → byte-identical to
-        # the old `country == CTY_CHINA`); a scenario can re-scope it (301 → VN).
-        scope_301 <- resolve_country_scope(specs[['section_301']]$programs[[1]]$country_scope, countries)
-
-        # Update rate_301 for in-scope product-country pairs; ZERO it out of scope.
-        # Out-of-scope was already 0 (no non-China seed), so baseline is unchanged
-        # — and the explicit zero lets the stacker key on rate_301 > 0 instead of
-        # `country == china` (see stacking.R), which is what makes re-scoping work.
-        rates <- rates %>%
-          mutate(hts8 = substr(hts10, 1, 8)) %>%
-          left_join(s301_lookup, by = 'hts8', relationship = 'many-to-one') %>%
-          mutate(
-            blanket_301 = coalesce(blanket_301, 0),
-            rate_301 = if_else(
-              country %in% scope_301,
-              pmax(rate_301, blanket_301),
-              0
-            )
-          ) %>%
-          select(-hts8, -blanket_301)
-
-        # Add 301-only rows for in-scope products NOT yet in rates (products with
-        # no other Ch99 duties but subject to 301). Phase 2e: generalized to every
-        # country in scope_301. Looping per-country keeps the baseline ({China})
-        # result BYTE-IDENTICAL (one iteration, original setdiff order) while a
-        # re-scope scenario (301 -> Vietnam) seeds 301-only rows for new countries.
-        s301_hts8_codes <- s301_lookup$hts8
-        s301_hts10 <- products %>%
-          mutate(hts8 = substr(hts10, 1, 8)) %>%
-          filter(hts8 %in% s301_hts8_codes) %>%
-          pull(hts10)
-
-        new_301_pairs <- bind_rows(lapply(scope_301, function(.ctry) {
-          existing_ctry <- rates %>% filter(country == .ctry) %>% pull(hts10)
-          new_products <- setdiff(s301_hts10, existing_ctry)
-          if (length(new_products) == 0) return(NULL)
-          products %>%
-            filter(hts10 %in% new_products) %>%
-            select(hts10, base_rate) %>%
-            mutate(
-              base_rate = coalesce(base_rate, 0),
-              hts8 = substr(hts10, 1, 8),
-              country = .ctry
-            ) %>%
-            left_join(s301_lookup, by = 'hts8', relationship = 'many-to-one') %>%
-            mutate(
-              rate_232 = 0, rate_301_cs = 0, rate_ieepa_recip = 0,
-              rate_ieepa_fent = 0, rate_s122 = 0, rate_section_201 = 0, rate_other = 0,
-              rate_301 = coalesce(blanket_301, 0)
-            ) %>%
-            filter(rate_301 > 0) %>%
-            select(-hts8, -blanket_301)
-        }))
-
-        if (nrow(new_301_pairs) > 0) {
-          message('  Adding ', nrow(new_301_pairs),
-                  ' product-country pairs for 301-only duties')
-          rates <- bind_rows(rates, new_301_pairs)
-        }
-
-        n_301_total <- sum(rates$rate_301 > 0)
-        message('  Section 301 blanket: ', nrow(s301_lookup), ' HTS8 codes, ',
-                n_301_total, ' product-country pairs with 301 rate')
-      }
-
-      # --- A2: content-split 301 flavor (rate_301_cs) --------------------------
-      # Mirror of the additive block above, writing rate_301_cs (content_split).
-      # DORMANT in baseline (cs_301_codes empty => skipped => byte-identical). When
-      # codes are classified in, rate_301_cs rises here, is scaled by USMCA in step 7
-      # (both 301 columns), and is displaced by a 232 via nonmetal_share in stacking
-      # — exactly the reciprocal/122 content-split behavior.
-      if (length(cs_301_codes) > 0) {
-        s301_cs_lookup <- s301_products %>%
-          filter(ch99_code %in% cs_301_codes) %>%
-          inner_join(s301_rate_lookup, by = c('ch99_code' = 'ch99_pattern')) %>%
-          group_by(hts8) %>%
-          summarise(blanket_301_cs = max(s301_rate), .groups = 'drop')
-
-        if (nrow(s301_cs_lookup) > 0) {
-          # Same spec-driven scope as the additive flavor (set_country_scope on
-          # section_301 re-scopes both); defaults to {China}.
-          scope_301_cs <- resolve_country_scope(specs[['section_301']]$programs[[1]]$country_scope, countries)
-
-          rates <- rates %>%
-            mutate(hts8 = substr(hts10, 1, 8)) %>%
-            left_join(s301_cs_lookup, by = 'hts8', relationship = 'many-to-one') %>%
-            mutate(
-              blanket_301_cs = coalesce(blanket_301_cs, 0),
-              rate_301_cs = if_else(
-                country %in% scope_301_cs,
-                pmax(rate_301_cs, blanket_301_cs),
-                0
-              )
-            ) %>%
-            select(-hts8, -blanket_301_cs)
-
-          s301_cs_hts8_codes <- s301_cs_lookup$hts8
-          s301_cs_hts10 <- products %>%
-            mutate(hts8 = substr(hts10, 1, 8)) %>%
-            filter(hts8 %in% s301_cs_hts8_codes) %>%
-            pull(hts10)
-
-          new_301_cs_pairs <- bind_rows(lapply(scope_301_cs, function(.ctry) {
-            existing_ctry <- rates %>% filter(country == .ctry) %>% pull(hts10)
-            new_products <- setdiff(s301_cs_hts10, existing_ctry)
-            if (length(new_products) == 0) return(NULL)
-            products %>%
-              filter(hts10 %in% new_products) %>%
-              select(hts10, base_rate) %>%
-              mutate(
-                base_rate = coalesce(base_rate, 0),
-                hts8 = substr(hts10, 1, 8),
-                country = .ctry
-              ) %>%
-              left_join(s301_cs_lookup, by = 'hts8', relationship = 'many-to-one') %>%
-              mutate(
-                rate_232 = 0, rate_301 = 0, rate_ieepa_recip = 0,
-                rate_ieepa_fent = 0, rate_s122 = 0, rate_section_201 = 0, rate_other = 0,
-                rate_301_cs = coalesce(blanket_301_cs, 0)
-              ) %>%
-              filter(rate_301_cs > 0) %>%
-              select(-hts8, -blanket_301_cs)
-          }))
-
-          if (nrow(new_301_cs_pairs) > 0) {
-            message('  Adding ', nrow(new_301_cs_pairs),
-                    ' product-country pairs for content-split 301 duties')
-            rates <- bind_rows(rates, new_301_cs_pairs)
-          }
-        }
-      }
-    }
-
-  # 6a-excl. Section 301 USTR exclusion headings (e.g. 9903.88.69). These
-  #     headings carry NO rate ("The duty provided in the applicable
-  #     subheading") and EXCLUDE the referencing product from §301 duties
-  #     while their window is in force. The NA rate drops them from the
-  #     footnote-rate join in calculate_rates_fast(), so without this step
-  #     the engine charges full §301 mid-exclusion (todo.md §"§301 exclusion
-  #     headings"). The registry CSV names known exclusion headings +
-  #     coverage_share; the validity window comes from THIS revision's own
-  #     heading text (windows are recomputed from the description right here,
-  #     so the step is immune to ch99_<rev>.rds caches that predate the
-  #     expiry_date_offset column), with the CSV's validity_start/_end as
-  #     curator overrides. Phase 1: coverage_share = 1.0 full-line zeroing,
-  #     the flagged UPPER BOUND on the correction (exclusions are product-
-  #     description-scoped and usually cover a slice of an HTS10 line);
-  #     Phase 2 replaces it with IMDB-realized exclusion claim shares.
-  excl_cfg <- pp$section_301_exclusions
-  if (!is.null(excl_cfg)) {
-    excl_path <- here(excl_cfg$headings_file %||% 'resources/s301_exclusion_headings.csv')
-    if (!file.exists(excl_path)) {
-      stop('section_301_exclusions configured but headings file not found: ',
-           excl_path)
-    }
-    excl_registry <- suppressMessages(read_csv(excl_path, col_types = cols(
-      ch99_code = col_character(), validity_start = col_date(),
-      validity_end = col_date(), coverage_share = col_double(),
-      .default = col_character()
-    )))
-
-    eff_d <- as.Date(effective_date)
-    active_excl <- ch99_data %>%
-      filter(ch99_code %in% excl_registry$ch99_code) %>%
-      mutate(
-        win_start = as.Date(vapply(description, function(d)
-          as.character(extract_effective_date_offset(d)), character(1),
-          USE.NAMES = FALSE)),
-        win_end = as.Date(vapply(description, function(d)
-          as.character(extract_expiry_date_offset(d)), character(1),
-          USE.NAMES = FALSE))
-      ) %>%
-      distinct(ch99_code, win_start, win_end) %>%
-      inner_join(excl_registry, by = 'ch99_code') %>%
-      mutate(
-        win_start = coalesce(validity_start, win_start),
-        win_end   = coalesce(validity_end,   win_end)
-      ) %>%
-      filter(coverage_share > 0,
-             is.na(win_start) | win_start <= eff_d,
-             is.na(win_end)   | eff_d <= win_end)
-
-    if (nrow(active_excl) > 0) {
-      excl_shares <- products %>%
-        select(hts10, ch99_refs) %>%
-        unnest(ch99_refs) %>%
-        rename(ch99_code = ch99_refs) %>%
-        inner_join(active_excl %>% select(ch99_code, coverage_share),
-                   by = 'ch99_code') %>%
-        group_by(hts10) %>%
-        summarise(excl_coverage = max(coverage_share), .groups = 'drop')
-
-      # Optional per-HTS10 refinement (Phase-2 calibration): when
-      # section_301_exclusions.line_coverage_file is configured, lines present
-      # in the file use their measured coverage_share instead of the heading
-      # value; affected lines absent from the file keep the heading value.
-      # Scope is unchanged — the file only ever OVERRIDES coverage for lines
-      # that already reference an in-window heading, so out-of-window dates
-      # are untouched. Absent config key = dormant (heading-level only).
-      # Provenance: src/calibrate_s301_exclusions.R,
-      # docs/s301_exclusion_calibration.md.
-      if (!is.null(excl_cfg$line_coverage_file)) {
-        line_cov_path <- here(excl_cfg$line_coverage_file)
-        if (!file.exists(line_cov_path)) {
-          stop('section_301_exclusions.line_coverage_file configured but ',
-               'not found: ', line_cov_path)
-        }
-        line_cov <- suppressMessages(read_csv(line_cov_path, col_types = cols(
-          hts10 = col_character(), coverage_share = col_double(),
-          .default = col_character()
-        ))) %>%
-          select(hts10, line_coverage = coverage_share)
-        if (any(is.na(line_cov$line_coverage)) ||
-            any(line_cov$line_coverage < 0) || any(line_cov$line_coverage > 1)) {
-          stop('line_coverage_file has coverage_share outside [0, 1] or NA: ',
-               line_cov_path)
-        }
-        if (any(duplicated(line_cov$hts10))) {
-          stop('line_coverage_file has duplicated hts10 rows: ', line_cov_path)
-        }
-        n_overridden <- sum(excl_shares$hts10 %in% line_cov$hts10)
-        excl_shares <- excl_shares %>%
-          left_join(line_cov, by = 'hts10', relationship = 'one-to-one') %>%
-          mutate(excl_coverage = coalesce(line_coverage, excl_coverage)) %>%
-          select(-line_coverage)
-        message('  Section 301 exclusions: per-line coverage overrides for ',
-                n_overridden, ' of ', nrow(excl_shares), ' affected lines (',
-                basename(line_cov_path), ')')
-      }
-
-      if (nrow(excl_shares) > 0) {
-        n_pairs_before <- sum(rates$rate_301 > 0)
-        rates <- rates %>%
-          left_join(excl_shares, by = 'hts10', relationship = 'many-to-one') %>%
-          mutate(
-            rate_301 = if_else(!is.na(excl_coverage),
-                               rate_301 * (1 - excl_coverage), rate_301),
-            rate_301_cs = if_else(!is.na(excl_coverage),
-                                  rate_301_cs * (1 - excl_coverage), rate_301_cs)
-          ) %>%
-          select(-excl_coverage)
-        message('  Section 301 exclusions: ', nrow(excl_shares),
-                ' products reference ', nrow(active_excl),
-                ' active exclusion heading',
-                if (nrow(active_excl) == 1) '' else 's', ' (',
-                paste(active_excl$ch99_code, collapse = ', '),
-                '); pairs with rate_301 > 0: ', n_pairs_before,
-                ' -> ', sum(rates$rate_301 > 0))
-      }
-    }
-  }
-
-  # 6b. Apply Section 122 blanket tariff (non-discriminatory, all countries)
-  #     Section 122 (Trade Act of 1974) is a uniform tariff applied after SCOTUS
-  #     invalidated IEEPA. Product exemptions from Annex II list; 232 mutual
-  #     exclusion handled by apply_stacking_rules().
-  #     Section 122 has a 150-day statutory limit; gate on expiry unless finalized.
-  # Plank 3: Section 122 is de-blobbed — the rate lives in the spec's compositional
-  # rate$default layer; the calc READS it via resolve_rate() (value > 0 is the
-  # has_s122 gate, matching the old blob's has_s122 ≡ rate>0).
-  s122_value <- resolve_rate(specs[['section_122']]$programs[[1]]$rate)$value
-  s122_rates <- if (isTRUE(s122_value > 0)) list(s122_rate = s122_value, has_s122 = TRUE)
-                else                        list(s122_rate = 0,          has_s122 = FALSE)
-
-  s122_in_force <- TRUE
-  if (!is.null(pp$SECTION_122) && !pp$SECTION_122$finalized) {
-    s122_in_force <- (as.Date(effective_date) >= pp$SECTION_122$effective_date &&
-                      as.Date(effective_date) <= pp$SECTION_122$expiry_date)
-  }
-
-  if (s122_rates$has_s122 && !s122_in_force) {
-    message('  Section 122 expired (', pp$SECTION_122$expiry_date, ') — not applied')
-  }
-
-  if (s122_rates$has_s122 && s122_in_force) {
-    s122_rate <- s122_rates$s122_rate
-
-    # Product exemptions (Annex II) — read from the spec (Pass-1.5; the adapter
-    # bakes section_122$programs[[1]]$exempt_products$hts8). Masking stays below.
-    s122_exempt_hts8 <- specs[['section_122']]$programs[[1]]$exempt_products$hts8 %||% character(0)
-    if (length(s122_exempt_hts8) > 0) {
-      message('  Section 122 exempt products: ', length(s122_exempt_hts8), ' HTS8 codes')
-    }
-
-    # Set rate_s122 for all existing rows
-    rates <- rates %>%
-      mutate(
-        rate_s122 = if_else(
-          substr(hts10, 1, 8) %in% s122_exempt_hts8,
-          0, s122_rate
-        )
-      )
-
-    # Add s122-only rows for products not yet in rates
-    s122_country_rates <- tibble(
-      country = countries,
-      blanket_rate = s122_rate
-    )
-    # All products are covered (non-exempt)
-    non_exempt_hts10 <- products %>%
-      filter(!substr(hts10, 1, 8) %in% s122_exempt_hts8) %>%
-      pull(hts10)
-    rates <- add_blanket_pairs(rates, products, non_exempt_hts10, s122_country_rates,
-                               'rate_s122', 'Section 122 duties')
-
-    n_with_s122 <- sum(rates$rate_s122 > 0)
-    message('  Section 122: ', round(s122_rate * 100), '% on ',
-            n_with_s122, ' product-country pairs (',
-            length(s122_exempt_hts8), ' HTS8 exempt)')
-  }
-
-  # 6b-fl. Apply Section 301 forced-labor duties (SCENARIO authority).
-  #     Per-country two tiers (10% / 12.5%) on ALL products of the in-scope
-  #     economies EXCEPT the Annex A exclusion list (hts8). Stacks like the
-  #     reciprocal/§122 — content_split (displaced by §232) + USMCA-eligible
-  #     (applied in step 7 + apply_stacking_rules). The authority is built only
-  #     when the merged config carries `section_301_forced_labor`
-  #     (config/scenarios/forced_labor/) AND is DATE-GATED to >= effective_date,
-  #     so by_country is empty in baseline / pre-turn-on revisions and rate_s301fl
-  #     stays all-zero; the all-zero column is DROPPED before return (see end of
-  #     function), keeping baseline byte-identical with no RATE_SCHEMA change.
-  fl_spec <- specs[['section_301_forced_labor']]
-  fl_by_country <- if (is.null(fl_spec)) numeric(0) else {
-    bc <- .rate_get(fl_spec$programs[[1]]$rate, 'by_country')
-    if (.rate_is_hollow(bc)) numeric(0) else bc
-  }
-  rates$rate_s301fl <- 0   # present for the USMCA step; dropped at end if all-zero
-  if (length(fl_by_country) > 0) {
-    fl_exempt_hts8 <- fl_spec$programs[[1]]$exempt_products$hts8 %||% character(0)
-    fl_scope <- intersect(names(fl_by_country), countries)
-    fl_tbl <- tibble(country = names(fl_by_country),
-                     .fl_rate = unname(as.numeric(fl_by_country)))
-    rates <- rates %>%
-      left_join(fl_tbl, by = 'country', relationship = 'many-to-one') %>%
-      mutate(rate_s301fl = if_else(
-        !is.na(.fl_rate) & !(substr(hts10, 1, 8) %in% fl_exempt_hts8),
-        .fl_rate, 0)) %>%
-      select(-.fl_rate)
-    # Seed all-products pairs for in-scope economies (blanket), excluding Annex A.
-    fl_country_rates <- tibble(country = fl_scope,
-                               blanket_rate = unname(as.numeric(fl_by_country[fl_scope])))
-    fl_non_exempt_hts10 <- products %>%
-      filter(!substr(hts10, 1, 8) %in% fl_exempt_hts8) %>% pull(hts10)
-    rates <- add_blanket_pairs(rates, products, fl_non_exempt_hts10, fl_country_rates,
-                               'rate_s301fl', 'Section 301 forced labor')
-    message('  Section 301 forced labor: 10%/12.5% on ', sum(rates$rate_s301fl > 0),
-            ' product-country pairs across ', length(fl_scope), ' economies (',
-            length(fl_exempt_hts8), ' Annex A HTS8 exempt)')
-  }
-
-  # 6b-br. Apply Section 301 Brazil duties (SCENARIO authority). 25% on ALL goods
-  #     of Brazil (census 3510) EXCEPT the Annex exclusion list (hts8). Stacks
-  #     ADDITIVELY with the forced-labor §301 (both are distinct §301 authorities;
-  #     §301 is statutorily "in addition to" — neither FR notice carves out the
-  #     other). content_split (displaced by §232 via nonmetal_share in stacking —
-  #     this implements the notice's hard §232 carve-out, incl. autos/MHD which
-  #     get nonmetal_share=0). usmca 'none' (Brazil isn't USMCA), so NO USMCA-share
-  #     reduction is applied below (Brazil rows are never CA/MX anyway). Built only
-  #     when the merged config carries `section_301_brazil` (config/scenarios/new_301/)
-  #     AND date-gated to >= effective_date; rate_s301br stays all-zero otherwise and
-  #     the column is DROPPED before return — baseline byte-identical, no schema change.
-  br_spec <- specs[['section_301_brazil']]
-  br_by_country <- if (is.null(br_spec)) numeric(0) else {
-    bc <- .rate_get(br_spec$programs[[1]]$rate, 'by_country')
-    if (.rate_is_hollow(bc)) numeric(0) else bc
-  }
-  rates$rate_s301br <- 0   # present for stacking; dropped at end if all-zero
-  if (length(br_by_country) > 0) {
-    br_exempt_hts8 <- br_spec$programs[[1]]$exempt_products$hts8 %||% character(0)
-    br_scope <- intersect(names(br_by_country), countries)
-    br_tbl <- tibble(country = names(br_by_country),
-                     .br_rate = unname(as.numeric(br_by_country)))
-    rates <- rates %>%
-      left_join(br_tbl, by = 'country', relationship = 'many-to-one') %>%
-      mutate(rate_s301br = if_else(
-        !is.na(.br_rate) & !(substr(hts10, 1, 8) %in% br_exempt_hts8),
-        .br_rate, 0)) %>%
-      select(-.br_rate)
-    # Seed all-products pairs for in-scope economies (blanket), excluding the Annex.
-    br_country_rates <- tibble(country = br_scope,
-                               blanket_rate = unname(as.numeric(br_by_country[br_scope])))
-    br_non_exempt_hts10 <- products %>%
-      filter(!substr(hts10, 1, 8) %in% br_exempt_hts8) %>% pull(hts10)
-    rates <- add_blanket_pairs(rates, products, br_non_exempt_hts10, br_country_rates,
-                               'rate_s301br', 'Section 301 Brazil')
-    message('  Section 301 Brazil: 25% on ', sum(rates$rate_s301br > 0),
-            ' product-country pairs across ', length(br_scope), ' economies (',
-            length(br_exempt_hts8), ' Annex HTS8 exempt)')
-  }
-
-  # 6b1. Apply Section 201 (Trade Act §201 safeguard) tariffs.
-  #      Currently models Solar 201 (Proc 9693 + Proc 10454, 9903.45.21–.25)
-  #      on CSPV cells/modules. The 201 rate stacks on top of MFN, separate
-  #      from 232/301/IEEPA. Canada is exempt under USMCA. Per-product
-  #      coverage is in resources/s201_solar_products.csv.
-  s201_results <- extract_section_201_rates(ch99_data, policy_params = pp)
-  if (s201_results$has_s201) {
-    s201_path <- here('resources', 's201_solar_products.csv')
-    if (!file.exists(s201_path)) {
-      message('  WARNING: s201_solar_products.csv not found — Section 201 rate not applied')
-    } else {
-      s201_products <- read_csv(s201_path,
-                                 col_types = cols(hts10 = col_character()))
-      solar_rate <- s201_results$solar_rate
-      # Plank 2: Section 201 country scope is data, not a Canada hardcode. The spec
-      # carries country_scope = {include: all, exclude: Canada}, which
-      # resolve_country_scope() turns into setdiff(countries, Canada). A scenario
-      # re-scopes/disables it via scenario_ops (section_201 is SCOPE_DRIVEN).
-      s201_country_codes <- resolve_country_scope(specs[['section_201']]$programs[[1]]$country_scope, countries)
-
-      # Set rate_section_201 for existing rows
-      rates <- rates %>%
-        mutate(
-          rate_section_201 = if_else(
-            hts10 %in% s201_products$hts10 & country %in% s201_country_codes,
-            solar_rate, rate_section_201
-          )
-        )
-
-      # Add 201-only rows for products not yet in rates
-      s201_country_rates <- tibble(
-        country = s201_country_codes,
-        blanket_rate = solar_rate
-      )
-      rates <- add_blanket_pairs(rates, products, s201_products$hts10, s201_country_rates,
-                                  'rate_section_201', 'Section 201 (solar)')
-
-      n_with_s201 <- sum(rates$rate_section_201 > 0)
-      message('  Section 201 (solar): ', round(solar_rate * 100, 1), '% on ',
-              n_with_s201, ' product-country pairs (',
-              nrow(s201_products), ' HTS10 covered, Canada exempt)')
-    }
-  }
+  # 6b1. Section 201 safeguard / solar (see apply_section201)
+  rates <- apply_section201(rates, ch99_data, specs, pp, products, countries)
 
   # 6b2. Dense grid expansion.
   #      All blanket-authority passes (232/301/s122/fent/IEEPA recip) are complete.
