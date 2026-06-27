@@ -7,26 +7,30 @@
 #   MINT  (discover_boundaries + build_boundary_mints): recompute the owner archive
 #         as-of the boundary date. Correct ONLY for boundaries the calculator's own
 #         date gates re-resolve — Ch99 offsets, IEEPA invalidation, §232
-#         country-exemption expiries.
+#         country-exemption expiries, AND (since 2026-06-25) the SECTION_122 sunset.
 #   ZEROING (09_daily_series + helpers.R apply_expiry_zeroing): zero an expired rate
-#         column downstream. Owns the SECTION_122 / SWISS expiries.
+#         column downstream. Owns the SWISS expiry ONLY.
 #
-# This test proves WHY the SECTION_122 / SWISS expiries must stay on the zeroing
-# path (i.e. why discover_boundaries SUBTRACTS expiry_boundaries()):
-#   * SECTION_122 — mint ≡ zeroing. The calc gate (06_calculate_rates.R: s122_in_force
-#     <- eff >= effective && eff <= expiry; rate_s122 = 0 otherwise) zeros rate_s122
-#     for eff > expiry, exactly as apply_expiry_zeroing does. Equivalent — but moving
-#     it would be a pure refactor with no behavior gain, so it stays put.
-#   * SWISS — mint != zeroing (NOT a safe swap). apply_expiry_zeroing FORCES CH/LI
-#     rate_ieepa_recip to 0 (the pre-floor surcharge is not stored in the snapshot,
-#     so it can't be restored downstream). A recompute, by contrast, merely turns OFF
-#     the floor override (authority_adapter.R: swiss_override_active gate) and reverts
-#     CH/LI to their underlying reciprocal SURCHARGE — which is nonzero whenever IEEPA
-#     is live. The two diverge. (They happen to coincide in the current regime only
-#     because IEEPA is invalidated 2026-02-20, before the Swiss expiry 2026-03-31 —
-#     a fragile, regime-dependent accident, not a structural identity.)
+# This test proves which expiry goes where:
+#   * SECTION_122 — mint ≡ zeroing, so the move to minting is SAFE and daily output
+#     is UNCHANGED. And it MUST mint: only the mint reaches the published snapshot
+#     panel tariff-model reads — zeroing was daily-CSV-only, so the panel carried
+#     s122 ~2 months past its 2026-07-23 sunset (the 2026-06-25 fix). The calc gate
+#     (06_calculate_rates.R: s122_in_force <- eff >= effective && eff <= expiry;
+#     rate_s122 = 0 otherwise) zeros rate_s122 for eff > expiry, exactly as
+#     apply_expiry_zeroing did — the equivalence below is what licenses the move.
+#   * SWISS — mint != zeroing (NOT a safe swap), so it STAYS on zeroing.
+#     apply_expiry_zeroing FORCES CH/LI rate_ieepa_recip to 0 (the pre-floor
+#     surcharge is not stored in the snapshot, so it can't be restored downstream).
+#     A recompute, by contrast, merely turns OFF the floor override
+#     (authority_adapter.R: swiss_override_active gate) and reverts CH/LI to their
+#     underlying reciprocal SURCHARGE — nonzero whenever IEEPA is live. The two
+#     diverge. (They happen to coincide in the current regime only because IEEPA is
+#     invalidated 2026-02-20, before the Swiss expiry 2026-03-31 — a fragile,
+#     regime-dependent accident, not a structural identity.)
 #
-# Conclusion: keep both mechanisms; expiries are NOT minted. This test is the guard.
+# Conclusion: SECTION_122 mints (equivalence proven => safe + snapshot-correct),
+# SWISS stays on zeroing (divergence proven). This test is the guard on that split.
 #
 # Usage: Rscript tests/test_mint_equals_zeroing.R
 # =============================================================================
@@ -47,7 +51,7 @@ swiss_eff <- as.Date(pp$SWISS_FRAMEWORK$effective_date) # 2025-11-14
 ch <- pp$SWISS_FRAMEWORK$countries[1]                   # Switzerland census code
 
 # ---------------------------------------------------------------------------
-# SECTION 122: mint (calc gate) ≡ zeroing
+# SECTION 122: mint (calc gate) ≡ the (legacy) zeroing rule  => safe to mint
 # ---------------------------------------------------------------------------
 # Replicate the calc's s122 in-force gate (06_calculate_rates.R) — a recompute
 # stamped at D applies rate_s122 iff this is TRUE; rate_s122 = 0 otherwise.
@@ -56,6 +60,11 @@ s122_in_force <- function(D) {
   if (isTRUE(pp$SECTION_122$finalized)) return(TRUE)
   D >= as.Date(pp$SECTION_122$effective_date) & D <= s122_exp
 }
+# The legacy daily-zeroing rule for s122 (what apply_expiry_zeroing did BEFORE the
+# 2026-06-25 move): zero rate_s122 once a sub-interval starts AFTER the expiry (the
+# last live day). The equivalence proof compares the two RULES; apply_expiry_zeroing
+# itself no longer carries s122 (asserted at the end of this block).
+legacy_zeroed_s122 <- function(D) as.Date(D) > s122_exp
 
 # Synthetic snapshot carrying an active s122 rate.
 snap <- tibble(hts10 = c('7208100000', '8471300100'),
@@ -65,25 +74,26 @@ snap <- tibble(hts10 = c('7208100000', '8471300100'),
                rate_ieepa_fent = 0, rate_section_201 = 0, rate_other = 0,
                base_rate = 0, total_rate = 0.10, total_additional = 0.10)
 
-# Day BEFORE the boundary (= expiry, the last live day): both keep s122.
-z_live <- apply_expiry_zeroing(snap, sub_start = s122_exp, pp)
-check(all(z_live$rate_s122 == 0.10) && s122_in_force(s122_exp),
-      'S122: on the expiry day (last live) both calc-gate and zeroing keep rate_s122')
+# On the expiry day (last live): mint keeps s122 == legacy zeroing keeps it.
+check(s122_in_force(s122_exp) && !legacy_zeroed_s122(s122_exp),
+      'S122: on the expiry day (last live) the mint keeps rate_s122 (== legacy zeroing)')
 
-# Day ON/AFTER the boundary (expiry + 1, the first dead day): both drop s122.
+# On the first dead day (expiry + 1): mint drops s122 == legacy zeroing drops it.
 boundary <- s122_exp + 1
-z_dead <- apply_expiry_zeroing(snap, sub_start = boundary, pp)
-check(all(z_dead$rate_s122 == 0) && !s122_in_force(boundary),
-      'S122: on the first dead day both calc-gate (recompute) and zeroing => rate_s122 = 0')
+check(!s122_in_force(boundary) && legacy_zeroed_s122(boundary),
+      'S122: on the first dead day the mint => rate_s122 = 0 (== legacy zeroing)')
 
-# Equivalence across a window straddling the expiry.
+# Equivalence across a window straddling the expiry: the mint (recompute) and the
+# legacy zeroing rule agree on EVERY day — this is what licenses moving s122 to mint.
 win <- seq(s122_exp - 3, s122_exp + 3, by = 'day')
-agree <- vapply(win, function(D) {
-  zeroed  <- all(apply_expiry_zeroing(snap, sub_start = D, pp)$rate_s122 == 0)
-  recompd <- !s122_in_force(D)             # recompute would zero s122
-  identical(zeroed, recompd)
-}, logical(1))
-check(all(agree), 'S122: mint(recompute) and zeroing agree on every day around the expiry')
+agree <- vapply(win, function(D) identical(!s122_in_force(D), legacy_zeroed_s122(D)), logical(1))
+check(all(agree), 'S122: mint(recompute) and legacy zeroing agree on every day around the expiry')
+
+# The move is COMPLETE: apply_expiry_zeroing no longer touches rate_s122 (it owns the
+# Swiss expiry only now), so s122 comes solely from the minted snapshot interval.
+untouched <- apply_expiry_zeroing(snap, sub_start = boundary, pp)
+check(all(untouched$rate_s122 == 0.10),
+      'S122: apply_expiry_zeroing no longer zeros rate_s122 (moved to mint; daily reads the mint interval)')
 
 # ---------------------------------------------------------------------------
 # SWISS: mint != zeroing (NOT a safe swap)
@@ -116,18 +126,19 @@ check(zeroed_ch != ch_surcharge,
       'SWISS: mint(recompute, => surcharge) != zeroing(=> 0) for a live IEEPA surcharge')
 
 # ---------------------------------------------------------------------------
-# GUARD: discover_boundaries must NOT emit the expiry boundaries (mutual exclusion)
+# GUARD: the mint set MINTS the S122 sunset and EXCLUDES the Swiss expiry
+# (mutual exclusion — each boundary handled by exactly one mechanism)
 # ---------------------------------------------------------------------------
 rd <- load_revision_dates(use_policy_dates = TRUE)
 b <- discover_boundaries(rd, here('data', 'timeseries'), pp,
                          overrides = pp$BOUNDARY_OVERRIDES,
                          horizon = pp$SERIES_HORIZON_END)
 emitted <- as.character(b$date)
-check(!(as.character(boundary) %in% emitted),
-      paste0('S122 expiry boundary (', boundary, ') is excluded from the mint set'))
+check(as.character(boundary) %in% emitted,
+      paste0('S122 sunset boundary (', boundary, ') IS in the mint set (reaches the snapshot panel)'))
 check(!(as.character(after) %in% emitted),
-      paste0('Swiss expiry boundary (', after, ') is excluded from the mint set'))
+      paste0('Swiss expiry boundary (', after, ') is excluded from the mint set (stays on zeroing)'))
 check(!any(as.Date(expiry_boundaries(pp)) %in% b$date),
-      'no expiry_boundaries() date appears in the discovered mint set')
+      'no expiry_boundaries() date (now Swiss-only) appears in the discovered mint set')
 
 cat(sprintf('\nALL %d MINT-VS-ZEROING ASSERTIONS PASSED\n', pass))

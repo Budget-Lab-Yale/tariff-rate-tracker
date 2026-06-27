@@ -395,15 +395,17 @@ remap_imports_via_concordance <- function(imports, snapshot_codes, concordance) 
 collect_expiry_adjustments <- function(policy_params) {
   adjustments <- list()
 
-  # Section 122 expiry
-  if (!is.null(policy_params$SECTION_122) &&
-      !policy_params$SECTION_122$finalized) {
-    adjustments <- c(adjustments, list(list(
-      expiry_date = as.Date(policy_params$SECTION_122$expiry_date),
-      column = 'rate_s122',
-      label = 'Section 122'
-    )))
-  }
+  # Section 122 expiry is NOT here anymore (2026-06-25). It moved from the
+  # daily-zeroing mechanism to the MINT mechanism: collect_schedule_boundaries()
+  # carries the s122 expiry boundary, expiry_boundaries() no longer subtracts it
+  # (this function is its only source), and policy_params boundary_overrides lists
+  # 2026-07-24 — so a bnd_2026-07-24 snapshot is minted and the calc's own s122
+  # gate (06: effective_date <= expiry_date) yields rate_s122 = 0 there. The daily
+  # series then reads that interval from the mint instead of zeroing it downstream,
+  # AND the published snapshot panel (what tariff-model reads) gains the boundary.
+  # Mint == zeroing for s122 (tests/test_mint_equals_zeroing.R), so daily output is
+  # unchanged. SWISS stays below: its recompute reverts to the pre-floor surcharge
+  # (not stored in the snapshot), so mint != zeroing — it must stay on zeroing.
 
   # Swiss framework expiry (reverts floor override for CH/LI)
   if (!is.null(policy_params$SWISS_FRAMEWORK) &&

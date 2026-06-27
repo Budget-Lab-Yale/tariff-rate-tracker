@@ -54,7 +54,8 @@ library(here)
 source(here('src', 'io', 'output_paths.R'))   # Phase 5 layout helpers (actual/ + scenarios/)
 source(here('src', 'model', 'rate_schema.R'))    # enforce_rate_schema + build_rev_intervals (loads tidyverse)
 source(here('src', 'model', 'revisions.R'))      # load_revision_dates
-source(here('src', 'model', 'policy_params.R'))  # load_policy_params -> SERIES_HORIZON_END
+source(here('src', 'model', 'policy_params.R'))  # load_policy_params -> SERIES_HORIZON_END + load_local_paths
+source(here('src', 'io', 'build_panel_import_weights.R'))  # forward-mapped HS10 x country import weights
 
 
 # Model-data interface root — read from config (config/local_paths.yaml:
@@ -210,6 +211,40 @@ write_build_output <- function(shared_root = SHARED_ROOT_DEFAULT,
         message('publish: scenario snapshots [', name, '] -> ',
                 length(recs$snapshots), ' interval(s)')
       }
+    }
+  }
+
+  # Per-vintage import-weight base, keyed to THIS panel's HS10 universe so a
+  # downstream model can roll the rate panel up by import value with an exact
+  # (hts10, country) join — no statistical-suffix vintage mismatch. 2024 Census
+  # customs-value flows are mapped forward onto the panel codes (orphan value on
+  # retired suffixes is redistributed within the stable 8-digit heading; see
+  # src/io/build_panel_import_weights.R). Keyed to the actual panel; scenarios share
+  # that same HS10 universe, so one base serves every series. Best-effort: a
+  # weights failure warns and continues — it must never block the panel publish.
+  copied$weights <- list(present = FALSE, files = character())
+  if (!dry_run) {
+    weights_dir <- file.path(vintage_dir, 'weights')
+    snaps <- copied$timeseries$snapshots
+    tip <- if (length(snaps)) snaps[[which.max(vapply(snaps,
+             function(s) as.numeric(as.Date(s$valid_from)), numeric(1)))]] else NULL
+    base_path <- tryCatch(load_local_paths()$import_weights, error = function(e) NULL)
+    res <- tryCatch(
+      build_panel_import_weights(
+        panel_codes = current_panel_codes(actual_snapshots_dir(vintage_dir)),
+        base_path   = base_path,
+        out_dir     = weights_dir,
+        year        = 2024L,
+        hts_vintage = if (!is.null(tip)) tip$revision else NA_character_),
+      error = function(e) {
+        warning('publish: import-weights step FAILED — rate panel published ',
+                'WITHOUT weights/. ', conditionMessage(e), call. = FALSE)
+        NULL
+      })
+    if (!is.null(res)) {
+      copied$weights <- list(present = TRUE, files = res$files)
+      message('publish: weights -> ', weights_dir,
+              ' (', length(res$files), ' file', if (length(res$files) != 1) 's' else '', ')')
     }
   }
 
@@ -541,6 +576,26 @@ build_manifest <- function(vintage, vintage_dir, repo_root,
     )))
   })
 
+  # Self-describing pointer to the import-weight base (if it was emitted), so a
+  # consumer locates it deterministically instead of grepping the flat inventory.
+  weights_files <- if (!is.null(copied$weights)) copied$weights$files else character()
+  weights_pq <- weights_files[grepl('import_weights_hs10_country\\.parquet$', weights_files)]
+  weights_block <- if (length(weights_pq) > 0) {
+    list(
+      present      = TRUE,
+      path         = relativize(weights_pq[1]),
+      keys         = c('hts10', 'country'),
+      columns      = c('hts10', 'country', 'imports', 'import_value_year', 'hts_vintage'),
+      imports_unit = 'USD',
+      note = paste0('2024 Census customs-value imports mapped forward onto this ',
+                    'vintage\'s panel HS10 universe; country = Census cty_code. ',
+                    'Joins the rate panel exactly on (hts10, country); zero-import ',
+                    'panel pairs are omitted.')
+    )
+  } else {
+    list(present = FALSE)
+  }
+
   git_info <- capture_git_info(repo_root)
 
   pkgs <- c('tidyverse', 'jsonlite', 'yaml', 'here', 'arrow', 'digest', 'pdftools')
@@ -563,6 +618,7 @@ build_manifest <- function(vintage, vintage_dir, repo_root,
     r_version = paste(R.version$major, R.version$minor, sep = '.'),
     package_versions = as.list(pkg_versions),
     series = series,
+    weights = weights_block,
     files = inventory
   )
 }

@@ -1,0 +1,14 @@
+# Test build for the direct-to-vintage refactor — actual + the new_301 scenario.
+# Verifies the plumbing end-to-end WITHOUT moving `latest` (so production stays put).
+#   bash scripts/submit_build_array.sh --config config/build/test_301.yaml
+
+model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker
+policy_params_path: config/policy_params.yaml
+
+scenarios:
+  - new_301
+
+use_hts_dates: false
+weight_mode: required
+update_latest: false        # test run — do NOT move `latest`
+allow_partial: false

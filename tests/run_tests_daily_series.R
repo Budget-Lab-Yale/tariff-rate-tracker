@@ -117,6 +117,24 @@ make_test_policy_params <- function() {
   )
 }
 
+# Minted s122 timeline (2026-06-25). S122 moved from daily-zeroing to minting
+# (mirror of pharma): the build mints a bnd_2026-07-24 revision with s122 recomputed
+# to 0, so the expiry reaches the published snapshot panel — not just the daily CSV
+# (the old daily-only handling never reached the panel; that was the bug). This
+# fixture models that minted timeline so the daily-series tests exercise the real
+# path: rev_b ends at the expiry (last live day 2026-07-23, s122 active), then
+# bnd_2026-07-24 carries s122 = 0 to the horizon.
+make_minted_s122_ts <- function(horizon_end = as.Date('2026-12-31')) {
+  base <- make_test_ts(horizon_end) %>% dplyr::filter(revision == 'rev_b')
+  pre  <- base %>% mutate(valid_until = as.Date('2026-07-23'))
+  post <- base %>%
+    mutate(revision = 'bnd_2026-07-24', rate_s122 = 0,
+           effective_date = as.Date('2026-07-24'),
+           valid_from = as.Date('2026-07-24'), valid_until = horizon_end) %>%
+    apply_stacking_rules()
+  bind_rows(pre, post)
+}
+
 
 # =============================================================================
 # Test 1: Final revision gets valid_until = horizon, not Sys.Date()
@@ -159,35 +177,43 @@ run_test('get_rates_at_date returns data for mid-2026', {
 
 
 # =============================================================================
-# Test 3: Section 122 expiry zeroing
+# Test 3: Section 122 expiry — now realized by the upstream MINT interval
 # =============================================================================
+# (2026-06-25) S122 moved from daily-zeroing to minting; the daily series drops
+# s122 by reading the bnd_2026-07-24 interval, exactly as the real build does.
 
-message('\n--- Test 3: Section 122 expiry ---')
+message('\n--- Test 3: Section 122 expiry (via mint interval) ---')
 
-run_test('rate_s122 zeroed after expiry date', {
-  ts <- make_test_ts()
+run_test('s122 active before expiry, zero after (from the mint interval)', {
+  ts <- make_minted_s122_ts()
   pp <- make_test_policy_params()
-  # Before expiry: s122 should be active
   before <- get_rates_at_date(ts, '2026-07-20', policy_params = pp)
   stopifnot(any(before$rate_s122 > 0))
-  # After expiry: s122 should be zero
   after <- get_rates_at_date(ts, '2026-07-24', policy_params = pp)
   stopifnot(all(after$rate_s122 == 0))
+  stopifnot(all(after$revision == 'bnd_2026-07-24'))   # drop comes from the mint, not zeroing
 })
 
-run_test('total_rate recomputed after s122 zeroing', {
-  ts <- make_test_ts()
+run_test('total_additional lower after the s122 mint drop', {
+  ts <- make_minted_s122_ts()
   pp <- make_test_policy_params()
   before <- get_rates_at_date(ts, '2026-07-20', policy_params = pp)
-  after <- get_rates_at_date(ts, '2026-07-24', policy_params = pp)
-  # For products where s122 contributed, total should be lower
+  after  <- get_rates_at_date(ts, '2026-07-24', policy_params = pp)
   non_232 <- before %>% filter(rate_232 == 0)
   non_232_after <- after %>% filter(rate_232 == 0)
   if (nrow(non_232) > 0 && any(non_232$rate_s122 > 0)) {
-    # total_additional should differ
     stopifnot(all(non_232_after$total_additional < non_232$total_additional |
                   non_232$rate_s122 == 0))
   }
+})
+
+run_test('daily zeroing path no longer silently drops s122 (must come from a mint)', {
+  # An UN-minted interval spanning the expiry: the daily path must NOT zero s122
+  # anymore — that daily-only handling never reached the snapshot panel (the bug).
+  ts <- make_test_ts()   # rev_b spans the expiry, no mint
+  pp <- make_test_policy_params()
+  after <- get_rates_at_date(ts, '2026-07-24', policy_params = pp)
+  stopifnot(all(after$rate_s122 == 0.10))
 })
 
 
@@ -262,14 +288,16 @@ run_test('enforce_rate_schema fills missing rate_section_201 with 0', {
 
 message('\n--- Test 6: Generic expiry split points ---')
 
-run_test('split points detected for spanning interval', {
+run_test('split points detected for spanning interval — swiss only', {
   pp <- make_test_policy_params()
   splits <- timeline_split_points(
     as.Date('2026-01-01'), as.Date('2026-12-31'), expiry_boundaries(pp))
-  # First-dead-day boundaries: s122 expiry 2026-07-23 -> 2026-07-24,
-  # swiss expiry 2026-03-31 -> 2026-04-01
-  stopifnot(as.Date('2026-07-24') %in% splits)
+  # Swiss (expiry 2026-03-31 -> first-dead-day boundary 2026-04-01) still splits
+  # within an interval — it is NOT minted.
   stopifnot(as.Date('2026-04-01') %in% splits)
+  # s122 (expiry 2026-07-23 -> 2026-07-24) is no longer a within-interval split:
+  # it moved to the mint mechanism (2026-06-25), so it leaves expiry_boundaries().
+  stopifnot(!(as.Date('2026-07-24') %in% splits))
 })
 
 run_test('no split points for interval before all expiries', {
@@ -279,11 +307,22 @@ run_test('no split points for interval before all expiries', {
   stopifnot(length(splits) == 0)
 })
 
-run_test('apply_expiry_zeroing zeros s122 after expiry', {
-  ts <- make_test_ts() %>% filter(revision == 'rev_b') %>% head(4)
+run_test('apply_expiry_zeroing zeros swiss reciprocal after expiry, leaves s122', {
   pp <- make_test_policy_params()
-  adjusted <- apply_expiry_zeroing(ts, as.Date('2026-07-24'), pp)
-  stopifnot(all(adjusted$rate_s122 == 0))
+  # A Swiss (CH) row carrying both a floored reciprocal rate and an s122 rate.
+  ch <- tibble(hts10 = '7208100000', country = '4419',
+               base_rate = 0, statutory_base_rate = 0,
+               rate_232 = 0, rate_301 = 0,
+               rate_ieepa_recip = 0.15, rate_ieepa_fent = 0,
+               rate_s122 = 0.10, rate_section_201 = 0, rate_other = 0,
+               metal_share = 0, usmca_eligible = FALSE,
+               revision = 'rev_b', effective_date = as.Date('2026-06-01'),
+               valid_from = as.Date('2026-06-01'),
+               valid_until = as.Date('2026-12-31')) %>%
+    apply_stacking_rules()
+  adjusted <- apply_expiry_zeroing(ch, as.Date('2026-04-01'), pp)
+  stopifnot(all(adjusted$rate_ieepa_recip == 0))   # swiss reciprocal zeroed past 2026-03-31
+  stopifnot(all(adjusted$rate_s122 == 0.10))        # s122 untouched (moved to minting)
 })
 
 
@@ -302,8 +341,8 @@ run_test('s122 active on exact expiry date', {
   stopifnot(any(non_232$rate_s122 > 0))
 })
 
-run_test('s122 zeroed on day after expiry', {
-  ts <- make_test_ts()
+run_test('s122 zero on first day after expiry (from mint boundary)', {
+  ts <- make_minted_s122_ts()
   pp <- make_test_policy_params()
   after_expiry <- get_rates_at_date(ts, '2026-07-24', policy_params = pp)
   stopifnot(all(after_expiry$rate_s122 == 0))
@@ -320,12 +359,16 @@ run_test('swiss framework active on exact expiry date', {
   stopifnot(nrow(on_expiry) > 0)
 })
 
-run_test('split lands on first-dead-day boundary', {
+run_test('swiss split lands on first-dead-day boundary; s122 does not split', {
   pp <- make_test_policy_params()
-  splits <- timeline_split_points(
+  # Swiss expiry 2026-03-31 -> first-dead-day boundary 2026-04-01 splits within (vf, vu].
+  swiss_splits <- timeline_split_points(
+    as.Date('2026-03-31'), as.Date('2026-04-15'), expiry_boundaries(pp))
+  stopifnot(as.Date('2026-04-01') %in% swiss_splits)
+  # s122 (minted, 2026-06-25) is not a split point even on an interval that straddles it.
+  s122_splits <- timeline_split_points(
     as.Date('2026-07-23'), as.Date('2026-08-01'), expiry_boundaries(pp))
-  # s122 expiry 2026-07-23 (last live day) -> boundary 2026-07-24, inside (vf, vu]
-  stopifnot(as.Date('2026-07-24') %in% splits)
+  stopifnot(!(as.Date('2026-07-24') %in% s122_splits))
 })
 
 run_test('split points empty when interval starts after all expiries', {
@@ -370,8 +413,8 @@ run_test('export_daily_slice returns data for filtered query', {
   stopifnot(all(result$date <= as.Date('2026-06-30')))
 })
 
-run_test('export_daily_slice applies s122 expiry', {
-  ts <- make_test_ts()
+run_test('export_daily_slice reflects the s122 mint drop', {
+  ts <- make_minted_s122_ts()
   pp <- make_test_policy_params()
   result <- export_daily_slice(ts, c('2026-07-20', '2026-07-27'),
                                 countries = '4280', policy_params = pp)
