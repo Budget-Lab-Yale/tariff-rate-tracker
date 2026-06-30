@@ -11,7 +11,7 @@
 #
 # OUTPUT: resources/s301_brazil_exempt_products.csv (hts8,effective_date_start,
 #   effective_date_end) — same schema the FL annex uses, read by
-#   .resolve_s301fl_exempt() (src/authority_adapter.R) for section_301_brazil.
+#   .resolve_s301fl_exempt() (src/model/authority_adapter.R) for section_301_brazil.
 #
 # NOTES / fidelity:
 #   - Each ROW's first <ENT I="01"> is the HTSUS provision; we take it as hts8.

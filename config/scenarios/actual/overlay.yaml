@@ -3,7 +3,7 @@
 # `actual` is the canonical baseline — there is NOTHING to override. This file is
 # intentionally empty and exists only to document the convention: every scenario
 # is config/scenarios/<name>/overlay.yaml, a DIFF that is deep-merged onto
-# config/policy_params.yaml at load time (src/policy_params.R). The loader treats
+# config/policy_params.yaml at load time (src/model/policy_params.R). The loader treats
 # scenario 'actual' (and 'baseline'/unset) as the baseline and skips merging, so
 # `--scenario actual` reproduces the baseline byte-for-byte.
 #

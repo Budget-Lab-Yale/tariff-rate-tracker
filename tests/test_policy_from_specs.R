@@ -20,7 +20,7 @@
 
 suppressPackageStartupMessages(library(tidyverse))
 suppressPackageStartupMessages(library(here))
-source(here('src', 'stacking.R'))
+source(here('src', 'model', 'stacking.R'))
 
 pass <- 0L
 check <- function(cond, msg) {

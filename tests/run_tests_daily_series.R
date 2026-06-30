@@ -17,8 +17,8 @@
 
 library(tidyverse)
 library(here)
-source(here('src', 'helpers.R'))
-source(here('src', '09_daily_series.R'))
+source(here('src', 'core', 'helpers.R'))
+source(here('src', 'pipeline', '09_daily_series.R'))
 
 # Plank 4c: the §232 annex regime is SPEC-ONLY (no config fallback in the calc),
 # so annex-era integration tests must build a spec and pass it. This mirrors the
@@ -28,8 +28,8 @@ source(here('src', '09_daily_series.R'))
                             countries, revision_id, effective_date,
                             ieepa_rates = NULL, usmca = NULL, fentanyl_rates = NULL) {
   if (!exists('build_authority_specs', mode = 'function')) {
-    source(here('src', 'authority_spec.R'))
-    source(here('src', 'authority_adapter.R'))
+    source(here('src', 'model', 'authority_spec.R'))
+    source(here('src', 'model', 'authority_adapter.R'))
   }
   build_authority_specs(products, ch99_data, ieepa_rates, usmca,
                         countries, revision_id, effective_date,
@@ -290,18 +290,20 @@ message('\n--- Test 6: Generic expiry split points ---')
 
 run_test('split points detected for spanning interval — swiss only', {
   pp <- make_test_policy_params()
-  splits <- get_expiry_split_points(
-    as.Date('2026-01-01'), as.Date('2026-12-31'), pp)
-  # Swiss (2026-03-31) still splits within an interval — it is NOT minted.
-  stopifnot(as.Date('2026-03-31') %in% splits)
-  # s122 (2026-07-23) is no longer a within-interval split: it is minted upstream.
-  stopifnot(!(as.Date('2026-07-23') %in% splits))
+  splits <- timeline_split_points(
+    as.Date('2026-01-01'), as.Date('2026-12-31'), expiry_boundaries(pp))
+  # Swiss (expiry 2026-03-31 -> first-dead-day boundary 2026-04-01) still splits
+  # within an interval — it is NOT minted.
+  stopifnot(as.Date('2026-04-01') %in% splits)
+  # s122 (expiry 2026-07-23 -> 2026-07-24) is no longer a within-interval split:
+  # it moved to the mint mechanism (2026-06-25), so it leaves expiry_boundaries().
+  stopifnot(!(as.Date('2026-07-24') %in% splits))
 })
 
 run_test('no split points for interval before all expiries', {
   pp <- make_test_policy_params()
-  splits <- get_expiry_split_points(
-    as.Date('2026-01-01'), as.Date('2026-03-01'), pp)
+  splits <- timeline_split_points(
+    as.Date('2026-01-01'), as.Date('2026-03-01'), expiry_boundaries(pp))
   stopifnot(length(splits) == 0)
 })
 
@@ -357,22 +359,22 @@ run_test('swiss framework active on exact expiry date', {
   stopifnot(nrow(on_expiry) > 0)
 })
 
-run_test('swiss split point lands exactly on its expiry date; s122 does not split', {
+run_test('swiss split lands on first-dead-day boundary; s122 does not split', {
   pp <- make_test_policy_params()
-  # Swiss expiry 2026-03-31 still produces a within-interval split at the boundary.
-  swiss_splits <- get_expiry_split_points(
-    as.Date('2026-03-31'), as.Date('2026-04-15'), pp)
-  stopifnot(as.Date('2026-03-31') %in% swiss_splits)
-  # s122 (minted) is not a split point even on an interval that straddles it.
-  s122_splits <- get_expiry_split_points(
-    as.Date('2026-07-23'), as.Date('2026-08-01'), pp)
-  stopifnot(!(as.Date('2026-07-23') %in% s122_splits))
+  # Swiss expiry 2026-03-31 -> first-dead-day boundary 2026-04-01 splits within (vf, vu].
+  swiss_splits <- timeline_split_points(
+    as.Date('2026-03-31'), as.Date('2026-04-15'), expiry_boundaries(pp))
+  stopifnot(as.Date('2026-04-01') %in% swiss_splits)
+  # s122 (minted, 2026-06-25) is not a split point even on an interval that straddles it.
+  s122_splits <- timeline_split_points(
+    as.Date('2026-07-23'), as.Date('2026-08-01'), expiry_boundaries(pp))
+  stopifnot(!(as.Date('2026-07-24') %in% s122_splits))
 })
 
 run_test('split points empty when interval starts after all expiries', {
   pp <- make_test_policy_params()
-  splits <- get_expiry_split_points(
-    as.Date('2026-08-01'), as.Date('2026-12-31'), pp)
+  splits <- timeline_split_points(
+    as.Date('2026-08-01'), as.Date('2026-12-31'), expiry_boundaries(pp))
   stopifnot(length(splits) == 0)
 })
 
@@ -586,7 +588,7 @@ run_test('tpc_additive vs mutual_exclusion: known numeric difference on 232 prod
 
 message('\n--- Test 10: Country alias validity ---')
 
-source(here('src', '05_parse_policy_params.R'))
+source(here('src', 'pipeline', '05_parse_policy_params.R'))
 
 run_test('all hardcoded alias codes exist in census_codes.csv', {
   census <- read_csv(here('resources', 'census_codes.csv'),
@@ -689,7 +691,7 @@ run_test('NULL gate lookup bypasses check (regression guard)', {
 
 message('\n--- Test 12: Country applicability fail-closed ---')
 
-source(here('src', '06_calculate_rates.R'))
+source(here('src', 'pipeline', '06_calculate_rates.R'))
 
 run_test('unknown country_type does not apply', {
   result <- check_country_applies('5700', 'unknown', c(), c())
@@ -1704,8 +1706,8 @@ run_test('post-annex decomposition parity: net contributions match stacking tota
 
 message('\n--- Test 18: Annex integration + export parity ---')
 
-source(here('src', 'generate_etrs_config.R'))
-source(here('src', 'quality_report.R'))
+source(here('tools', 'generate_etrs_config.R'))
+source(here('src', 'io', 'quality_report.R'))
 
 make_annex_integration_products <- function() {
   tibble(

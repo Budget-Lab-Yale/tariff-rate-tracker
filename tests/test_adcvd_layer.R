@@ -1,5 +1,5 @@
 # =============================================================================
-# Tests for the AD/CVD layer loader (src/load_adcvd_layer.R)
+# Tests for the AD/CVD layer loader (src/experimental/load_adcvd_layer.R)
 # =============================================================================
 # Exercises loader logic on synthetic fixtures — no real AD/CVD data required.
 # Run: Rscript tests/test_adcvd_layer.R
@@ -9,7 +9,7 @@ suppressMessages({
   library(tidyverse)
   library(here)
 })
-source(here('src', 'load_adcvd_layer.R'))
+source(here('src', 'experimental', 'load_adcvd_layer.R'))
 
 pass_count <- 0; fail_count <- 0
 run_test <- function(name, expr) {

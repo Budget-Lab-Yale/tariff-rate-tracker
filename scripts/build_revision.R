@@ -3,7 +3,7 @@
 # build_revision.R — build ONE revision's snapshot (the array-parallel unit)
 # =============================================================================
 #
-# Wraps build_revision_snapshot() (src/00_build_timeseries.R) with the same
+# Wraps build_revision_snapshot() (src/pipeline/00_build_timeseries.R) with the same
 # setup build_full_timeseries() does, for exactly one revision. Writes only
 # that revision's scoped artifacts (snapshot_<rev>.rds + ch99_/products_ caches
 # + validation_<rev>.rds). It also writes the revision-local daily aggregate part
@@ -25,11 +25,11 @@ suppressPackageStartupMessages({
 # setup helpers (load_revision_dates / load_policy_params / load_local_paths);
 # source explicitly so we don't depend on transitive sourcing.
 suppressMessages({
-  source(here('src', '00_build_timeseries.R'))
-  source(here('src', 'revisions.R'))
-  source(here('src', 'policy_params.R'))
-  source(here('src', '09_daily_series.R'))
-  source(here('src', 'build_import_weights.R'))
+  source(here('src', 'pipeline', '00_build_timeseries.R'))
+  source(here('src', 'model', 'revisions.R'))
+  source(here('src', 'model', 'policy_params.R'))
+  source(here('src', 'pipeline', '09_daily_series.R'))
+  source(here('src', 'io', 'build_import_weights.R'))
 })
 
 args <- commandArgs(trailingOnly = TRUE)

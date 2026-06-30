@@ -10,8 +10,8 @@ suppressPackageStartupMessages({
   library(tibble)
 })
 
-source(here('src', 'parity.R'))
-source(here('src', 'policy_params.R'))   # load_local_paths() -> model_data_root
+source(here('src', 'core', 'parity.R'))
+source(here('src', 'model', 'policy_params.R'))   # load_local_paths() -> model_data_root
 
 args <- commandArgs(trailingOnly = TRUE)
 get_arg <- function(flag, default = NULL) {

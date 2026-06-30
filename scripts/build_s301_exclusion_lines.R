@@ -7,7 +7,7 @@
 # per revision, unioned across all cached revisions (a line that left the
 # universe in a later revision still matters for earlier months).
 #
-# Consumed by src/calibrate_s301_exclusions.R (the Phase-2 claim-share
+# Consumed by tools/calibrate_s301_exclusions.R (the Phase-2 claim-share
 # calibration) as the affected-lines set: the denominator universe for
 # realized-rate inversion, and the join key from IMDB trade cells back to
 # exclusion headings.

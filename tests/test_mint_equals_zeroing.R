@@ -36,7 +36,7 @@
 # =============================================================================
 
 suppressPackageStartupMessages({ library(here); library(dplyr) })
-source(here('src', 'helpers.R'))   # apply_expiry_zeroing, collect_expiry_adjustments, timeline.R
+source(here('src', 'core', 'helpers.R'))   # apply_expiry_zeroing, collect_expiry_adjustments, timeline.R
 
 pass <- 0L
 check <- function(cond, msg) {

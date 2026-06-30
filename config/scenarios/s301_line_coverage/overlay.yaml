@@ -7,8 +7,8 @@
 # (IQR 0.15-0.73), so this is the higher-fidelity mode.
 # Promote to baseline by uncommenting line_coverage_file in
 # config/policy_params.yaml once parity-reviewed on a full build.
-# Source: src/calibrate_s301_exclusions.R, docs/s301_exclusion_calibration.md.
-# Build: TARIFF_SCENARIO=s301_line_coverage Rscript src/00_build_timeseries.R ...
+# Source: tools/calibrate_s301_exclusions.R, docs/s301_exclusion_calibration.md.
+# Build: TARIFF_SCENARIO=s301_line_coverage Rscript src/pipeline/00_build_timeseries.R ...
 section_301_exclusions:
   headings_file: 'resources/s301_exclusion_headings.csv'
   line_coverage_file: 'resources/s301_exclusion_line_coverage.csv'

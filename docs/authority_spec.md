@@ -118,10 +118,10 @@ already encodes scheduled future changes — but they reach the timeline through
 
 - **Expiries** (s122 sunset, Swiss-framework expiry 2026-03-31) are split into
   sub-intervals *after* the panel is built, by `collect_expiry_adjustments` /
-  `get_expiry_split_points` (defined in `src/helpers.R:391,469`; invoked from
+  `get_expiry_split_points` (defined in `src/core/helpers.R:391,469`; invoked from
   `09_daily_series.R`).
 - **Activation offsets** (`effective_date_offset`) are handled *earlier and
-  differently* — `filter_active_ch99` (defined in `src/rate_schema.R:220`, called
+  differently* — `filter_active_ch99` (defined in `src/model/rate_schema.R:220`, called
   at `06:719`) gates them per revision at calc time. The expiry splitter does
   **not** create a sub-interval at a mid-interval Ch99 activation offset.
 
@@ -143,16 +143,16 @@ B. Parsed parameters: products, ch99_data,            ← THE INJECTION SEAM
 C. calculate_rates_for_revision(B...) → rate panel → stacking → daily / ETR
 ```
 
-`calculate_rates_for_revision()` (`src/06_calculate_rates.R:704`) already takes
+`calculate_rates_for_revision()` (`src/pipeline/06_calculate_rates.R:704`) already takes
 the Layer-B objects as named arguments. A scenario therefore = **build a
 modified Layer-B parameter set and call the same function.** All of Layer C's
 logic (metal-share assignment, USMCA scaling, stacking) re-runs on the delta for
 free — "the calculator still holds," structurally guaranteed.
 
 We do **not** synthesize fake JSON (Layer A), and we do **not** post-process the
-output panel (Layer C) — which is what the current `src/apply_scenarios.R` does,
-and exactly why it is limited to column edits and cannot introduce coverage or
-set archetype tags correctly.
+output panel (Layer C) — which is what the legacy post-build patch engine
+(`apply_scenarios.R`, deleted in Phase 7) did, and exactly why it was limited to
+column edits and could not introduce coverage or set archetype tags correctly.
 
 ## The schema
 
@@ -235,7 +235,7 @@ Every field maps to something the current engine already does — this is a
 
 | Field | Purpose | Where it lives today |
 |---|---|---|
-| `stacking.class` | `primary_metal` (232, owns the metal-content fraction — **requires a real `metal.type`**) / `primary_full` (232 owns the **full** customs value, IEEPA excluded — for non-metal 232 like autos/drones; no metal block) / `content_split` (scaled by `nonmetal_share` on 232 products — IEEPA recip, s122, CA-MX fentanyl) / `additive` (full rate always — 301, s201, other, China fentanyl) | the `case_when` branches in `src/stacking.R` |
+| `stacking.class` | `primary_metal` (232, owns the metal-content fraction — **requires a real `metal.type`**) / `primary_full` (232 owns the **full** customs value, IEEPA excluded — for non-metal 232 like autos/drones; no metal block) / `content_split` (scaled by `nonmetal_share` on 232 products — IEEPA recip, s122, CA-MX fentanyl) / `additive` (full rate always — 301, s201, other, China fentanyl) | the `case_when` branches in `src/model/stacking.R` |
 | `stacking.exceptions` | per-country-group override of the class — captures "China fentanyl is additive while others content-split" **as data, not a branch** | hardcoded `country == cty_china` in the fentanyl branch |
 | `country_scope` | `{include: all \| [list], exclude: [list/file]}` — the set membership the engine iterates (`country %in% scope`) | hardcoded for 301/fentanyl; parsed-as-data for 232/IEEPA |
 | `product_scope` | `{chapters \| products_file \| prefixes_file \| prefixes, exclude_file}` — **a precedence, not alternatives**: `products_file` (authoritative CSV) wins; `prefixes_file` / inline `prefixes` are the fallback used only when no file is present (`06:234-290`). (The draft's `list_file` is this `products_file`.) | `section_232_headings`, resource CSVs |
@@ -457,8 +457,8 @@ of an existing program). Each carries `effective_from`.
 - Unknown authority/program id, unknown census code, or `primary_metal` without a
   `metal.type` → **hard error**, never a silent no-op.
 
-**The timeline splitter is new work, not a reuse of `collect_patch_split_dates()`**
-(`apply_scenarios.R:292`, which only reads `patches[].filter.from_date`). A synthetic
+**The timeline splitter is new work, not a reuse of the old `collect_patch_split_dates()`**
+(from the Phase-7-deleted `apply_scenarios.R`, which only read `patches[].filter.from_date`). A synthetic
 revision must build a modified spec set, recompute coverage, assign a synthetic
 revision id, and append the forward interval(s) — which the current
 `09_daily_series.R` interval-splitting does **not** do.
@@ -713,7 +713,7 @@ tolerance** (refactors reorder float ops, so byte-identity is the wrong bar).
    `06:2275-2304` scopes `rate_301` to China (`if_else(country == CTY_CHINA, pmax(rate_301,
    blanket_301), rate_301)`, and forces new rows to `CTY_CHINA`). Replace it with
    `country %in% spec$country_scope` there **first**, then also un-hardcode the downstream
-   `country == cty_china` branches in `src/stacking.R` (`apply_stacking_rules` `:161/166`,
+   `country == cty_china` branches in `src/model/stacking.R` (`apply_stacking_rules` `:161/166`,
    `compute_net_authority_contributions` net_301 `:239`). Editing only `stacking.R` would
    leave 301 scoped to China and still pass a byte-identical baseline — a silent miss.
    Small, high-value, unlocks re-scoping scenarios.

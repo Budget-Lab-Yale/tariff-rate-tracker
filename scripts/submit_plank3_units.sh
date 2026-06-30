@@ -10,9 +10,9 @@
 # (value>0 = the has_s122 gate), and scenario_ops set_rate/disable mutate that
 # scalar. The parity rebuild (build array + run_parity_check) is the separate gate
 # that confirms the calc change is bit-identical to tests/golden/9f9837d.
-#   1. tests/test_scenario_ops.R     — s122 set_rate/disable write rate$default (no blob)
-#   2. tests/test_authority_spec.R    — resolve_rate / validate_rate on the default layer
-#   3. tests/test_authority_adapter.R — adapter structures s122 into rate$default end-to-end
+#   1. tests/test_authority_spec.R    — resolve_rate / validate_rate on the default layer
+#   2. tests/test_authority_adapter.R — adapter structures s122 into rate$default end-to-end
+# (The scenario_ops verb test was removed with the verb API in 54cc662.)
 # Exit non-zero if any file fails.
 
 #SBATCH --job-name=theseus-plank3u
@@ -23,7 +23,7 @@
 #SBATCH --mem=4G
 #SBATCH --output=/home/%u/slurm-logs/theseus-plank3u-%j.out
 #SBATCH --error=/home/%u/slurm-logs/theseus-plank3u-%j.err
-#SBATCH --chdir=/nfs/roberts/project/pi_nrs36/jar335/Repositories/tariff-rate-tracker
+# (no --chdir: submit from the repo root — sbatch uses the submission dir)
 
 set -uo pipefail
 

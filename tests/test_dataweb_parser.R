@@ -15,7 +15,7 @@
 library(tidyverse)
 library(here)
 
-source(here('src', 'dataweb_parser.R'))
+source(here('src', 'io', 'dataweb_parser.R'))
 
 pass_count <- 0
 fail_count <- 0

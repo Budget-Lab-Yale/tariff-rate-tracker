@@ -6,7 +6,7 @@
 # The parity gate. Compares every artifact (snapshots, combined timeseries,
 # daily CSVs) of a candidate build against a REFERENCE build — by default the
 # latest published vintage (<model_data_root>/latest) — using the tolerance
-# comparator in src/parity.R, and exits non-zero on any drift.
+# comparator in src/core/parity.R, and exits non-zero on any drift.
 #
 # Layouts (auto-detected per side):
 #   vintage — a published vintage: daily CSVs in <root>/actual/daily,
@@ -30,8 +30,8 @@ suppressPackageStartupMessages({
   library(readr)
 })
 
-source(here('src', 'parity.R'))
-source(here('src', 'policy_params.R'))   # load_local_paths() -> model_data_root
+source(here('src', 'core', 'parity.R'))
+source(here('src', 'model', 'policy_params.R'))   # load_local_paths() -> model_data_root
 
 args <- commandArgs(trailingOnly = TRUE)
 get_arg <- function(flag, default = NULL) {
@@ -44,7 +44,7 @@ default_reference <- local({
   r <- tryCatch(load_local_paths()$model_data_root, error = function(e) NULL)
   if (is.null(r) || !nzchar(r)) NULL else file.path(r, 'latest')
 })
-reference_root <- get_arg('--reference', default_reference)
+reference_root <- get_arg('--reference', get_arg('--golden', default_reference))  # --golden is an alias for --reference
 candidate_root <- get_arg('--candidate', here())
 # Default to the daily series — the consumable a published vintage carries.
 # (A vintage stores snapshots as partitioned parquet, not snapshot_*.rds, so

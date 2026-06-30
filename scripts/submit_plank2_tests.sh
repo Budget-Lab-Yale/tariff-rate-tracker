@@ -10,12 +10,11 @@
 # at 06: "Plank 2" hook) already shipped under the "Phase 2e" name and is present
 # at 9f9837d — i.e. baked into the golden, so parity is trivially green and NO
 # 43-rev rebuild is needed. What this gate proves:
-#   1. tests/test_scenario_ops.R    — section_201 rescope + disable verbs work
-#                                      (the coverage gap Plank 2 closes; mirrors 301)
-#   2. tests/test_authority_spec.R   — resolve_country_scope "all except exclude"
+#   1. tests/test_authority_spec.R   — resolve_country_scope "all except exclude"
 #                                      (the Section 201 / Canada shape)
-#   3. tests/test_authority_adapter.R— the REAL spec set builds with the 201
+#   2. tests/test_authority_adapter.R— the REAL spec set builds with the 201
 #                                      country_scope exclude captured end-to-end
+# (The scenario_ops verb test was removed with the verb API in 54cc662.)
 # Exit non-zero if any file fails.
 
 #SBATCH --job-name=theseus-plank2
@@ -26,7 +25,7 @@
 #SBATCH --mem=4G
 #SBATCH --output=/home/%u/slurm-logs/theseus-plank2-%j.out
 #SBATCH --error=/home/%u/slurm-logs/theseus-plank2-%j.err
-#SBATCH --chdir=/nfs/roberts/project/pi_nrs36/jar335/Repositories/tariff-rate-tracker
+# (no --chdir: submit from the repo root — sbatch uses the submission dir)
 
 set -uo pipefail
 

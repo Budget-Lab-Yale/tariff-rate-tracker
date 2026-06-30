@@ -1,13 +1,15 @@
 # =============================================================================
-# timeline real-data gate (Phase 3c + Pass-2 P2-1)
+# timeline real-data gate (Phase 3c + Pass-2 P2-1; updated Phase 1b)
 # =============================================================================
 # On the REAL policy params + REAL revision grid:
-#   (1) PARITY GATE (unchanged): the live 09 splitter (timeline_split_points fed
-#       expiry_boundaries) yields IDENTICAL sub-intervals to the legacy
-#       get_expiry_split_points path for every revision interval. The 09 expiry
-#       splitter is NOT swapped by the unified-timeline work (the S122/Swiss
-#       expiries stay on downstream zeroing — see tests/test_mint_equals_zeroing.R),
-#       so this must remain GREEN.
+#   (1) LIVE SPLITTER INVARIANT: the live 09 splitter (timeline_split_points fed
+#       expiry_boundaries) partitions every revision interval into a gapless,
+#       contiguous, in-range cover of [valid_from .. valid_until] — no spurious,
+#       overlapping, or out-of-range split. The S122/Swiss expiries stay on
+#       downstream zeroing (see tests/test_mint_equals_zeroing.R), and the
+#       boundary convention math is unit-tested in tests/test_timeline.R. (The
+#       legacy get_expiry_split_points oracle this once cross-checked against was
+#       retired in Phase 1b; its behaviour is subsumed by the +1 mapping.)
 #   (2) POSITIVE CONTROL (replaces the old "FINDING" block): discover_boundaries()
 #       must emit a mint for EVERY schedule boundary that falls strictly inside a
 #       real interval and that the calc re-resolves — and NONE for edge-coincident
@@ -17,7 +19,7 @@
 # =============================================================================
 
 suppressPackageStartupMessages({ library(here); library(dplyr); library(tidyr) })
-source(here('src', 'helpers.R'))
+source(here('src', 'core', 'helpers.R'))
 
 pass <- 0L
 check <- function(cond, msg) {
@@ -39,11 +41,7 @@ intervals <- rd %>%
 exp_bounds  <- expiry_boundaries(pp)               # what the LIVE 09 splitter is fed
 full_bounds <- collect_schedule_boundaries(pp)     # the comprehensive collector
 
-# legacy 09 sub-intervals vs the live (timeline-based) ones
-legacy_sub <- function(vf, vu) {
-  s <- get_expiry_split_points(vf, vu, pp)
-  if (!length(s)) list(starts = vf, ends = vu) else list(starts = c(vf, s + 1), ends = c(s, vu))
-}
+# Live (timeline-based) 09 sub-intervals.
 live_sub <- function(vf, vu) {
   si <- timeline_split_points(vf, vu, exp_bounds)
   if (!length(si)) list(starts = vf, ends = vu) else list(starts = c(vf, si), ends = c(si - 1, vu))
@@ -53,17 +51,23 @@ cat(sprintf('expiry boundaries (fed to live splitter): %s\n',
             if (length(exp_bounds)) paste(format(exp_bounds), collapse = ', ') else '(none)'))
 cat(sprintf('checking %d real revision intervals...\n', nrow(intervals)))
 
-mism <- 0L
+bad <- 0L
 for (i in seq_len(nrow(intervals))) {
   vf <- intervals$valid_from[i]; vu <- intervals$valid_until[i]
-  L <- legacy_sub(vf, vu); N <- live_sub(vf, vu)
-  if (!identical(L$starts, N$starts) || !identical(L$ends, N$ends)) {
-    mism <- mism + 1L
-    cat(sprintf('  MISMATCH %-12s [%s .. %s]\n', intervals$revision[i], vf, vu))
+  N <- live_sub(vf, vu)
+  ok <- identical(N$starts[1], vf) &&                          # opens at valid_from
+        identical(N$ends[length(N$ends)], vu) &&               # closes at valid_until
+        all(N$ends >= N$starts) &&                             # every piece non-empty
+        (length(N$starts) == 1 ||                              # gapless & contiguous
+         all(N$starts[-1] == N$ends[-length(N$ends)] + 1)) &&
+        all(N$starts >= vf & N$ends <= vu)                     # never escapes the window
+  if (!isTRUE(ok)) {
+    bad <- bad + 1L
+    cat(sprintf('  BAD PARTITION %-12s [%s .. %s]\n', intervals$revision[i], vf, vu))
   }
 }
-check(mism == 0L, sprintf('live splitter (expiry boundaries) == legacy across all %d real intervals',
-                          nrow(intervals)))
+check(bad == 0L, sprintf('live splitter yields a gapless, in-range partition across all %d real intervals',
+                         nrow(intervals)))
 
 # --- POSITIVE CONTROL: discover_boundaries mints every interior boundary -------
 # (replaces the old "FINDING" diagnostic — those mid-interval boundaries are now
@@ -115,8 +119,9 @@ if (have_ch99) {
   # 2026-11-10 §301 cranes/chassis turn-on is discovered by the Ch99 effective_date
   # offset scan, so it appears only when data/timeseries holds FRESH ch99 caches for
   # the owning revision — a stale/partial local scratch can omit it (rebuild to
-  # refresh). The other four are config/exemption-derived and always resolve.
-  expected <- c('2025-03-12', '2025-11-14', '2026-02-20', '2026-07-24', '2026-09-29', '2026-11-10')
+  # refresh). The remaining dates are config/exemption/offset-derived.
+  expected <- c('2025-03-12', '2025-06-01', '2025-09-01', '2025-11-14',
+                '2026-02-20', '2026-07-24', '2026-09-29', '2026-11-10')
   check(setequal(as.character(b$date), expected),
         paste0('discovered mint set == {', paste(expected, collapse = ', '), '} on the real grid'))
 } else {

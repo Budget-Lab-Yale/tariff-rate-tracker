@@ -15,8 +15,8 @@ This repository mixes core tariff logic, committed resource files, and large reg
 ## Development setup
 
 ```bash
-Rscript src/install_dependencies.R --all
-Rscript src/02_download_hts.R
+Rscript tools/install_dependencies.R --all
+Rscript src/pipeline/02_download_hts.R
 Rscript src/preflight.R
 ```
 
@@ -35,7 +35,7 @@ Rscript tests/test_rate_calculation.R
 If your change affects benchmark comparison logic or methodology-sensitive outputs, also run the most relevant deeper checks for that area. Examples include:
 
 - `Rscript tests/test_tpc_comparison.R`
-- `Rscript src/00_build_timeseries.R --full --core-only`
+- `Rscript src/pipeline/00_build_timeseries.R --full --core-only`
 - targeted scrapers or diagnostics under `src/` and `scripts/`
 
 ## Pull requests

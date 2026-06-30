@@ -9,7 +9,6 @@
 #   test_resolve_rate.R     — rate schema/reader/semantics (+ the `flat` allowed key)
 #   test_authority_spec.R   — spec datatype + validate_rate
 #   test_authority_adapter.R— adapter builds the real spec set (now with 301 by_product_tier)
-#   test_scenario_ops.R     — rescope-301 + add_program (exercises the `flat` validate fix)
 #   test_stacking.R         — class-based stacking (301 additive)
 #   test_rate_calculation.R — core rate engine on synthetic data (specs-less fallback path)
 
@@ -21,7 +20,7 @@
 #SBATCH --mem=8G
 #SBATCH --output=/home/%u/slurm-logs/theseus-p1-units-%j.out
 #SBATCH --error=/home/%u/slurm-logs/theseus-p1-units-%j.err
-#SBATCH --chdir=/nfs/roberts/project/pi_nrs36/jar335/Repositories/tariff-rate-tracker
+# (no --chdir: submit from the repo root — sbatch uses the submission dir)
 
 set -uo pipefail
 mkdir -p ~/slurm-logs

@@ -28,7 +28,7 @@
 # =============================================================================
 
 suppressPackageStartupMessages(library(here))
-source(here('src', 'write_output.R'))   # write_build_output + SHARED_ROOT_DEFAULT
+source(here('src', 'io', 'write_output.R'))   # write_build_output + SHARED_ROOT_DEFAULT
 
 latest_only <- '--latest-only' %in% commandArgs(trailingOnly = TRUE)
 

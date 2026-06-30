@@ -22,7 +22,7 @@ This document is an appendix to [methodology.md](methodology.md). It catalogs me
 
 **Post-annex update (April 2026):** The annex restructuring proclamation applies Section 232 to the full customs value of all annex-classified products, eliminating the metal-content-based mutual exclusion for derivatives. For post-annex revisions (effective >= 2026-04-06), `nonmetal_share` is forced to 0 for all products with a populated `s232_annex`, meaning IEEPA/S122/fentanyl contribute zero on 232 products. Pre-annex stacking behavior is unchanged. This aligns with SGEPT's approach (dropping content shares to 100% at the transition) and is supported by the AFS Law analysis of the proclamation text.
 
-**Implementation:** `src/helpers.R:apply_stacking_rules()`, `stacking_method` parameter (default `'mutual_exclusion'`). Post-annex override keyed on `s232_annex` column presence.
+**Implementation:** `src/core/helpers.R:apply_stacking_rules()`, `stacking_method` parameter (default `'mutual_exclusion'`). Post-annex override keyed on `s232_annex` column presence.
 
 ---
 
@@ -42,7 +42,7 @@ Products in primary chapters (72, 73, 76) are forced to `metal_share = 1.0` rega
 
 **Source:** Flat 50% reverse-engineered from TPC. CBO buckets from Congressional Budget Office tariff analysis (`resources/cbo/`). BEA shares computed from BEA Detail I-O table, matching Tariff-ETRs `bea_granularity: 'detail'`. No official HTS or Federal Register guidance specifies metal content calculation methodology.
 
-**Implementation:** `config/policy_params.yaml` (`metal_content` block, `method: 'bea'`), `resources/metal_content_shares_bea_hs10.csv`, `src/helpers.R:load_metal_content()`. Per-type scaling in `src/06_calculate_rates.R:apply_232_derivatives()`. Per-type nonmetal_share in `src/helpers.R:apply_stacking_rules()` and `compute_net_authority_contributions()`.
+**Implementation:** `config/policy_params.yaml` (`metal_content` block, `method: 'bea'`), `resources/metal_content_shares_bea_hs10.csv`, `src/core/helpers.R:load_metal_content()`. Per-type scaling in `src/pipeline/06_calculate_rates.R:apply_232_derivatives()`. Per-type nonmetal_share in `src/core/helpers.R:apply_stacking_rules()` and `compute_net_authority_contributions()`.
 
 ---
 
@@ -58,7 +58,7 @@ For Section 232 auto/MHD products, the USMCA share is further scaled by `us_auto
 
 **Why non-official:** SPI coding is administrative, not statutory. Product-level utilization is an empirical estimate, not a legal determination. The auto content share (0.40) is an economic estimate of US/USMCA-origin content in qualifying vehicles, not a statutory rate. Falls back to binary HTS `special` field eligibility (S/S+) when shares are unavailable.
 
-**Implementation:** `src/download_usmca_dataweb.R` (optional, requires USITC DataWeb account and API token in `.env`). Year-specific files: `resources/usmca_product_shares_2024.csv` (40,088 pairs) and `resources/usmca_product_shares_2025.csv` (40,258 pairs). Year selected via `usmca_shares.year` in `config/policy_params.yaml` (default: 2025). Applied in `src/06_calculate_rates.R` steps 2 (fentanyl), 4 (232 auto/MHD), and 7 (IEEPA/S122). Auto content share configured in `config/policy_params.yaml` under `auto_rebate.us_auto_content_share`.
+**Implementation:** `tools/download_usmca_dataweb.R` (optional, requires USITC DataWeb account and API token in `.env`). Year-specific files: `resources/usmca_product_shares_2024.csv` (40,088 pairs) and `resources/usmca_product_shares_2025.csv` (40,258 pairs). Year selected via `usmca_shares.year` in `config/policy_params.yaml` (default: 2025). Applied in `src/pipeline/06_calculate_rates.R` steps 2 (fentanyl), 4 (232 auto/MHD), and 7 (IEEPA/S122). Auto content share configured in `config/policy_params.yaml` under `auto_rebate.us_auto_content_share`.
 
 ### June 2026 Annex I-C USMCA steel treatment
 
@@ -78,7 +78,7 @@ Products in both types (e.g., dairy in steel cans with aluminum lids, HTS 0402.9
 
 **Why non-official:** The product lists are maintained externally because HTS JSON does not provide US Note 16/19 subdivision text. The `derivative_type` column (steel/aluminum) determines which per-type metal share is used for scaling. Should be re-derived directly from the Chapter 99 PDF when `scrape_us_notes.R` is extended with Note 16/19 parsers.
 
-**Implementation:** `resources/s232_derivative_products.csv` (568 HTS8 prefix entries with `hts_prefix`, `ch99_code`, `derivative_type`), loaded by `src/helpers.R:load_232_derivative_products()`. Per-type scaling in `src/06_calculate_rates.R:apply_232_derivatives()` uses `steel_share` for steel derivatives and `aluminum_share` for aluminum derivatives. Prefixes are HTS8 (not HTS10) to ensure stability across HTS revision suffix changes.
+**Implementation:** `resources/s232_derivative_products.csv` (568 HTS8 prefix entries with `hts_prefix`, `ch99_code`, `derivative_type`), loaded by `src/core/helpers.R:load_232_derivative_products()`. Per-type scaling in `src/pipeline/06_calculate_rates.R:apply_232_derivatives()` uses `steel_share` for steel derivatives and `aluminum_share` for aluminum derivatives. Prefixes are HTS8 (not HTS10) to ensure stability across HTS revision suffix changes.
 
 ---
 
@@ -102,7 +102,7 @@ The broader clause (8) rule is not fully modeled: the proclamation also covers n
 
 **Source:** White House proclamation of April 2, 2026, clause (8). The legal rule is official; the exporter-only implementation boundary is a data-capacity limitation.
 
-**Implementation:** `config/policy_params.yaml` (`section_232_annexes.country_surcharges`) and `src/06_calculate_rates.R` (post-annex `pmax()` override after annex tiering and UK deal rates). Regression coverage in `tests/run_tests_daily_series.R` and `tests/test_rate_calculation.R`.
+**Implementation:** `config/policy_params.yaml` (`section_232_annexes.country_surcharges`) and `src/pipeline/06_calculate_rates.R` (post-annex `pmax()` override after annex tiering and UK deal rates). Regression coverage in `tests/run_tests_daily_series.R` and `tests/test_rate_calculation.R`.
 
 ---
 
@@ -116,7 +116,7 @@ The broader clause (8) rule is not fully modeled: the proclamation also covers n
 
 **Source:** Tariff-ETRs project, reverse-engineered from US Note 2 subdivisions in Chapter 99 PDF. Not parseable from HTS JSON.
 
-**Implementation:** `resources/fentanyl_carveout_products.csv`, loaded by `src/helpers.R:load_fentanyl_carveouts()`.
+**Implementation:** `resources/fentanyl_carveout_products.csv`, loaded by `src/core/helpers.R:load_fentanyl_carveouts()`.
 
 ---
 
@@ -134,7 +134,7 @@ The broader clause (8) rule is not fully modeled: the proclamation also covers n
 
 **Why non-official:** While the exemptions themselves are statutory (defined in US Notes), the compiled product list requires manual extraction from Chapter 99 PDF text since the HTS JSON API does not provide US Notes subdivisions. The HTS8→HTS10 expansion uses the HTS JSON product hierarchy to enumerate all statistical suffixes.
 
-**Implementation:** `resources/ieepa_exempt_products.csv`, applied in `src/06_calculate_rates.R`. Expansion script: `src/expand_ieepa_exempt.R`.
+**Implementation:** `resources/ieepa_exempt_products.csv`, applied in `src/pipeline/06_calculate_rates.R`. Expansion script: `tools/expand_ieepa_exempt.R`.
 
 ---
 
@@ -142,9 +142,9 @@ The broader clause (8) rule is not fully modeled: the proclamation also covers n
 
 **Assumption:** ~1,697 products are exempt from the 15% tariff floor for EU, Japan, South Korea, and Switzerland/Liechtenstein. Categories: PTAAP, civil aircraft, non-patented pharmaceuticals, particular articles.
 
-**Source:** Scraped from Chapter 99 PDF via `src/scrape_us_notes.R --floor-exemptions`. Defined in US Note 2 subdivisions (v)(xx)-(xxiv) and Note 3, which are not machine-readable via HTS API.
+**Source:** Scraped from Chapter 99 PDF via `tools/scrape_us_notes.R --floor-exemptions`. Defined in US Note 2 subdivisions (v)(xx)-(xxiv) and Note 3, which are not machine-readable via HTS API.
 
-**Implementation:** `resources/floor_exempt_products.csv`, loaded by `src/helpers.R:load_floor_exempt_products()`.
+**Implementation:** `resources/floor_exempt_products.csv`, loaded by `src/core/helpers.R:load_floor_exempt_products()`.
 
 ---
 
@@ -154,11 +154,11 @@ The broader clause (8) rule is not fully modeled: the proclamation also covers n
 
 **Source:** Two non-HTS-JSON sources:
 1. USITC "China Tariffs" reference document (~10,400 codes)
-2. Chapter 99 PDF US Notes 20/31, scraped via `src/scrape_us_notes.R`
+2. Chapter 99 PDF US Notes 20/31, scraped via `tools/scrape_us_notes.R`
 
 **Scope note:** `9903.89.xx` is not used in the China Section 301 blanket-product logic. Those provisions belong to the separate large civil aircraft dispute with the EU/UK and are assumed suspended from 2021 onward for the current series horizon. If the repo is extended backward to cover the live aircraft-dispute period, those lines should be modeled as a separate Section 301 branch rather than as China-list exclusions.
 
-**Implementation:** `resources/s301_product_lists.csv`, `config/policy_params.yaml` (SECTION_301_RATES), `src/06_calculate_rates.R`.
+**Implementation:** `resources/s301_product_lists.csv`, `config/policy_params.yaml` (SECTION_301_RATES), `src/pipeline/06_calculate_rates.R`.
 
 ---
 
@@ -176,7 +176,7 @@ Within a phase, priority is floor > surcharge > highest rate. Across phases (Pha
 
 **Source:** Reverse-engineered from HTS JSON text conventions. Rate type distinctions and priority rules are not official HTS terminology — they are implementation choices for handling different Ch99 encoding patterns.
 
-**Implementation:** `src/05_parse_policy_params.R:extract_ieepa_rates()`.
+**Implementation:** `src/pipeline/05_parse_policy_params.R:extract_ieepa_rates()`.
 
 ---
 
@@ -195,7 +195,7 @@ Phase classification determines stacking behavior — country_eo rates stack add
 
 **Source:** Reverse-engineered from Ch99 code ranges and Federal Register executive order numbering. Range boundaries (especially the .91 extension for Swiss framework) are implementation assumptions.
 
-**Implementation:** `src/05_parse_policy_params.R`, `config/policy_params.yaml` (authority ranges).
+**Implementation:** `src/pipeline/05_parse_policy_params.R`, `config/policy_params.yaml` (authority ranges).
 
 ---
 
@@ -205,7 +205,7 @@ Phase classification determines stacking behavior — country_eo rates stack add
 
 **Source:** Federal Register (90 FR 59281) and Executive Order 14346. The conditional expiry logic and finalization flag are implementation assumptions for handling a potentially lapsing agreement — not encoded in HTS JSON.
 
-**Implementation:** `config/policy_params.yaml` (`swiss_framework` block), `src/06_calculate_rates.R`.
+**Implementation:** `config/policy_params.yaml` (`swiss_framework` block), `src/pipeline/06_calculate_rates.R`.
 
 ---
 
@@ -226,7 +226,7 @@ Phase classification determines stacking behavior — country_eo rates stack add
 
 **Post-annex update (April 2026):** For annex-classified products, `nonmetal_share` is forced to 0 (see Assumption 1 post-annex update), so Section 122 contributes zero on all post-annex 232 products — not just primary chapters. The derivative row in the table above effectively becomes `nonmetal_share = 0` post-annex.
 
-**Implementation:** `src/helpers.R:apply_stacking_rules()` — the `case_when` branches for `rate_232 > 0` multiply `rate_s122` by `nonmetal_share`, which is computed from the active 232 program's type-specific share (0 for pure-metal products, `1 - aluminum_share` for derivatives). Post-annex, the `s232_annex` override forces `nonmetal_share = 0` for all annex-classified products.
+**Implementation:** `src/core/helpers.R:apply_stacking_rules()` — the `case_when` branches for `rate_232 > 0` multiply `rate_s122` by `nonmetal_share`, which is computed from the active 232 program's type-specific share (0 for pure-metal products, `1 - aluminum_share` for derivatives). Post-annex, the `s232_annex` override forces `nonmetal_share = 0` for all annex-classified products.
 
 ---
 
@@ -244,7 +244,7 @@ The `nonzero_base_only` toggle partially overlaps with these product-specific ex
 
 **Impact:** ~26K product-country pairs at rev_32 (14,930 in floor countries + 11,288 in non-floor). Top affected chapters: 61-62 (apparel, ~7K), 84-85 (ITA machinery/electronics, ~1.7K), 98 (special provisions, ~3.5K), 97 (artworks), 29-30 (pharma), 49 (printed matter).
 
-**Implementation:** `config/policy_params.yaml` (`ieepa_duty_free_treatment`), applied in `src/06_calculate_rates.R` step 2. Berman Amendment products (ch49, ch97) added to IEEPA exempt list via `src/expand_ieepa_exempt.R` Fixes 4-5.
+**Implementation:** `config/policy_params.yaml` (`ieepa_duty_free_treatment`), applied in `src/pipeline/06_calculate_rates.R` step 2. Berman Amendment products (ch49, ch97) added to IEEPA exempt list via `tools/expand_ieepa_exempt.R` Fixes 4-5.
 
 ---
 
@@ -258,7 +258,7 @@ The `nonzero_base_only` toggle partially overlaps with these product-specific ex
 
 **Source:** Tariff-ETRs order-of-operations confirmed via comparison analysis. No explicit Federal Register guidance on whether floor deduction should use statutory or effective base rate.
 
-**Implementation:** `src/06_calculate_rates.R` step 6d — after MFN exemption shares are applied to `base_rate` (step 6c), rows with `ieepa_type == 'floor'` and `rate_ieepa_recip > 0` are recomputed as `pmax(0, floor_rate - base_rate)`. The `ieepa_type` flag is preserved from Step 2 to distinguish genuine floor rows from surcharge rows for the same countries (e.g., Swiss/Liechtenstein outside the framework window).
+**Implementation:** `src/pipeline/06_calculate_rates.R` step 6d — after MFN exemption shares are applied to `base_rate` (step 6c), rows with `ieepa_type == 'floor'` and `rate_ieepa_recip > 0` are recomputed as `pmax(0, floor_rate - base_rate)`. The `ieepa_type` flag is preserved from Step 2 to distinguish genuine floor rows from surcharge rows for the same countries (e.g., Swiss/Liechtenstein outside the framework window).
 
 ---
 
@@ -268,9 +268,9 @@ The `nonzero_base_only` toggle partially overlaps with these product-specific ex
 
 **Impact:** Primarily affects Taiwan (-6.9pp vs ETRs at Jan 1, 2026) and Malaysia (-5.9pp) — both are major electronics/semiconductor exporters. The gap vanishes after IEEPA invalidation (Feb 24).
 
-**Source:** `src/expand_ieepa_exempt.R` Fix 3 (ITA prefix expansion) based on the legal text of US Note 2 subdivision (v)(iii). The tracker's interpretation is broader; Tariff-ETRs uses a narrower product list.
+**Source:** `tools/expand_ieepa_exempt.R` Fix 3 (ITA prefix expansion) based on the legal text of US Note 2 subdivision (v)(iii). The tracker's interpretation is broader; Tariff-ETRs uses a narrower product list.
 
-**Implementation:** `resources/ieepa_exempt_products.csv` (4,325 HTS10 codes), expanded from the base Annex A list via `src/expand_ieepa_exempt.R`.
+**Implementation:** `resources/ieepa_exempt_products.csv` (4,325 HTS10 codes), expanded from the base Annex A list via `tools/expand_ieepa_exempt.R`.
 
 ## 16. Section 232 Semiconductor Qualifying Share and End-Use Exemptions
 
@@ -285,7 +285,7 @@ The tracker uses two uncalibrated parameters to approximate these:
 
 **Source:** CBP CSMS #67400472 (January 2026 guidance), White House proclamation of January 14, 2026. Calibration deferred pending better CBP/CBP trade-press data on advanced-IC import shares.
 
-**Implementation:** `src/06_calculate_rates.R` heading loop (gate), post-stacking override (ensures semi rate persists through derivative and annex pipelines). `resources/s232_semi_products.csv`, `resources/semi_qualifying_shares.csv`.
+**Implementation:** `src/pipeline/06_calculate_rates.R` heading loop (gate), post-stacking override (ensures semi rate persists through derivative and annex pipelines). `resources/s232_semi_products.csv`, `resources/semi_qualifying_shares.csv`.
 
 ## 17. Section 301 USTR Exclusion Headings: Full-Line Zeroing (Phase-1 Upper Bound)
 
@@ -299,7 +299,7 @@ Validity windows are read **per revision from each archive's own heading text** 
 
 **Source:** Heading text in each HTS revision's Chapter 99 (parsed); USTR exclusion FR notices. Found 2026-06-09 via the dropped-pairs instrumentation in `calculate_rates_fast()`.
 
-**Implementation:** `resources/s301_exclusion_headings.csv` (registry; regenerate via `scripts/build_s301_exclusion_headings.R`), step 6a-excl in `src/06_calculate_rates.R`, `extract_expiry_date_offset()` + NA-rate expiry gate in `filter_active_ch99()` (`src/rate_schema.R`), expiry boundary scan in `src/timeline.R`. Config-gated via `section_301_exclusions:` in `config/policy_params.yaml` (`section_301_exclusions: ~` in a scenario overlay disables).
+**Implementation:** `resources/s301_exclusion_headings.csv` (registry; regenerate via `scripts/build_s301_exclusion_headings.R`), step 6a-excl in `src/pipeline/06_calculate_rates.R`, `extract_expiry_date_offset()` + NA-rate expiry gate in `filter_active_ch99()` (`src/model/rate_schema.R`), expiry boundary scan in `src/model/timeline.R`. Config-gated via `section_301_exclusions:` in `config/policy_params.yaml` (`section_301_exclusions: ~` in a scenario overlay disables).
 
 ## 18. Section 232 Annex Conditioned Routes: Aggregate-Share Knobs (Dormant Baseline)
 
@@ -320,4 +320,4 @@ Validity windows are read **per revision from each archive's own heading text** 
 
 **Source:** Annex IV of the April 2, 2026 proclamation (note 16 text, `docs/s232/annexes_text.txt` + chapter99 notes); SGEPT shares from `docs/s232/s232_metals_update_note.pdf`.
 
-**Implementation:** `src/authority_adapter.R` (UK blend, third-country surcharge), `src/06_calculate_rates.R` step 5c exemption block, `config/policy_params.yaml::section_232_annexes`, `config/scenarios/sgept_exemptions/`. Validated: with all knobs at baseline values, the rev_9 snapshot is byte-identical to the pre-change build.
+**Implementation:** `src/model/authority_adapter.R` (UK blend, third-country surcharge), `src/pipeline/06_calculate_rates.R` step 5c exemption block, `config/policy_params.yaml::section_232_annexes`, `config/scenarios/sgept_exemptions/`. Validated: with all knobs at baseline values, the rev_9 snapshot is byte-identical to the pre-change build.

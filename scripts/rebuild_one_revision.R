@@ -2,7 +2,7 @@
 # Rebuild a single revision's snapshot to a scratch path (validation harness)
 # =============================================================================
 #
-# Mirrors steps a-g of build_full_timeseries() in src/00_build_timeseries.R
+# Mirrors steps a-g of build_full_timeseries() in src/pipeline/00_build_timeseries.R
 # for ONE revision, writing the snapshot to data/timeseries/scratch/ so the
 # published snapshots are untouched. Used to validate rate-engine changes
 # without a full rebuild.
@@ -17,14 +17,14 @@ suppressPackageStartupMessages({
   library(here)
 })
 
-source(here('src', 'logging.R'))
-source(here('src', 'helpers.R'))
-source(here('src', '03_parse_chapter99.R'))
-source(here('src', '04_parse_products.R'))
-source(here('src', '05_parse_policy_params.R'))
-source(here('src', '06_calculate_rates.R'))
-source(here('src', 'authority_spec.R'))      # AuthoritySpec datatype
-source(here('src', 'authority_adapter.R'))   # build_authority_specs()
+source(here('src', 'core', 'logging.R'))
+source(here('src', 'core', 'helpers.R'))
+source(here('src', 'pipeline', '03_parse_chapter99.R'))
+source(here('src', 'pipeline', '04_parse_products.R'))
+source(here('src', 'pipeline', '05_parse_policy_params.R'))
+source(here('src', 'pipeline', '06_calculate_rates.R'))
+source(here('src', 'model', 'authority_spec.R'))      # AuthoritySpec datatype
+source(here('src', 'model', 'authority_adapter.R'))   # build_authority_specs()
 
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) < 1) stop('Usage: Rscript scripts/rebuild_one_revision.R <revision_id> [out_dir]')

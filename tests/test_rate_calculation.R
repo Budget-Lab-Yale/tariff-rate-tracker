@@ -15,11 +15,11 @@ library(tidyverse)
 library(jsonlite)
 library(here)
 
-source(here('src', 'helpers.R'))
-source(here('src', '03_parse_chapter99.R'))
-source(here('src', '04_parse_products.R'))
-source(here('src', '05_parse_policy_params.R'))
-source(here('src', '06_calculate_rates.R'))
+source(here('src', 'core', 'helpers.R'))
+source(here('src', 'pipeline', '03_parse_chapter99.R'))
+source(here('src', 'pipeline', '04_parse_products.R'))
+source(here('src', 'pipeline', '05_parse_policy_params.R'))
+source(here('src', 'pipeline', '06_calculate_rates.R'))
 
 pass_count <- 0
 fail_count <- 0

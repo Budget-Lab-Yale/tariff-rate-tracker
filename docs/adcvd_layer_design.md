@@ -82,7 +82,7 @@ surfaces (statutory ETR, diagnostics).
 
 ## Schema
 
-Add one rung to `src/rate_schema.R`:
+Add one rung to `src/model/rate_schema.R`:
 
 ```r
 RATE_SCHEMA <- c(
@@ -117,7 +117,7 @@ acquisition recipe. `#` comment lines are supported (loader uses `comment='#'`).
 - `rate` — all-others (or trade-weighted) AVE deposit rate, e.g. `0.21`.
 - `effective_date` / `revoked_date` — gate the rung to the snapshot's interval.
 
-## Loader — `src/load_adcvd_layer.R`
+## Loader — `src/experimental/load_adcvd_layer.R`
 
 `load_adcvd_layer(effective_date, product_universe, import_weights, path)`:
 
@@ -135,7 +135,7 @@ all-others rate by in-scope trade share); additive stacking does not need it.
 
 ## Wiring (deferred — gated on the orders file)
 
-In `src/06_calculate_rates.R`, a new **Step 6b** after the program rungs and
+In `src/pipeline/06_calculate_rates.R`, a new **Step 6b** after the program rungs and
 before `total_additional` / `total_rate` are summed:
 
 ```r

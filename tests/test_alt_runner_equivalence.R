@@ -22,7 +22,7 @@ suppressPackageStartupMessages({
   library(here)
 })
 
-source(here('src', 'parallel.R'))
+source(here('src', 'core', 'parallel.R'))
 
 # -----------------------------------------------------------------------------
 # Configuration resolution

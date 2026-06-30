@@ -11,7 +11,7 @@ The repository's core product is an interval-encoded tariff panel for the 2025-2
 The primary output is **`data/timeseries/rate_timeseries.rds`** — a complete `HTS-10 × country` tariff-rate panel with interval encoding (`valid_from` / `valid_until`). This is the full time series of product-country-level statutory tariff rates. To query rates at a specific date:
 
 ```r
-source('src/helpers.R')
+source('src/core/helpers.R')
 ts <- readRDS('data/timeseries/rate_timeseries.rds')
 snapshot <- get_rates_at_date(ts, as.Date('2026-06-15'))
 ```
@@ -66,7 +66,7 @@ issue or email [budgetlab@yale.edu](mailto:budgetlab@yale.edu).
 
 ## System requirements
 
-- **R 4.3+** with packages listed in `src/install_dependencies.R`
+- **R 4.3+** with packages listed in `tools/install_dependencies.R`
 - **RAM**: The full pipeline (`--full`) expands a product × country matrix of roughly 19,000 products × 240 countries during rate calculation. **32 GB RAM is recommended.** Machines with 16 GB may run out of memory during the IEEPA broadcasting step in `06_calculate_rates.R`. If you are memory-constrained, you can build individual revisions rather than running `--full`, since each revision is processed independently.
 - **Disk**: The `data/` directory (HTS JSON archives + processed snapshots) requires approximately 2 GB.
 - **OS**: Tested on Windows 10/11, macOS, and Linux. No platform-specific dependencies.
@@ -74,33 +74,33 @@ issue or email [budgetlab@yale.edu](mailto:budgetlab@yale.edu).
 ## Quick start
 
 ```bash
-Rscript src/install_dependencies.R --all
-Rscript src/02_download_hts.R
+Rscript tools/install_dependencies.R --all
+Rscript src/pipeline/02_download_hts.R
 Rscript src/preflight.R
-Rscript src/00_build_timeseries.R --full --core-only
+Rscript src/pipeline/00_build_timeseries.R --full --core-only
 ```
 
 That sequence builds the core series without requiring private benchmark data or optional weighting inputs.
 
-There are two ways to publish a build's outputs (both off by default):
+To publish a build's outputs to the repo (off by default):
 
-- **`--publish-internal`** mirrors a curated subset of outputs to the Budget Lab's internal shared model-data tree as an immutable, dated vintage. Internal — for downstream Budget Lab models.
 - **`--publish-git`** writes a curated subset of outputs to [`release/`](release/) inside the repo, with publication-date suffixes (e.g. `daily_overall_2026-05-21.csv`). Only the latest publication's files are on disk; history is browsable via `git log -- release/`. Public — for downstream consumers reading from GitHub.
 
 ```bash
-Rscript src/00_build_timeseries.R --full --core-only --publish-internal
-Rscript src/00_build_timeseries.R --full --core-only --publish-git
-Rscript src/00_build_timeseries.R --full --core-only --publish-internal --publish-git   # both
+Rscript src/pipeline/00_build_timeseries.R --full --core-only --publish-git
 ```
 
-See [docs/build.md](docs/build.md#publishing) for layout, vintage rules, and manifest contents for each mode.
+Publishing to the Budget Lab's internal shared model-data tree is handled by the
+config-driven array flow (`scripts/submit_build_array.sh`), which writes a dated
+vintage under `model_data_root`; see [docs/build.md](docs/build.md#publishing)
+and [scripts/README.md](scripts/README.md) for layout, vintage rules, and
+manifest contents.
 
 ## Repository structure
 
-- `src/00_build_timeseries.R`: main build orchestrator
-- `src/09_daily_series.R`: daily aggregate and filtered daily export utilities
-- `src/08_weighted_etr.R`: weighted ETR outputs when import weights are configured
-- `src/generate_etrs_config.R`: exports tracker rates into Tariff-ETRs-compatible config (`statutory_rates.csv.gz` + `other_params.yaml`)
+- `src/pipeline/00_build_timeseries.R`: main build orchestrator
+- `src/pipeline/09_daily_series.R`: daily aggregate, weighted ETR, and filtered daily export utilities
+- `tools/generate_etrs_config.R`: exports tracker rates into Tariff-ETRs-compatible config (`statutory_rates.csv.gz` + `other_params.yaml`)
 - `config/policy_params.yaml`: tariff logic and related modeling parameters
 - `config/revision_dates.csv`: HTS revision schedule and benchmark date alignment
 - `scripts/`: standalone analysis tools (not part of the core pipeline)
@@ -108,10 +108,4 @@ See [docs/build.md](docs/build.md#publishing) for layout, vintage rules, and man
 
 ## Current scope
 
-The repo currently models 39 HTS revisions from January 1, 2025 through April 6, 2026, and extends the final interval through December 31, 2026 via the configured series horizon.
-
-## Notes
-
-- The core build does not require TPC or Tariff-ETRs inputs.
-- Weighted outputs require local import weights configured in `config/local_paths.yaml`. The build fails loudly if the file is missing and you have not opted out — see [docs/weights.md](docs/weights.md) for how to regenerate the file from Census Bureau monthly imports, or set `weight_mode: unweighted` (or pass `--unweighted`) to skip weighted outputs.
-- Some modeling questions remain open, especially around residual floor-country differences versus TPC and the treatment of legacy non-China tariff branches. Those are documented in [docs/methodology.md](docs/methodology.md).
+The repo currently models 43 HTS revisions from January 1, 2025 through June 8, 2026, and extends the final interval through December 31, 2026 via the configured series horizon.

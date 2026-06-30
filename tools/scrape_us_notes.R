@@ -1,0 +1,1877 @@
+# =============================================================================
+# Parse US Note Product Lists from Chapter 99 PDF
+# =============================================================================
+#
+# Extracts product lists from US Notes in the USITC Chapter 99 PDF:
+#
+#   1. Section 301 product lists (US Notes 20/31):
+#      HTS subheadings covered by 9903.88.xx and 9903.91.xx entries.
+#
+#   2. Floor country product exemptions (US Note 2):
+#      Products exempt from the 15% tariff floor for EU, Japan, S. Korea,
+#      Switzerland/Liechtenstein. Categories: PTAAP (agricultural/natural
+#      resources), civil aircraft, non-patented pharmaceuticals.
+#
+# Downloads the Chapter 99 PDF from USITC, parses the text with pdftools,
+# and outputs updated resources/s301_product_lists.csv and
+# resources/floor_exempt_products.csv.
+#
+#   3. Section 232 copper product list (US Note 36):
+#      HTS10 codes covered by 9903.78.01 (50% on copper content).
+#
+# Usage:
+#   Rscript tools/scrape_us_notes.R                    # Section 301 only
+#   Rscript tools/scrape_us_notes.R --floor-exemptions # Floor exemptions only
+#   Rscript tools/scrape_us_notes.R --copper           # Note 36 copper products only
+#   Rscript tools/scrape_us_notes.R --derivatives      # Notes 16/19 derivative products only
+#   Rscript tools/scrape_us_notes.R --annex            # Note 16(c) post-April-2026 annex products
+#   Rscript tools/scrape_us_notes.R --annex --annex-revision 2026_rev_6  # Pick a specific revision
+#   Rscript tools/scrape_us_notes.R --all              # 301 + floor + copper + derivatives + annex
+#   Rscript tools/scrape_us_notes.R --dry-run          # Report without writing
+#   Rscript tools/scrape_us_notes.R --download-pdfs [--dry-run]  # Download all revision PDFs
+#   Rscript tools/scrape_us_notes.R --revision rev_18            # Parse single revision
+#   Rscript tools/scrape_us_notes.R --all-revisions [--dry-run]  # Parse all revisions
+#
+# Write safety:
+#   All three parsers validate extraction before writing resource files.
+#   - Section 301: refuses to write if anchor coverage <80%, or on first-time
+#     bootstrap with any missing anchors.
+#   - Floor exemptions: refuses to write if anchor coverage <80%, or to
+#     overwrite an existing CSV when any anchors are missing.
+#   - Copper: refuses to overwrite if fewer than 60 codes are extracted
+#     (historically ~80). Warns if non-copper headings appear on scanned pages.
+#   Use --dry-run to inspect parsed results without modifying resource files.
+#
+# Dependencies: pdftools
+#
+# =============================================================================
+
+library(tidyverse)
+
+
+# =============================================================================
+# Configuration: ch99 code -> list label mapping
+# =============================================================================
+#
+# Product lists in the PDF are identified by "Heading 9903.XX.XX applies to"
+# anchor text. This mapping assigns list labels for the output CSV.
+#
+# Note 20 (Original Section 301, Lists 1-4B):
+#   Subdivisions (b), (d), (f) enumerate HTS8 codes for Lists 1-3.
+#   Subdivision (s) enumerates HTS8 codes for List 4A.
+#   Subdivision (u) enumerates HTS8 codes for List 4B (9903.88.16).
+#   9903.88.04 (List 3 reduced 7.5%) has no separate product enumeration
+#   — its products are a subset of 9903.88.03 with specific exclusions.
+#
+# Note 31 (Biden 301 acceleration):
+#   Subdivisions (b)-(j) enumerate products for 9903.91.xx headings.
+#
+CH99_TO_LIST <- tribble(
+  ~ch99_code,    ~list,              ~note,
+  '9903.88.01',  '1',               20,     # List 1 (25%)
+  '9903.88.02',  '2',               20,     # List 2 (25%)
+  '9903.88.03',  '3',               20,     # List 3 (25%)
+  '9903.88.15',  '4A',              20,     # List 4A (7.5%)
+  '9903.88.16',  '4B',              20,     # List 4B (15%)
+  '9903.91.01',  'biden_25',        31,     # Biden 25%
+  '9903.91.02',  'biden_50',        31,     # Biden 50%
+  '9903.91.03',  'biden_100',       31,     # Biden 100%
+  '9903.91.05',  'biden_50_jan25',  31,     # Biden 50% (Jan 2025)
+  '9903.91.06',  'biden_jan26',     31,     # Biden (Jan 2026)
+  '9903.91.07',  'biden_jan26',     31,     # Biden (Jan 2026)
+  '9903.91.08',  'biden_jan26',     31,     # Biden (Jan 2026)
+  '9903.91.11',  'biden_25_jan25',  31,     # Biden 25% (Jan 2025)
+)
+
+
+# =============================================================================
+# Configuration: Floor country product exemptions
+# =============================================================================
+#
+# US Note 2 subdivisions (v)(xx)-(xxiv) define products exempt from the 15%
+# tariff floor for floor countries (EU, Japan, S. Korea, Switzerland,
+# Liechtenstein). These use a different anchor pattern than Section 301:
+#   "As provided in heading 9903.XX.XX" followed by product lists.
+#
+# Categories:
+#   ptaap        — Agricultural/natural resource products (PTAAP)
+#   particular   — Particular articles (incl. religious items)
+#   civil_aircraft — Civil aircraft and parts
+#   pharma       — Non-patented pharmaceuticals
+#
+# Country groups:
+#   eu    — EU-27 member states
+#   korea — South Korea
+#   swiss — Switzerland + Liechtenstein
+#   japan — Japan (civil aircraft only, via Note 3)
+#
+# NOTE: 9903.96.03 (Taiwan civil aircraft, U.S. note 35(c)) is NOT a floor/reciprocal
+# exemption — note 35(c) exempts those products from the SECTION 232 metals annex
+# (9903.82.xx). It is handled in 06_calculate_rates.R via the section_232_aircraft_exemption
+# path + resources/s232_aircraft_exempt_taiwan.csv, not here. (The 9903.96.01/.02 UK/Japan
+# entries below are the analogous 232 carve-outs but remain mis-bucketed here as a
+# pre-existing, low-impact issue — see todo.md.)
+#
+FLOOR_EXEMPTIONS <- tribble(
+  ~ch99_code,    ~category,         ~country_group,
+  '9903.02.74',  'ptaap',           'eu',
+  '9903.02.75',  'particular',      'eu',
+  '9903.02.76',  'civil_aircraft',  'eu',
+  '9903.02.77',  'pharma',          'eu',
+  '9903.02.81',  'civil_aircraft',  'korea',
+  '9903.02.84',  'ptaap',           'swiss',
+  '9903.02.85',  'civil_aircraft',  'swiss',
+  '9903.02.86',  'pharma',          'swiss',
+  '9903.96.02',  'civil_aircraft',  'japan',
+)
+
+# Japan/UK civil aircraft lists use inline format (semicolons) rather than
+# tabular format. These ch99 codes use Note 3 anchors rather than Note 2.
+INLINE_FLOOR_CODES <- c('9903.96.01', '9903.96.02')
+
+
+# =============================================================================
+# PDF Download
+# =============================================================================
+
+#' Download Chapter 99 PDF from USITC
+#'
+#' @param dest_dir Directory to save PDF
+#' @param force Re-download even if file exists
+#' @return Path to downloaded PDF
+download_chapter99_pdf <- function(dest_dir = 'data/us_notes', force = FALSE) {
+  dest_path <- file.path(dest_dir, 'chapter99.pdf')
+
+  if (file.exists(dest_path) && !force) {
+    file_age_days <- as.numeric(difftime(Sys.time(), file.info(dest_path)$mtime, units = 'days'))
+    if (file_age_days < 30) {
+      message('Using cached PDF (', round(file_age_days, 1), ' days old): ', dest_path)
+      return(dest_path)
+    }
+    message('PDF is ', round(file_age_days, 1), ' days old, re-downloading...')
+  }
+
+  dir.create(dest_dir, recursive = TRUE, showWarnings = FALSE)
+
+  url <- 'https://hts.usitc.gov/reststop/file?release=currentRelease&filename=Chapter+99'
+  message('Downloading Chapter 99 PDF from USITC...')
+  message('  URL: ', url)
+
+  tryCatch({
+    download.file(url, dest_path, mode = 'wb', quiet = FALSE)
+    file_size_mb <- file.info(dest_path)$size / (1024 * 1024)
+    message('  Downloaded: ', round(file_size_mb, 1), ' MB')
+
+    if (file_size_mb < 0.5) {
+      warning('PDF is suspiciously small (', round(file_size_mb, 2), ' MB). May be an error page.')
+    }
+
+    return(dest_path)
+  }, error = function(e) {
+    stop('Failed to download Chapter 99 PDF: ', conditionMessage(e))
+  })
+}
+
+
+# =============================================================================
+# PDF Text Extraction
+# =============================================================================
+
+#' Extract text from Chapter 99 PDF
+#'
+#' @param pdf_path Path to chapter99.pdf
+#' @return Character vector (one element per page)
+extract_pdf_text <- function(pdf_path) {
+  if (!requireNamespace('pdftools', quietly = TRUE)) {
+    stop('pdftools package required. Install with: install.packages("pdftools")')
+  }
+
+  message('Extracting text from PDF...')
+  pages <- pdftools::pdf_text(pdf_path)
+  message('  Pages extracted: ', length(pages))
+
+  return(pages)
+}
+
+
+# =============================================================================
+# Anchor-based Product List Extraction
+# =============================================================================
+
+#' Find all product list anchors in the PDF
+#'
+#' Scans for "Heading 9903.XX.XX applies to" patterns, which mark the start
+#' of an HTS code enumeration. Returns a table of anchors with page numbers.
+#'
+#' @param pages Character vector of page texts
+#' @return Tibble with ch99_code, page, char_pos columns
+find_product_list_anchors <- function(pages) {
+  anchors <- tibble(ch99_code = character(), page = integer(), char_pos = integer())
+
+  for (i in seq_along(pages)) {
+    # Match "Heading 9903.XX.XX applies to" — the definitive product list start
+    matches <- gregexpr('Heading\\s+(9903\\.[0-9]{2}\\.[0-9]{2})\\s+applies\\s+to', pages[i])
+    if (matches[[1]][1] != -1) {
+      # Extract the ch99 codes from each match
+      match_text <- regmatches(pages[i], matches)[[1]]
+      codes <- str_extract(match_text, '9903\\.[0-9]{2}\\.[0-9]{2}')
+      positions <- as.integer(matches[[1]])
+
+      for (j in seq_along(codes)) {
+        anchors <- bind_rows(anchors, tibble(
+          ch99_code = codes[j],
+          page = i,
+          char_pos = positions[j]
+        ))
+      }
+    }
+  }
+
+  return(anchors)
+}
+
+
+#' Extract HTS codes from text between two positions
+#'
+#' Extracts all HTS-format codes (4.2 or 4.2.2-4 digits) from a text span.
+#' Filters out Chapter 99 self-references and date-like patterns.
+#'
+#' @param text Character string to search
+#' @return Character vector of HTS codes
+extract_hts_codes <- function(text) {
+  codes <- str_extract_all(text, '[0-9]{4}\\.[0-9]{2}(?:\\.[0-9]{2,4})?')[[1]]
+  codes <- unique(codes)
+
+  # Filter out ch99 self-references
+  codes <- codes[!grepl('^99(01|02|03|04)\\.', codes)]
+  # Filter out date-like patterns (year.month)
+  codes <- codes[!grepl('^(19|20)[0-9]{2}\\.', codes)]
+  # Filter out page/section numbers that look like codes
+  codes <- codes[nchar(gsub('\\.', '', codes)) >= 6]
+
+  return(codes)
+}
+
+
+#' Extract product list for a specific ch99 heading
+#'
+#' Given a starting anchor (page + position), extracts HTS codes until the
+#' next anchor or note boundary is reached.
+#'
+#' @param pages Character vector of page texts
+#' @param start_page Page where anchor is
+#' @param start_pos Character position within start_page
+#' @param end_page Page of next anchor (or last page to scan)
+#' @param end_pos Character position of next anchor on end_page
+#' @return Character vector of HTS codes
+extract_product_list <- function(pages, start_page, start_pos, end_page, end_pos) {
+  all_codes <- character()
+
+  for (p in start_page:end_page) {
+    text <- pages[p]
+
+    if (p == start_page && p == end_page) {
+      text <- substring(text, start_pos, end_pos - 1)
+    } else if (p == start_page) {
+      text <- substring(text, start_pos)
+    } else if (p == end_page) {
+      text <- substring(text, 1, end_pos - 1)
+    }
+
+    codes <- extract_hts_codes(text)
+    all_codes <- c(all_codes, codes)
+  }
+
+  return(unique(all_codes))
+}
+
+
+# =============================================================================
+# HTS Code Normalization
+# =============================================================================
+
+#' Normalize parsed HTS codes to 8-digit format
+#'
+#' Codes from PDF may be 6-digit (heading level) or 8-10 digit (subheading).
+#' For consistency with s301_product_lists.csv, normalize to 8 digits.
+#'
+#' @param codes Character vector of HTS codes with dots
+#' @return Character vector of 8-digit HTS codes (no dots)
+normalize_to_hts8 <- function(codes) {
+  clean <- gsub('\\.', '', codes)
+  clean <- str_pad(clean, 8, side = 'right', pad = '0')
+  clean <- substr(clean, 1, 8)
+  return(clean)
+}
+
+
+# =============================================================================
+# Main Pipeline
+# =============================================================================
+
+#' Parse US Notes and extract Section 301 product lists
+#'
+#' @param pdf_path Path to Chapter 99 PDF (or NULL to download)
+#' @param existing_csv Path to current s301_product_lists.csv
+#' @param output_csv Path to write updated CSV (NULL = same as existing)
+#' @param dry_run Report without writing
+#' @return Tibble of all products (existing + new)
+parse_us_note_products <- function(
+  pdf_path = NULL,
+  existing_csv = 'resources/s301_product_lists.csv',
+  output_csv = NULL,
+  dry_run = FALSE
+) {
+  if (is.null(output_csv)) output_csv <- existing_csv
+
+  message('\n', strrep('=', 70))
+  message('US NOTE 301 PRODUCT LIST PARSER')
+  message(strrep('=', 70))
+
+  # ---- Download PDF if needed ----
+  if (is.null(pdf_path)) {
+    pdf_path <- download_chapter99_pdf()
+  }
+  stopifnot(file.exists(pdf_path))
+
+  # ---- Extract text ----
+  pages <- extract_pdf_text(pdf_path)
+
+  # ---- Find all product list anchors ----
+  message('\nScanning for product list anchors...')
+  anchors <- find_product_list_anchors(pages)
+  message('  Found ', nrow(anchors), ' anchor(s)')
+
+  if (nrow(anchors) > 0) {
+    message('  Anchors: ', paste(anchors$ch99_code, collapse = ', '))
+  }
+
+  # ---- Filter to Section 301 ch99 codes we care about ----
+  target_codes <- CH99_TO_LIST$ch99_code
+  s301_anchors <- anchors %>%
+    filter(ch99_code %in% target_codes) %>%
+    arrange(page, char_pos)
+
+  message('  Section 301 anchors: ', nrow(s301_anchors))
+
+  if (nrow(s301_anchors) == 0) {
+    message('WARNING: No Section 301 product list anchors found.')
+    message('The PDF format may have changed. Check anchor detection.')
+    return(invisible(NULL))
+  }
+
+  # ---- Validate anchor coverage ----
+  missing_301 <- setdiff(target_codes, s301_anchors$ch99_code)
+  if (length(missing_301) > 0) {
+    message('  Missing Section 301 anchors: ', paste(missing_301, collapse = ', '))
+    coverage_pct <- round(nrow(s301_anchors) / length(target_codes) * 100)
+    message('  Anchor coverage: ', coverage_pct, '% (',
+            nrow(s301_anchors), '/', length(target_codes), ')')
+    if (coverage_pct < 80) {
+      message('ERROR: Anchor coverage below 80%. Refusing to write — ',
+              'PDF format may have changed. Use --dry-run to inspect.')
+      return(invisible(NULL))
+    }
+  }
+
+  # ---- Extract product lists between consecutive anchors ----
+  message('\nExtracting product lists...')
+  all_parsed <- tibble(hts_code = character(), ch99_code = character())
+
+  # Sort all anchors (including non-301) for boundary detection
+  all_anchors_sorted <- anchors %>% arrange(page, char_pos)
+
+  for (i in seq_len(nrow(s301_anchors))) {
+    row <- s301_anchors[i, ]
+
+    # Find the next anchor AFTER this one (from all anchors, not just 301)
+    later <- all_anchors_sorted %>%
+      filter(page > row$page | (page == row$page & char_pos > row$char_pos))
+
+    if (nrow(later) > 0) {
+      next_anchor <- later[1, ]
+      end_page <- next_anchor$page
+      end_pos <- next_anchor$char_pos
+    } else {
+      # Last anchor — scan to end of Note area (limit to ~50 pages ahead)
+      end_page <- min(row$page + 50, length(pages))
+      end_pos <- nchar(pages[end_page])
+    }
+
+    codes <- extract_product_list(pages, row$page, row$char_pos, end_page, end_pos)
+
+    if (length(codes) > 0) {
+      list_label <- CH99_TO_LIST %>%
+        filter(ch99_code == row$ch99_code) %>%
+        pull(list) %>%
+        first()
+      message('  ', row$ch99_code, ' [', list_label, ']: ', length(codes),
+              ' HTS codes (pages ', row$page, '-', end_page, ')')
+      all_parsed <- bind_rows(all_parsed, tibble(
+        hts_code = codes,
+        ch99_code = row$ch99_code
+      ))
+    } else {
+      message('  ', row$ch99_code, ': no HTS codes found')
+    }
+  }
+
+  message('\nTotal HTS codes parsed from US Notes: ', nrow(all_parsed))
+  message('  Unique HTS codes: ', n_distinct(all_parsed$hts_code))
+
+  if (nrow(all_parsed) == 0) {
+    message('WARNING: No HTS codes parsed. PDF format may have changed.')
+    return(invisible(NULL))
+  }
+
+  # ---- Normalize to 8-digit format and add list labels ----
+  all_parsed <- all_parsed %>%
+    left_join(CH99_TO_LIST %>% select(ch99_code, list), by = 'ch99_code') %>%
+    mutate(hts8 = normalize_to_hts8(hts_code)) %>%
+    select(hts8, list, ch99_code) %>%
+    distinct()
+
+  message('After normalization to HTS8: ', nrow(all_parsed), ' unique entries')
+
+  # ---- Cross-reference with existing CSV ----
+  message('\nCross-referencing with existing s301_product_lists.csv...')
+
+  if (file.exists(existing_csv)) {
+    existing <- read_csv(existing_csv, col_types = cols(
+      hts8 = col_character(),
+      list = col_character(),
+      ch99_code = col_character()
+    ))
+    message('  Existing entries: ', nrow(existing))
+
+    # Find new entries (not already in existing by hts8 + ch99_code)
+    new_entries <- all_parsed %>%
+      anti_join(existing, by = c('hts8', 'ch99_code'))
+
+    message('  New entries from US Notes: ', nrow(new_entries))
+
+    if (nrow(new_entries) > 0) {
+      message('  Breakdown by list:')
+      new_summary <- new_entries %>% count(list, ch99_code) %>% arrange(list)
+      for (j in seq_len(nrow(new_summary))) {
+        message('    ', new_summary$list[j], ' (', new_summary$ch99_code[j], '): ',
+                new_summary$n[j], ' new codes')
+      }
+
+      message('  Sample new HTS8 codes:')
+      sample_codes <- head(new_entries$hts8, 10)
+      message('    ', paste(sample_codes, collapse = ', '))
+    }
+
+    # Count overlap (already present)
+    overlap <- all_parsed %>%
+      semi_join(existing, by = c('hts8', 'ch99_code'))
+    message('  Already in existing CSV: ', nrow(overlap))
+
+    # Merge: existing + new
+    combined <- bind_rows(existing, new_entries) %>%
+      distinct(hts8, ch99_code, .keep_all = TRUE) %>%
+      arrange(hts8, ch99_code)
+
+  } else {
+    # First-time bootstrap: refuse to write if anchor coverage was partial
+    if (length(missing_301) > 0) {
+      message('ERROR: First-time bootstrap with partial anchor coverage (',
+              length(missing_301), ' missing). Refusing to write.')
+      message('  Fix the anchor patterns or supply a manually curated CSV first.')
+      return(invisible(NULL))
+    }
+    message('  No existing CSV found. Writing all parsed entries.')
+    combined <- all_parsed %>%
+      arrange(hts8, ch99_code)
+    new_entries <- combined
+  }
+
+  message('\nFinal product list: ', nrow(combined), ' entries')
+  message('  Unique HTS8 codes: ', n_distinct(combined$hts8))
+  message('  Lists represented: ', paste(sort(unique(combined$list)), collapse = ', '))
+
+  # ---- Write output ----
+  if (!dry_run && nrow(new_entries) > 0) {
+    write_csv(combined, output_csv)
+    message('\nWrote updated CSV: ', output_csv)
+  } else if (dry_run) {
+    message('\n[DRY RUN] Would write ', nrow(combined), ' entries to ', output_csv)
+  } else {
+    message('\nNo new entries found. CSV unchanged.')
+  }
+
+  return(invisible(combined))
+}
+
+
+# =============================================================================
+# Floor Exemption Anchor Detection
+# =============================================================================
+
+#' Find floor exemption anchors in the PDF
+#'
+#' Floor exemption sections use "As provided in heading(s) 9903.XX.XX" anchors
+#' (different from Section 301's "Heading ... applies to" pattern).
+#' Swiss sections use plural: "As provided in headings 9903.02.84 and 9903.02.89"
+#' — both codes are extracted as separate anchors at the same position.
+#'
+#' @param pages Character vector of page texts
+#' @return Tibble with ch99_code, page, char_pos columns
+find_floor_exempt_anchors <- function(pages) {
+  anchors <- tibble(ch99_code = character(), page = integer(), char_pos = integer())
+
+  for (i in seq_along(pages)) {
+    # Pattern: "As provided [for] in heading(s) 9903.XX.XX [and 9903.XX.XX]"
+    # Handles singular/plural "heading(s)", an optional second code, and the
+    # "provided for in" variant used by the Nov 2025 restructured notes
+    # (e.g. the combined Swiss (iii)(b) list under headings 9903.02.84/.89).
+    matches <- gregexpr(
+      '[Aa]s\\s+provided\\s+(?:for\\s+)?in\\s+headings?\\s+9903\\.[0-9]{2}\\.[0-9]{2}(?:\\s+and\\s+9903\\.[0-9]{2}\\.[0-9]{2})?',
+      pages[i]
+    )
+    if (matches[[1]][1] != -1) {
+      match_text <- regmatches(pages[i], matches)[[1]]
+      positions <- as.integer(matches[[1]])
+
+      for (j in seq_along(match_text)) {
+        # Extract ALL ch99 codes from this match (may be 1 or 2)
+        codes <- str_extract_all(match_text[j], '9903\\.[0-9]{2}\\.[0-9]{2}')[[1]]
+        for (code in codes) {
+          anchors <- bind_rows(anchors, tibble(
+            ch99_code = code,
+            page = i,
+            char_pos = positions[j]
+          ))
+        }
+      }
+    }
+  }
+
+  return(anchors)
+}
+
+
+#' Extract inline HTS codes (semicolon-separated) from note text
+#'
+#' Japan/UK civil aircraft lists use inline format:
+#'   "classifiable in subheadings 3917.21; 3917.22; ..."
+#' rather than tabular format.
+#'
+#' @param text Character string containing inline codes
+#' @return Character vector of HTS codes
+extract_inline_hts_codes <- function(text) {
+  # Split on semicolons and extract HTS patterns from each segment
+  segments <- str_split(text, ';')[[1]]
+  codes <- character()
+  for (seg in segments) {
+    seg_codes <- str_extract_all(seg, '[0-9]{4}\\.[0-9]{2}(?:\\.[0-9]{2,4})?')[[1]]
+    codes <- c(codes, seg_codes)
+  }
+  codes <- unique(codes)
+  # Apply same filters as extract_hts_codes
+  codes <- codes[!grepl('^99(01|02|03|04)\\.', codes)]
+  codes <- codes[!grepl('^(19|20)[0-9]{2}\\.', codes)]
+  codes <- codes[nchar(gsub('\\.', '', codes)) >= 6]
+  return(codes)
+}
+
+
+# =============================================================================
+# Floor Exemption Main Pipeline
+# =============================================================================
+
+#' Parse floor country product exemptions from US Note 2
+#'
+#' Extracts product lists that are exempt from the 15% tariff floor for
+#' EU, Japan, S. Korea, and Switzerland/Liechtenstein. These exemptions
+#' are defined in US Note 2, subdivisions (v)(xx)-(xxiv) and Note 3.
+#'
+#' @param pdf_path Path to Chapter 99 PDF (or NULL to download)
+#' @param output_csv Path to write floor_exempt_products.csv
+#' @param dry_run Report without writing
+#' @return Tibble of exempt products
+parse_floor_exempt_products <- function(
+  pdf_path = NULL,
+  output_csv = 'resources/floor_exempt_products.csv',
+  dry_run = FALSE,
+  targets = FLOOR_EXEMPTIONS
+) {
+  message('\n', strrep('=', 70))
+  message('FLOOR COUNTRY PRODUCT EXEMPTION PARSER')
+  message(strrep('=', 70))
+
+  # ---- Download PDF if needed ----
+  if (is.null(pdf_path)) {
+    pdf_path <- download_chapter99_pdf()
+  }
+  stopifnot(file.exists(pdf_path))
+
+  # ---- Extract text ----
+  pages <- extract_pdf_text(pdf_path)
+
+  # ---- Find floor exemption anchors ----
+  message('\nScanning for floor exemption anchors...')
+  floor_anchors <- find_floor_exempt_anchors(pages)
+  message('  Found ', nrow(floor_anchors), ' "As provided in heading" anchor(s)')
+
+  if (nrow(floor_anchors) > 0) {
+    message('  Anchors: ', paste(unique(floor_anchors$ch99_code), collapse = ', '))
+  }
+
+  # Also find "Heading ... applies to" anchors for boundary detection
+  std_anchors <- find_product_list_anchors(pages)
+
+  # Merge all anchors for boundary detection
+  all_anchors <- bind_rows(
+    floor_anchors %>% mutate(anchor_type = 'floor'),
+    std_anchors %>% mutate(anchor_type = 'standard')
+  ) %>%
+    arrange(page, char_pos)
+
+  # ---- Filter to target ch99 codes ----
+  target_codes <- targets$ch99_code
+  matched_anchors <- floor_anchors %>%
+    filter(ch99_code %in% target_codes) %>%
+    # Take first occurrence of each code (avoid duplicates from repeated mentions)
+    group_by(ch99_code) %>%
+    arrange(page, char_pos) %>%
+    slice(1) %>%
+    ungroup() %>%
+    arrange(page, char_pos)
+
+  message('  Target anchors matched: ', nrow(matched_anchors), ' of ', length(target_codes))
+
+  if (nrow(matched_anchors) == 0) {
+    message('WARNING: No floor exemption anchors found.')
+    message('The PDF format may have changed. Check anchor patterns.')
+    return(invisible(NULL))
+  }
+
+  # Report missing codes and validate coverage
+  missing_codes <- setdiff(target_codes, matched_anchors$ch99_code)
+  if (length(missing_codes) > 0) {
+    coverage_pct <- round(nrow(matched_anchors) / length(target_codes) * 100)
+    message('  Missing anchors: ', paste(missing_codes, collapse = ', '))
+    message('  Anchor coverage: ', coverage_pct, '% (',
+            nrow(matched_anchors), '/', length(target_codes), ')')
+    if (coverage_pct < 80) {
+      message('ERROR: Floor exemption anchor coverage below 80%. Refusing to write — ',
+              'PDF format may have changed. Use --dry-run to inspect.')
+      return(invisible(NULL))
+    }
+  }
+
+  # ---- Extract product lists ----
+  message('\nExtracting floor exemption product lists...')
+  all_parsed <- tibble(hts_code = character(), ch99_code = character())
+
+  for (i in seq_len(nrow(matched_anchors))) {
+    row <- matched_anchors[i, ]
+    is_inline <- row$ch99_code %in% INLINE_FLOOR_CODES
+
+    # Find the next anchor AFTER this one (from all anchors)
+    later <- all_anchors %>%
+      filter(page > row$page | (page == row$page & char_pos > row$char_pos))
+
+    if (nrow(later) > 0) {
+      next_anchor <- later[1, ]
+      end_page <- next_anchor$page
+      end_pos <- next_anchor$char_pos
+    } else {
+      # Last anchor — scan to end of Note area (limit to ~20 pages ahead)
+      end_page <- min(row$page + 20, length(pages))
+      end_pos <- nchar(pages[end_page])
+    }
+
+    # Extract codes using appropriate method
+    if (is_inline) {
+      # Inline format: concatenate text span and extract semicolon-separated codes
+      text_span <- ''
+      for (p in row$page:end_page) {
+        page_text <- pages[p]
+        if (p == row$page && p == end_page) {
+          page_text <- substring(page_text, row$char_pos, end_pos - 1)
+        } else if (p == row$page) {
+          page_text <- substring(page_text, row$char_pos)
+        } else if (p == end_page) {
+          page_text <- substring(page_text, 1, end_pos - 1)
+        }
+        text_span <- paste0(text_span, ' ', page_text)
+      }
+      codes <- extract_inline_hts_codes(text_span)
+    } else {
+      # Tabular format: reuse existing extraction
+      codes <- extract_product_list(pages, row$page, row$char_pos, end_page, end_pos)
+    }
+
+    # Look up category
+    exemption_info <- targets %>%
+      filter(ch99_code == row$ch99_code)
+
+    if (length(codes) > 0) {
+      message('  ', row$ch99_code, ' [', exemption_info$category, '/',
+              exemption_info$country_group, ']: ', length(codes),
+              ' HTS codes (pages ', row$page, '-', end_page, ')',
+              if (is_inline) ' [inline]' else '')
+      all_parsed <- bind_rows(all_parsed, tibble(
+        hts_code = codes,
+        ch99_code = row$ch99_code
+      ))
+    } else {
+      message('  ', row$ch99_code, ' [', exemption_info$category, '/',
+              exemption_info$country_group, ']: no HTS codes found')
+    }
+  }
+
+  message('\nTotal HTS codes parsed: ', nrow(all_parsed))
+  message('  Unique HTS codes: ', n_distinct(all_parsed$hts_code))
+
+  if (nrow(all_parsed) == 0) {
+    message('WARNING: No HTS codes parsed. PDF format may have changed.')
+    return(invisible(NULL))
+  }
+
+  # ---- Normalize to 8-digit format and add metadata ----
+  result <- all_parsed %>%
+    left_join(
+      targets %>% select(ch99_code, category, country_group),
+      by = 'ch99_code'
+    ) %>%
+    mutate(hts8 = normalize_to_hts8(hts_code)) %>%
+    select(hts8, category, country_group, ch99_code) %>%
+    distinct()
+
+  message('After normalization to HTS8: ', nrow(result), ' unique entries')
+
+  # ---- Summary by category and country group ----
+  message('\nBreakdown:')
+  summary_tbl <- result %>% count(country_group, category) %>% arrange(country_group, category)
+  for (j in seq_len(nrow(summary_tbl))) {
+    message('  ', summary_tbl$country_group[j], ' / ', summary_tbl$category[j],
+            ': ', summary_tbl$n[j], ' codes')
+  }
+
+  # ---- Write output ----
+  if (!dry_run) {
+    # Refuse to overwrite existing CSV when anchors are missing
+    if (length(missing_codes) > 0 && file.exists(output_csv)) {
+      message('\nWARNING: Partial anchor coverage — not overwriting existing ', output_csv)
+      message('  Missing: ', paste(missing_codes, collapse = ', '))
+      message('  Use --dry-run to inspect parsed results, or fix anchor patterns.')
+      return(invisible(result))
+    }
+    result <- result %>% arrange(hts8, country_group, ch99_code)
+    write_csv(result, output_csv)
+    message('\nWrote ', nrow(result), ' entries to ', output_csv)
+  } else {
+    message('\n[DRY RUN] Would write ', nrow(result), ' entries to ', output_csv)
+  }
+
+  return(invisible(result))
+}
+
+
+# =============================================================================
+# Note 36: Section 232 Copper Product List
+# =============================================================================
+#
+# US Note 36 to Chapter 99 defines the product coverage for Section 232 copper
+# tariffs (9903.78.01, 50% on copper content). Subdivision (b) enumerates the
+# covered HTS10 codes in a flat 3-column grid. Unlike Notes 20/31 (301), there
+# is no "Heading 9903.78.01 applies to" anchor — the list is within the Note
+# text under subdivision (b).
+#
+# Output: resources/s232_copper_products.csv with columns: hts10 (HTS8 prefix), ch99_code
+#
+
+#' Parse Note 36 copper product list from Chapter 99 PDF
+#'
+#' Finds the Note 36 subdivision (b) product grid and extracts all HTS10 codes.
+#' These are the products covered by 9903.78.01 (50% copper 232 tariff).
+#'
+#' @param pdf_path Path to Chapter 99 PDF (or NULL to download)
+#' @param output_csv Path to write s232_copper_products.csv
+#' @param dry_run Report without writing
+#' @return Tibble with hts10, ch99_code columns
+parse_note36_copper_products <- function(
+  pdf_path = NULL,
+  output_csv = 'resources/s232_copper_products.csv',
+  dry_run = FALSE
+) {
+  message('\n', strrep('=', 70))
+  message('NOTE 36: SECTION 232 COPPER PRODUCT LIST PARSER')
+  message(strrep('=', 70))
+
+  # ---- Download PDF if needed ----
+  if (is.null(pdf_path)) {
+    pdf_path <- download_chapter99_pdf()
+  }
+  stopifnot(file.exists(pdf_path))
+
+  # ---- Extract text ----
+  pages <- extract_pdf_text(pdf_path)
+
+  # ---- Find Note 36 product grid ----
+  # Note 36 subdivision (b) contains a flat grid of copper HTS10 codes.
+  # The Note itself may not contain the literal string "note 36" — it's a
+  # numbered section introduced by its position after Note 35. Instead, we
+  # find the page with 9903.78.01 AND a dense cluster of ch74/ch8544 codes.
+  message('\nSearching for Note 36 copper product grid...')
+
+  # Find pages that reference 9903.78.01
+  candidate_pages <- integer()
+  for (i in seq_along(pages)) {
+    if (grepl('9903\\.78\\.01', pages[i])) {
+      candidate_pages <- c(candidate_pages, i)
+    }
+  }
+
+  if (length(candidate_pages) == 0) {
+    message('WARNING: 9903.78.01 not found in PDF. Copper 232 products cannot be parsed.')
+    return(invisible(NULL))
+  }
+  message('  9903.78.01 found on page(s): ', paste(candidate_pages, collapse = ', '))
+
+  # Find the page with the densest cluster of ch74/ch8544 HTS10 codes
+  best_page <- NULL
+  best_count <- 0
+
+  for (pg in candidate_pages) {
+    codes_on_page <- str_extract_all(
+      pages[pg],
+      '(74[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}|8544\\.[0-9]{2}\\.[0-9]{2})'
+    )[[1]]
+    if (length(codes_on_page) > best_count) {
+      best_count <- length(codes_on_page)
+      best_page <- pg
+    }
+  }
+
+  if (is.null(best_page) || best_count == 0) {
+    message('WARNING: No copper HTS10 codes found on 9903.78.01 pages.')
+    return(invisible(NULL))
+  }
+
+  message('  Product grid on page ', best_page, ' (', best_count, ' codes detected)')
+
+  # ---- Extract all HTS10 codes from the grid ----
+  # The grid may span to the next page (compiler's note says so), so also check
+  # the following page for continuation codes
+  scan_pages <- best_page
+  if (best_page < length(pages)) {
+    next_page_codes <- str_extract_all(
+      pages[best_page + 1],
+      '(74[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}|8544\\.[0-9]{2}\\.[0-9]{2})'
+    )[[1]]
+    # Only include next page if it has copper codes and isn't a different section
+    if (length(next_page_codes) > 0) {
+      scan_pages <- c(scan_pages, best_page + 1)
+    }
+  }
+
+  all_codes <- character()
+  for (pg in scan_pages) {
+    page_text <- pages[pg]
+
+    # For the primary page, start extraction from subdivision (b) marker
+    if (pg == best_page) {
+      sub_b_pos <- regexpr('\\(b\\)', page_text)
+      if (sub_b_pos > 0) {
+        page_text <- substring(page_text, sub_b_pos)
+      }
+    }
+
+    # Extract all HTS10 codes (XXXX.XX.XX format) — copper and insulated wire
+    codes <- str_extract_all(page_text, '[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}')[[1]]
+
+    # Filter to copper-relevant codes (ch74 + ch8544)
+    codes <- codes[grepl('^(74|8544)', codes)]
+
+    # Remove any ch99 self-references that might slip through
+    codes <- codes[!grepl('^9903', codes)]
+
+    all_codes <- c(all_codes, codes)
+  }
+
+  all_codes <- unique(all_codes)
+  message('  Extracted ', length(all_codes), ' unique HTS8 codes')
+
+  if (length(all_codes) == 0) {
+    message('WARNING: No copper HTS8 codes extracted. PDF format may have changed.')
+    return(invisible(NULL))
+  }
+
+  # ---- Normalize codes: remove dots to get HTS8 prefixes ----
+  # PDF format is XXXX.XX.XX (8 digits). Keep as HTS8 rather than padding to
+
+  # HTS10 — statistical suffixes (digits 9-10) change across HTS revisions, so
+  # HTS8 prefixes are stable and match all suffixes via startswith().
+  hts10_codes <- gsub('\\.', '', all_codes)
+
+  # ---- Validate: check heading distribution and expected coverage ----
+  headings <- substr(hts10_codes, 1, 4)
+  heading_counts <- table(headings)
+  message('\n  Heading distribution:')
+  for (h in sort(names(heading_counts))) {
+    message('    ', h, ': ', heading_counts[h], ' codes')
+  }
+
+  # Check for unexpected headings beyond ch74/ch8544 on scanned pages.
+  # If Note 36 expands to other headings, these will appear here.
+  all_hts_on_pages <- character()
+  for (pg in scan_pages) {
+    all_hts_on_pages <- c(all_hts_on_pages,
+      str_extract_all(pages[pg], '[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}')[[1]])
+  }
+  all_hts_on_pages <- unique(all_hts_on_pages)
+  non_copper <- all_hts_on_pages[!grepl('^(74|8544|9903)', all_hts_on_pages)]
+  if (length(non_copper) > 0) {
+    message('\n  NOTE: Non-copper/non-ch99 HTS codes found on scanned pages:')
+    message('    ', paste(head(non_copper, 20), collapse = ', '))
+    message('    If Note 36 has expanded to new headings, update the copper parser.')
+  }
+
+  # Sanity check: copper list has historically been ~80 codes. A dramatic drop
+  # suggests the parser missed content (e.g., the grid moved to a new page or
+  # the Note expanded beyond subdivision (b)).
+  EXPECTED_MIN_CODES <- 60
+  if (length(hts10_codes) < EXPECTED_MIN_CODES) {
+    message('\n  WARNING: Only ', length(hts10_codes), ' codes extracted (expected >= ',
+            EXPECTED_MIN_CODES, '). The PDF layout may have changed.')
+    if (file.exists(output_csv)) {
+      message('  Refusing to overwrite existing ', output_csv, ' with a reduced list.')
+      message('  Use --dry-run to inspect, or update the parser.')
+      return(invisible(NULL))
+    }
+  }
+
+  # ---- Build output ----
+  result <- tibble(
+    hts10 = hts10_codes,
+    ch99_code = '9903.78.01'
+  ) %>%
+    arrange(hts10)
+
+  message('\nFinal copper product list: ', nrow(result), ' HTS8 prefixes')
+  message('  Ch74 codes: ', sum(grepl('^74', result$hts10)))
+  message('  Ch8544 codes: ', sum(grepl('^8544', result$hts10)))
+
+  # ---- Compare with existing config (if any) ----
+  if (file.exists(output_csv)) {
+    existing <- read_csv(output_csv, col_types = cols(.default = col_character()))
+    new_codes <- anti_join(result, existing, by = 'hts10')
+    removed_codes <- anti_join(existing, result, by = 'hts10')
+    if (nrow(new_codes) > 0) {
+      message('\n  NEW codes vs existing: ', nrow(new_codes))
+      message('    ', paste(head(new_codes$hts10, 10), collapse = ', '),
+              if (nrow(new_codes) > 10) '...' else '')
+    }
+    if (nrow(removed_codes) > 0) {
+      message('  REMOVED codes vs existing: ', nrow(removed_codes))
+      message('    ', paste(head(removed_codes$hts10, 10), collapse = ', '),
+              if (nrow(removed_codes) > 10) '...' else '')
+    }
+    if (nrow(new_codes) == 0 && nrow(removed_codes) == 0) {
+      message('\n  Product list matches existing CSV exactly.')
+    }
+  }
+
+  # ---- Write output ----
+  if (!dry_run) {
+    write_csv(result, output_csv)
+    message('\nWrote ', nrow(result), ' entries to ', output_csv)
+  } else {
+    message('\n[DRY RUN] Would write ', nrow(result), ' entries to ', output_csv)
+  }
+
+  return(invisible(result))
+}
+
+
+# =============================================================================
+# Notes 16/19: Section 232 Derivative Product Lists
+# =============================================================================
+#
+# US Note 16 to Chapter 99 defines steel derivative products (headings
+# 9903.81.89-93). US Note 19 defines aluminum derivative products (headings
+# 9903.85.04, 9903.85.07, 9903.85.08). Each note's subdivisions list HTS8
+# codes in prose blocks that enumerate covered products per ch99 heading.
+#
+# The derivative product lists have expanded over time via Federal Register
+# notices (e.g., FR 2025-15819 effective 2025-08-18). Each expansion batch
+# is tied to a specific ch99 heading and effective date. The parser extracts
+# all HTS8 codes per heading subdivision, enabling temporal gating via the
+# revision effective date.
+#
+# Output: resources/s232_derivative_products.csv with columns:
+#   hts_prefix, ch99_code, derivative_type, effective_date
+#
+
+#' Parse Notes 16/19 derivative product lists from Chapter 99 PDF
+#'
+#' Extracts HTS8 codes from the derivative product subdivisions in US Notes
+#' 16 (steel) and 19 (aluminum). Each code is tagged with its ch99 heading
+#' and derivative type.
+#'
+#' @param pdf_path Path to Chapter 99 PDF (or NULL to download)
+#' @param output_csv Path to write s232_derivative_products.csv
+#' @param dry_run Report without writing
+#' @return Tibble with hts_prefix, ch99_code, derivative_type columns
+parse_derivative_products <- function(
+  pdf_path = NULL,
+  output_csv = 'resources/s232_derivative_products.csv',
+  dry_run = FALSE
+) {
+  message('\n', strrep('=', 70))
+  message('NOTES 16/19: SECTION 232 DERIVATIVE PRODUCT LIST PARSER')
+  message(strrep('=', 70))
+
+  # ---- Download PDF if needed ----
+  if (is.null(pdf_path)) {
+    pdf_path <- download_chapter99_pdf()
+  }
+  stopifnot(file.exists(pdf_path))
+
+  # ---- Extract text ----
+  pages <- extract_pdf_text(pdf_path)
+
+  # ---- Configuration: ch99 codes and their derivative types ----
+  # Each entry maps a ch99 heading to the derivative type and the Note
+  # subdivision pattern that introduces its product list.
+  #
+  # Steel derivative headings (Note 16):
+  #   9903.81.89: subdivisions (s) — nails/staples/wire products
+  #   9903.81.90: subdivision  (s) continued — structural/misc products
+  #   9903.81.91: subdivision  (t) — broad derivative list (3 batches by date)
+  #
+  # Aluminum derivative headings (Note 19):
+  #   9903.85.04: subdivision  (i) — stranded wire, cables
+  #   9903.85.07: subdivision  (j) — containers, foil, structures
+  #   9903.85.08: subdivision  (k) — broad derivative list
+  #
+  # Multiple headings may share a page, so we extract the full US Notes text,
+  # split by heading anchors, and extract codes from each section.
+
+  # Ordered list of derivative headings to extract
+  deriv_headings <- list(
+    list(ch99 = '9903.81.89', type = 'steel'),
+    list(ch99 = '9903.81.90', type = 'steel'),
+    list(ch99 = '9903.81.91', type = 'steel'),
+    list(ch99 = '9903.85.04', type = 'aluminum'),
+    list(ch99 = '9903.85.07', type = 'aluminum'),
+    list(ch99 = '9903.85.08', type = 'aluminum')
+  )
+
+  # ---- Find US Notes pages with derivative product lists ----
+  # Concatenate all US Notes pages (before the rate schedule ~page 500) that
+  # mention derivative headings into one text block, then split by heading.
+  max_notes_page <- min(length(pages), 500)
+
+  # Find pages with derivative product lists (dense HTS codes + derivative anchors)
+  deriv_page_indices <- integer()
+  for (i in seq_len(max_notes_page)) {
+    page_text <- pages[i]
+    has_deriv_anchor <- grepl(
+      'rates of duty.*heading 9903\\.(81\\.8[9]|81\\.9[013]|85\\.0[478]).*apply.*derivative',
+      page_text, ignore.case = TRUE
+    )
+    if (has_deriv_anchor) {
+      # Check for product codes on this or next page
+      codes <- str_extract_all(page_text, '[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}')[[1]]
+      non_ch99 <- codes[!grepl('^(9903|9802)', codes)]
+      if (length(non_ch99) >= 3 || (i < max_notes_page &&
+          length(str_extract_all(pages[i + 1], '[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}')[[1]]) > 20)) {
+        deriv_page_indices <- c(deriv_page_indices, i)
+      }
+    }
+  }
+
+  # Also include continuation pages (dense codes following a derivative page)
+  if (length(deriv_page_indices) > 0) {
+    last_deriv <- max(deriv_page_indices)
+    for (np in seq(last_deriv + 1, min(last_deriv + 5, max_notes_page))) {
+      codes <- str_extract_all(pages[np], '[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}')[[1]]
+      non_ch99 <- codes[!grepl('^(9903|9802)', codes)]
+      if (length(non_ch99) > 20) {
+        deriv_page_indices <- c(deriv_page_indices, np)
+      } else {
+        break
+      }
+    }
+  }
+
+  deriv_page_indices <- sort(unique(deriv_page_indices))
+  message('\n  Derivative product pages: ', paste(deriv_page_indices, collapse = ', '))
+
+  if (length(deriv_page_indices) == 0) {
+    message('  WARNING: No derivative product pages found in PDF.')
+    return(invisible(NULL))
+  }
+
+  # Concatenate all derivative pages into one text block
+  full_text <- paste(pages[deriv_page_indices], collapse = '\n')
+
+  # ---- Split text by heading anchors and extract codes ----
+  all_results <- tibble(
+    hts_prefix = character(),
+    ch99_code = character(),
+    derivative_type = character()
+  )
+
+  for (cfg in deriv_headings) {
+    ch99_escaped <- gsub('\\.', '\\\\.', cfg$ch99)
+    # Anchor: "heading XXXX.XX.XX apply" or "heading XXXX.XX.XX apply to"
+    anchor_pattern <- paste0('heading ', ch99_escaped, '.*?apply')
+
+    # Find anchor position in the concatenated text
+    anchor_match <- regexpr(anchor_pattern, full_text, ignore.case = TRUE)
+    if (anchor_match < 0) {
+      message('\n  ', cfg$ch99, ' (', cfg$type, '): anchor not found, skipping')
+      next
+    }
+
+    # Extract text from this anchor to the next heading anchor (or end)
+    start_pos <- anchor_match
+    # Find the next heading anchor after this one
+    remaining <- substring(full_text, start_pos + attr(anchor_match, 'match.length'))
+    next_heading <- regexpr(
+      'rates of duty.*?heading 9903\\.(81\\.[89][0-9]|85\\.0[2-9]|85\\.1[0-9]).*?apply',
+      remaining, ignore.case = TRUE
+    )
+    if (next_heading > 0) {
+      section_text <- substr(remaining, 1, next_heading - 1)
+    } else {
+      section_text <- remaining
+    }
+
+    # Extract all HTS8 codes from this section
+    all_codes <- str_extract_all(section_text, '[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}')[[1]]
+    # Remove ch99 and ch98 references
+    all_codes <- all_codes[!grepl('^(9903|9802)', all_codes)]
+    all_codes <- unique(all_codes)
+
+    # Normalize to HTS8 prefixes
+    hts8_codes <- gsub('\\.', '', all_codes)
+
+    message('\n  ', cfg$ch99, ' (', cfg$type, '): ', length(hts8_codes), ' HTS8 codes')
+
+    if (length(hts8_codes) > 0) {
+      batch <- tibble(
+        hts_prefix = hts8_codes,
+        ch99_code = cfg$ch99,
+        derivative_type = cfg$type
+      )
+      all_results <- bind_rows(all_results, batch)
+    }
+  }
+
+  # Deduplicate: same HTS8 may appear under multiple headings
+  all_results <- all_results %>%
+    distinct(hts_prefix, ch99_code, derivative_type) %>%
+    arrange(derivative_type, ch99_code, hts_prefix)
+
+  message('\n  Total derivative products: ', nrow(all_results))
+  message('  Steel: ', sum(all_results$derivative_type == 'steel'))
+  message('  Aluminum: ', sum(all_results$derivative_type == 'aluminum'))
+
+  # ---- Compare with existing CSV ----
+  if (file.exists(output_csv)) {
+    existing <- read_csv(output_csv, col_types = cols(.default = col_character()))
+    # Compare on hts_prefix + derivative_type (ignore effective_date for comparison)
+    existing_key <- existing %>% distinct(hts_prefix, derivative_type)
+    new_key <- all_results %>% distinct(hts_prefix, derivative_type)
+
+    new_codes <- anti_join(new_key, existing_key, by = c('hts_prefix', 'derivative_type'))
+    removed_codes <- anti_join(existing_key, new_key, by = c('hts_prefix', 'derivative_type'))
+
+    if (nrow(new_codes) > 0) {
+      message('\n  NEW products vs existing CSV: ', nrow(new_codes))
+      for (t in unique(new_codes$derivative_type)) {
+        nc <- new_codes %>% filter(derivative_type == t)
+        message('    ', t, ': ', nrow(nc), ' — ',
+                paste(head(nc$hts_prefix, 10), collapse = ', '),
+                if (nrow(nc) > 10) '...' else '')
+      }
+    }
+    if (nrow(removed_codes) > 0) {
+      message('  REMOVED products vs existing CSV: ', nrow(removed_codes))
+      for (t in unique(removed_codes$derivative_type)) {
+        rc <- removed_codes %>% filter(derivative_type == t)
+        message('    ', t, ': ', nrow(rc), ' — ',
+                paste(head(rc$hts_prefix, 10), collapse = ', '),
+                if (nrow(rc) > 10) '...' else '')
+      }
+    }
+    if (nrow(new_codes) == 0 && nrow(removed_codes) == 0) {
+      message('\n  Product list matches existing CSV exactly.')
+    }
+  }
+
+  # ---- Write output ----
+  # NOTE: This parser extracts hts_prefix, ch99_code, derivative_type but does
+  # NOT assign effective_date — that requires cross-referencing Federal Register
+  # notices or revision dates. The existing CSV's effective_date column should
+  # be preserved via a merge if updating incrementally.
+  if (!dry_run) {
+    if (file.exists(output_csv)) {
+      # Merge with existing to preserve effective_date
+      existing <- read_csv(output_csv, col_types = cols(.default = col_character()))
+      merged <- all_results %>%
+        left_join(
+          existing %>% select(hts_prefix, ch99_code, derivative_type, effective_date),
+          by = c('hts_prefix', 'ch99_code', 'derivative_type')
+        )
+      write_csv(merged, output_csv)
+      message('\nWrote ', nrow(merged), ' entries to ', output_csv,
+              ' (preserved effective_date from existing)')
+    } else {
+      all_results$effective_date <- NA_character_
+      write_csv(all_results, output_csv)
+      message('\nWrote ', nrow(all_results), ' entries to ', output_csv,
+              ' (effective_date = NA — assign manually)')
+    }
+  } else {
+    message('\n[DRY RUN] Would write ', nrow(all_results), ' entries to ', output_csv)
+  }
+
+  return(invisible(all_results))
+}
+
+
+# =============================================================================
+# Notes 16(c): Section 232 Post-Restructure Annex Product Lists
+# =============================================================================
+#
+# The April 2026 proclamation (effective 2026-04-06) restructured Section 232
+# into four annexes:
+#   I-A  50%   primary metals (steel ch72-73, aluminum ch76, copper ch74)
+#   I-B  25%   derivative metals (cross-chapter HS8/HS10 products)
+#   II   0%    products REMOVED from §232 scope entirely
+#   III  15%   ad valorem floor on specific narrow derivative lists
+#
+# HTSUS U.S. Note 16(c) contains subdivisions (i)–(x) that enumerate the
+# products covered by 9903.82.02–9903.82.19. Mapping of subdivision to
+# (annex, metal_type), derived from the proclamation:
+#
+#   (c)(i)    primary aluminum    → annex_1a aluminum
+#   (c)(ii)   deriv aluminum      → annex_1b aluminum
+#   (c)(iii)  primary steel       → annex_1a steel
+#   (c)(iv)   deriv steel         → annex_1b steel
+#   (c)(v)    primary copper      → annex_1a copper
+#   (c)(vi)   deriv aluminum (broad) → annex_1b aluminum
+#   (c)(vii)  deriv steel (broad)    → annex_1b steel
+#   (c)(viii) deriv copper           → annex_1b copper
+#   (c)(ix)   deriv aluminum (floor) → annex_3 aluminum
+#   (c)(x)    deriv steel (floor)    → annex_3 steel
+#
+# Annex II (products removed) cannot be parsed from Note 16 — those products
+# no longer appear in §232 product lists at all. They're preserved from the
+# static CSV via merge in load_annex_products(); the parser only handles
+# 1a/1b/3.
+#
+# Output: same schema as resources/s232_annex_products.csv:
+#   hts_prefix, annex, metal_type, source, effective_date
+#
+
+# Subdivision to (annex, metal_type) mapping for post-restructure §232.
+# Derived empirically from the static CSV (which was hand-curated from the
+# Federal Register proclamation annex PDF):
+#   Annex I-A "Core metals + close derivatives" — (c)(i)–(c)(v)
+#   Annex I-B "Downstream manufactured articles" — (c)(vi)–(c)(viii)
+#   Annex III "15% floor on further-downstream"   — (c)(ix)–(c)(x)
+# This is NOT the simple "primary vs derivative" split implied by Note 16's
+# titling — the proclamation lumps primaries plus their immediate derivatives
+# into the 50% bucket and reserves 25% / 15% for broader downstream lists.
+ANNEX_SUBDIVISION_MAP <- tibble::tribble(
+  ~sub,    ~annex,  ~metal_type,
+  'i',     '1a',    'aluminum',
+  'ii',    '1a',    'aluminum',
+  'iii',   '1a',    'steel',
+  'iv',    '1a',    'steel',
+  'v',     '1a',    'copper',
+  'vi',    '1b',    'aluminum',
+  'vii',   '1b',    'steel',
+  'viii',  '1b',    'copper',
+  'ix',    '3',     'aluminum',
+  'x',     '3',     'steel'
+)
+
+
+#' Resolve the most recent revision for which we have a chapter99 PDF on disk.
+#'
+#' Globs data/us_notes/chapter99_*.pdf, parses the embedded revision tokens
+#' (e.g. "2026_rev_7" or "rev_18"), and orders them via load_revision_dates()
+#' so we pick the latest by effective_date rather than by lexical sort. Falls
+#' back to a string sort if revision_dates.csv is unavailable.
+#'
+#' @return Character revision ID (e.g. "2026_rev_7") or NULL if no PDFs found
+latest_local_chapter99_revision <- function(us_notes_dir = here('data', 'us_notes'),
+                                             revision_dates_csv = here('config', 'revision_dates.csv')) {
+  if (!dir.exists(us_notes_dir)) return(NULL)
+  pdfs <- list.files(us_notes_dir, pattern = '^chapter99_.*\\.pdf$')
+  if (length(pdfs) == 0) return(NULL)
+
+  revs <- sub('^chapter99_(.*)\\.pdf$', '\\1', pdfs)
+  # Drop the generic 'chapter99.pdf' if it slipped in.
+  revs <- revs[revs != 'chapter99']
+  if (length(revs) == 0) return(NULL)
+
+  rd <- tryCatch(
+    readr::read_csv(revision_dates_csv, show_col_types = FALSE,
+                    col_types = readr::cols(.default = readr::col_character())),
+    error = function(e) NULL
+  )
+  if (is.null(rd) || !'revision' %in% names(rd) || !'effective_date' %in% names(rd)) {
+    return(sort(revs, decreasing = TRUE)[1])
+  }
+  ordered <- rd |>
+    dplyr::filter(.data$revision %in% revs) |>
+    dplyr::arrange(dplyr::desc(as.Date(.data$effective_date)))
+  if (nrow(ordered) > 0) ordered$revision[1]
+  else sort(revs, decreasing = TRUE)[1]
+}
+
+
+#' Resolve the §232 annex regime effective date from policy_params.yaml.
+#'
+#' All products listed in Note 16(c) of any post-restructure revision became
+#' effective on the date the annex regime started (2026-04-06 per the April
+#' 2 2026 proclamation), regardless of which revision PDF we parse. Later
+#' revisions republish the same product lists (rev_5 ≡ rev_7) or refine the
+#' rate-overlay codes (rev_6) without changing the products themselves.
+#'
+#' If a future proclamation EXPANDS Note 16(c) with new products at a later
+#' date, those additions should be tagged with the expansion's effective
+#' date — but that requires per-prefix dating that the current parser does
+#' not produce. Until then, the annex regime start is the right stamp.
+#'
+#' @return Character date (YYYY-MM-DD)
+annex_regime_effective_date <- function(policy_params_yaml = here('config', 'policy_params.yaml')) {
+  pp <- yaml::read_yaml(policy_params_yaml)
+  d <- pp$section_232_annexes$effective_date
+  if (is.null(d) || !nzchar(as.character(d))) {
+    stop('section_232_annexes.effective_date missing from ', policy_params_yaml)
+  }
+  as.character(d)
+}
+
+
+#' Parse Note 16(c) annex product lists from a Chapter 99 PDF.
+#'
+#' Extracts HS prefixes from subdivisions (c)(i)–(c)(x) of U.S. Note 16 in the
+#' post-April-2026 HTSUS Chapter 99. Each subdivision is mapped to an
+#' (annex, metal_type) pair per ANNEX_SUBDIVISION_MAP.
+#'
+#' Prefixes are returned at the granularity the PDF uses — a mix of HS4
+#' (chapter headings like `7601`), HS6, HS8, and HS10. The rate engine in
+#' 06_calculate_rates.R prefix-matches these against HTS10 codes via `^prefix`,
+#' so varying granularity is fine.
+#'
+#' Output schema matches resources/s232_annex_products.csv.
+#'
+#' @param pdf_path Path to a chapter99_<revision>.pdf (or NULL — downloads
+#'   the generic Chapter 99 PDF, which corresponds to the current revision)
+#' @param effective_date Date to stamp on parsed rows. Required; callers
+#'   should derive this from revision_dates.csv via revision_effective_date().
+#' @return Tibble with columns: hts_prefix, annex, metal_type, source, effective_date
+parse_annex_products <- function(pdf_path = NULL,
+                                  effective_date = NULL) {
+  if (is.null(effective_date)) {
+    stop('parse_annex_products() requires effective_date. ',
+         'Use annex_regime_effective_date() to read it from policy_params.yaml, ',
+         'or call build_annex_products_for_revision() which does so automatically.')
+  }
+  if (is.null(pdf_path)) pdf_path <- download_chapter99_pdf()
+  stopifnot(file.exists(pdf_path))
+
+  pages <- extract_pdf_text(pdf_path)
+  raw <- unlist(strsplit(paste(pages, collapse = '\n'), '\n', fixed = TRUE))
+
+  # Locate Note 16 (a) and the start of (d) — the (c) block lives between.
+  note16_start <- grep('^16\\.\\s+\\(a\\)', raw)
+  if (length(note16_start) == 0) {
+    stop('U.S. Note 16 not found in ', pdf_path,
+         ' — annex parser requires post-restructure (rev_5+) PDF')
+  }
+  note16_start <- note16_start[1]
+
+  sub_d_idx <- grep('^\\s+\\(d\\)\\s+Headings 9903\\.82\\.04', raw)
+  sub_d_idx <- sub_d_idx[sub_d_idx > note16_start][1]
+  if (is.na(sub_d_idx)) {
+    stop('Note 16 subdivision (d) anchor not found — PDF structure changed?')
+  }
+
+  note16_block <- raw[note16_start:(sub_d_idx - 1)]
+  message('  Note 16(c) spans ', length(note16_block), ' lines')
+
+  # Find each (i)–(x) anchor line within the (c) block.
+  subs <- ANNEX_SUBDIVISION_MAP$sub
+  anchors <- vapply(subs, function(s) {
+    pat <- sprintf('^\\s+\\(%s\\)\\s+(Articles|Derivative)', s)
+    hits <- grep(pat, note16_block)
+    if (length(hits) == 0) NA_integer_ else hits[1]
+  }, integer(1))
+
+  if (any(is.na(anchors))) {
+    missing <- subs[is.na(anchors)]
+    warning('Missing subdivisions in Note 16(c): ',
+            paste(missing, collapse = ', '))
+  }
+
+  # Extract HS codes from each subdivision block.
+  # HS codes in the PDF look like: 7601, 7616.99.5160, 7308.20.0035.
+  # Strip dots after extraction; keep 4-10 digit normalized prefixes.
+  # Two-layer false-positive defense:
+  #   1) drop page-header lines (running titles, "Revision N (YEAR)" stamps)
+  #   2) chapter-range filter on numeric tokens (see below)
+  extract_codes <- function(lines) {
+    # Drop lines that are clearly page headers / running titles before we
+    # match numeric tokens. These contain words like "Harmonized" or
+    # "Revision (YEAR)" that are guaranteed to inject false positives.
+    lines <- lines[!grepl('Harmonized Tariff Schedule|Annotated for Statistical|Revision\\s+\\d+\\s+\\(\\d{4}\\)|^XXII\\b|^99\\s*-\\s*III',
+                          lines)]
+    text <- paste(lines, collapse = ' ')
+    matches <- stringr::str_extract_all(
+      text, '\\b\\d{4}(?:\\.\\d{2}(?:\\.\\d{2,4})?)?(?:\\d{2,6})?\\b')[[1]]
+    norm <- stringr::str_remove_all(matches, '\\.')
+    norm <- norm[nchar(norm) >= 4 & nchar(norm) <= 10]
+    # Chapter-range filter: §232 annex Note 16(c) only enumerates products in
+    # HS chapters 72-95 (steel/aluminum/copper primaries through manufactured
+    # derivatives in machinery, electricals, vehicles, parts, furniture, etc).
+    # Anything outside this range that slipped past the page-header filter is
+    # a stray number from the prose — calendar years (20xx), proclamation
+    # numbers, statistical-note references — not an HS code.
+    #
+    # If a future proclamation expands annex scope to a different chapter
+    # range, this needs to widen. Annex II "removed-from-scope" entries in
+    # chapters 04, 21, 22, 27-39, 66, 96 are NOT extracted here by design —
+    # those come from the curator path (source = 'proclamation' in the CSV)
+    # since Note 16(c) doesn't list removed products.
+    chapter <- as.integer(substr(norm, 1, 2))
+    keep <- !is.na(chapter) & chapter >= 72 & chapter <= 95
+    unique(norm[keep])
+  }
+
+  results <- list()
+  for (i in seq_along(subs)) {
+    if (is.na(anchors[i])) next
+    start <- anchors[i]
+    next_anchors <- anchors[seq_len(length(anchors)) > i & !is.na(anchors)]
+    end <- if (length(next_anchors) > 0) min(next_anchors) - 1L else length(note16_block)
+    codes <- extract_codes(note16_block[start:end])
+    if (length(codes) == 0) next
+
+    mapping_row <- ANNEX_SUBDIVISION_MAP[ANNEX_SUBDIVISION_MAP$sub == subs[i], ]
+    results[[subs[i]]] <- tibble::tibble(
+      hts_prefix = codes,
+      annex      = mapping_row$annex,
+      metal_type = mapping_row$metal_type,
+      sub        = subs[i]
+    )
+  }
+
+  if (length(results) == 0) {
+    stop('No codes extracted from Note 16(c) — parser failed silently')
+  }
+
+  parsed <- dplyr::bind_rows(results)
+  # A product may appear in multiple subdivisions (e.g., (c)(i) and (c)(vi) for
+  # different metal contexts). Keep all (annex, metal_type) variants per prefix.
+  parsed <- parsed |>
+    dplyr::mutate(source = 'us_note_16', effective_date = as.Date(effective_date)) |>
+    dplyr::select(hts_prefix, annex, metal_type, source, effective_date)
+
+  message('  Parsed Note 16(c): ', nrow(parsed), ' prefix rows across ',
+          length(unique(parsed$hts_prefix)), ' distinct prefixes')
+
+  parsed
+}
+
+
+#' Build the annex CSV for a specific revision by parsing its Chapter 99 PDF.
+#'
+#' Reads Note 16(c) subdivisions from the per-revision PDF, then optionally
+#' preserves annex_2 (removed-from-scope) rows from the existing static CSV
+#' since those products aren't parseable from the post-restructure Note 16.
+#'
+#' @param revision Revision ID (e.g., '2026_rev_5')
+#' @param pdf_path Optional override for the PDF path
+#' @param static_csv Existing CSV to preserve annex_2 rows from (default
+#'   resources/s232_annex_products.csv); pass NULL to skip the merge.
+#' @param effective_date Date stamp for parsed rows
+#' @return Tibble in the canonical annex CSV schema
+build_annex_products_for_revision <- function(revision = NULL,
+                                               pdf_path = NULL,
+                                               static_csv = here('resources',
+                                                                       's232_annex_products.csv'),
+                                               effective_date = NULL) {
+  if (is.null(revision)) {
+    revision <- latest_local_chapter99_revision()
+    if (is.null(revision)) {
+      stop('No chapter99 PDFs in data/us_notes/. ',
+           'Pass --annex-revision <id> or download PDFs first via ',
+           '`Rscript tools/scrape_us_notes.R --download-pdfs`.')
+    }
+    message('  Auto-detected latest revision: ', revision)
+  }
+
+  if (is.null(pdf_path)) {
+    candidate <- here('data', 'us_notes', paste0('chapter99_', revision, '.pdf'))
+    if (!file.exists(candidate)) {
+      candidate <- download_revision_chapter99_pdf(revision)
+    }
+    if (is.null(candidate) || !file.exists(candidate)) {
+      stop('No PDF available for ', revision)
+    }
+    pdf_path <- candidate
+  }
+
+  if (is.null(effective_date)) {
+    # All products in Note 16(c) of any post-restructure revision share the
+    # annex regime start date (2026-04-06). See annex_regime_effective_date()
+    # for why parsing a later revision still tags 2026-04-06.
+    effective_date <- annex_regime_effective_date()
+    message('  Annex regime effective date: ', effective_date)
+  }
+
+  message('Building annex map from ', basename(pdf_path), '...')
+  parsed <- parse_annex_products(pdf_path, effective_date = effective_date)
+
+  # Merge curator overrides (source != 'us_note_16') from the static CSV with
+  # the freshly parsed entries. The merge is idempotent on parser-derived rows:
+  # previous parser entries are discarded and replaced wholesale by this run,
+  # so removals in future HTS revisions don't leave stale entries behind.
+  # Curator entries (source = 'proclamation', or any non-'us_note_16' value)
+  # are always preserved and win on prefix overlap.
+  if (!is.null(static_csv) && file.exists(static_csv)) {
+    static_df <- readr::read_csv(static_csv, show_col_types = FALSE,
+                                  col_types = readr::cols(hts_prefix = readr::col_character()))
+    curator <- static_df |> dplyr::filter(is.na(source) | source != 'us_note_16')
+    n_curator <- nrow(curator)
+
+    # Drop parsed rows whose prefix matches a curator prefix (curator wins).
+    curator_prefixes <- unique(curator$hts_prefix)
+    parsed_only <- parsed |>
+      dplyr::filter(!hts_prefix %in% curator_prefixes)
+
+    message('  Curator entries kept (source != us_note_16): ', n_curator)
+    message('  Parsed entries added (no curator overlap): ', nrow(parsed_only))
+    message('  Parsed entries suppressed by curator: ',
+            nrow(parsed) - nrow(parsed_only))
+
+    combined <- dplyr::bind_rows(curator, parsed_only)
+  } else {
+    combined <- parsed
+  }
+
+  combined |>
+    dplyr::distinct(hts_prefix, annex, metal_type, .keep_all = TRUE) |>
+    dplyr::arrange(annex, metal_type, hts_prefix)
+}
+
+
+# =============================================================================
+# Per-Revision PDF Download
+# =============================================================================
+
+#' Download Chapter 99 PDF for a specific HTS revision
+#'
+#' Downloads the Chapter 99 PDF from USITC for a given revision using the
+#' reststop file API. Files are cached locally by revision ID.
+#'
+#' @param revision Character revision ID (e.g., 'rev_18', '2026_basic')
+#' @param dest_dir Directory to store per-revision PDFs
+#' @param force Re-download even if file exists
+#' @return Path to downloaded PDF, or NULL on failure
+download_revision_chapter99_pdf <- function(revision, dest_dir = 'data/us_notes',
+                                            force = FALSE) {
+  dest_path <- file.path(dest_dir, paste0('chapter99_', revision, '.pdf'))
+
+  if (file.exists(dest_path) && !force) {
+    message('  Using cached PDF: ', dest_path)
+    return(dest_path)
+  }
+
+  release_name <- build_release_name(revision)
+  if (is.na(release_name)) {
+    message('  SKIP: no USITC API mapping for ', revision)
+    return(NULL)
+  }
+
+  url <- build_chapter99_url(release_name)
+  dir.create(dest_dir, recursive = TRUE, showWarnings = FALSE)
+
+  tryCatch({
+    message('  Downloading Chapter 99 PDF for ', revision, '...')
+    message('    URL: ', url)
+    download.file(url, dest_path, mode = 'wb', quiet = TRUE)
+
+    file_size_mb <- file.info(dest_path)$size / (1024 * 1024)
+    if (file_size_mb < 0.5) {
+      warning('PDF for ', revision, ' is suspiciously small (',
+              round(file_size_mb, 2), ' MB). May be an error page.')
+      unlink(dest_path)
+      return(NULL)
+    }
+
+    message('    Downloaded: ', round(file_size_mb, 1), ' MB')
+    return(dest_path)
+  }, error = function(e) {
+    message('    FAILED: ', conditionMessage(e))
+    if (file.exists(dest_path)) unlink(dest_path)
+    return(NULL)
+  })
+}
+
+
+#' Download Chapter 99 PDFs for all revisions
+#'
+#' Checks local inventory and downloads missing PDFs with rate limiting.
+#'
+#' @param revisions Character vector of revision IDs
+#' @param dest_dir Directory to store PDFs
+#' @param dry_run Report without downloading
+#' @return Tibble with revision, status, path columns
+download_all_revision_pdfs <- function(revisions, dest_dir = 'data/us_notes',
+                                       dry_run = FALSE) {
+  message('\n', strrep('=', 70))
+  message('PER-REVISION CHAPTER 99 PDF DOWNLOAD')
+  message(strrep('=', 70))
+
+  results <- tibble(revision = character(), status = character(), path = character())
+
+  for (rev in revisions) {
+    dest_path <- file.path(dest_dir, paste0('chapter99_', rev, '.pdf'))
+
+    if (file.exists(dest_path)) {
+      results <- bind_rows(results, tibble(
+        revision = rev, status = 'cached', path = dest_path
+      ))
+      next
+    }
+
+    release_name <- build_release_name(rev)
+    if (is.na(release_name)) {
+      results <- bind_rows(results, tibble(
+        revision = rev, status = 'skipped_no_mapping', path = NA_character_
+      ))
+      next
+    }
+
+    if (dry_run) {
+      url <- build_chapter99_url(release_name)
+      message('  [DRY RUN] Would download: ', rev, ' -> ', url)
+      results <- bind_rows(results, tibble(
+        revision = rev, status = 'would_download', path = NA_character_
+      ))
+      next
+    }
+
+    path <- download_revision_chapter99_pdf(rev, dest_dir)
+    results <- bind_rows(results, tibble(
+      revision = rev,
+      status = if (!is.null(path)) 'downloaded' else 'failed',
+      path = if (!is.null(path)) path else NA_character_
+    ))
+
+    # Rate limiting: 2 seconds between downloads
+    if (rev != revisions[length(revisions)]) {
+      Sys.sleep(2)
+    }
+  }
+
+  # Summary
+  message('\nDownload summary:')
+  summary_tbl <- results %>% count(status)
+  for (j in seq_len(nrow(summary_tbl))) {
+    message('  ', summary_tbl$status[j], ': ', summary_tbl$n[j])
+  }
+
+  return(results)
+}
+
+
+# =============================================================================
+# Per-Revision Floor Exemption Parsing
+# =============================================================================
+
+#' Parse floor exemptions from a specific revision's Chapter 99 PDF
+#'
+#' Downloads the revision PDF if needed, then runs the floor exemption parser.
+#' Output is cached as a per-revision CSV.
+#'
+#' @param revision Character revision ID
+#' @param dest_dir Directory for PDFs
+#' @param output_dir Directory for per-revision exemption CSVs
+#' @param dry_run Report without writing
+#' @return Tibble of exempt products, or NULL if no anchors found
+parse_revision_floor_exemptions <- function(revision, dest_dir = 'data/us_notes',
+                                            output_dir = 'data/us_notes',
+                                            dry_run = FALSE) {
+  output_path <- file.path(output_dir, paste0('floor_exempt_', revision, '.csv'))
+
+  # Check cache
+  if (file.exists(output_path) && !dry_run) {
+    message('  Using cached exemptions: ', output_path)
+    return(read_csv(output_path, col_types = cols(.default = col_character())))
+  }
+
+  # Download PDF if needed
+  pdf_path <- download_revision_chapter99_pdf(revision, dest_dir)
+  if (is.null(pdf_path)) {
+    message('  SKIP: no PDF available for ', revision)
+    return(NULL)
+  }
+
+  # Parse floor exemptions using existing function
+  result <- parse_floor_exempt_products(
+    pdf_path = pdf_path,
+    output_csv = output_path,
+    dry_run = dry_run
+  )
+
+  return(result)
+}
+
+
+#' Parse floor exemptions for all revisions from start_from onward
+#'
+#' @param revisions Character vector of all revision IDs (in order)
+#' @param start_from First revision to parse (default: 'rev_18', Phase 2 intro)
+#' @param dry_run Report without writing
+#' @return Tibble with revision, n_products, status columns
+parse_all_revision_floor_exemptions <- function(revisions,
+                                                start_from = 'rev_18',
+                                                dry_run = FALSE) {
+  message('\n', strrep('=', 70))
+  message('PER-REVISION FLOOR EXEMPTION PARSING')
+  message(strrep('=', 70))
+
+  # Filter to revisions at or after start_from
+  start_idx <- match(start_from, revisions)
+  if (is.na(start_idx)) {
+    message('WARNING: start_from revision "', start_from, '" not found in revision list')
+    start_idx <- 1
+  }
+  target_revisions <- revisions[start_idx:length(revisions)]
+  message('Processing ', length(target_revisions), ' revisions from ', start_from)
+
+  results <- tibble(revision = character(), n_products = integer(), status = character())
+
+  for (rev in target_revisions) {
+    message('\n--- ', rev, ' ---')
+    tryCatch({
+      result <- parse_revision_floor_exemptions(rev, dry_run = dry_run)
+      n <- if (!is.null(result)) nrow(result) else 0L
+      results <- bind_rows(results, tibble(
+        revision = rev,
+        n_products = n,
+        status = if (n > 0) 'parsed' else 'no_anchors'
+      ))
+    }, error = function(e) {
+      message('  ERROR: ', conditionMessage(e))
+      results <<- bind_rows(results, tibble(
+        revision = rev,
+        n_products = 0L,
+        status = 'error'
+      ))
+    })
+  }
+
+  # Summary
+  message('\n\nParsing summary:')
+  for (j in seq_len(nrow(results))) {
+    message('  ', results$revision[j], ': ', results$n_products[j],
+            ' products (', results$status[j], ')')
+  }
+
+  return(results)
+}
+
+
+# =============================================================================
+# Main Execution
+# =============================================================================
+
+if (sys.nframe() == 0) {
+  library(here)
+  source(here('src', 'core', 'helpers.R'))
+
+  # Parse command line arguments
+  args <- commandArgs(trailingOnly = TRUE)
+  dry_run <- '--dry-run' %in% args
+  do_floor <- '--floor-exemptions' %in% args
+  do_copper <- '--copper' %in% args
+  do_derivatives <- '--derivatives' %in% args
+  do_annex <- '--annex' %in% args
+  do_all_modes <- '--all' %in% args
+  do_download_pdfs <- '--download-pdfs' %in% args
+  do_revision <- '--revision' %in% args
+  do_all_revisions <- '--all-revisions' %in% args
+
+  # Extract --annex-revision value (optional; defaults to 2026_rev_5)
+  annex_revision_value <- NULL
+  if ('--annex-revision' %in% args) {
+    ar_idx <- which(args == '--annex-revision')
+    if (ar_idx < length(args)) annex_revision_value <- args[ar_idx + 1]
+  }
+
+  # Extract --revision value
+  revision_value <- NULL
+  if (do_revision) {
+    rev_idx <- which(args == '--revision')
+    if (rev_idx < length(args)) {
+      revision_value <- args[rev_idx + 1]
+    } else {
+      stop('--revision requires a value (e.g., --revision rev_18)')
+    }
+  }
+
+  # --- Per-revision PDF download ---
+  if (do_download_pdfs) {
+    rev_dates <- load_revision_dates(here('config', 'revision_dates.csv'), use_policy_dates = FALSE)
+    download_all_revision_pdfs(rev_dates$revision, dry_run = dry_run)
+
+  # --- Single revision floor exemption parsing ---
+  } else if (do_revision) {
+    parse_revision_floor_exemptions(revision_value, dry_run = dry_run)
+
+  # --- All revisions floor exemption parsing ---
+  } else if (do_all_revisions) {
+    rev_dates <- load_revision_dates(here('config', 'revision_dates.csv'), use_policy_dates = FALSE)
+    parse_all_revision_floor_exemptions(rev_dates$revision, dry_run = dry_run)
+
+  # --- Original modes ---
+  } else {
+    if (do_floor || do_all_modes) {
+      floor_result <- parse_floor_exempt_products(dry_run = dry_run)
+    }
+
+    if (do_copper || do_all_modes) {
+      copper_result <- parse_note36_copper_products(dry_run = dry_run)
+    }
+
+    if (do_derivatives || do_all_modes) {
+      deriv_result <- parse_derivative_products(dry_run = dry_run)
+    }
+
+    if (do_annex || do_all_modes) {
+      annex_output <- here('resources', 's232_annex_products.csv')
+      annex_result <- build_annex_products_for_revision(
+        revision   = annex_revision_value,  # NULL → auto-detect latest
+        static_csv = annex_output
+      )
+      if (!dry_run) {
+        readr::write_csv(annex_result, annex_output)
+        message('Wrote ', nrow(annex_result), ' rows to ', annex_output)
+      } else {
+        message('[DRY RUN] would write ', nrow(annex_result), ' rows to ', annex_output)
+      }
+    }
+
+    if (!do_floor && !do_copper && !do_derivatives && !do_annex || do_all_modes) {
+      result <- parse_us_note_products(dry_run = dry_run)
+    }
+  }
+}

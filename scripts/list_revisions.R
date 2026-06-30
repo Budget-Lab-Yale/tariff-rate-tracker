@@ -17,9 +17,9 @@ suppressPackageStartupMessages({
   library(tidyverse)
 })
 suppressMessages({
-  source(here('src', '00_build_timeseries.R'))
-  source(here('src', 'revisions.R'))
-  source(here('src', 'policy_params.R'))
+  source(here('src', 'pipeline', '00_build_timeseries.R'))
+  source(here('src', 'model', 'revisions.R'))
+  source(here('src', 'model', 'policy_params.R'))
 })
 
 args <- commandArgs(trailingOnly = TRUE)

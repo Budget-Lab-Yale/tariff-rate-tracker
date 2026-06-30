@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Plank 0 unit gate: the compositional rate schema (src/authority_spec.R).
+# Plank 0 unit gate: the compositional rate schema (src/model/authority_spec.R).
 #
 # Usage:
 #   sbatch scripts/submit_resolve_rate_tests.sh
@@ -23,7 +23,7 @@
 #SBATCH --mem=4G
 #SBATCH --output=/home/%u/slurm-logs/theseus-plank0-%j.out
 #SBATCH --error=/home/%u/slurm-logs/theseus-plank0-%j.err
-#SBATCH --chdir=/nfs/roberts/project/pi_nrs36/jar335/Repositories/tariff-rate-tracker
+# (no --chdir: submit from the repo root — sbatch uses the submission dir)
 
 set -uo pipefail
 

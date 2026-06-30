@@ -1,5 +1,5 @@
 # Counterfactual: no IEEPA at all (reciprocal + fentanyl). Successor to the
 # legacy config/scenarios.yaml `no_ieepa` (Phase-7-deleted engine); same
 # column-zeroing semantics, now applied pre-stacking inside the calc — see
-# apply_authority_disables() in src/rate_schema.R. Names from authority_columns.
+# apply_authority_disables() in src/model/rate_schema.R. Names from authority_columns.
 disabled_authorities: [ieepa_reciprocal, ieepa_fentanyl]

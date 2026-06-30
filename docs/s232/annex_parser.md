@@ -2,19 +2,19 @@
 
 `resources/s232_annex_products.csv` is the canonical mapping from HS prefixes
 to §232 annex tier (1a / 1b / 2 / 3) consumed by the rate engine in
-`src/06_calculate_rates.R::calculate_rates_for_revision()`. As of 2026-05-19
+`src/pipeline/06_calculate_rates.R::calculate_rates_for_revision()`. As of 2026-05-19
 that CSV is **regenerable** from the HTSUS U.S. Notes PDF, not purely
 hand-curated.
 
 ```bash
 # Default: parse latest local chapter99 PDF, regenerate CSV
-Rscript src/scrape_us_notes.R --annex
+Rscript tools/scrape_us_notes.R --annex
 
 # Pin to a specific revision
-Rscript src/scrape_us_notes.R --annex --annex-revision 2026_rev_6
+Rscript tools/scrape_us_notes.R --annex --annex-revision 2026_rev_6
 
 # Preview without writing
-Rscript src/scrape_us_notes.R --annex --dry-run
+Rscript tools/scrape_us_notes.R --annex --dry-run
 ```
 
 This document covers: what the parser does, why the subdivision → annex
@@ -38,7 +38,7 @@ which apply to products enumerated in U.S. Note 16(c)(i) through (c)(x).
 
 ## What the parser does
 
-`src/scrape_us_notes.R::parse_annex_products()` reads the per-revision
+`tools/scrape_us_notes.R::parse_annex_products()` reads the per-revision
 chapter99 PDF (`data/us_notes/chapter99_<revision>.pdf`), locates Note 16 by
 its "16. (a)" anchor, walks the subdivisions (c)(i) through (c)(x), and
 extracts the HS prefixes listed in each. Each subdivision is mapped to one
@@ -87,7 +87,7 @@ asserted in `tests/run_tests_annex_parser.R`.
   motorcycle parts (9903.82.13), USMCA limited-quantity vehicle parts added
   in rev_6 (9903.82.18/.19). The parser identifies which products are in
   scope under each annex; the rate-engine layer in
-  `src/06_calculate_rates.R` applies the country/condition overlays
+  `src/pipeline/06_calculate_rates.R` applies the country/condition overlays
   separately.
 
 - **The 9903.82.01 zero-metal-content carve-out.** Modeled separately as
@@ -175,7 +175,7 @@ that is present on multiple lists, use the aggregate weight of the listed
 metals."
 
 The CSV preserves both rows (different `metal_type`). Downstream,
-`load_annex_products()` in `src/data_loaders.R` drops the `metal_type` column
+`load_annex_products()` in `src/model/data_loaders.R` drops the `metal_type` column
 and de-duplicates by `hts_prefix`. This is benign because:
 
 - Both rows share the same `annex` value (all 4 dupes are annex_1b).
@@ -209,9 +209,9 @@ When a new HTSUS revision lands:
 
 1. Add the revision row to `config/revision_dates.csv` with its
    `effective_date`.
-2. Download the chapter99 PDF (`src/scrape_us_notes.R --download-pdfs` if
+2. Download the chapter99 PDF (`tools/scrape_us_notes.R --download-pdfs` if
    batch, or the per-revision helper).
-3. Re-run `Rscript src/scrape_us_notes.R --annex`. The CSV updates
+3. Re-run `Rscript tools/scrape_us_notes.R --annex`. The CSV updates
    automatically; the regeneration message reports any new parser entries
    or curator suppressions.
 4. Inspect the diff in `resources/s232_annex_products.csv` before committing.

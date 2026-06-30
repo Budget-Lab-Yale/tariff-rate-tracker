@@ -9,7 +9,7 @@ suppressPackageStartupMessages({
   library(tibble)
 })
 
-source(here('src', 'parity.R'))
+source(here('src', 'core', 'parity.R'))
 
 args <- commandArgs(trailingOnly = TRUE)
 get_arg <- function(flag, default = NULL) {

@@ -24,7 +24,7 @@
 # =============================================================================
 
 suppressPackageStartupMessages({ library(here); library(dplyr) })
-source(here('src', 'helpers.R'))
+source(here('src', 'core', 'helpers.R'))
 
 pass <- 0L; skip <- 0L
 check <- function(cond, msg) {

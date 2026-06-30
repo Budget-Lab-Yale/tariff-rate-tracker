@@ -2,7 +2,7 @@
 # panel-keyed import weights — unit tests
 # =============================================================================
 #
-# Pure-logic checks for src/build_panel_import_weights.R on tiny synthetic
+# Pure-logic checks for src/io/build_panel_import_weights.R on tiny synthetic
 # fixtures — no model data, runs in seconds. Covers the two acceptance criteria
 # that must always hold (value conservation; every output code on the panel),
 # the HS8 -> HS6 -> HS4 -> HS2 -> whole-panel redistribution cascade, the
@@ -19,7 +19,7 @@ suppressPackageStartupMessages({
   library(arrow)
 })
 
-source(here('src', 'build_panel_import_weights.R'))   # functions; CLI block is sys.nframe()-guarded
+source(here('src', 'io', 'build_panel_import_weights.R'))   # functions; CLI block is sys.nframe()-guarded
 
 pass_count <- 0L
 check <- function(cond, msg) {

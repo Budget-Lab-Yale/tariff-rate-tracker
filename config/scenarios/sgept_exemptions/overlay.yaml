@@ -4,7 +4,7 @@
 # can compare. Promote to baseline by copying these values into
 # config/policy_params.yaml if the eval prefers them.
 # Source: docs/s232/s232_metals_update_note.pdf (SGEPT analysis).
-# Build: TARIFF_SCENARIO=sgept_exemptions Rscript src/00_build_timeseries.R ...
+# Build: TARIFF_SCENARIO=sgept_exemptions Rscript src/pipeline/00_build_timeseries.R ...
 # (kind: scenario — deliberately NOT in the --alternatives selector, which is
 # contractually pinned to the historical 7-variant set.)
 section_232_annexes:

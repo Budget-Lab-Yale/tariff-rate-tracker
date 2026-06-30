@@ -1,7 +1,7 @@
 # =============================================================================
 # resolve_rate / apply_rate_semantics / validate_rate unit tests (Plank 0)
 # =============================================================================
-# Pure-logic checks for the compositional rate schema in src/authority_spec.R:
+# Pure-logic checks for the compositional rate schema in src/model/authority_spec.R:
 # the layer-precedence reader (resolve_rate), the rate_type semantics
 # (apply_rate_semantics, incl. both floor modes), and rate validation. No model
 # data, no calculator, no parity recompute — Plank 0 is parity-trivial by
@@ -11,7 +11,7 @@
 # =============================================================================
 
 suppressPackageStartupMessages(library(here))
-source(here('src', 'authority_spec.R'))
+source(here('src', 'model', 'authority_spec.R'))
 
 pass <- 0L
 check <- function(cond, msg) {

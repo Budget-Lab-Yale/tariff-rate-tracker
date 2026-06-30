@@ -1,5 +1,5 @@
 # =============================================================================
-# Tests: §301 exclusion claim-share calibration (src/calibrate_s301_exclusions.R)
+# Tests: §301 exclusion claim-share calibration (tools/calibrate_s301_exclusions.R)
 # =============================================================================
 # Pure-function units only — the IMDB/statutory IO paths are exercised by
 # running the script itself (see docs/s301_exclusion_calibration.md).
@@ -11,7 +11,7 @@ suppressPackageStartupMessages({
   library(tidyverse)
   library(here)
 })
-source(here('src', 'calibrate_s301_exclusions.R'))
+source(here('tools', 'calibrate_s301_exclusions.R'))
 
 n_pass <- 0; n_fail <- 0
 check <- function(desc, expr) {

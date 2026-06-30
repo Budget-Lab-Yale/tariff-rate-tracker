@@ -1,7 +1,7 @@
 # =============================================================================
 # stacking unit tests (Phase 3a — policy-driven stacking)
 # =============================================================================
-# Pure-logic checks for src/stacking.R. Confirms the data-driven stacking policy
+# Pure-logic checks for src/model/stacking.R. Confirms the data-driven stacking policy
 # reproduces the historical mutual-exclusion branches, that the fentanyl
 # content-split-except-China wrinkle is now DATA (a per-country class override),
 # and that tpc_additive is unchanged. No model data.
@@ -10,7 +10,7 @@
 
 suppressPackageStartupMessages(library(tidyverse))
 suppressPackageStartupMessages(library(here))
-source(here('src', 'stacking.R'))
+source(here('src', 'model', 'stacking.R'))
 
 pass <- 0L
 check <- function(cond, msg) {

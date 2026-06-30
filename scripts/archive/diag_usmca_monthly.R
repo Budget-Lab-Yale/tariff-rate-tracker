@@ -13,7 +13,7 @@ suppressMessages({
 })
 
 # Source the script as functions only — we need build_query, post_runreport, token loader
-src_file <- here('src', 'download_usmca_dataweb.R')
+src_file <- here('tools', 'download_usmca_dataweb.R')
 script_lines <- readLines(src_file)
 
 # Trim everything from the line that starts the main pipeline (the

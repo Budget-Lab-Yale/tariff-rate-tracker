@@ -3,7 +3,7 @@
 # =============================================================================
 #
 # Re-parses the product universe for the reference revisions consumed by
-# src/expand_ieepa_exempt.R (and any other resource-generation script that
+# tools/expand_ieepa_exempt.R (and any other resource-generation script that
 # needs a current HTS10 universe). Run after parser changes — e.g. the
 # 2026-06-04 8-digit-leaf fix added 473 lines older caches lack.
 #
@@ -16,8 +16,8 @@ suppressPackageStartupMessages({
   library(here)
 })
 
-source(here('src', 'helpers.R'))
-source(here('src', '04_parse_products.R'))
+source(here('src', 'core', 'helpers.R'))
+source(here('src', 'pipeline', '04_parse_products.R'))
 
 ensure_dir(here('data', 'processed'))
 

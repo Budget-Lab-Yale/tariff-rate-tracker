@@ -97,7 +97,7 @@ For the SCOTUS ruling (`2026_rev_4`), the current build uses a split treatment: 
 To use raw HTS dates for all revisions instead:
 
 ```bash
-Rscript src/00_build_timeseries.R --full --use-hts-dates
+Rscript src/pipeline/00_build_timeseries.R --full --use-hts-dates
 ```
 
 **Bundling analysis:** We decomposed each timing-gap revision to determine what share of its ETR impact belongs to the policy-date component vs. the HTS-date component (import-weighted):

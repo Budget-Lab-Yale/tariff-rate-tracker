@@ -21,7 +21,7 @@
 #SBATCH --mem=192G
 #SBATCH --output=/home/%u/slurm-logs/theseus-p1-gate-%j.out
 #SBATCH --error=/home/%u/slurm-logs/theseus-p1-gate-%j.err
-#SBATCH --chdir=/nfs/roberts/project/pi_nrs36/jar335/Repositories/tariff-rate-tracker
+# (no --chdir: submit from the repo root — sbatch uses the submission dir)
 
 set -uo pipefail
 mkdir -p ~/slurm-logs output/logs
@@ -51,17 +51,19 @@ echo "remaining snapshots after clear: $(ls data/timeseries/snapshot_*.rds 2>/de
 
 echo; echo "--- Step 1: --full --core-only build (recompute all 43 revisions) ---"
 RC=0
-Rscript src/00_build_timeseries.R --full --core-only || RC=$?
+Rscript src/pipeline/00_build_timeseries.R --full --core-only || RC=$?
 echo "Build exit: $RC"
 if [ "$RC" -ne 0 ]; then echo "FAIL: build returned non-zero; skipping parity check."; exit "$RC"; fi
 echo "snapshots rebuilt: $(ls data/timeseries/snapshot_*.rds 2>/dev/null | wc -l) (expect 43)"
 
-echo; echo "--- Step 2: parity check vs tests/golden/9f9837d (skip monolithic timeseries to avoid OOM) ---"
+REFERENCE="${REFERENCE:-tests/golden/9f9837d}"
+echo; echo "--- Step 2: parity check vs ${REFERENCE} (skip monolithic timeseries to avoid OOM) ---"
 # The 43 per-snapshot comparisons cover the SAME data as rate_timeseries.rds (its
 # concatenation), one file at a time => memory-safe. timeseries omitted only to
 # dodge the 2x1.38GB+join OOM; coverage is unchanged.
+# Override the golden with: REFERENCE=<dir> sbatch scripts/submit_plank1_build_gate.sh
 GATE=0
-Rscript scripts/run_parity_check.R --golden tests/golden/9f9837d \
+Rscript scripts/run_parity_check.R --golden "$REFERENCE" \
   --artifacts snapshot,daily_overall,daily_by_authority,daily_by_country,daily_by_category || GATE=$?
 
 echo; echo "=========================================================="

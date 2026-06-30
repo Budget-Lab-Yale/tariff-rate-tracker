@@ -15,10 +15,10 @@ each revision to its *headline* event, but missed effective dates that aren't a
 revision's headline.
 
 We now make the timeline emerge from the snapshots. After the per-revision snapshots are
-built, `discover_boundaries()` (`src/timeline.R`) finds every schedule boundary that
+built, `discover_boundaries()` (`src/model/timeline.R`) finds every schedule boundary that
 (a) falls **strictly inside** a real revision interval on the build grid, and (b) the
 calculator's own date gates **re-resolve** on an as-of recompute. `build_boundary_mints()`
-(`src/00_build_timeseries.R`) mints one synthetic `bnd_<date>` revision per boundary — the
+(`src/pipeline/00_build_timeseries.R`) mints one synthetic `bnd_<date>` revision per boundary — the
 owning revision's archive re-run **stamped at the boundary date**, with empty operations —
 and `assemble_timeseries()` turns each mint into its own `[D, next]` interval via
 `rev_dates` ordering (auto-shortening the owner to `D-1`). No calculator change: the date
@@ -117,7 +117,7 @@ live-≡-legacy parity assertion green.
 
 `discover_boundaries()` + `build_boundary_mints()` run immediately **before**
 `build_scheduled_activations()` in both post-array sites:
-`build_full_timeseries()` (`src/00_build_timeseries.R`) and `scripts/build_gather.R`. The
+`build_full_timeseries()` (`src/pipeline/00_build_timeseries.R`) and `scripts/build_gather.R`. The
 mints are **not** fed to the 09 splitter (the mint already creates the interval; feeding it
 would duplicate the owner). `build_scheduled_activations()`'s tip selection was hardened to
 pick the latest **real** revision (a `bnd_` row can now hold the latest `effective_date`).

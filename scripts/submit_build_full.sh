@@ -52,7 +52,7 @@ echo "Commit: $(git rev-parse HEAD 2>/dev/null || echo '?')"
 echo "Args:   ${BUILD_ARGS:---full}"
 echo "=========================================================="
 
-Rscript src/00_build_timeseries.R ${BUILD_ARGS:---full}
+Rscript src/pipeline/00_build_timeseries.R ${BUILD_ARGS:---full}
 RC=$?
 
 echo "=========================================================="

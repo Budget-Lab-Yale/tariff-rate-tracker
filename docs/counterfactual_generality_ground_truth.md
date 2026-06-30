@@ -4,9 +4,9 @@
 ground-truth map (not memory, not vibes) of how configurable the tariff model actually is, prompted
 by discovering that a new Section-232-style tariff (pharma) can't be added with correct stacking.
 
-**How this was built:** direct reads of `src/stacking.R`, `src/resolved_programs.R`,
-`src/06_calculate_rates.R`, `src/05_parse_policy_params.R`, `src/scenario_ops.R`,
-`src/new_coverage.R`, `src/rate_schema.R`, `config/policy_params.yaml`, plus two code-review
+**How this was built:** direct reads of `src/model/stacking.R`, `src/model/resolved_programs.R`,
+`src/pipeline/06_calculate_rates.R`, `src/pipeline/05_parse_policy_params.R`, `src/scenario_ops.R`,
+`src/new_coverage.R`, `src/model/rate_schema.R`, `config/policy_params.yaml`, plus two code-review
 subagents. Every claim below is grounded in code; line numbers drift, so re-grep before relying on
 an exact line.
 
@@ -23,7 +23,7 @@ be added as a plain additive surcharge.
 
 ### 1.1 Seven fixed rate columns
 
-`RATE_SCHEMA` (`src/rate_schema.R:12-20`) is a fixed vector. The additional-tariff columns are
+`RATE_SCHEMA` (`src/model/rate_schema.R:12-20`) is a fixed vector. The additional-tariff columns are
 exactly seven, one per known authority:
 
 ```
@@ -37,7 +37,7 @@ columns via `authority_columns:` in `policy_params.yaml` (`section_232 → rate_
 
 ### 1.2 Three stacking classes — but the math has only TWO behaviors
 
-`default_stacking_policy()` (`src/stacking.R:141-152`) assigns each column a class:
+`default_stacking_policy()` (`src/model/stacking.R:141-152`) assigns each column a class:
 
 | Column | Class |
 |---|---|
@@ -49,7 +49,7 @@ columns via `authority_columns:` in `policy_params.yaml` (`section_232 → rate_
 | `rate_section_201` | `additive` |
 | `rate_other` | `additive` |
 
-But look at what the contribution math actually does (`src/stacking.R:160-175`):
+But look at what the contribution math actually does (`src/model/stacking.R:160-175`):
 
 ```r
 if (identical(p$class, 'content_split')) {
@@ -68,7 +68,7 @@ this step (both contribute their full rate); `primary` is special only because i
 
 ### 1.3 "Displacement" exists only as metal-232
 
-`nonmetal_share` (`src/stacking.R:73-115`) is computed **entirely** from metal content:
+`nonmetal_share` (`src/model/stacking.R:73-115`) is computed **entirely** from metal content:
 
 ```r
 .active_type_share = case_when(
@@ -86,7 +86,7 @@ There is **no general notion of "authority A displaces authority B."** The only 
 metal-232, the displacement amount is the metal content, and the displaced set is whatever is class
 `content_split`. The whole thing is gated on `rate_232 > 0`. (A non-metal 232 like autos is handled
 by treating it as `metal_share = 1` / annex → `nonmetal_share = 0`, i.e. *full* displacement of the
-reciprocal — see `src/stacking.R:107-112`.)
+reciprocal — see `src/model/stacking.R:107-112`.)
 
 ### 1.4 The stacking class is hardcoded; the spec's class field is inert
 
@@ -163,12 +163,12 @@ that "baseline = empty scenario" and any authority could be re-scoped/added as d
 honest delta:
 
 **Delivered:**
-- ✅ The `AuthoritySpec` datatype, constructors, validation (`src/authority_spec.R`).
+- ✅ The `AuthoritySpec` datatype, constructors, validation (`src/model/authority_spec.R`).
 - ✅ Rates/product-scope embedded in the spec and mutable by ops (`set_rate`, `set_exempt`,
   `set_country_scope`, `disable`, `set_active`) — for the authorities wired in.
 - ✅ Country scope promoted to data for **301 and 201** (the re-scope capability).
 - ✅ The stacking **arithmetic** generalized into a class-driven policy + the **resolved-program
-  table** substrate (`src/resolved_programs.R`) that *would* stack any class correctly if told.
+  table** substrate (`src/model/resolved_programs.R`) that *would* stack any class correctly if told.
 - ✅ Additive new coverage via `add_program` → `rate_other` (`src/new_coverage.R`).
 
 **NOT delivered (the two missing wires + the on-ramp):**
@@ -230,7 +230,7 @@ Three pieces of work, increasing in difficulty:
 - Today: `content_split` is gated on `rate_232 > 0` and scaled by a metal-specific `nonmetal_share`
   (§1.3). To support an arbitrary displacing authority you need a general relation: *"authority P is
   primary on these pairs and displaces authorities {Q…} by share s(pair)."*
-- The natural substrate is the **resolved-program table** (`src/resolved_programs.R`) — it already
+- The natural substrate is the **resolved-program table** (`src/model/resolved_programs.R`) — it already
   carries one row per (pair, authority) with class + metal_type + nonmetal_share + precedence. But
   its split logic still keys on `.has_232` (`resolved_programs.R:99`). Generalizing means replacing
   "`.has_232`" with "a primary displacer is present on this pair" and replacing the metal-specific
