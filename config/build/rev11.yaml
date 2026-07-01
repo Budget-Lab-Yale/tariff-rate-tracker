@@ -1,0 +1,22 @@
+# rev_11 canonical build — actual + new_301, first cluster/release vintage to
+# include 2026 HTS rev_11 (annual July-1 484(f) statistical update, eff.
+# 2026-07-01) AND the restructure merge (PR #12). Production `latest`
+# (2026-06-25-14) was built from b0550d6, which predates both.
+#
+# Builds a fresh vintage and VERIFIES it, but does NOT move `latest`: review the
+# new vintage against 2026-06-25-14, then repoint `latest` deliberately with
+#   Rscript scripts/publish_vintage.R --latest-only <vintage>
+#
+#   bash scripts/submit_build_array.sh --config config/build/rev11.yaml
+
+model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker
+policy_params_path: config/policy_params.yaml
+
+scenarios:
+  - new_301
+
+use_hts_dates: false
+weight_mode: required
+update_latest: false        # review the rev_11 vintage before repointing latest
+allow_partial: false
+verify: true                # finalize runs scripts/verify_build.R against the vintage
