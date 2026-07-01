@@ -172,7 +172,7 @@ as weight 0).
 ## The forward-map
 
 Built by `src/io/build_panel_import_weights.R`, called automatically from
-`src/publish_internal.R` for every vintage. It is deterministic:
+`src/io/write_output.R` when a vintage is published. It is deterministic:
 
 1. **Target universe = the current vintage's codes** — the *latest* interval's
    HS10 set (`current_panel_codes()`), i.e. "the current HTS codes". A vintage

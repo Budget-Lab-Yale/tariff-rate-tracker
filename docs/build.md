@@ -18,7 +18,7 @@ The repo is designed to run in progressively richer modes depending on what loca
 | `core_plus_weights` (default) | core + import weights at `data/weights/hs10_by_country_gtap_<year>_con.rds` (or path set in `config/local_paths.yaml`) | per-revision rate snapshots + weighted daily fields + quality report |
 | `core` (opt-in via `--unweighted` or `weight_mode: unweighted`) | repo resources, config files, HTS JSON archives, required R packages | per-revision rate snapshots, unweighted daily outputs, quality report |
 | `compare_tpc` | core + TPC benchmark CSV | comparison outputs against TPC |
-| `compare_etrs` | core + Tariff-ETRs repo path | standalone script (`src/compare_etrs.R`); wrapper in `run_comparisons.R` not yet complete |
+| `compare_etrs` | core + Tariff-ETRs repo path | one-off validation script (`scripts/archive/compare_etrs.R`); not part of the production flow |
 | `generate_etrs_config` | core (built timeseries) | ETRs-compatible config: `statutory_rates.csv.gz` + `other_params.yaml` per revision date |
 
 The core series is the production dataset. Comparison inputs are optional.
@@ -205,38 +205,38 @@ Pass `--with-artifacts` to include the heavier artifact-dependent integration ch
 | Path | Description |
 |---|---|
 | `output/comparisons/` | benchmark comparison artifacts |
-| `output/alternative/` | rebuild-alternative variants (USMCA-share pp_override rebuilds) — one file per variant × output type (`daily_overall_<variant>.csv`, `by_authority_<variant>.csv`, `by_country_<variant>.csv`, `by_category_<variant>.csv`). AuthoritySpec scenarios: see [docs/scenarios.md](scenarios.md). |
+| `output/scenarios/<name>/` | scenario / alternative variants — one file per output type (`daily_overall_<name>.csv`, `by_authority_<name>.csv`, `by_country_<name>.csv`, `by_category_<name>.csv`). See [docs/scenarios.md](scenarios.md). |
 | `output/etrs_config/{date}/` | ETRs-compatible config directories (from `generate_etrs_config.R`) |
 
 ## Scenarios and counterfactuals
 
-Counterfactual scenarios are **AuthoritySpec operations** applied to the policy
-spec before the calculator runs (the legacy `config/scenarios.yaml` patch engine
-was removed in Phase 7). A scenario is a list of operations
-(`set_rate`/`set_exempt`/`disable`/`set_country_scope`/`set_active`/`add_program`);
-"baseline = the empty scenario." See [docs/scenarios.md](scenarios.md) for the
-authoring guide and [`src/scenario_ops.R`](../src/scenario_ops.R) for the verbs.
-
-Separately, the build can re-run the series under alternative **policy-parameter**
-variants (the USMCA-share rebuilds: `usmca_annual`, `usmca_monthly`, `usmca_2024`,
-`usmca_dec2025`, …) with `--with-alternatives`; outputs land in
-`output/alternative/`.
+Every non-baseline series is a **config overlay** — a folder under
+`config/scenarios/<name>/` (`meta.yaml` + `overlay.yaml`) that deep-merges onto
+the baseline policy params; the registry lives in
+[`src/model/scenario_registry.R`](../src/model/scenario_registry.R). "Baseline =
+the empty scenario." Request them on the main entrypoint with `--alternatives`;
+outputs land in `output/scenarios/<name>/`. See [docs/scenarios.md](scenarios.md)
+for the authoring guide.
 
 ```bash
-Rscript src/pipeline/00_build_timeseries.R --alternatives-only   # rebuild alternatives only
+Rscript src/pipeline/00_build_timeseries.R --alternatives all               # every alternative + counterfactual
+Rscript src/pipeline/00_build_timeseries.R --alternatives no_301,metal_flat # by name
+Rscript src/pipeline/00_build_timeseries.R --alternatives counterfactuals   # all kind=counterfactual
 ```
+
+Legacy spellings `--with-alternatives` and `--rebuild-alts <list>` still work
+(the blog pipeline passes them), but new scripts should use `--alternatives`.
 
 ## Comparison workflows
 
-TPC and Tariff-ETRs are comparison tools, not production inputs.
+TPC and Tariff-ETRs are comparison tools, not production inputs — they were used
+for one-off validation and benchmarking, not to construct the production series.
+The comparison scripts have been retired to `scripts/archive/`:
 
 ```bash
-Rscript src/run_comparisons.R
-Rscript src/run_comparisons.R --tpc
-Rscript src/run_comparisons.R --etr
+Rscript scripts/archive/run_comparisons.R --tpc     # TPC benchmark comparison
+Rscript scripts/archive/compare_etrs.R              # Tariff-ETRs comparison (needs tariff_etrs_repo in config/local_paths.yaml)
 ```
-
-`--etrs` is currently a placeholder in the wrapper. For Tariff-ETRs comparison, run `src/compare_etrs.R` directly (requires `tariff_etrs_repo` in `config/local_paths.yaml`).
 
 ### Generating ETRs config
 
