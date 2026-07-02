@@ -9,6 +9,91 @@
 5. **Finish the biggest post-annex modeling gaps**: Russia clause (8) full smelter/cast origin logic, UK 95% qualifying-content blending, Annex IV exception buckets, and product-condition exemptions like 9903.81.92 are still approximated or unmodeled. (9903.82.01 zero-metal-content is now scaffolded but dormant — calibration is its own line item below.)
 6. **Then clear secondary rebuild/calibration debt**: rerun the OOM-failed post-build alternatives, calibrate semi/annex/zmc assumptions, and tackle the remaining low-priority performance and cleanup items.
 
+## Eta statutory-measurement queue (2026-07-01) — from the July 2026 blog Figure 2b
+
+Origin: July 2026 tariff-update blog Fig 2b/2c diagnosis (`tariff-update-blog-june2026/docs/FIG2B_OUTLIERS.md`);
+numbers from the eta grid at tracker vintage `2026-06-13-11` (`tariff-etr-adj`
+supplemental `eta_by_partner_gtap.csv`). Four places where large etas look like
+statutory over-assignment rather than avoidance — the eta measures
+`realized = statutory × (1 − η)`, so tracker over-statement inflates η.
+Provenance doc `docs/internal/eta_statutory_measurement_queue_2026-07.md` is now
+a pointer here. Items 1 and 4 investigated 2026-07-01 (findings inline); 2 open;
+3 is a decision for the eta owners.
+
+- [x] **1. Electricity (HS 2716) energy-rate classification — INVESTIGATED
+  2026-07-01: statutory is correct, no tracker change.** Canadian electricity's
+  ~31% window-average statutory (fent 25% → 35% at rev_17/2025-08-01, verified
+  in snapshots rev_14/17/25/32; zero USMCA scaling because the observed claim
+  share is 0) is the literal law: the 9903.01.13 heading text (rev_25 archive)
+  enumerates the EO 14156 §8(a) energy definition — crude oil, natural gas,
+  lease condensates, NGLs, refined petroleum products, uranium, coal, biofuels,
+  geothermal heat, the kinetic movement of flowing water, critical minerals —
+  **electricity is not on it**, and CBP's CSMS Canada guidance quotes the same
+  enumeration. 2716 is correctly absent from
+  `resources/fentanyl_carveout_products.csv` (consistent with the 1c Canada-40%
+  conclusion below: 2716 stays OFF the energy carve-out). The 31%-vs-0.4%
+  wedge is ENTRY COVERAGE — electricity entries are effectively never
+  filed/collected — the same structural no-entry class flagged at 1c (eval
+  item 5b entry-coverage flag, Phase 3). Nuance worth recording: if entries
+  were filed, USMCA-originating electricity would be exempt via 9903.01.14 —
+  the 0 claim share is itself the no-entry artifact, so "statutory 31%" is an
+  upper bound on a channel that legally collects ≈0 either way. Follow-up
+  (small): register in `docs/statutory_deviations.md` as a
+  divergence-by-entry-coverage so the eval can mask 2716 in eta figures.
+- [ ] **2. §232 derivative content basis (GTAP fmp $48B + i_s; 0.12pp + 0.08pp
+  of the 1.03pp wedge).** Premise check first: over the whole eval window
+  (2025m5–2026m2, pre-annex) the tracker does NOT charge full customs value —
+  derivative 232 is scaled by BEA metal-content shares
+  (`resources/metal_content_shares_bea_hs10.csv`; flat 0.5 aggregate fallback
+  on BEA-unmatched lines; per-type zero-share fallback fixed 2026-06-11, see
+  §232/Annex-II corrections). CBP assesses on importer-DECLARED metal content,
+  so the actionable question is calibration — BEA industry averages (and the
+  0.5 fallback) vs declared content — not a missing mechanism. The annex era
+  (2026-04-06+) charges full value BY LAW and is outside the window. Route:
+  eval-side realized-rate inversion on derivative lines (realized ÷ statutory
+  ⇒ implied content share) per HTS10×partner, then recalibrate
+  `metal_content_shares` — same method as the §301 exclusion claim-share
+  calibration.
+- [ ] **3. USMCA claim shares in the eta-calibration statutory baseline —
+  DECISION NEEDED (with the eta owners).** The calibration's statutory uses
+  2024-H2 claim shares, near zero for energy (MFN already 0 → no incentive to
+  certify), so Canadian gas shows statutory 9.3% vs realized 0.1% (η ≈ 0.99);
+  same for crude and canola — take-up surge booked as avoidance. Options:
+  re-base the calibration statutory on current claim shares (tracker already
+  exposes `usmca_2024` and current-share scenarios; baseline mode is now
+  `since` 2025-07→latest) vs keep the surge in η by design. Tracker-side: no
+  change until decided; the surge is a real compliance response, but an axis
+  labeled "statutory" arguably shouldn't embed stale claim shares.
+- [x] **4. Late-2025 reciprocal ag exemptions ch10/11/15 — INVESTIGATED
+  2026-07-01: the tracker matches the printed HTS; the likely missing channel
+  is the never-printed ASEAN aligned-partner 0% lists.** Verified tracker
+  side: the Nov-13 Annex II ag expansion is fully captured — 237 prefixes at
+  `first_effective_date = 2025-11-13` in `resources/annex_ii_first_appearance.csv`
+  (ch09 coffee/tea 55, ch08 fruit 46, ch02 beef 39, ch07 veg 26, ch20 preps 19,
+  ch31 fertilizer 18, …) — and includes only 12 minor ch10/11/15 prefixes
+  (barley 1003.90.40, millet 1008.30/.40/.60, flours 1106, starches 1108,
+  coconut/palm-kernel 1513, waxes 1521). **Rice (1006) and the major vegetable
+  oils (1507/1511/1512/1515) are NOT on it**; their only occurrences anywhere
+  in the rev_32 and 2026_rev_4 chapter-99 texts are inside the §301 note-20
+  China lists (checked line-level). No framework floor-exempt lists exist
+  beyond eu/japan/korea/swiss through 2026_rev_4, and no country headings
+  beyond Swiss/Liechtenstein (9903.02.84–.91) through 2026_rev_10 — so no
+  printed-HTS channel ever exempted ROW rice/oils in the window. BUT the
+  Oct-26-2025 US agreements with **Malaysia and Cambodia (binding) and
+  Thailand (framework)** grant a 0% reciprocal rate on products identified
+  from **EO 14346 Annex III** (aligned-partner list: goods not sufficiently
+  produced in the US — palm oil family etc.); Indonesia's Jul-2025 framework
+  reportedly carries similar commodity language. Thailand/Malaysia/Indonesia
+  dominate pcr/vol trade, and CSMS-implemented retroactive (~Nov 2025)
+  exemptions that never reached a printed HTS revision before the 2026-02-24
+  IEEPA strikedown mooted them would drop realized ~Nov while tracker
+  statutory holds 19% recip — reproducing the tight η≈0.54–0.56 clustering.
+  This is exactly the retro-window class of Active-priority #3. NEXT: (a)
+  eval side — test whether the clustering concentrates in TH/MY/KH/ID/VN
+  partners with realized-rate breaks ~Nov 2025; (b) if confirmed, pull the
+  per-country CSMS product lists and model as date-bounded country-specific
+  exempt overlays (`swiss_framework` pattern).
+
 ## Specific/compound-duty EXPOSURE flags (re-scoped 2026-06-10; was "AVE gap")
 
 **SCOPE DECISION (user, 2026-06-10): the tracker will NOT incorporate specific
