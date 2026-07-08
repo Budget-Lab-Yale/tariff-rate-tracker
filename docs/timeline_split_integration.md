@@ -4,7 +4,7 @@
 build. This is a **behavior-changing** plank (it moves in-window numbers on 2025-03-12),
 so it is validated by **statute invariants + a golden re-freeze**, NOT by parity vs the
 old golden. Plan: `bright-gathering-waterfall.md`; supersedes the P2-1 stub in
-`docs/spec_driven_calculator_plan.md`.
+`docs/archive/spec_driven_calculator_plan.md`.
 
 ## What changed
 

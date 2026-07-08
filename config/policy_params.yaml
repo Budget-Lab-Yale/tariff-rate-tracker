@@ -184,7 +184,7 @@ section_232_headings:
   # scaling; ch30 isn't auto/MHD). Reciprocal/s122 displacement rides the normal
   # rate_232 nonmetal_share machinery — verified by the check_pharma fixture (ch30
   # metal content must resolve nonmetal_share = 0; if it leaks, give pharma an
-  # explicit full-value entry per docs/counterfactual_generality_ground_truth.md).
+  # explicit full-value entry per docs/archive/counterfactual_generality_ground_truth.md).
   pharmaceuticals:
     products_file: 'resources/s232_pharma_products.csv'
     prefixes: ['30']  # fallback only if the Annex I resource is unavailable

@@ -31,4 +31,4 @@ The four items, in one line each (details in `todo.md`):
 
 - Diagnosis + figure-reformat plan: `tariff-update-blog-june2026/docs/FIG2B_OUTLIERS.md`
 - Eta apply contract + calibration: `tariff-etr-adj/results/README.md`
-- Related earlier handoff: `docs/etr_adj_handoff_2026-06-10.md`
+- Related earlier handoff: `docs/archive/etr_adj_handoff_2026-06-10.md`

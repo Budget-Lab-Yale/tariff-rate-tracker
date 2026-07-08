@@ -10,7 +10,7 @@ measurable, the chosen method, and the module layout.
 
 ## Measurement reality (verified 2026-06-11)
 
-The original plan (`docs/etr_adj_handoff_2026-06-10.md` item 1) assumed
+The original plan (`docs/archive/etr_adj_handoff_2026-06-10.md` item 1) assumed
 "the IMDB line-level ch99 filings carry this directly." **That is wrong.**
 Both public statistical sources attribute ch99-claimed entries to the
 *underlying* HTS10 commodity code:
