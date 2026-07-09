@@ -3038,6 +3038,16 @@ calculate_rates_for_revision <- function(
       for (ov in (ann$country_overrides %||% list())) {
         r    <- ov$rate_map[as.character(rates$hts10)]       # NA where product not in map
         hit  <- rates$country %in% ov$countries & !is.na(r)
+        # Replace-mode overrides (the UK annex deal) must not wipe heading-
+        # program rates — same guard as the annex flat override above. This
+        # became reachable 2026-07-08 when the UK gate widened from ch72/73/76
+        # to the 16(d) (c)-list metal types: annex_1b spans ch84/85/87 lines
+        # that also carry auto/MHD/semi heading rates. Max-mode surcharges
+        # (Russia) keep their historical semantics (pmax over whatever rate
+        # is present, heading rates included).
+        if (identical(ov$mode, 'replace')) {
+          hit <- hit & !(rates$hts10 %in% heading_program_products)
+        }
         newr <- if (identical(ov$mode, 'max')) pmax(rates$rate_232, unname(r)) else unname(r)
         rates$rate_232 <- if_else(hit, newr, rates$rate_232)
       }

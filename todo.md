@@ -159,10 +159,17 @@ Phase-1 1a–1e) is in the archive todo. Still open:
   charge ~18%. Needs the Japan agreement annex text to adjudicate. Fold into
   the consolidated "what does the Japan agreement exempt" review (with the F3
   §232 offset credits item).
-- [ ] **UK annex_1b coverage gate (side finding, moves numbers):** the UK
-  override gates on ch72/73/76 but (c)(vi)–(vii) annex_1b articles span other
-  chapters — UK 1b reduced rate likely UNDER-applied outside the metal
-  chapters. Gate on the annex CSV metal_type instead; parity-gated.
+- [x] **UK annex_1b coverage gate — FIXED 2026-07-08** (moves numbers, UK
+  only): gate now the annex CSV `metal_type` via the same winning prefix row
+  as the tier (`classify_s232_metal_type()`), honoring `uk_applies_to`;
+  companion guard stops replace-mode country overrides wiping heading-program
+  rates. Slurm 17423834 validation vs published rev_9: exactly 865 changed
+  cells, ALL UK, all rate_232 0.25→0.15 ((c)(vi)-(vii) chapters 84/85/30/87/
+  82/83/86/94…), copper + heading programs untouched. Affects ~$950M/month
+  (85% of UK annex trade, −10pp statutory). RIDES THE NEXT PUBLISHED VINTAGE;
+  also update registry U5 wording (scope now statutory-correct; only the
+  qualifying-share calibration remains open) and rerun the route calibration
+  against the fixed vintage for UK-correct T_full.
 - [ ] **Note 16(h)/(i) limited-quantity CA/MX (9903.82.18/.19):** defer until
   the eval shows a CA/MX primary-metals gap; shape = per-country share knob.
 - [ ] **Note 16(k) annex_1c parts end-use routes (9903.82.23–.26):** low

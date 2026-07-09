@@ -639,14 +639,16 @@ load_fentanyl_carveouts <- function(path = here('resources', 'fentanyl_carveout_
 load_annex_products <- function(effective_date = NULL,
                                 resource_path = here('resources', 's232_annex_products.csv')) {
   if (!file.exists(resource_path)) {
-    return(tibble(hts_prefix = character(), s232_annex = character()))
+    return(tibble(hts_prefix = character(), s232_annex = character(),
+                  metal_type = character()))
   }
 
   annex_map <- read_csv(resource_path, col_types = cols(.default = col_character()))
 
   if (nrow(annex_map) == 0) {
     message('  Annex products: resource file empty (pending HTS JSON)')
-    return(tibble(hts_prefix = character(), s232_annex = character()))
+    return(tibble(hts_prefix = character(), s232_annex = character(),
+                  metal_type = character()))
   }
 
   # Filter by effective_date if column is present
@@ -655,13 +657,16 @@ load_annex_products <- function(effective_date = NULL,
       filter(is.na(effective_date) | effective_date <= as.character(!!effective_date))
   }
 
+  if (!'metal_type' %in% names(annex_map)) {
+    annex_map$metal_type <- NA_character_   # tolerate fixture CSVs without it
+  }
   annex_map %>%
     mutate(
       .effective_date = suppressWarnings(as.Date(effective_date)),
       .effective_date = coalesce(.effective_date, as.Date('1900-01-01'))
     ) %>%
     arrange(hts_prefix, desc(.effective_date)) %>%
-    select(hts_prefix, s232_annex = annex) %>%
+    select(hts_prefix, s232_annex = annex, metal_type) %>%
     mutate(s232_annex = paste0('annex_', s232_annex)) %>%
     distinct(hts_prefix, .keep_all = TRUE)
 }
@@ -700,19 +705,12 @@ load_annex_products <- function(effective_date = NULL,
 #' @return character vector of annex tiers aligned to `hts10` (NA = unclassified)
 classify_s232_annex <- function(hts10, annex_map, deriv_products = NULL) {
   keys <- unique(as.character(hts10))
-  tier <- rep(NA_character_, length(keys))
 
-  # 1. longest-prefix-first, first-match-wins (the is.na() guard keeps the first
-  #    assignment, which respects the longest-first sort).
-  if (!is.null(annex_map) && nrow(annex_map) > 0) {
-    pat <- annex_map %>%
-      mutate(pattern = paste0('^', hts_prefix)) %>%
-      arrange(desc(nchar(hts_prefix)))
-    for (i in seq_len(nrow(pat))) {
-      mask <- grepl(pat$pattern[i], keys)
-      tier[mask & is.na(tier)] <- pat$s232_annex[i]
-    }
-  }
+  # 1. longest-prefix-first, first-match-wins.
+  idx <- match_annex_prefix_row(keys, annex_map)
+  tier <- if (!is.null(annex_map) && nrow(annex_map %||% tibble()) > 0) {
+    as.character(annex_map$s232_annex)[idx]
+  } else rep(NA_character_, length(keys))
 
   # 2. inference for unmatched pre-annex derivatives.
   deriv_prefixes <- tryCatch(
@@ -730,6 +728,61 @@ classify_s232_annex <- function(hts10, annex_map, deriv_products = NULL) {
   )
 
   tier[match(as.character(hts10), keys)]
+}
+
+#' Winning annex-map row per key: longest-prefix-first, first-match-wins —
+#' the SAME matching semantics as classify_s232_annex()'s original loop (the
+#' is.na() guard keeps the first assignment under the longest-first stable
+#' sort). Factored out so tier and metal_type are always read off the SAME
+#' winning row.
+#'
+#' @return integer vector of annex_map row indices aligned to `keys` (NA = no match)
+match_annex_prefix_row <- function(keys, annex_map) {
+  idx <- rep(NA_integer_, length(keys))
+  if (is.null(annex_map) || nrow(annex_map) == 0) return(idx)
+  pat <- annex_map %>%
+    mutate(pattern = paste0('^', hts_prefix), .row = dplyr::row_number()) %>%
+    arrange(desc(nchar(hts_prefix)))
+  for (i in seq_len(nrow(pat))) {
+    mask <- grepl(pat$pattern[i], keys)
+    idx[mask & is.na(idx)] <- pat$.row[i]
+  }
+  idx
+}
+
+#' Covered-metal type per HTS10 under the §232 annex classification —
+#' 'steel' / 'aluminum' / 'copper' from the winning annex-map row (same
+#' winning row as the tier), falling back for annex-map-unmatched pre-annex
+#' derivatives (the classify_s232_annex inference arm, tier annex_1b) to the
+#' longest matching derivative prefix's derivative_type. NA where nothing
+#' matches or the map carries no metal_type.
+#'
+#' First consumer: the UK note-16(d) reduced-rate gate in the adapter — the
+#' UK deal covers steel/aluminum (c)-list articles in ANY chapter, not copper,
+#' so scoping must come from the list's metal type, not the HTS chapter.
+classify_s232_metal_type <- function(hts10, annex_map, deriv_products = NULL) {
+  keys <- unique(as.character(hts10))
+  idx <- match_annex_prefix_row(keys, annex_map)
+  mtype <- if (!is.null(annex_map) && 'metal_type' %in% names(annex_map %||% tibble())) {
+    as.character(annex_map$metal_type)[idx]
+  } else rep(NA_character_, length(keys))
+
+  # inference arm: ONLY where the annex map did not match at all (mirrors the
+  # tier arm's precedence — a matched row's NA metal_type stays NA rather
+  # than mixing in a different row's type).
+  deriv_map <- tryCatch({
+    if (!is.null(deriv_products) && nrow(deriv_products) > 0) {
+      tibble(hts_prefix = deriv_products$hts_prefix,
+             metal_type = deriv_products$derivative_type)
+    } else NULL
+  }, error = function(e) NULL)
+  if (!is.null(deriv_map) && any(is.na(idx))) {
+    didx <- match_annex_prefix_row(keys, deriv_map)
+    fill <- is.na(idx) & !is.na(didx)
+    mtype[fill] <- as.character(deriv_map$metal_type)[didx[fill]]
+  }
+
+  mtype[match(as.character(hts10), keys)]
 }
 
 

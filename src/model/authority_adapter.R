@@ -640,19 +640,27 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
       # (e.g. Russia aluminum 200%). The annex-tier + metal-type + chapter scoping is
       # baked into each rate_map here, so the calc just applies them (no config reads).
       .ovs <- list()
-      # UK annex deal: tier 1a/1b on steel/aluminum chapters (72/73/76, NOT copper).
-      # Note 16(d) conditions the reduced rates (9903.82.04 +25%, 9903.82.05 +15%)
-      # on >=95% of the metal being UK melted-and-poured / smelted-and-cast.
-      # uk_content_qualifying_share = fraction of UK imports assumed to meet that
-      # test; effective rate = q*uk_rate + (1-q)*annex_rate. Default 1.0 ==
-      # the unconditional reduced rate (pre-knob behavior, byte-identical);
-      # SGEPT's estimate is 0.30 (config/scenarios/sgept_exemptions).
+      # UK annex deal: tier 1a/1b on steel/aluminum (c)-list articles, NOT copper.
+      # Note 16(d) scopes the reduced rates by SUBDIVISION membership — 9903.82.04
+      # (+25%) covers (c)(i)-(iv), 9903.82.05 (+15%) covers (c)(vi)-(vii) — and
+      # those lists span chapters well beyond 72/73/76 (8302/8412/8483/85xx/8708
+      # derivative articles). The former chapter gate (substr %in% 72/73/76)
+      # under-applied the 1b reduced rate on ~85% of UK annex trade (fixed
+      # 2026-07-08; scope now = the annex CSV's metal_type via the same winning
+      # prefix row as the tier, honoring config uk_applies_to; copper excluded
+      # per 16(d)). Note 16(d) also conditions on >=95% of the metal being UK
+      # melted-and-poured / smelted-and-cast; uk_content_qualifying_share =
+      # fraction of UK imports assumed to meet that test; effective rate =
+      # q*uk_rate + (1-q)*annex_rate. Default 1.0 == the unconditional reduced
+      # rate; SGEPT's estimate is 0.30 (config/scenarios/sgept_exemptions).
       uk_code <- cc$CTY_UK %||% '4120'
       uk_q <- suppressWarnings(as.numeric(annex_cfg$uk_content_qualifying_share %||% 1.0))
       if (length(uk_q) != 1L || !is.finite(uk_q)) uk_q <- 1.0
-      uk_chap <- substr(hts, 1, 2) %in% c(cc$STEEL_CHAPTERS, cc$ALUM_CHAPTERS)
-      uk_rate <- ifelse(tier == 'annex_1a' & uk_chap, as.numeric(annex_cfg$annexes$annex_1a$uk_rate),
-                 ifelse(tier == 'annex_1b' & uk_chap, as.numeric(annex_cfg$annexes$annex_1b$uk_rate),
+      mtype <- classify_s232_metal_type(hts, annex_map, deriv)
+      uk_types_1a <- as.character(unlist(annex_cfg$annexes$annex_1a$uk_applies_to %||% c('steel', 'aluminum')))
+      uk_types_1b <- as.character(unlist(annex_cfg$annexes$annex_1b$uk_applies_to %||% c('steel', 'aluminum')))
+      uk_rate <- ifelse(tier == 'annex_1a' & mtype %in% uk_types_1a, as.numeric(annex_cfg$annexes$annex_1a$uk_rate),
+                 ifelse(tier == 'annex_1b' & mtype %in% uk_types_1b, as.numeric(annex_cfg$annexes$annex_1b$uk_rate),
                         NA_real_))
       uk_eff <- uk_q * uk_rate + (1 - uk_q) * flat_rate
       ukk <- !is.na(uk_eff) & !duplicated(hts)

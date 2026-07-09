@@ -223,11 +223,20 @@ cat('\n--- Annex era: UK qualifying-content blend + third-country surcharge shar
 #   7208100000 -> annex_1a steel (flat 0.50, uk_rate 0.25)
 #   7326908688 -> annex_1b steel (flat 0.25, uk_rate 0.15)
 #   7601103000 -> annex_1a aluminum (Russia surcharge product set)
+#   8483904000 -> annex_1b steel OUTSIDE ch72/73/76 (note 16(d) (c)(vii) article
+#                 — the 2026-07-08 metal-type gate fix must give it the UK blend)
+#   8544420000 -> annex_1b copper (16(d) does not cover copper — NO UK blend)
 load_annex_products <- function(effective_date, path) tibble::tibble(hts_prefix = '72')
 load_232_derivative_products <- function(effective_date = NULL) NULL
 classify_s232_annex <- function(hts, annex_map, deriv, a1a_ch) {
   c('7208100000' = 'annex_1a', '7326908688' = 'annex_1b',
-    '7601103000' = 'annex_1a')[hts]
+    '7601103000' = 'annex_1a', '8483904000' = 'annex_1b',
+    '8544420000' = 'annex_1b')[hts]
+}
+classify_s232_metal_type <- function(hts, annex_map, deriv) {
+  c('7208100000' = 'steel', '7326908688' = 'steel',
+    '7601103000' = 'aluminum', '8483904000' = 'steel',
+    '8544420000' = 'copper')[hts]
 }
 get_country_constants <- function(pp) list(
   CTY_CHINA = '5700', CTY_CANADA = '1220', CTY_MEXICO = '2010', CTY_UK = '4120',
@@ -252,7 +261,8 @@ pp_annex <- list(S232_ANNEXES = list(   # the parsed/derived key (policy_params.
     third_country_content_share = 0.05))
 ))
 
-annex_products <- data.frame(hts10 = c('7208100000', '7326908688', '7601103000'))
+annex_products <- data.frame(hts10 = c('7208100000', '7326908688', '7601103000',
+                                       '8483904000', '8544420000'))
 specs_annex <- build_authority_specs(
   products = annex_products, ch99_data = data.frame(),
   ieepa_rates = ieepa, usmca = data.frame(),
@@ -271,6 +281,10 @@ check(isTRUE(all.equal(unname(uk_ov$rate_map['7208100000']), 0.30 * 0.25 + 0.70 
       'UK annex_1a blend: 0.3*0.25 + 0.7*0.50 = 0.425')
 check(isTRUE(all.equal(unname(uk_ov$rate_map['7326908688']), 0.30 * 0.15 + 0.70 * 0.25)),
       'UK annex_1b blend: 0.3*0.15 + 0.7*0.25 = 0.22')
+check(isTRUE(all.equal(unname(uk_ov$rate_map['8483904000']), 0.30 * 0.15 + 0.70 * 0.25)),
+      'UK 1b steel OUTSIDE ch72/73/76 gets the blend (16(d) metal-type gate)')
+check(!'8544420000' %in% names(uk_ov$rate_map),
+      'UK 1b copper excluded from the blend (16(d) covers steel/aluminum only)')
 
 ru_ov <- ovs[[2]]
 check(identical(ru_ov$countries, '4621') && identical(ru_ov$mode, 'max') &&
