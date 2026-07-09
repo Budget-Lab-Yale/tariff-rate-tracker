@@ -142,13 +142,20 @@ build_candidates <- function(df) {
 classify_route <- function(realized, T_full, T_us, T_exit,
                            sep_tol = 0.03, resid_tol = 0.05) {
   n <- length(realized)
+  # The 16(e) route is OPTIONAL — an importer only claims it when it lowers
+  # duty. Where T_us >= T_full (e.g. USMCA-scaled annex_3 floors already
+  # below 10%) the candidate is legally inert: mask it so realized mass
+  # never assigns to a route nobody would claim.
+  T_us <- if_else(T_us >= T_full - 1e-9, NA_real_, T_us)
   cand <- cbind(full = T_full, us_origin = T_us, exit = T_exit)
   dist <- abs(cand - realized)
+  dist[is.na(dist)] <- Inf                            # masked candidate: never nearest
   ord1 <- max.col(-dist, ties.method = 'first')       # nearest candidate index
   d_sorted <- t(apply(dist, 1, sort))
   nearest  <- colnames(cand)[ord1]
   # ambiguity: the two nearest CANDIDATE VALUES are close to each other
-  cand_sorted <- t(apply(cand, 1, sort))
+  cand_inf <- cand; cand_inf[is.na(cand_inf)] <- Inf
+  cand_sorted <- t(apply(cand_inf, 1, sort))
   gap12 <- pmin(cand_sorted[, 2] - cand_sorted[, 1],
                 cand_sorted[, 3] - cand_sorted[, 2])
   # only ambiguous if realized is actually near the colliding pair: use the

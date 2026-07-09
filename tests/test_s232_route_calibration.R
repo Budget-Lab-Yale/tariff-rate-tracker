@@ -90,6 +90,19 @@ cl4 <- classify_route(realized = 0.60, T_full = 0.265,
                       T_us = 0.115, T_exit = 0.115)
 check('unexplained -> ambiguous FALSE', !cl4$ambiguous)
 
+# 16(e) route is optional: where T_us >= T_full the candidate is masked —
+# realized at that level must NOT assign to us_origin (USMCA-scaled annex_3
+# floor case, e.g. T_full 5.1% < T_us 10.3%).
+cl5 <- classify_route(realized = 0.103, T_full = 0.051,
+                      T_us = 0.103, T_exit = 0.003)
+check('T_us >= T_full masked: not assigned us_origin', cl5$route != 'us_origin')
+check('...falls to unexplained (far from full and exit)',
+      cl5$route == 'unexplained')
+# and a masked candidate never blocks a legitimate assignment
+cl6 <- classify_route(realized = 0.05, T_full = 0.051,
+                      T_us = 0.103, T_exit = 0.003)
+check('masked T_us: realized at T_full still assigns full', cl6$route == 'full')
+
 # --- route_bounds ------------------------------------------------------------
 
 # ITA line, realized exactly T_exit: z0 bound = 1; u bound > 1 raw (clipped 1).
