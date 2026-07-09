@@ -80,7 +80,22 @@ CA ≈ 0.06) were measured ex-USMCA-scaling and are unaffected by this audit's
 clean subset, but should be re-derived after the fix lands (their T_exit
 carries USMCA-scaled §122).
 
-## 4. Proposed fix (statutory-faithful, USMCA-style utilization)
+## 4. Fix — IMPLEMENTED 2026-07-08 (statutory-faithful, USMCA-style utilization)
+
+Landed (uncommitted at time of writing; validation Slurm 17428463):
+`scripts/build_s122_exempt_conditions.R` stamps the `condition` column
+(1,115 `none` + 541 `gn6_civil_aircraft`) from the rev_5 note text and builds
+`resources/s122_aircraft_utilization.csv` (955 measured lines) from §2's
+measurement. `.resolve_s122_exempt()` (adapter) now returns
+`{hts8, gn6_hts8}`; `.resolve_s122_gn6_utilization()` loads the per-line
+shares; `build_authority_specs()` bakes all three onto
+`section_122$exempt_products`. `apply_section122()` (06 step 6b) keeps the
+unconditional set full-line exempt and scales the GN6 set by
+`(1 − exempt_share)` with **measured → HS2-mean → full-exemption** fallback.
+Legacy CSV (no `condition` column) falls back to full-line exemption
+(byte-identical to the old behavior). Tests: `test_s122_aircraft_scaling.R`
+(9, drives the step directly), `test_exempt_sets_in_spec.R` updated (23),
+rate-calc 107/0, daily 81/0, adapter 55/55. The plan as originally proposed:
 
 1. **Split the condition in the resource**: add a `condition` column to
    `s122_exempt_products.csv` (`none` for (aa)(ii)/(iii) + 9031.49.70;

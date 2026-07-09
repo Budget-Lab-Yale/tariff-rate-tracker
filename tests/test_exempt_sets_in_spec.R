@@ -89,11 +89,18 @@ oracle_country_eo <- function(effective_date) {
   } else tibble(ch99_code = character(), hts8_prefix = character())
 }
 
+# The §122 exempt set is split by condition (2026-07-08): the calc's full-line
+# exempt set is the UNCONDITIONAL (aa)(ii)/(iii) codes; the (aa)(iv)
+# civil-aircraft codes are utilization-scaled, not full-exempt. The oracle
+# mirrors that split so the helper's $hts8 (full-exempt subset) is checked.
 oracle_s122 <- function() {
   s122_exempt_path <- here('resources', 's122_exempt_products.csv')
-  if (file.exists(s122_exempt_path)) {
-    read_csv(s122_exempt_path, col_types = cols(hts8 = col_character()))$hts8
-  } else character(0)
+  if (!file.exists(s122_exempt_path)) return(list(hts8 = character(0), gn6_hts8 = character(0)))
+  ex <- read_csv(s122_exempt_path,
+                 col_types = cols(hts8 = col_character(), .default = col_character()))
+  if (!'condition' %in% names(ex)) return(list(hts8 = ex$hts8, gn6_hts8 = character(0)))
+  list(hts8     = ex$hts8[ex$condition != 'gn6_civil_aircraft'],
+       gn6_hts8 = ex$hts8[ex$condition == 'gn6_civil_aircraft'])
 }
 
 # --- helper == oracle, across the live date windows --------------------------
@@ -120,10 +127,15 @@ check(nrow(ceo_early) == 0 && nrow(ceo_late) > 0,
 check(all(c('ch99_code', 'hts8_prefix') %in% names(ceo_late)) && ncol(ceo_late) == 2,
       'country-EO shape = distinct(ch99_code, hts8_prefix)')
 
-cat('\n--- §122 exempt: helper == oracle ---\n')
-check(identical(.resolve_s122_exempt(), oracle_s122()), 's122 exempt hts8 == oracle')
-check(is.character(.resolve_s122_exempt()) && length(.resolve_s122_exempt()) > 0,
-      's122 exempt is a non-empty hts8 character vector')
+cat('\n--- §122 exempt: helper == oracle (condition split) ---\n')
+s122_h <- .resolve_s122_exempt()
+s122_o <- oracle_s122()
+check(identical(s122_h$hts8, s122_o$hts8), 's122 unconditional hts8 == oracle')
+check(identical(s122_h$gn6_hts8, s122_o$gn6_hts8), 's122 GN6 aircraft hts8 == oracle')
+check(is.character(s122_h$hts8) && length(s122_h$hts8) > 0,
+      's122 unconditional exempt is a non-empty hts8 vector')
+check(is.character(s122_h$gn6_hts8) && length(s122_h$gn6_hts8) > 0,
+      's122 GN6 aircraft set is non-empty (condition column present)')
 
 # --- end-to-end: build_authority_specs bakes the sets onto the spec ----------
 cat('\n--- end-to-end: build_authority_specs bakes $exempt_products ---\n')
@@ -142,8 +154,10 @@ check(identical(ep$country_eo, .resolve_country_eo_exempt(d_e2e)),
       'ieepa_reciprocal$exempt_products$country_eo baked == helper')
 check(identical(ep$floor, FLOOR_SENTINEL),
       'ieepa_reciprocal$exempt_products$floor baked == load_revision_floor_exemptions()')
-check(identical(specs[['section_122']]$programs[[1]]$exempt_products$hts8, .resolve_s122_exempt()),
-      'section_122$exempt_products$hts8 baked == helper')
+check(identical(specs[['section_122']]$programs[[1]]$exempt_products$hts8, .resolve_s122_exempt()$hts8),
+      'section_122$exempt_products$hts8 baked == helper (unconditional)')
+check(identical(specs[['section_122']]$programs[[1]]$exempt_products$gn6_hts8, .resolve_s122_exempt()$gn6_hts8),
+      'section_122$exempt_products$gn6_hts8 baked == helper (aircraft)')
 # baking is UNCONDITIONAL (universal also feeds the fentanyl Ch98 carve-out, which
 # runs on its own gate) — present even when reciprocal has no rate (ieepa_rates NULL)
 check(length(ep$universal) > 0 && length(specs[['ieepa_reciprocal']]$programs[[1]]$rate) == 0,

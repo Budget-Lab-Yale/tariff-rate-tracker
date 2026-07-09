@@ -356,12 +356,39 @@ build_s301_additive_tier <- function(ch99_data, effective_date, pp) {
     dplyr::distinct(ch99_code, hts8_prefix)
 }
 
-# Section 122 Annex II exempt list (hts8 vector). VERBATIM from
-# 06_calculate_rates.R (the old inline load).
+# Section 122 note-2(aa) exempt list, split by condition (2026-07-08 fix,
+# docs/s122_aircraft_exemption_audit.md): `hts8` = the UNCONDITIONAL
+# (aa)(ii)/(iii) codes (full-line exempt, the historical semantics);
+# `gn6_hts8` = the (aa)(iv) civil-aircraft codes, whose exemption is
+# USE-conditional (GN6) and is applied as a per-line utilization scaling in
+# apply_section122(). A CSV without the condition column (old layout) puts
+# everything in `hts8` — legacy full-line behavior.
 .resolve_s122_exempt <- function() {
   s122_exempt_path <- here('resources', 's122_exempt_products.csv')
-  if (!file.exists(s122_exempt_path)) return(character(0))
-  readr::read_csv(s122_exempt_path, col_types = readr::cols(hts8 = readr::col_character()))$hts8
+  if (!file.exists(s122_exempt_path)) return(list(hts8 = character(0), gn6_hts8 = character(0)))
+  ex <- readr::read_csv(s122_exempt_path,
+                        col_types = readr::cols(hts8 = readr::col_character(),
+                                                .default = readr::col_character()))
+  if (!'condition' %in% names(ex)) {
+    return(list(hts8 = ex$hts8, gn6_hts8 = character(0)))
+  }
+  list(hts8     = ex$hts8[ex$condition != 'gn6_civil_aircraft'],
+       gn6_hts8 = ex$hts8[ex$condition == 'gn6_civil_aircraft'])
+}
+
+# Per-HTS10 GN6 civil-aircraft exempt share for the (aa)(iv) lines (2026-07-08
+# fix). Measured by realized-rate classification (IMDB, ex-USMCA, no 232/301);
+# built by scripts/build_s122_exempt_conditions.R from the audit measurement
+# (docs/s122_aircraft_exemption_audit.md). Returns a named numeric vector
+# (hts10 -> exempt_share); empty if the file is absent (calc then falls back to
+# the HS2 mean, and ultimately to full exemption — see apply_section122()).
+.resolve_s122_gn6_utilization <- function() {
+  path <- here('resources', 's122_aircraft_utilization.csv')
+  if (!file.exists(path)) return(setNames(numeric(0), character(0)))
+  u <- readr::read_csv(path, col_types = readr::cols(hts10 = readr::col_character(),
+                                                     exempt_share = readr::col_double(),
+                                                     .default = readr::col_guess()))
+  setNames(pmin(pmax(u$exempt_share, 0), 1), u$hts10)
 }
 
 # ---- section 301 forced labor (scenario authority) --------------------------
@@ -846,7 +873,15 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
   }
   # Pass-1.5: bake the §122 product-exemption SET onto the program (read by the
   # calc via `$exempt_products$hts8` inside the in-force block; masking calc-side).
-  section_122$programs[[1]]$exempt_products <- list(hts8 = .resolve_s122_exempt())
+  # 2026-07-08: the set is split by condition — unconditional (aa)(ii)/(iii)
+  # in `hts8` (full-line exempt), USE-conditional (aa)(iv) civil-aircraft in
+  # `gn6_hts8` (utilization-scaled). The per-line GN6 exempt shares ride
+  # alongside so the calc needs no second file read.
+  s122_ex <- .resolve_s122_exempt()
+  section_122$programs[[1]]$exempt_products <- list(
+    hts8            = s122_ex$hts8,
+    gn6_hts8        = s122_ex$gn6_hts8,
+    gn6_utilization = .resolve_s122_gn6_utilization())
 
   # --- mfn (base layer) + other (catch-all) — inert in Phase 1 --------------
   mfn <- authority_spec(

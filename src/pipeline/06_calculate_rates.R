@@ -1018,38 +1018,114 @@ apply_section122 <- function(rates, specs, pp, products, countries, effective_da
   if (s122_rates$has_s122 && s122_in_force) {
     s122_rate <- s122_rates$s122_rate
 
-    # Product exemptions (Annex II) — read from the spec (Pass-1.5; the adapter
-    # bakes section_122$programs[[1]]$exempt_products$hts8). Masking stays below.
-    s122_exempt_hts8 <- specs[['section_122']]$programs[[1]]$exempt_products$hts8 %||% character(0)
-    if (length(s122_exempt_hts8) > 0) {
-      message('  Section 122 exempt products: ', length(s122_exempt_hts8), ' HTS8 codes')
+    # Product exemptions (note 2(aa)) — read from the spec (Pass-1.5; the adapter
+    # bakes section_122$programs[[1]]$exempt_products). Masking stays below.
+    #   $hts8     — UNCONDITIONAL (aa)(ii)/(iii) codes: full-line exempt.
+    #   $gn6_hts8 — (aa)(iv) civil-aircraft codes: USE-conditional (GN6). The
+    #     exemption applies only to GN6-certified entries, so these lines are
+    #     scaled by (1 - exempt_share): rate_s122 = s122_rate * (1 - share),
+    #     where share is the measured/inferred GN6 utilization per HTS10.
+    #     Applying them full-line understated §122 by ~$800M/mo — see
+    #     docs/s122_aircraft_exemption_audit.md.
+    ep <- specs[['section_122']]$programs[[1]]$exempt_products %||% list()
+    s122_exempt_hts8 <- ep$hts8 %||% character(0)
+    s122_gn6_hts8    <- ep$gn6_hts8 %||% character(0)
+    s122_gn6_util    <- ep$gn6_utilization %||% setNames(numeric(0), character(0))
+
+    if (length(s122_exempt_hts8) + length(s122_gn6_hts8) > 0) {
+      message('  Section 122 exempt products: ', length(s122_exempt_hts8),
+              ' unconditional + ', length(s122_gn6_hts8),
+              ' GN6-conditional HTS8 codes')
     }
 
-    # Set rate_s122 for all existing rows
+    # Per-HTS10 GN6 exempt share: measured -> HS2 mean -> full exemption (1).
+    # The HS2-mean fallback keeps an unmeasured aircraft line from silently
+    # returning to full exemption (the bias being fixed); the final coalesce
+    # to 1 is the explicit legacy behavior when there is no data at all.
+    gn6_share_tbl <- NULL
+    if (length(s122_gn6_hts8) > 0) {
+      gn6_hts10_all <- products %>%
+        filter(substr(hts10, 1, 8) %in% s122_gn6_hts8) %>% distinct(hts10)
+      hs2_mean <- if (length(s122_gn6_util) > 0) {
+        tibble(hts10 = names(s122_gn6_util), share = unname(s122_gn6_util)) %>%
+          mutate(hs2 = substr(hts10, 1, 2)) %>%
+          group_by(hs2) %>% summarise(hs2_share = mean(share), .groups = 'drop')
+      } else tibble(hs2 = character(0), hs2_share = numeric(0))
+      meas <- tibble(hts10 = names(s122_gn6_util), meas_share = unname(s122_gn6_util))
+      gn6_share_tbl <- gn6_hts10_all %>%
+        left_join(meas, by = 'hts10') %>%
+        mutate(hs2 = substr(hts10, 1, 2)) %>%
+        left_join(hs2_mean, by = 'hs2') %>%
+        mutate(gn6_exempt_share = dplyr::coalesce(meas_share, hs2_share, 1),
+               gn6_factor = 1 - gn6_exempt_share) %>%
+        select(hts10, gn6_factor)
+    }
+
+    # Set rate_s122 on existing rows: full rate, 0 on unconditional exempt,
+    # scaled by (1 - GN6 exempt share) on the aircraft set.
+    rates <- rates %>%
+      mutate(.hts8 = substr(hts10, 1, 8))
+    if (!is.null(gn6_share_tbl)) {
+      rates <- rates %>% left_join(gn6_share_tbl, by = 'hts10',
+                                   relationship = 'many-to-one')
+    } else {
+      rates$gn6_factor <- NA_real_
+    }
     rates <- rates %>%
       mutate(
-        rate_s122 = if_else(
-          substr(hts10, 1, 8) %in% s122_exempt_hts8,
-          0, s122_rate
+        rate_s122 = dplyr::case_when(
+          .hts8 %in% s122_exempt_hts8 ~ 0,
+          .hts8 %in% s122_gn6_hts8    ~ s122_rate * coalesce(gn6_factor, 0),
+          TRUE                        ~ s122_rate
         )
-      )
+      ) %>% select(-.hts8, -gn6_factor)
 
-    # Add s122-only rows for products not yet in rates
-    s122_country_rates <- tibble(
-      country = countries,
-      blanket_rate = s122_rate
-    )
-    # All products are covered (non-exempt)
+    # Add s122-bearing rows for products not yet in rates: full rate for plain
+    # lines, scaled rate for GN6 aircraft lines (they now carry a positive
+    # residual, so they must be materialized, not dropped as "exempt").
     non_exempt_hts10 <- products %>%
       filter(!substr(hts10, 1, 8) %in% s122_exempt_hts8) %>%
       pull(hts10)
-    rates <- add_blanket_pairs(rates, products, non_exempt_hts10, s122_country_rates,
+    gn6_covered <- if (!is.null(gn6_share_tbl)) gn6_share_tbl$hts10 else character(0)
+    plain_hts10 <- setdiff(non_exempt_hts10, gn6_covered)
+
+    s122_country_rates <- tibble(country = countries, blanket_rate = s122_rate)
+    rates <- add_blanket_pairs(rates, products, plain_hts10, s122_country_rates,
                                'rate_s122', 'Section 122 duties')
+
+    # GN6 aircraft lines carry a per-line residual rate (rate varies by hts10),
+    # so add_blanket_pairs' single-blanket contract does not fit — build the
+    # missing (hts10, country) pairs in one shot with the same zero-filled
+    # schema, then set the scaled rate_s122. Correct because the residual is
+    # constant across countries within an hts10.
+    gn6_add <- intersect(gn6_covered, non_exempt_hts10)
+    if (length(gn6_add) > 0) {
+      gf <- gn6_share_tbl %>% filter(hts10 %in% gn6_add, gn6_factor > 0)
+      existing_gn6 <- rates %>%
+        filter(hts10 %in% gf$hts10) %>% select(hts10, country)
+      new_gn6 <- products %>%
+        filter(hts10 %in% gf$hts10) %>%
+        select(hts10, base_rate) %>%
+        mutate(base_rate = coalesce(base_rate, 0)) %>%
+        tidyr::expand_grid(country = countries) %>%
+        anti_join(existing_gn6, by = c('hts10', 'country')) %>%
+        left_join(gf, by = 'hts10') %>%
+        mutate(rate_232 = 0, rate_301 = 0, rate_301_cs = 0, rate_ieepa_recip = 0,
+               rate_ieepa_fent = 0, rate_s122 = s122_rate * gn6_factor,
+               rate_section_201 = 0, rate_other = 0) %>%
+        select(-gn6_factor)
+      if (nrow(new_gn6) > 0) {
+        message('  Adding ', nrow(new_gn6),
+                ' product-country pairs for Section 122 (GN6 aircraft residual)')
+        rates <- bind_rows(rates, new_gn6)
+      }
+    }
 
     n_with_s122 <- sum(rates$rate_s122 > 0)
     message('  Section 122: ', round(s122_rate * 100), '% on ',
             n_with_s122, ' product-country pairs (',
-            length(s122_exempt_hts8), ' HTS8 exempt)')
+            length(s122_exempt_hts8), ' HTS8 full-exempt, ',
+            length(s122_gn6_hts8), ' GN6 aircraft utilization-scaled)')
   }
 
   rates

@@ -191,21 +191,29 @@ Phase-1 1a–1e) is in the archive todo. Still open:
   bites on 8471.80.4000; best path is empirical — eval measures realized ÷
   25% on Taiwan/China Jan-16→Mar-2026 collections = qualifying ×
   (1 − end_use) directly. Don't change baseline until measured.
-- [ ] **§122 civil-aircraft exemption fix — AUDITED 2026-07-08, fix pending
-  (LARGE: ≈ $800M/month statutory duty UNDERSTATED).** Audit doc:
-  `docs/s122_aircraft_exemption_audit.md`. The 546 note-2(aa)(iv) aircraft
-  codes on `s122_exempt_products.csv` are USE-conditional (GN6) but applied
-  full-line; IMDB Mar–May 2026 shows 60.8% of $39.5B on those lines PAYING
-  the 10% (ch88 pays 2.9% — positive control; ch85 89%, ch90 87%, ch39 92%).
-  The (aa)(ii) 1,098 + (aa)(iii) 11 unconditional codes verified correct;
-  semi 8471/8473 all (aa)(ii), unaffected. NOT the "ITA list" (old shorthand
-  wrong). Fix = condition column + per-line GN6-utilization scaling
-  (measured: `output/diagnostics/s122_aircraft_line_utilization.csv`, 956
-  lines), U3 statutory framing; hook-on/off validation; registry U-item
-  (registry file in user edit — add on next touch); rides next vintage +
-  forces eval/adj recalibration. Also re-derive the route-calibration
-  T_exit for India/JP/VN afterward (their exact-10 "us_origin" mass
-  reclassifies to exit-strong).
+- [x] **§122 civil-aircraft exemption fix — IMPLEMENTED 2026-07-08**
+  (audit found ≈ $800M/month statutory duty understated). Audit +
+  implementation: `docs/s122_aircraft_exemption_audit.md`. The 541
+  note-2(aa)(iv) aircraft HTS8 codes are USE-conditional (GN6) but were
+  applied full-line; now split by a `condition` column on
+  `s122_exempt_products.csv` (builder `scripts/build_s122_exempt_conditions.R`)
+  and the GN6 set is scaled by `(1 − exempt_share)` in `apply_section122()`
+  with measured→HS2-mean→full-exemption fallback (shares
+  `resources/s122_aircraft_utilization.csv`, U3 statutory framing).
+  Validated Slurm 17428463 (hook-on/off vs pre-fix worktree). Tests:
+  `test_s122_aircraft_scaling.R` 9/0 + suites green. **Rides next vintage +
+  forces eval/adj recalibration.** Remaining:
+  - [ ] **ETRs export still full-exempts aircraft:** `generate_s122_yaml()`
+    (`tools/generate_etrs_config.R`) exports the flat `$hts8` (all 1,656) as
+    exempt — the GN6 split is tracker-engine-only. Reconcile in the eval/adj
+    handoff (the export schema is a flat list; carrying utilization needs a
+    schema change there).
+  - [ ] **Registry U-item** for the GN6 utilization (family U1/U3); note
+    (aa)(iv) was modeled unconditional 2026-02-24→2026-07-08. Add on the next
+    `statutory_deviations.md` touch (file in user edit today).
+  - [ ] **Re-derive route-calibration T_exit** for India/JP/VN after this
+    rides a vintage (their exact-10 "us_origin" mass reclassifies to
+    exit-strong; see the route-calibration item).
 - [ ] **`data/census_imports_2024.csv` holds only Canada+Mexico** — check
   provenance before anything new consumes it (build weights are complete and
   unaffected).

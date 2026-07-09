@@ -57,7 +57,8 @@ OPTIONAL_RESOURCES <- c(
   'resources/usmca_shares.csv',
   'resources/mfn_exemption_shares.csv',
   'resources/metal_content_shares_bea_hs10.csv',
-  'resources/s122_exempt_products.csv'
+  'resources/s122_exempt_products.csv',
+  'resources/s122_aircraft_utilization.csv'
 )
 
 # --- Required directories ---
