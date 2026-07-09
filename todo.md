@@ -191,15 +191,21 @@ Phase-1 1a–1e) is in the archive todo. Still open:
   bites on 8471.80.4000; best path is empirical — eval measures realized ÷
   25% on Taiwan/China Jan-16→Mar-2026 collections = qualifying ×
   (1 − end_use) directly. Don't change baseline until measured.
-- [ ] **§122 ITA-exempt-list utilization audit (NEW 2026-07-08, from the
-  route calibration):** India/Japan/Vietnam annex cells cluster at realized =
-  exactly 10.0% on lines the tracker holds §122-exempt via the ITA list
-  (T_exit = 0; e.g. 8412.90.90 India, 54.6% of its clean signature mass) —
-  reads as importers PAYING the §122 blanket on tracker-exempt lines (list
-  over-broad, or the exemption must be claimed and isn't), not as 16(e)
-  US-origin claims. Audit the s122_exempt_products.csv ITA scope against
-  realized §122-era collections; affects both the route-share interpretation
-  and the §122-era statutory series.
+- [ ] **§122 civil-aircraft exemption fix — AUDITED 2026-07-08, fix pending
+  (LARGE: ≈ $800M/month statutory duty UNDERSTATED).** Audit doc:
+  `docs/s122_aircraft_exemption_audit.md`. The 546 note-2(aa)(iv) aircraft
+  codes on `s122_exempt_products.csv` are USE-conditional (GN6) but applied
+  full-line; IMDB Mar–May 2026 shows 60.8% of $39.5B on those lines PAYING
+  the 10% (ch88 pays 2.9% — positive control; ch85 89%, ch90 87%, ch39 92%).
+  The (aa)(ii) 1,098 + (aa)(iii) 11 unconditional codes verified correct;
+  semi 8471/8473 all (aa)(ii), unaffected. NOT the "ITA list" (old shorthand
+  wrong). Fix = condition column + per-line GN6-utilization scaling
+  (measured: `output/diagnostics/s122_aircraft_line_utilization.csv`, 956
+  lines), U3 statutory framing; hook-on/off validation; registry U-item
+  (registry file in user edit — add on next touch); rides next vintage +
+  forces eval/adj recalibration. Also re-derive the route-calibration
+  T_exit for India/JP/VN afterward (their exact-10 "us_origin" mass
+  reclassifies to exit-strong).
 - [ ] **`data/census_imports_2024.csv` holds only Canada+Mexico** — check
   provenance before anything new consumes it (build weights are complete and
   unaffected).
