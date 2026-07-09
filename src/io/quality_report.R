@@ -70,6 +70,8 @@ check_schema <- function(ts) {
 #' @param ts Timeseries tibble
 #' @return Tibble with one row per revision
 compute_revision_quality <- function(ts) {
+  # base_rate_type exposure flag may be absent on pre-2026-07 timeseries.
+  if (!'base_rate_type' %in% names(ts)) ts$base_rate_type <- NA_character_
   ts %>%
     group_by(revision, effective_date) %>%
     summarise(
@@ -86,6 +88,10 @@ compute_revision_quality <- function(ts) {
       pct_ieepa_fent = round(mean(rate_ieepa_fent > 0) * 100, 1),
       pct_s122 = round(mean(rate_s122 > 0) * 100, 1),
       pct_usmca = round(mean(usmca_eligible, na.rm = TRUE) * 100, 1),
+      # Unweighted exposure flag: share of pairs whose base MFN rate is a
+      # specific/compound duty the model treats as 0 (no AVE conversion).
+      pct_pairs_specific_or_compound =
+        round(mean(base_rate_type == 'specific_or_compound', na.rm = TRUE) * 100, 1),
       n_negative_rates = sum(total_rate < 0, na.rm = TRUE),
       n_na_total = sum(is.na(total_rate)),
       .groups = 'drop'

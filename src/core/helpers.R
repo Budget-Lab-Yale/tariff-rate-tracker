@@ -110,6 +110,69 @@ is_simple_rate <- function(rate_string) {
   tolower(rate_string) == 'free' || grepl('^[0-9.]+%$', rate_string)
 }
 
+#' Classify a base MFN rate string into a rate-type bucket
+#'
+#' Exposure flag, NOT a conversion (scope decision 2026-06-10: no AVE
+#' conversion — flag the exposed cells only). Companion to parse_rate(): where
+#' parse_rate() collapses everything non-ad-valorem to NA, this preserves WHY
+#' the numeric rate is missing so consumers can see which cells are effectively
+#' treated as zero. Buckets:
+#'   - "Free"                    -> 'free'
+#'   - "6.8%" / "0.25" (<1)      -> 'ad_valorem'   (parse_rate returns a number)
+#'   - "$1.50/doz", "2.4c/kg",
+#'     "$1.035/kg + 17%"         -> 'specific_or_compound' (per-unit money;
+#'                                   parse_rate returns NA -> understated as 0)
+#'   - "" / NA / whitespace      -> NA_character_  (empty; inherits parent type)
+#'   - anything else non-empty
+#'     (e.g. "2.6% on the movement + 3.5% on the battery", legal-text duties)
+#'                               -> 'other'
+#'
+#' Vectorized. A rate is 'specific_or_compound' iff it carries a monetary
+#' per-unit component (cent sign or dollar sign) — this is the signature the
+#' model cannot represent as a single ad valorem number.
+#'
+#' @param rate_string Character vector of rate strings
+#' @return Character vector of buckets (NA for empty/NA input)
+classify_rate_type <- function(rate_string) {
+  s <- trimws(as.character(rate_string))
+  empty <- is.na(rate_string) | is.na(s) | s == ''
+  # Default non-empty strings to 'other'; refine below.
+  out <- ifelse(empty, NA_character_, 'other')
+  # Specific/compound: any monetary per-unit component. Real HTS text uses the
+  # cent sign (¢) or dollar sign ($); the ASCII "Nc/unit" / "N cents/unit"
+  # variant is caught defensively (OCR/test fixtures) but never bare-% strings.
+  is_spec <- !empty & (grepl('¢|\\$', s) |
+                       grepl('[0-9]\\s*c(ents?)?\\s*/', s, ignore.case = TRUE))
+  out[is_spec] <- 'specific_or_compound'
+  # Ad valorem: whole string is "N%" or a bare fraction < 1 (mirrors parse_rate).
+  is_pct  <- !empty & grepl('^[0-9.]+%$', s)
+  is_frac <- !empty & grepl('^[0-9]+\\.[0-9]+$', s) &
+    suppressWarnings(as.numeric(s)) < 1
+  out[is_pct | is_frac] <- 'ad_valorem'
+  # Free (highest precedence; mutually exclusive with the above anyway).
+  out[!empty & tolower(s) == 'free'] <- 'free'
+  out
+}
+
+#' Read a cached products_<rev>.rds, failing loud if the parser schema is stale
+#'
+#' The base_rate_type exposure flag was added to parse_products() (2026-07-09).
+#' A pre-flag cache silently omits it, which would poison the incremental build
+#' and any base_rate_type consumer downstream. Rather than degrade quietly, stop
+#' with instructions to regenerate via scripts/refresh_product_caches.R.
+#'
+#' @param path Path to a products_<rev>.rds cache
+#' @return The products tibble
+read_products_cache <- function(path) {
+  products <- readRDS(path)
+  if (!'base_rate_type' %in% names(products)) {
+    stop('Stale product cache (missing base_rate_type): ', path,
+         '\n  Regenerate with: Rscript scripts/refresh_product_caches.R',
+         '\n  (or run a --full build, which re-parses products fresh).')
+  }
+  products
+}
+
 
 # =============================================================================
 # HTS Code Functions

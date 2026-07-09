@@ -685,7 +685,7 @@ build_full_timeseries <- function(
     }
 
     prev_ch99 <- readRDS(ch99_cache)
-    prev_products <- readRDS(prod_cache)
+    prev_products <- read_products_cache(prod_cache)  # fail loud if pre-flag schema
 
     # Start from the revision AFTER start_from
     start_idx <- which(revisions_to_process == start_from) + 1
@@ -769,7 +769,7 @@ build_full_timeseries <- function(
       products %>%
         mutate(ch99_refs = vapply(ch99_refs, paste,
                                   FUN.VALUE = character(1), collapse = ';')) %>%
-        select(hts10, base_rate, base_rate_raw, ch99_refs,
+        select(hts10, base_rate, base_rate_raw, base_rate_type, ch99_refs,
                n_ch99_refs, description) %>%
         write_csv('data/processed/products_raw.csv')
 

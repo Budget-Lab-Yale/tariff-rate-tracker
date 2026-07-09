@@ -25,11 +25,14 @@ open work. Registry of statutory deviations (the B/U/P/S/F items):
    statutory omissions — fixing statutory without recalibrating
    double-counts). adj side must also correct
    `deal_partner_negative_eta_diagnosis.md` / open_questions #6.
-3. **Answer the electronics reciprocal-exclusion query** (inbound from
-   tariff-etr-adj, `docs/electronics_exclusion_query_2026-06-20.md`): is the
-   April-2025 9903.01.32 electronics carve-out (smartphones/laptops/semis)
-   applied in the rate build, for which HS10 × countries × dates? (It should
-   be, via the Annex II exempt list — verify and reply with the line list.)
+3. **Electronics reciprocal-exclusion query — ANSWERED 2026-07-09.** Carve-out
+   IS applied correctly: 9903.01.32 codes on `ieepa_exempt_products.csv` zero
+   only `rate_ieepa_recip`, universal across partners, dated 2025-04-05 (8541/
+   8542 NA=inception). Reply + 133-code line list (with GTAP mapping +
+   two crosswalk gaps: 8486/8524 → OME not ele; 25 unmapped parent codes)
+   delivered to tariff-etr-adj (`docs/electronics_exclusion_answer_2026-07-09.md`
+   + `resources/electronics_reciprocal_exempt_from_tracker.csv`); copy in
+   tracker `docs/`. NOT a tracker cause of their electronics diversion miss.
 4. **Eta statutory-measurement queue leftovers** (section below): pre-annex
    §232 content-share inversion (item 2), USMCA re-base decision with the eta
    owners (item 3), ASEAN CSMS retro-exemption follow-up (item 4 next steps).
@@ -71,24 +74,34 @@ EO 14346 Annex III lists are the missing channel): see the archive todo and
 **Scope decision (user, 2026-06-10): NO AVE conversion — flag the exposed
 cells only.** Full diagnosis, the latent stale-sibling `rate_stack`
 inheritance bug, and the zero-rate-number-change acceptance criteria: archive
-todo §"Specific/compound-duty EXPOSURE flags". Implementation plan:
+todo §"Specific/compound-duty EXPOSURE flags". **LANDED 2026-07-09** (assumption
+19 in `docs/assumptions.md`; rate numbers byte-identical on rev_9; CI 109/0 incl.
+2 new tests). Zero rate-number change verified — rides no vintage requirement.
 
-- [ ] **Add `base_rate_type` to the panel** (`ad_valorem`/`free`/
+- [x] **Add `base_rate_type` to the panel** (`ad_valorem`/`free`/
   `specific_or_compound`/`other`): `classify_rate_type()` in helpers.R + a
-  parallel `type_stack` in `04_parse_products.R` (do NOT reuse `rate_stack`);
-  carry through `calculate_rates_fast()` base-rate join + `ensure_dense_grid()`
-  (add to `EXPLICIT_SET_COLUMNS`). Cache guard: fail loud on `products_<rev>.rds`
-  lacking the column; regenerate via `scripts/refresh_product_caches.R`.
-- [ ] **Quality-report surface:** unweighted `pct_pairs_specific_or_compound`
-  in `compute_revision_quality()` + per-revision exposure side table;
-  value-weighted share in `src/diagnostics.R` (next cluster build).
-- [ ] **Flow to consumers:** add the column to `export_statutory_rates()`
-  (`tools/generate_etrs_config.R`); document the scope decision in
-  `docs/assumptions.md`.
-- [ ] **Tests:** classify units, compound-parent suffix inheritance fixture,
-  snapshot integration.
+  parallel `type_stack` in `04_parse_products.R` (resets on ANY legal line, à la
+  `special_stack`, NOT `rate_stack`); carried through `calculate_rates_fast()`
+  base-rate join + `ensure_dense_grid()` (`EXPLICIT_SET_COLUMNS`) + blanket-pair
+  path (`add_blanket_pairs()`). Cache guard `read_products_cache()` fails loud on
+  a pre-flag `products_<rev>.rds`; reference caches regenerated.
+- [x] **Quality-report surface:** unweighted `pct_pairs_specific_or_compound`
+  in `compute_revision_quality()`. Value-weighted share still deferred to
+  `src/diagnostics.R` (next cluster build) — the only open sub-item here.
+- [x] **Flow to consumers:** `mfn_rate_type` in `export_statutory_rates()`
+  CSV + `base_rate_type` in `products_raw.csv`; scope decision documented in
+  `docs/assumptions.md` §19.
+- [x] **Tests:** classify units + compound-parent suffix inheritance fixture
+  (`test_rate_calculation.R`, 109/0). Real-data integration spot-checked on
+  rev_9 (0 NA, distribution sane). Golden-snapshot integration rides the next
+  full build.
 - [ ] **Quantify the stale-sibling rate inheritance bug, then decide the fix**
-  (moves numbers — parity-gated, separate from the flag change).
+  (moves numbers — parity-gated, separate from the flag change). **Quantified
+  2026-07-09:** ~1,100 pairs on rev_9 (`parse_products()` logs "Stale-sibling
+  suspects"; cells where `base_rate_type == 'specific_or_compound'` but
+  `base_rate` inherited a non-NA number). Larger than the "latent/rare" framing.
+  Fix (make `type_stack`'s robust reset drive `rate_stack` too) still pending —
+  parity-gated, needs a full-build golden diff before landing.
 
 ## Build unification (2026-06-09) — one build, three destinations
 

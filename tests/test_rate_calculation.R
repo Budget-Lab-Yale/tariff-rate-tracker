@@ -589,6 +589,63 @@ run_test('parse_rate: compound rates return NA', {
   stopifnot(is.na(parse_rate('$1.50/doz')))
 })
 
+run_test('classify_rate_type: buckets', {
+  stopifnot(classify_rate_type('Free') == 'free')
+  stopifnot(classify_rate_type('free') == 'free')
+  stopifnot(classify_rate_type('6.8%') == 'ad_valorem')
+  stopifnot(classify_rate_type('25%') == 'ad_valorem')
+  stopifnot(classify_rate_type('0.25') == 'ad_valorem')          # bare fraction < 1
+  stopifnot(classify_rate_type('$1.50/doz') == 'specific_or_compound')
+  stopifnot(classify_rate_type('2.4c/kg') == 'specific_or_compound')  # ascii cent variant
+  stopifnot(classify_rate_type('0.16¢ each + 2.2%') == 'specific_or_compound')  # ¢ compound
+  stopifnot(classify_rate_type('$1.035/kg + 17%') == 'specific_or_compound')
+  # Percentage-on-partial-base / legal text is NOT a clean ad valorem.
+  stopifnot(classify_rate_type('2.6% on the movement + 3.5% on the battery') == 'other')
+  # Empty / whitespace / NA -> NA (inherits parent downstream).
+  stopifnot(is.na(classify_rate_type('')))
+  stopifnot(is.na(classify_rate_type(' ')))
+  stopifnot(is.na(classify_rate_type('\n')))
+  stopifnot(is.na(classify_rate_type(NA)))
+  # Vectorized.
+  v <- classify_rate_type(c('Free', '5%', '$1/kg', ''))
+  stopifnot(identical(v, c('free', 'ad_valorem', 'specific_or_compound', NA_character_)))
+})
+
+run_test('parse_products: base_rate_type inheritance + stale-sibling flag', {
+  # Fixture hierarchy (parents drop out; only 10-digit suffixes + 8-digit leaves
+  # survive). '1806.20' is a 6-digit heading: it seeds the stacks but is not a
+  # product row.
+  fixture <- list(
+    make_hts_item('1806.20',       general = '5%',              indent = 0),  # ad valorem heading
+    make_hts_item('1806.20.10',    general = '',                indent = 1),  # empty sub-line
+    make_hts_item('1806.20.10.00', general = '',                indent = 2),  # CONTROL suffix
+    make_hts_item('1806.20.20',    general = '$1.035/kg + 17%', indent = 1),  # compound sub-line
+    make_hts_item('1806.20.20.10', general = '',                indent = 2),  # STALE-SIBLING suffix
+    make_hts_item('1806.90.00',    general = '$2/kg',           indent = 0)   # compound LEAF (8-digit)
+  )
+  tmp <- tempfile(fileext = '.json')
+  jsonlite::write_json(fixture, tmp, auto_unbox = TRUE)
+  on.exit(unlink(tmp), add = TRUE)
+  p <- parse_products(tmp)
+  bt <- setNames(p$base_rate_type, p$hts10)
+  br <- setNames(p$base_rate, p$hts10)
+
+  # Control: suffix under an ad valorem heading inherits ad_valorem; both stacks agree.
+  stopifnot(bt[['1806201000']] == 'ad_valorem')
+  stopifnot(abs(br[['1806201000']] - 0.05) < 1e-10)
+
+  # Compound leaf: classified specific_or_compound, numeric base_rate is NA.
+  stopifnot(bt[['1806900000']] == 'specific_or_compound')
+  stopifnot(is.na(br[['1806900000']]))
+
+  # Stale-sibling case: the robust type_stack correctly marks the suffix under
+  # the compound parent as specific_or_compound, while the numeric base_rate
+  # inherited a STALE 5% from the ad valorem heading (rate_stack skipped the
+  # compound parent). This divergence is the parity-gated bug the flag surfaces.
+  stopifnot(bt[['1806202010']] == 'specific_or_compound')
+  stopifnot(abs(br[['1806202010']] - 0.05) < 1e-10)  # stale numeric — documented, not fixed here
+})
+
 run_test('parse_ch99_rate: surcharge format', {
   stopifnot(abs(parse_ch99_rate('The duty provided in the applicable subheading + 25%') - 0.25) < 1e-10)
   stopifnot(abs(parse_ch99_rate('The duty provided in the applicable subheading plus 7.5%') - 0.075) < 1e-10)

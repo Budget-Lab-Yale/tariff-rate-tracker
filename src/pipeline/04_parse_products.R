@@ -13,6 +13,10 @@
 #   - base_rate_raw: Original rate text
 #   - ch99_refs: List of Chapter 99 references from footnotes
 #   - has_complex_rate: Flag for non-ad-valorem rates
+#   - base_rate_type: Rate-type bucket (ad_valorem/free/specific_or_compound/
+#     other) — an EXPOSURE FLAG, not a conversion (scope decision 2026-06-10).
+#     Carried via a parallel type_stack (see below); makes visible which cells
+#     the numeric base_rate silently treats as 0 (specific/compound duties).
 #
 # =============================================================================
 
@@ -51,6 +55,19 @@ parse_products <- function(json_path) {
   rate_stack <- list()  # indent level -> parsed rate (numeric or NA)
   n_inherited <- 0L
 
+  # Parallel type stack for base_rate_type (exposure flag). Deliberately does
+  # NOT reuse rate_stack: rate_stack only pushes when a rate PARSES (simple/
+  # free), so a specific/compound parent — whose rate is NA — never pushes and
+  # never clears deeper levels, and a suffix can then inherit a STALE numeric
+  # from a prior sibling subtree (the known, parity-gated stale-sibling bug,
+  # todo.md). type_stack instead resets on ANY legal line (non-empty general),
+  # mirroring the more-robust special_stack in extract_usmca_eligibility(), so
+  # base_rate_type reflects the TRUE nearest legal parent. Where the two stacks
+  # disagree (base_rate_type == 'specific_or_compound' but base_rate is a
+  # non-NA inherited number) is exactly where that bug bites — the flag surfaces
+  # it without changing any rate number.
+  type_stack <- list()  # indent level -> base_rate_type of nearest legal line
+
   # Process each item
   products <- map_dfr(hts_raw, function(item) {
     htsno <- item$htsno %||% ''
@@ -64,6 +81,14 @@ parse_products <- function(json_path) {
       # Clear deeper indent levels (new parent resets children)
       deeper <- names(rate_stack)[as.integer(names(rate_stack)) > indent]
       for (d in deeper) rate_stack[[d]] <<- NULL
+    }
+
+    # Update type stack on ANY legal line (non-empty general), including
+    # specific/compound parents that rate_stack skips — see the note above.
+    if (trimws(general) != '') {
+      type_stack[[as.character(indent)]] <<- classify_rate_type(general)
+      deeper_t <- names(type_stack)[as.integer(names(type_stack)) > indent]
+      for (d in deeper_t) type_stack[[d]] <<- NULL
     }
 
     # Keep 10-digit codes and 8-digit candidates. Some tariff lines are leaves
@@ -90,6 +115,9 @@ parse_products <- function(json_path) {
     base_rate <- parse_rate(general)
     has_complex <- !is_simple_rate(general) && general != ''
 
+    # Classify rate type for this line (NA when general is empty/whitespace).
+    base_rate_type <- classify_rate_type(general)
+
     if (is.na(base_rate) && trimws(general) == '' && indent > 0) {
       # Statistical suffix: inherit from nearest parent
       for (i in seq(indent - 1, 0, by = -1)) {
@@ -97,6 +125,18 @@ parse_products <- function(json_path) {
         if (!is.null(parent_rate)) {
           base_rate <- parent_rate
           n_inherited <<- n_inherited + 1L
+          break
+        }
+      }
+    }
+
+    # Inherit base_rate_type from the nearest legal parent for suffixes with an
+    # empty general (parallel to base_rate, but off the robust type_stack).
+    if (is.na(base_rate_type) && trimws(general) == '' && indent > 0) {
+      for (i in seq(indent - 1, 0, by = -1)) {
+        parent_type <- type_stack[[as.character(i)]]
+        if (!is.null(parent_type)) {
+          base_rate_type <- parent_type
           break
         }
       }
@@ -110,6 +150,7 @@ parse_products <- function(json_path) {
       description = description,
       base_rate = base_rate,
       base_rate_raw = general,
+      base_rate_type = base_rate_type,
       ch99_refs = list(ch99_refs),
       has_complex_rate = has_complex,
       n_ch99_refs = length(ch99_refs),
@@ -132,6 +173,15 @@ parse_products <- function(json_path) {
   message('  8-digit leaf lines retained (padded to 10): ', n_8digit_leaves)
   message('  With Chapter 99 refs: ', sum(products$n_ch99_refs > 0))
   message('  With complex rates: ', sum(products$has_complex_rate))
+  message('  Specific/compound (exposure flag): ',
+          sum(products$base_rate_type == 'specific_or_compound', na.rm = TRUE))
+  # Diagnostic for the parity-gated stale-sibling bug: cells the robust
+  # type_stack marks specific/compound but whose base_rate inherited a non-NA
+  # number off rate_stack (a stale sibling rate). Zero today would be ideal.
+  n_stale_sibling <- sum(products$base_rate_type == 'specific_or_compound' &
+                           !is.na(products$base_rate), na.rm = TRUE)
+  message('  Stale-sibling suspects (spec/compound w/ non-NA base_rate): ',
+          n_stale_sibling)
   message('  Inherited parent rate: ', n_inherited, ' (',
           round(n_inherited / nrow(products) * 100, 1), '%)')
   message('  With NA base_rate: ', sum(is.na(products$base_rate)))

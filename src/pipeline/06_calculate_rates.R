@@ -186,14 +186,18 @@ calculate_rates_fast <- function(products, ch99_data, countries,
     }
   }
 
-  # Join base rates
+  # Join base rates (+ the base_rate_type exposure flag). Products absent from
+  # the join or with an unknown type default to 'free', matching base_rate -> 0.
+  base_join <- products %>% select(hts10, base_rate)
+  if ('base_rate_type' %in% names(products)) {
+    base_join <- products %>% select(hts10, base_rate, base_rate_type)
+  }
   rates_wide <- rates_wide %>%
-    left_join(
-      products %>% select(hts10, base_rate),
-      by = 'hts10',
-      relationship = 'many-to-one'
-    ) %>%
+    left_join(base_join, by = 'hts10', relationship = 'many-to-one') %>%
     mutate(base_rate = coalesce(base_rate, 0))
+  if ('base_rate_type' %in% names(rates_wide)) {
+    rates_wide <- rates_wide %>% mutate(base_rate_type = coalesce(base_rate_type, 'free'))
+  }
 
   # Rename columns for clarity
   rates_wide <- rates_wide %>%
@@ -898,7 +902,11 @@ ensure_dense_grid <- function(rates, products, countries, context = 'MFN-only') 
   # Columns `new_pairs` sets explicitly (must match the mutate() below).
   # `statutory_rate_232` is set to 0 here so MFN-only rows carry a valid
   # statutory rate, not NA, into the remaining statutory_rate_* save in 6b2.
-  EXPLICIT_SET_COLUMNS <- c(REQUIRED_RATE_COLS, 'base_rate', 'statutory_rate_232', 'heading_program')
+  # `base_rate_type` (exposure flag) rides on all_products_base alongside
+  # base_rate — new MFN-only pairs get its 'free' default there, not the
+  # new_pairs mutate. Harmless to list even when rates lacks the column.
+  EXPLICIT_SET_COLUMNS <- c(REQUIRED_RATE_COLS, 'base_rate', 'base_rate_type',
+                            'statutory_rate_232', 'heading_program')
 
   set_cols <- c(EXPLICIT_SET_COLUMNS, SAFE_NA_COLUMNS)
   unaccounted <- setdiff(names(rates), set_cols)
@@ -917,6 +925,14 @@ ensure_dense_grid <- function(rates, products, countries, context = 'MFN-only') 
   all_products_base <- products %>%
     select(hts10, base_rate) %>%
     mutate(base_rate = coalesce(base_rate, 0))
+  # Carry base_rate_type onto new MFN-only pairs (default 'free', matching
+  # base_rate -> 0) when products supplies it, mirroring the join above.
+  if ('base_rate_type' %in% names(products)) {
+    all_products_base <- all_products_base %>%
+      left_join(products %>% select(hts10, base_rate_type), by = 'hts10',
+                relationship = 'one-to-one') %>%
+      mutate(base_rate_type = coalesce(base_rate_type, 'free'))
+  }
 
   new_pairs <- all_products_base %>%
     expand_grid(country = countries) %>%

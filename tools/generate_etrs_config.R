@@ -365,11 +365,14 @@ export_statutory_rates <- function(snapshot, policy_params, output_dir, ch99_dat
     )
 
   # Build the full CSV from snapshot (all columns at once to avoid row-order issues)
+  # base_rate_type exposure flag: present on 2026-07+ snapshots; NA otherwise.
+  if (!'base_rate_type' %in% names(snapshot)) snapshot$base_rate_type <- NA_character_
   csv <- snapshot %>%
     transmute(
       hts10,
       cty_code         = country,
       mfn_rate         = statutory_base_rate,
+      mfn_rate_type    = base_rate_type,
       ieepa_reciprocal = rate_ieepa_recip,
       ieepa_fentanyl   = statutory_rate_ieepa_fent,
       s301             = statutory_rate_301,

@@ -321,3 +321,24 @@ Validity windows are read **per revision from each archive's own heading text** 
 **Source:** Annex IV of the April 2, 2026 proclamation (note 16 text, `docs/s232/annexes_text.txt` + chapter99 notes); SGEPT shares from `docs/s232/s232_metals_update_note.pdf`.
 
 **Implementation:** `src/model/authority_adapter.R` (UK blend, third-country surcharge), `src/pipeline/06_calculate_rates.R` step 5c exemption block, `config/policy_params.yaml::section_232_annexes`, `config/scenarios/sgept_exemptions/`. Validated: with all knobs at baseline values, the rev_9 snapshot is byte-identical to the pre-change build.
+
+## 19. Base MFN Rate Type: Specific/Compound Duty Exposure Flag (no AVE conversion)
+
+**Scope decision (user, 2026-06-10):** the tracker does **NOT** convert specific or compound duties to ad-valorem equivalents (AVE). Doing so would require unit-price data the tracker does not carry and would inject unauditable estimates. Instead we **flag** the exposed cells so consumers can see which base MFN rates are effectively treated as 0.
+
+**Assumption:** `parse_rate()` returns `NA` for any rate that is not a clean percentage or "Free" (specific duties like `$1.50/doz`, compound duties like `$1.035/kg + 17%`); downstream `coalesce(base_rate, 0)` then treats these as a 0% base. `classify_rate_type()` (`src/core/helpers.R`) labels every line with a `base_rate_type` bucket carried on the product panel:
+
+| bucket | example | numeric `base_rate` |
+|---|---|---|
+| `ad_valorem` | `6.8%`, `0.25` | the parsed fraction |
+| `free` | `Free` | 0 |
+| `specific_or_compound` | `$1.50/doz`, `2.4¢/kg`, `$1.035/kg + 17%` | NA → 0 (**understated**) |
+| `other` | `2.6% on the movement + 3.5% on the battery`, legal-text duties | NA → 0 |
+
+**Inheritance / known bug interaction:** `base_rate_type` rides a **parallel `type_stack`** in `04_parse_products.R` that resets on ANY legal line (mirroring `special_stack` in `extract_usmca_eligibility()`), NOT the `rate_stack` used for the numeric `base_rate`. `rate_stack` only pushes when a rate parses, so a specific/compound parent never pushes and a statistical suffix can inherit a **stale numeric rate from a prior sibling subtree** (the parity-gated stale-sibling bug, todo.md). The two stacks disagree exactly at those cells: `base_rate_type == 'specific_or_compound'` while `base_rate` is a non-NA inherited number. `parse_products()` logs the count ("Stale-sibling suspects"); on rev_9 it is ~1,100 pairs. The flag **surfaces** this without changing any rate number — fixing the numeric inheritance is a separate parity-gated task.
+
+**Surfaces:** `pct_pairs_specific_or_compound` (unweighted) in `compute_revision_quality()`; `base_rate_type` in `data/processed/products_raw.csv`; `mfn_rate_type` in the `export_statutory_rates()` CSV. A stale product cache lacking the column fails loud via `read_products_cache()` (regenerate with `scripts/refresh_product_caches.R`).
+
+**Zero rate-number change:** adding the flag leaves `base_rate` and all computed rates byte-identical (verified on rev_9). Value-weighted exposure share is deferred to `src/diagnostics.R` (next cluster build).
+
+**Implementation:** `classify_rate_type()` / `read_products_cache()` in `src/core/helpers.R`; `type_stack` in `src/pipeline/04_parse_products.R`; base-rate join + `EXPLICIT_SET_COLUMNS` in `src/pipeline/06_calculate_rates.R`; `add_blanket_pairs()` in `src/model/rate_schema.R`; `compute_revision_quality()` in `src/io/quality_report.R`; `export_statutory_rates()` in `tools/generate_etrs_config.R`.

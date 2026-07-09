@@ -470,9 +470,12 @@ add_blanket_pairs <- function(rates, products, covered_hts10, country_rates,
     filter(hts10 %in% covered_hts10, country %in% applicable) %>%
     select(hts10, country)
 
-  new_pairs <- products %>%
-    filter(hts10 %in% covered_hts10) %>%
-    select(hts10, base_rate) %>%
+  base_sel <- if ('base_rate_type' %in% names(products)) {
+    products %>% filter(hts10 %in% covered_hts10) %>% select(hts10, base_rate, base_rate_type)
+  } else {
+    products %>% filter(hts10 %in% covered_hts10) %>% select(hts10, base_rate)
+  }
+  new_pairs <- base_sel %>%
     mutate(base_rate = coalesce(base_rate, 0)) %>%
     tidyr::expand_grid(country = applicable) %>%
     anti_join(existing, by = c('hts10', 'country')) %>%
@@ -481,6 +484,9 @@ add_blanket_pairs <- function(rates, products, covered_hts10, country_rates,
       rate_232 = 0, rate_301 = 0, rate_301_cs = 0, rate_ieepa_recip = 0,
       rate_ieepa_fent = 0, rate_s122 = 0, rate_section_201 = 0, rate_other = 0
     )
+  if ('base_rate_type' %in% names(new_pairs)) {
+    new_pairs <- new_pairs %>% mutate(base_rate_type = coalesce(base_rate_type, 'free'))
+  }
 
   new_pairs[[rate_col]] <- new_pairs$blanket_rate
   new_pairs <- new_pairs %>%

@@ -162,7 +162,7 @@ for (rev_id in ordered) {
   if (!file.exists(ch99_p) || !file.exists(prod_p)) {
     warning('missing parse cache for ', rev_id, ' — skipping its delta'); next
   }
-  ch99_data <- readRDS(ch99_p); products <- readRDS(prod_p)
+  ch99_data <- readRDS(ch99_p); products <- read_products_cache(prod_p)
   if (!is.null(prev_ch99)) {
     delta <- list(
       ch99 = compare_chapter99(prev_ch99, ch99_data),
@@ -177,11 +177,11 @@ for (rev_id in ordered) {
 # Written into the scratch (output_dir = TARIFF_TS_DIR), NOT the repo — a transient
 # intermediate the finalize discards (not part of the published vintage layout).
 last_rev <- ordered[length(ordered)]
-products_last <- readRDS(file.path(output_dir, paste0('products_', last_rev, '.rds')))
+products_last <- read_products_cache(file.path(output_dir, paste0('products_', last_rev, '.rds')))
 products_raw_path <- file.path(output_dir, 'products_raw.csv')
 products_last %>%
   mutate(ch99_refs = vapply(ch99_refs, paste, FUN.VALUE = character(1), collapse = ';')) %>%
-  select(hts10, base_rate, base_rate_raw, ch99_refs, n_ch99_refs, description) %>%
+  select(hts10, base_rate, base_rate_raw, base_rate_type, ch99_refs, n_ch99_refs, description) %>%
   write_csv(products_raw_path)
 
 # ---- 3. Downstream ----
