@@ -1,5 +1,13 @@
 # Tariff Rate Tracker — TODO
 
+> **Repo paused / stable as of 2026-07-09.** The forward-looking organization of
+> everything still open lives in **`docs/reopening_proposal_2026-07-09.md`**,
+> which sorts these items into two reopening thrusts — (A) improved ETA
+> calculation and (B) specific calibrations of statutory claiming behaviors —
+> plus an out-of-scope engineering/housekeeping bucket. This file remains the
+> detailed backlog; the proposal is the map and states the one prerequisite
+> (publish vintage N+1 → eval re-pull → adj recalibration) that gates both.
+
 Slimmed 2026-07-08. Everything completed before that date — the full sections
 for the 2026-04→06 correction passes, reviews, and landed plans — is preserved
 verbatim in `docs/archive/todo_archive_2026-07-08.md`; this file carries only
