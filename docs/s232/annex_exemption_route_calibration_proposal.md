@@ -1,6 +1,19 @@
 # Proposal: calibrating the §232 annex-era exemption routes (note 16)
 
-**Status: PROPOSAL — no code changes yet.** Written 2026-07-08 in response to
+**Status: measurement module BUILT + first run 2026-07-08** (same day; no
+ENGINE changes): `tools/calibrate_s232_annex_routes.R` (30 unit tests green),
+no_232 counterfactuals via `scripts/submit_no232_annex_snapshots.sh` (Slurm
+17417038). First-measurement headline (May 2026, $39.8B annex trade):
+route-explainable mass is much smaller than issue #13's gap suggests —
+`us_origin` signature 11.9% of value; *strong* exit evidence (realized ≈ a
+materially positive without-232 total) only **1.5%**; the big near-zero bucket
+(42.6%) sits on ITA/§122-exempt lines where `T_exit ≈ 0`, so routes are NOT
+distinguishable from non-entry/η there (§7's guard binding exactly as
+designed). Outputs: `resources/s232_annex_route_shares.csv` +
+`output/diagnostics/s232_annex_routes_monthly.csv`. Awaiting curator review
+(§8 sequencing) before any promotion.
+
+Originally written 2026-07-08 as a proposal, in response to
 issue #13 (ch84/85 realized/statutory ≈ 0.48, bimodal). Companion to the
 issue-#13 comment: the annex-era full-value application is the letter of the
 proclamation (Annex I-A/I-B "shall apply to the full value",
