@@ -17,13 +17,14 @@ open work. Registry of statutory deviations (the B/U/P/S/F items):
    review before any engine change. Absorbs: the 8471 annex_1b decision
    (data-gated on the same April+ collections), the zmc/de-minimis/us-origin/
    motorcycle calibration line, and the eta-queue item-2 annex-era half.
-2. **Publish vintage N+1 → eval re-pull → MANDATORY adj recalibration.**
-   Still pending from BOTH batches (552693d 232/Annex-II pass and 102252b
-   Phase-1 corrections): land promoted §301 .69/.70 coverage shares + the
-   Phase-1 fixes in ONE published rebuild, then the ~35-min eval re-pull, then
-   recalibrate adj (current negative etas absorb the statutory omissions —
-   fixing statutory without recalibrating double-counts). adj side must also
-   correct `deal_partner_negative_eta_diagnosis.md` / open_questions #6.
+2. **Eval re-pull → MANDATORY adj recalibration.** The publish half is DONE
+   2026-07-08: verified vintage `2026-07-01-16` (verify_build 11/0, tests
+   107/0; carries the promoted §301 .69/.70 coverage shares AND the Phase-1
+   fixes) promoted to `latest`. Remaining (cross-repo): the ~35-min eval
+   re-pull against it, then recalibrate adj (current negative etas absorb the
+   statutory omissions — fixing statutory without recalibrating
+   double-counts). adj side must also correct
+   `deal_partner_negative_eta_diagnosis.md` / open_questions #6.
 3. **Answer the electronics reciprocal-exclusion query** (inbound from
    tariff-etr-adj, `docs/electronics_exclusion_query_2026-06-20.md`): is the
    April-2025 9903.01.32 electronics carve-out (smartphones/laptops/semis)
