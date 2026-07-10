@@ -70,7 +70,7 @@ build_s301_additive_tier <- function(ch99_data, effective_date, pp) {
   if (is.null(rate_lookup) || !nrow(rate_lookup)) return(NULL)
   s301_path <- here('resources', 's301_product_lists.csv')
   if (!file.exists(s301_path)) return(NULL)
-  s301_products <- readr::read_csv(s301_path, col_types = readr::cols(
+  s301_products <- read_csv_cached(s301_path, col_types = readr::cols(
     hts8 = readr::col_character(), list = readr::col_character(),
     ch99_code = readr::col_character()))
   ch99_active <- filter_active_ch99(ch99_data, as.Date(effective_date))
@@ -366,7 +366,7 @@ build_s301_additive_tier <- function(ch99_data, effective_date, pp) {
 .resolve_s122_exempt <- function() {
   s122_exempt_path <- here('resources', 's122_exempt_products.csv')
   if (!file.exists(s122_exempt_path)) return(list(hts8 = character(0), gn6_hts8 = character(0)))
-  ex <- readr::read_csv(s122_exempt_path,
+  ex <- read_csv_cached(s122_exempt_path,
                         col_types = readr::cols(hts8 = readr::col_character(),
                                                 .default = readr::col_character()))
   if (!'condition' %in% names(ex)) {
@@ -385,7 +385,7 @@ build_s301_additive_tier <- function(ch99_data, effective_date, pp) {
 .resolve_s122_gn6_utilization <- function() {
   path <- here('resources', 's122_aircraft_utilization.csv')
   if (!file.exists(path)) return(setNames(numeric(0), character(0)))
-  u <- readr::read_csv(path, col_types = readr::cols(hts10 = readr::col_character(),
+  u <- read_csv_cached(path, col_types = readr::cols(hts10 = readr::col_character(),
                                                      exempt_share = readr::col_double(),
                                                      .default = readr::col_guess()))
   setNames(pmin(pmax(u$exempt_share, 0), 1), u$hts10)

@@ -343,6 +343,58 @@ ensure_dir <- function(path) {
   return(path)
 }
 
+#' Ensure columns exist with a default value, optionally de-NA'ing present ones
+#'
+#' For each name in `defaults`: add the column filled with the default if absent;
+#' if present and `fill_na = TRUE`, replace its NAs with the default. Centralizes
+#' the "ensure optional rate columns exist" guards hand-rolled at the top of
+#' apply_stacking_rules(), build_resolved_programs(), and
+#' compute_net_authority_contributions(). `fill_na` is per call site and must be
+#' preserved: the stacking / resolved paths de-NA (fill_na = TRUE); the
+#' net-contribution path inserts-only (fill_na = FALSE, the default).
+#'
+#' @param df A data frame
+#' @param defaults Named list of column name -> default value
+#' @param fill_na If TRUE, also replace NAs in columns that are already present
+#' @return `df` with each named column ensured
+ensure_cols <- function(df, defaults, fill_na = FALSE) {
+  for (col in names(defaults)) {
+    if (!col %in% names(df)) {
+      df[[col]] <- defaults[[col]]
+    } else if (fill_na) {
+      df[[col]][is.na(df[[col]])] <- defaults[[col]]
+    }
+  }
+  df
+}
+
+# Process-lifetime cache for static reference CSVs — reference/config data that is
+# invariant across a build's revisions. Keyed by normalized absolute path.
+.static_csv_cache <- new.env(parent = emptyenv())
+
+#' read_csv a static reference file once per process, caching the parsed frame
+#'
+#' For reference/config CSVs that never change within a run but are read on the
+#' per-revision hot path (once per revision, or twice for s301_product_lists,
+#' across ~44 revisions). Caching by path avoids dozens of redundant parses.
+#' NOT for data written or mutated during a run. All callers of a given path must
+#' pass equivalent `col_types` — the cache key is the path only. The returned
+#' frame is shared, so treat it as read-only; dplyr verbs copy-on-modify, so
+#' ordinary downstream pipelines are safe. The cache is process-lifetime: a fresh
+#' Rscript (e.g. each test process) starts empty.
+#'
+#' @param path Path to a static CSV (must exist; callers guard with file.exists)
+#' @param ... Passed to readr::read_csv on a cache miss
+#' @return The parsed tibble
+read_csv_cached <- function(path, ...) {
+  key <- normalizePath(path, mustWork = FALSE)
+  cached <- .static_csv_cache[[key]]
+  if (!is.null(cached)) return(cached)
+  df <- readr::read_csv(path, ...)
+  .static_csv_cache[[key]] <- df
+  df
+}
+
 
 # =============================================================================
 # HTS Concordance

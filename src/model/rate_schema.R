@@ -63,6 +63,26 @@ enforce_rate_schema <- function(df) {
 }
 
 
+#' Apply the canonical defaults for the base MFN columns
+#'
+#' `base_rate` coalesces to 0 (a missing / non-ad-valorem MFN rate is treated as
+#' duty-free by the model), and the `base_rate_type` exposure flag — when the
+#' frame carries it — coalesces to 'free' to match. This is the single default
+#' that calculate_rates_fast(), ensure_dense_grid(), and add_blanket_pairs()
+#' each apply to freshly product-joined rows; centralizing it keeps the two
+#' columns defaulting together (0 / 'free') from one place.
+#'
+#' @param df A frame carrying `base_rate` (and optionally `base_rate_type`)
+#' @return `df` with `base_rate` NA->0 and (if present) `base_rate_type` NA->'free'
+default_base_cols <- function(df) {
+  df <- df %>% mutate(base_rate = coalesce(base_rate, 0))
+  if ('base_rate_type' %in% names(df)) {
+    df <- df %>% mutate(base_rate_type = coalesce(base_rate_type, 'free'))
+  }
+  df
+}
+
+
 #' Zero the rate columns of disabled authorities (scenario kill-switch)
 #'
 #' Drives the counterfactual scenarios (config/scenarios/no_301 etc.): the
@@ -472,9 +492,9 @@ add_blanket_pairs <- function(rates, products, covered_hts10, country_rates,
 
   base_sel <- products %>%
     filter(hts10 %in% covered_hts10) %>%
-    select(hts10, base_rate, dplyr::any_of('base_rate_type'))
+    select(hts10, base_rate, dplyr::any_of('base_rate_type')) %>%
+    default_base_cols()
   new_pairs <- base_sel %>%
-    mutate(base_rate = coalesce(base_rate, 0)) %>%
     tidyr::expand_grid(country = applicable) %>%
     anti_join(existing, by = c('hts10', 'country')) %>%
     left_join(country_rates, by = 'country') %>%
@@ -482,9 +502,6 @@ add_blanket_pairs <- function(rates, products, covered_hts10, country_rates,
       rate_232 = 0, rate_301 = 0, rate_301_cs = 0, rate_ieepa_recip = 0,
       rate_ieepa_fent = 0, rate_s122 = 0, rate_section_201 = 0, rate_other = 0
     )
-  if ('base_rate_type' %in% names(new_pairs)) {
-    new_pairs <- new_pairs %>% mutate(base_rate_type = coalesce(base_rate_type, 'free'))
-  }
 
   new_pairs[[rate_col]] <- new_pairs$blanket_rate
   new_pairs <- new_pairs %>%

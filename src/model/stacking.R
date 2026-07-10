@@ -267,21 +267,8 @@ compute_stacking_contributions <- function(df, policy) {
 apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutual_exclusion',
                                  stacking_policy = NULL) {
   # Ensure optional columns exist and have no NAs
-  if (!'rate_s122' %in% names(df)) {
-    df$rate_s122 <- 0
-  } else {
-    df$rate_s122[is.na(df$rate_s122)] <- 0
-  }
-  if (!'rate_section_201' %in% names(df)) {
-    df$rate_section_201 <- 0
-  } else {
-    df$rate_section_201[is.na(df$rate_section_201)] <- 0
-  }
-  if (!'metal_share' %in% names(df)) {
-    df$metal_share <- 1.0
-  } else {
-    df$metal_share[is.na(df$metal_share)] <- 1.0
-  }
+  df <- ensure_cols(df, list(rate_s122 = 0, rate_section_201 = 0, metal_share = 1.0),
+                    fill_na = TRUE)
 
   # TPC additive: all authorities stack with no mutual exclusion.
   # TPC confirmed (March 2026) they mostly agree with mutual exclusion between
@@ -343,11 +330,10 @@ apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutu
 compute_net_authority_contributions <- function(df, cty_china = '5700',
                                                 stacking_method = 'mutual_exclusion',
                                                 stacking_policy = NULL) {
-  # Ensure optional columns exist (backwards compat with old snapshots)
-  if (!'rate_s122' %in% names(df)) df$rate_s122 <- 0
-  if (!'rate_section_201' %in% names(df)) df$rate_section_201 <- 0
-  if (!'rate_other' %in% names(df)) df$rate_other <- 0
-  if (!'metal_share' %in% names(df)) df$metal_share <- 1.0
+  # Ensure optional columns exist (backwards compat with old snapshots). Insert-only,
+  # no de-NA — preserving this path's historical behavior (fill_na defaults FALSE).
+  df <- ensure_cols(df, list(rate_s122 = 0, rate_section_201 = 0,
+                             rate_other = 0, metal_share = 1.0))
 
   # TPC additive: all authorities contribute their full rate (no mutual exclusion)
   if (stacking_method == 'tpc_additive') {

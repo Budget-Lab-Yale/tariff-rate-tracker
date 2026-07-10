@@ -191,10 +191,7 @@ calculate_rates_fast <- function(products, ch99_data, countries,
   base_join <- products %>% select(hts10, base_rate, any_of('base_rate_type'))
   rates_wide <- rates_wide %>%
     left_join(base_join, by = 'hts10', relationship = 'many-to-one') %>%
-    mutate(base_rate = coalesce(base_rate, 0))
-  if ('base_rate_type' %in% names(rates_wide)) {
-    rates_wide <- rates_wide %>% mutate(base_rate_type = coalesce(base_rate_type, 'free'))
-  }
+    default_base_cols()
 
   # Rename columns for clarity
   rates_wide <- rates_wide %>%
@@ -921,11 +918,7 @@ ensure_dense_grid <- function(rates, products, countries, context = 'MFN-only') 
   # base_rate -> 0) when products supplies it, mirroring the join above.
   all_products_base <- products %>%
     select(hts10, base_rate, any_of('base_rate_type')) %>%
-    mutate(base_rate = coalesce(base_rate, 0))
-  if ('base_rate_type' %in% names(all_products_base)) {
-    all_products_base <- all_products_base %>%
-      mutate(base_rate_type = coalesce(base_rate_type, 'free'))
-  }
+    default_base_cols()
 
   new_pairs <- all_products_base %>%
     expand_grid(country = countries) %>%
@@ -1242,7 +1235,7 @@ apply_section201 <- function(rates, ch99_data, specs, pp, products, countries) {
     if (!file.exists(s201_path)) {
       message('  WARNING: s201_solar_products.csv not found — Section 201 rate not applied')
     } else {
-      s201_products <- read_csv(s201_path,
+      s201_products <- read_csv_cached(s201_path,
                                  col_types = cols(hts10 = col_character()))
       solar_rate <- s201_results$solar_rate
       # Plank 2: Section 201 country scope is data, not a Canada hardcode. The spec
@@ -1295,7 +1288,7 @@ apply_section301 <- function(rates, specs, pp, ch99_data, products, countries, e
     stop('s301_product_lists.csv not found at ', s301_products_path,
          '\nSection 301 is a major tariff authority — cannot build without product lists.')
   }
-  s301_products <- read_csv(s301_products_path, col_types = cols(
+  s301_products <- read_csv_cached(s301_products_path, col_types = cols(
       hts8 = col_character(), list = col_character(), ch99_code = col_character()
     ))
 
@@ -1523,7 +1516,7 @@ apply_section301 <- function(rates, specs, pp, ch99_data, products, countries, e
       stop('section_301_exclusions configured but headings file not found: ',
            excl_path)
     }
-    excl_registry <- suppressMessages(read_csv(excl_path, col_types = cols(
+    excl_registry <- suppressMessages(read_csv_cached(excl_path, col_types = cols(
       ch99_code = col_character(), validity_start = col_date(),
       validity_end = col_date(), coverage_share = col_double(),
       .default = col_character()
@@ -3199,7 +3192,7 @@ calculate_rates_for_revision <- function(
         if (!file.exists(subdiv_r_path)) {
           stop('auto_parts_subdivision_r$products_file not found: ', subdiv_r_path)
         }
-        subdiv_r <- read_csv(subdiv_r_path, col_types = cols(.default = col_character()))
+        subdiv_r <- read_csv_cached(subdiv_r_path, col_types = cols(.default = col_character()))
         prefixes <- unique(subdiv_r$hts_prefix)
         if (length(prefixes) > 0) {
           eligible_pattern <- paste0('^(', paste(prefixes, collapse = '|'), ')')
@@ -3898,7 +3891,7 @@ if (sys.nframe() == 0) {
   products <- readRDS(here('data', 'processed', 'products_rev32.rds'))
 
   # Load country codes
-  census_codes <- read_csv(here('resources', 'census_codes.csv'), col_types = cols(.default = col_character()))
+  census_codes <- read_csv_cached(here('resources', 'census_codes.csv'), col_types = cols(.default = col_character()))
   countries <- census_codes$Code
 
   message('Loaded ', length(countries), ' countries')

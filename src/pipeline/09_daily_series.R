@@ -121,6 +121,13 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
         imports %>% select(hs10, cty_code, imports),
         by = c('hts10' = 'hs10', 'country' = 'cty_code')
       )
+    # Per-country total imports (denominator for country-weighted ETR). Depends
+    # only on `imports`, so compute once here rather than re-derive it inside
+    # compute_agg_country on every revision / sub-interval call.
+    country_total_imp <- imports %>%
+      group_by(cty_code) %>%
+      summarise(country_total_imports = sum(imports), .groups = 'drop') %>%
+      rename(country = cty_code)
   }
 
   # --- GTAP category crosswalk (HS10 → GTAP sector) ---
@@ -155,8 +162,8 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   # Uses shared helpers from helpers.R to detect all finalized=false overrides
 
   # Helper: compute aggregates for one revision interval (or sub-interval)
-  compute_agg_overall <- function(revision, valid_from, valid_until, sub_start = valid_from) {
-    rev_data <- prepare_interval_data(ts %>% filter(revision == !!revision),
+  compute_agg_overall <- function(rev_ts, rev_ts_w, revision, valid_from, valid_until, sub_start = valid_from) {
+    rev_data <- prepare_interval_data(rev_ts,
                                       sub_start, policy_params, stacking_method,
                                       stacking = 'conditional')
     n_products <- n_distinct(rev_data$hts10)
@@ -178,7 +185,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
       n_all_pairs = n_all_pairs
     )
     if (has_weights) {
-      wt_data <- prepare_interval_data(ts_weighted %>% filter(revision == !!revision),
+      wt_data <- prepare_interval_data(rev_ts_w,
                                        sub_start, policy_params, stacking_method,
                                        stacking = 'none')
       if (nrow(wt_data) > 0) {
@@ -197,8 +204,8 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     return(row)
   }
 
-  compute_agg_country <- function(revision, valid_from, valid_until, sub_start = valid_from) {
-    rev_data <- prepare_interval_data(ts %>% filter(revision == !!revision),
+  compute_agg_country <- function(rev_ts, rev_ts_w, revision, valid_from, valid_until, sub_start = valid_from) {
+    rev_data <- prepare_interval_data(rev_ts,
                                       sub_start, policy_params, stacking_method,
                                       stacking = 'always')
     n_products_rev <- n_distinct(rev_data$hts10)
@@ -217,13 +224,9 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
         n_products_total = n_products_rev
       )
     if (has_weights) {
-      wt_data <- prepare_interval_data(ts_weighted %>% filter(revision == !!revision),
+      wt_data <- prepare_interval_data(rev_ts_w,
                                        sub_start, policy_params, stacking_method,
                                        stacking = 'always')
-      country_total_imp <- imports %>%
-        group_by(cty_code) %>%
-        summarise(country_total_imports = sum(imports), .groups = 'drop') %>%
-        rename(country = cty_code)
       wt_country <- wt_data %>%
         group_by(country) %>%
         summarise(
@@ -242,8 +245,8 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     return(row)
   }
 
-  compute_agg_authority <- function(revision, valid_from, valid_until, sub_start = valid_from) {
-    rev_data <- prepare_interval_data(ts %>% filter(revision == !!revision),
+  compute_agg_authority <- function(rev_ts, rev_ts_w, revision, valid_from, valid_until, sub_start = valid_from) {
+    rev_data <- prepare_interval_data(rev_ts,
                                       sub_start, policy_params, stacking_method,
                                       stacking = 'none')
 
@@ -268,7 +271,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
       mean_other = mean(net_data$net_other)
     )
     if (has_weights) {
-      wt_data <- prepare_interval_data(ts_weighted %>% filter(revision == !!revision),
+      wt_data <- prepare_interval_data(rev_ts_w,
                                        sub_start, policy_params, stacking_method,
                                        stacking = 'none')
       if (nrow(wt_data) > 0) {
@@ -290,10 +293,9 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     return(row)
   }
 
-  compute_agg_category <- function(revision, valid_from, valid_until, sub_start = valid_from) {
+  compute_agg_category <- function(rev_ts, rev_ts_w, revision, valid_from, valid_until, sub_start = valid_from) {
     rev_data <- prepare_interval_data(
-      ts %>%
-        filter(revision == !!revision) %>%
+      rev_ts %>%
         left_join(gtap_xwalk, by = c('hts10' = 'hs10')) %>%
         mutate(gtap_code = coalesce(gtap_code, 'unmapped')),
       sub_start, policy_params, stacking_method, stacking = 'always')
@@ -315,8 +317,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
       )
     if (has_weights) {
       wt_data <- prepare_interval_data(
-        ts_weighted %>%
-          filter(revision == !!revision) %>%
+        rev_ts_w %>%
           left_join(gtap_xwalk, by = c('hts10' = 'hs10')) %>%
           mutate(gtap_code = coalesce(gtap_code, 'unmapped')),
         sub_start, policy_params, stacking_method, stacking = 'always')
@@ -356,26 +357,45 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   # OUT of this parity refactor and flagged for a follow-up. The collector is
   # validated and ready for that fix + for scenario effective_from dates.
   exp_bounds <- expiry_boundaries(policy_params)
-  split_and_aggregate <- function(agg_fn) {
-    rev_intervals %>%
-      pmap_dfr(function(revision, valid_from, valid_until) {
-        starts_inner <- timeline_split_points(valid_from, valid_until, exp_bounds)
-        if (length(starts_inner) == 0) {
-          return(agg_fn(revision, valid_from, valid_until))
-        }
-        # Sub-intervals: [valid_from, s1-1], [s1, s2-1], ..., [sN, valid_until]
-        starts <- c(valid_from, starts_inner)
-        ends   <- c(starts_inner - 1, valid_until)
-        pmap_dfr(list(starts, ends), function(s, e) {
-          agg_fn(revision, s, e, sub_start = s)
-        })
-      })
-  }
+  # Single pass over revision intervals: `ts` (and `ts_weighted`) is filtered to
+  # each revision ONCE and reused by all four aggregators across every
+  # sub-interval — previously each aggregator re-scanned the full ~195M-row table
+  # per revision (and per sub-interval). One revision subset is alive at a time,
+  # so peak memory is unchanged; only the redundant scans are removed. Segments
+  # reproduce the old two branches exactly: with no inner split points the sole
+  # segment is [valid_from, valid_until] with sub_start = valid_from; otherwise
+  # [valid_from, s1-1], [s1, s2-1], ..., [sN, valid_until] each with sub_start = s.
+  ov <- list(); ct <- list(); au <- list(); ca <- list()
+  seg_i <- 0L
+  for (ri in seq_len(nrow(rev_intervals))) {
+    rev_id      <- rev_intervals$revision[ri]
+    valid_from  <- rev_intervals$valid_from[ri]
+    valid_until <- rev_intervals$valid_until[ri]
+    rev_ts   <- ts %>% filter(revision == rev_id)
+    rev_ts_w <- if (has_weights) ts_weighted %>% filter(revision == rev_id) else NULL
 
-  agg_overall <- split_and_aggregate(compute_agg_overall)
-  agg_by_country <- split_and_aggregate(compute_agg_country)
-  agg_by_authority <- split_and_aggregate(compute_agg_authority)
-  agg_by_category <- if (has_categories) split_and_aggregate(compute_agg_category) else tibble()
+    starts_inner <- timeline_split_points(valid_from, valid_until, exp_bounds)
+    if (length(starts_inner) == 0) {
+      starts <- valid_from; ends <- valid_until
+    } else {
+      starts <- c(valid_from, starts_inner)
+      ends   <- c(starts_inner - 1, valid_until)
+    }
+    for (k in seq_along(starts)) {
+      s <- starts[k]; e <- ends[k]
+      seg_i <- seg_i + 1L
+      ov[[seg_i]] <- compute_agg_overall(rev_ts, rev_ts_w, rev_id, s, e, sub_start = s)
+      ct[[seg_i]] <- compute_agg_country(rev_ts, rev_ts_w, rev_id, s, e, sub_start = s)
+      au[[seg_i]] <- compute_agg_authority(rev_ts, rev_ts_w, rev_id, s, e, sub_start = s)
+      if (has_categories) {
+        ca[[seg_i]] <- compute_agg_category(rev_ts, rev_ts_w, rev_id, s, e, sub_start = s)
+      }
+    }
+  }
+  agg_overall <- bind_rows(ov)
+  agg_by_country <- bind_rows(ct)
+  agg_by_authority <- bind_rows(au)
+  agg_by_category <- if (has_categories) bind_rows(ca) else tibble()
 
   # Add etr_base to authority decomposition so parts sum to weighted_etr.
   # Computed as residual: weighted_etr - sum(authority ETRs). This guarantees

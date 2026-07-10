@@ -73,9 +73,8 @@ build_resolved_programs <- function(df, policy = default_stacking_policy()) {
   rate_cols <- names(policy)
 
   # Guards mirror apply_stacking_rules()'s top-of-function so both paths agree.
-  if (!'rate_s122' %in% names(df)) df$rate_s122 <- 0 else df$rate_s122[is.na(df$rate_s122)] <- 0
-  if (!'rate_section_201' %in% names(df)) df$rate_section_201 <- 0 else df$rate_section_201[is.na(df$rate_section_201)] <- 0
-  if (!'metal_share' %in% names(df)) df$metal_share <- 1 else df$metal_share[is.na(df$metal_share)] <- 1
+  df <- ensure_cols(df, list(rate_s122 = 0, rate_section_201 = 0, metal_share = 1),
+                    fill_na = TRUE)
   if (!'deriv_type' %in% names(df)) df$deriv_type <- NA_character_
   # Plank 5c: every policy rate_col must exist before the pivot (mirrors the wide path's
   # compute_stacking_contributions, stacking.R:168, and the 06 fast path which seeds
