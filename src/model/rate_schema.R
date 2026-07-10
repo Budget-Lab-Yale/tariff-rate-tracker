@@ -49,10 +49,10 @@ enforce_rate_schema <- function(df) {
   rate_cols <- c('base_rate', 'statutory_base_rate', 'rate_232', 'rate_301', 'rate_301_cs',
                  'rate_ieepa_recip', 'rate_ieepa_fent', 'rate_s122', 'rate_section_201', 'rate_other',
                  'total_additional', 'total_rate')
+  # Every rate_cols entry is in RATE_SCHEMA and the loop above guarantees each
+  # RATE_SCHEMA column exists, so all are present here — no membership guard needed.
   for (col in rate_cols) {
-    if (col %in% names(df)) {
-      df[[col]][is.na(df[[col]])] <- 0
-    }
+    df[[col]][is.na(df[[col]])] <- 0
   }
 
   # Reorder: schema columns first, then any extras
@@ -470,11 +470,9 @@ add_blanket_pairs <- function(rates, products, covered_hts10, country_rates,
     filter(hts10 %in% covered_hts10, country %in% applicable) %>%
     select(hts10, country)
 
-  base_sel <- if ('base_rate_type' %in% names(products)) {
-    products %>% filter(hts10 %in% covered_hts10) %>% select(hts10, base_rate, base_rate_type)
-  } else {
-    products %>% filter(hts10 %in% covered_hts10) %>% select(hts10, base_rate)
-  }
+  base_sel <- products %>%
+    filter(hts10 %in% covered_hts10) %>%
+    select(hts10, base_rate, dplyr::any_of('base_rate_type'))
   new_pairs <- base_sel %>%
     mutate(base_rate = coalesce(base_rate, 0)) %>%
     tidyr::expand_grid(country = applicable) %>%

@@ -90,8 +90,11 @@ compute_revision_quality <- function(ts) {
       pct_usmca = round(mean(usmca_eligible, na.rm = TRUE) * 100, 1),
       # Unweighted exposure flag: share of pairs whose base MFN rate is a
       # specific/compound duty the model treats as 0 (no AVE conversion).
+      # Guard the all-NA group (e.g. the pre-flag fallback where base_rate_type
+      # is set to NA_character_) so it yields a clean NA, not NaN.
       pct_pairs_specific_or_compound =
-        round(mean(base_rate_type == 'specific_or_compound', na.rm = TRUE) * 100, 1),
+        if (all(is.na(base_rate_type))) NA_real_
+        else round(mean(base_rate_type == 'specific_or_compound', na.rm = TRUE) * 100, 1),
       n_negative_rates = sum(total_rate < 0, na.rm = TRUE),
       n_na_total = sum(is.na(total_rate)),
       .groups = 'drop'
@@ -484,7 +487,7 @@ run_quality_report <- function(
   message('QUALITY REPORT')
   message(strrep('=', 70))
 
-  if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+  ensure_dir(output_dir)
 
   pp <- tryCatch(load_policy_params(), error = function(e) NULL)
 
@@ -625,22 +628,20 @@ run_quality_report <- function(
   # 6. Non-China Section 301 check
   message('\n--- Section 301 Scope Check ---')
   non_china_301 <- inputs$non_china_301
-  {
-    if (nrow(non_china_301) > 0) {
-      message('WARNING: ', nrow(non_china_301),
-              ' non-China rows with rate_301 > 0 (stacking excludes 301 for non-China):')
-      summary_301 <- non_china_301 %>%
-        group_by(revision, country) %>%
-        summarise(n = n(), mean_rate = round(mean(rate_301) * 100, 1), .groups = 'drop')
-      for (r in seq_len(min(nrow(summary_301), 10))) {
-        message('  ', summary_301$revision[r], ' / ', summary_301$country[r],
-                ': ', summary_301$n[r], ' products, mean ', summary_301$mean_rate[r], '%')
-      }
-      write_csv(non_china_301 %>% select(revision, hts10, country, rate_301),
-                file.path(output_dir, 'non_china_301.csv'))
-    } else {
-      message('All rate_301 values are zero outside China.')
+  if (nrow(non_china_301) > 0) {
+    message('WARNING: ', nrow(non_china_301),
+            ' non-China rows with rate_301 > 0 (stacking excludes 301 for non-China):')
+    summary_301 <- non_china_301 %>%
+      group_by(revision, country) %>%
+      summarise(n = n(), mean_rate = round(mean(rate_301) * 100, 1), .groups = 'drop')
+    for (r in seq_len(min(nrow(summary_301), 10))) {
+      message('  ', summary_301$revision[r], ' / ', summary_301$country[r],
+              ': ', summary_301$n[r], ' products, mean ', summary_301$mean_rate[r], '%')
     }
+    write_csv(non_china_301 %>% select(revision, hts10, country, rate_301),
+              file.path(output_dir, 'non_china_301.csv'))
+  } else {
+    message('All rate_301 values are zero outside China.')
   }
 
   # 7. Summary metadata

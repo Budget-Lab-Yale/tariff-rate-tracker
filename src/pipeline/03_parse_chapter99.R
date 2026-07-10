@@ -314,7 +314,7 @@ if (sys.nframe() == 0) {
   }
 
   # Save
-  if (!dir.exists('data/processed')) dir.create('data/processed', recursive = TRUE)
+  ensure_dir('data/processed')
   saveRDS(ch99_rev32, 'data/processed/chapter99_rates.rds')
   message('\nSaved Chapter 99 data to data/processed/chapter99_rates.rds')
 

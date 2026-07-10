@@ -188,10 +188,7 @@ calculate_rates_fast <- function(products, ch99_data, countries,
 
   # Join base rates (+ the base_rate_type exposure flag). Products absent from
   # the join or with an unknown type default to 'free', matching base_rate -> 0.
-  base_join <- products %>% select(hts10, base_rate)
-  if ('base_rate_type' %in% names(products)) {
-    base_join <- products %>% select(hts10, base_rate, base_rate_type)
-  }
+  base_join <- products %>% select(hts10, base_rate, any_of('base_rate_type'))
   rates_wide <- rates_wide %>%
     left_join(base_join, by = 'hts10', relationship = 'many-to-one') %>%
     mutate(base_rate = coalesce(base_rate, 0))
@@ -702,10 +699,8 @@ apply_232_derivatives <- function(rates, products, ch99_data, s232_rates, countr
   pp_local <- policy_params
   metal_cfg <- if (!is.null(pp_local)) pp_local$metal_content else NULL
   metal_shares <- load_metal_content(metal_cfg, unique(rates$hts10), deriv_matched)
-  if ('metal_share' %in% names(rates)) {
-    rates <- rates %>% select(-metal_share)
-  }
   rates <- rates %>%
+    select(-any_of('metal_share')) %>%
     left_join(metal_shares, by = 'hts10', relationship = 'many-to-one') %>%
     mutate(metal_share = coalesce(metal_share, 1.0))
   n_missing_share <- sum(is.na(metal_shares$metal_share[metal_shares$hts10 %in% deriv_matched]))
@@ -922,15 +917,13 @@ ensure_dense_grid <- function(rates, products, countries, context = 'MFN-only') 
 
   existing_pairs <- rates %>% select(hts10, country)
 
-  all_products_base <- products %>%
-    select(hts10, base_rate) %>%
-    mutate(base_rate = coalesce(base_rate, 0))
   # Carry base_rate_type onto new MFN-only pairs (default 'free', matching
   # base_rate -> 0) when products supplies it, mirroring the join above.
-  if ('base_rate_type' %in% names(products)) {
+  all_products_base <- products %>%
+    select(hts10, base_rate, any_of('base_rate_type')) %>%
+    mutate(base_rate = coalesce(base_rate, 0))
+  if ('base_rate_type' %in% names(all_products_base)) {
     all_products_base <- all_products_base %>%
-      left_join(products %>% select(hts10, base_rate_type), by = 'hts10',
-                relationship = 'one-to-one') %>%
       mutate(base_rate_type = coalesce(base_rate_type, 'free'))
   }
 

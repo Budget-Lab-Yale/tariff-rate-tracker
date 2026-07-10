@@ -158,9 +158,8 @@ extract_countries_from_description <- function(description) {
   # Split on ", " or " or " or ", or " or " and "
   parts <- str_split(countries_text, '\\s*,\\s*(?:or\\s+)?|\\s+or\\s+|\\s+and\\s+')[[1]]
 
-  # Restore compound names
+  # Restore compound names (the substitutions above only emit the uppercase _AND_ sentinel)
   parts <- gsub('_AND_', ' and ', parts)
-  parts <- gsub('_and_', ' and ', parts)
 
   parts <- trimws(parts)
   parts <- parts[parts != '' & !grepl('^except', parts, ignore.case = TRUE)]
@@ -1345,7 +1344,7 @@ extract_usmca_eligibility <- function(hts_raw) {
 #' @return Invisibly, a list with the $ieepa, $usmca, and $products tibbles
 write_policy_inputs <- function(json_path, country_lookup,
                                 out_dir = here('data', 'processed')) {
-  if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
+  ensure_dir(out_dir)
 
   # parse_products() lives in 04_parse_products.R. Guard-source it so this works
   # both in the build (04 already loaded) and when 05 runs standalone.

@@ -280,7 +280,7 @@ if (sys.nframe() == 0) {
   }
 
   # Save
-  if (!dir.exists('data/processed')) dir.create('data/processed', recursive = TRUE)
+  ensure_dir('data/processed')
   saveRDS(products_basic, 'data/processed/products_basic.rds')
   saveRDS(products_rev32, 'data/processed/products_rev32.rds')
   message('\nSaved product data')

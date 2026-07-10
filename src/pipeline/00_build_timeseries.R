@@ -379,6 +379,9 @@ assemble_timeseries <- function(output_dir, rev_dates, pp_build,
 
   # Load all snapshot files (including pre-existing from incremental)
   all_snapshot_files <- list.files(output_dir, pattern = '^snapshot_.*\\.rds$', full.names = TRUE)
+  # Revision ids present on disk, derived once from the (immutable) file list and
+  # reused by the completeness/orphan gates below.
+  revs_on_disk <- sub('^snapshot_', '', tools::file_path_sans_ext(basename(all_snapshot_files)))
 
   # Completeness gate (Finding 3): if the caller declares which revisions it
   # expected this run, fail loud when any are missing from disk — a dropped
@@ -389,7 +392,6 @@ assemble_timeseries <- function(output_dir, rev_dates, pp_build,
   # no stop(), no behavior change, byte-identical output. Compare against
   # revision *ids* present on disk, mirroring how the timeseries is assembled.
   if (!is.null(expected_revisions)) {
-    revs_on_disk <- sub('^snapshot_', '', tools::file_path_sans_ext(basename(all_snapshot_files)))
     missing_revs <- setdiff(expected_revisions, revs_on_disk)
     if (length(missing_revs) > 0 && !allow_partial) {
       stop('assemble_timeseries: ', length(missing_revs), ' of ',
@@ -414,7 +416,6 @@ assemble_timeseries <- function(output_dir, rev_dates, pp_build,
   # revision_dates.csv (2026-06-08 build carried 4.8M NA-interval rows).
   # rev_dates includes synthetic bnd_/sched_ rows by this point, so any
   # mismatch is a genuinely stale or foreign file: fail loud and name it.
-  revs_on_disk <- sub('^snapshot_', '', tools::file_path_sans_ext(basename(all_snapshot_files)))
   orphan_revs <- setdiff(revs_on_disk, rev_dates$revision)
   if (length(orphan_revs) > 0) {
     stop('assemble_timeseries: ', length(orphan_revs),
@@ -516,7 +517,7 @@ assemble_timeseries <- function(output_dir, rev_dates, pp_build,
 
   message('  Added interval columns: valid_from / valid_until')
 
-  if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+  ensure_dir(output_dir)
   ts_path <- file.path(output_dir, 'rate_timeseries.rds')
   saveRDS(timeseries, ts_path)
   message('Saved time series: ', ts_path)
@@ -563,7 +564,6 @@ assemble_timeseries <- function(output_dir, rev_dates, pp_build,
   # expected set — keeps the metadata shape unchanged in the normal path that
   # doesn't pass expected_revisions.
   if (!is.null(expected_revisions)) {
-    revs_on_disk <- sub('^snapshot_', '', tools::file_path_sans_ext(basename(all_snapshot_files)))
     metadata$expected_revisions <- expected_revisions
     metadata$skipped_revisions  <- setdiff(expected_revisions, revs_on_disk)
   }

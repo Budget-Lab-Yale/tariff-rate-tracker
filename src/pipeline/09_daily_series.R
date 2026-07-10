@@ -608,7 +608,7 @@ export_daily_slice <- function(ts, date_range, countries = NULL, products = NULL
   if (!is.null(output_path)) {
     ext <- tools::file_ext(output_path)
     dir_path <- dirname(output_path)
-    if (!dir.exists(dir_path)) dir.create(dir_path, recursive = TRUE)
+    ensure_dir(dir_path)
 
     if (ext == 'parquet' && requireNamespace('arrow', quietly = TRUE)) {
       arrow::write_parquet(result, output_path)
@@ -825,7 +825,7 @@ build_daily_workbook_readme <- function() {
 #' @param daily List from build_daily_aggregates()
 #' @param out_dir Output directory
 save_daily_outputs <- function(daily, out_dir = series_section_dir('daily')) {
-  if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
+  ensure_dir(out_dir)
 
   write_csv(daily$daily_overall, file.path(out_dir, 'daily_overall.csv'))
 
@@ -1144,7 +1144,7 @@ save_alternative_output <- function(daily_overall, variant,
                                      agg_by_country = NULL,
                                      agg_by_category = NULL,
                                      out_dir = scenario_dir(variant)) {
-  if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
+  ensure_dir(out_dir)
   daily_overall <- daily_overall %>% mutate(variant = variant)
   fname <- 'daily_overall.csv'
   write_csv(daily_overall, file.path(out_dir, fname))

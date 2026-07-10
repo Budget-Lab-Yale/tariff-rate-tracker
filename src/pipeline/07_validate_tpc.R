@@ -130,9 +130,7 @@ compare_to_tpc <- function(our_rates, tpc_data, target_date, baseline_rates = NU
     filter(date == target_date) %>%
     select(hts10, country = country_code, tpc_rate_change)
 
-  if (length(tpc_excluded) > 0) {
-    tpc_date <- tpc_date %>% filter(!country %in% tpc_excluded)
-  }
+  tpc_date <- tpc_date %>% filter(!country %in% tpc_excluded)
 
   # Calculate our rate change from baseline
   if (!is.null(baseline_rates)) {
@@ -154,9 +152,7 @@ compare_to_tpc <- function(our_rates, tpc_data, target_date, baseline_rates = NU
   }
 
   # Exclude phantom IEEPA countries from our side as well (full_join)
-  if (length(tpc_excluded) > 0) {
-    our_changes <- our_changes %>% filter(!country %in% tpc_excluded)
-  }
+  our_changes <- our_changes %>% filter(!country %in% tpc_excluded)
 
   # Join and compare
   comparison <- tpc_date %>%
@@ -298,10 +294,8 @@ validate_revision_against_tpc <- function(revision_rates, tpc_path, tpc_date, ce
     select(hts10, country, total_additional,
            rate_232, rate_301, rate_ieepa_recip, rate_ieepa_fent, rate_s122, rate_other)
 
-  if (length(tpc_excluded) > 0) {
-    our_rates <- our_rates %>% filter(!country %in% tpc_excluded)
-    tpc_date_data <- tpc_date_data %>% filter(!country %in% tpc_excluded)
-  }
+  our_rates <- our_rates %>% filter(!country %in% tpc_excluded)
+  tpc_date_data <- tpc_date_data %>% filter(!country %in% tpc_excluded)
 
   # Join and compare
   comparison <- tpc_date_data %>%
@@ -371,7 +365,7 @@ run_validation <- function(our_rates, tpc_path, census_codes, output_dir = 'outp
   message('\n=== Running TPC Validation ===\n')
 
   # Create output directory
-  if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+  ensure_dir(output_dir)
 
   # Create country mapping
   name_to_code <- create_country_name_map(census_codes)
