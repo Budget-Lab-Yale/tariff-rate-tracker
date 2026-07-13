@@ -67,6 +67,106 @@ prepare_interval_data <- function(rev_data, sub_start, policy_params,
   rev_data
 }
 
+# =============================================================================
+# Budget Lab Tariff HS Aggregation
+# =============================================================================
+# An aggregated-HS product classification for the daily by_hs rollup (see
+# docs request tariff_rate_tracker_hs_breakdown_request.md). It maps every
+# product to one of 22 policy-salient categories plus an explicit
+# `unclassified` residual, mutually exclusive and exhaustive over HS chapters
+# 01-97. Unlike the GTAP by_category rollup, it needs NO external crosswalk:
+# category_code is a pure function of the product hts10 (2-digit chapter, with
+# a single HS4 carve-out), so it stays trivially consistent between `actual`
+# and every scenario.
+#
+# Rules (see docs):
+#   1. Most-specific prefix wins: the 8541/8542 HS4 carve-out (semiconductors)
+#      is applied AFTER the chapter rule so it overrides chapter-85 electronics.
+#   2. Classify on the underlying PRODUCT hts10 (chapters 01-97), not the
+#      Chapter 99 modification heading. The rate panel is keyed on the product
+#      hts10 (the same base used to assign gtap_code), so chapters 98-99 appear
+#      only for genuinely unresolvable lines.
+#   3. Residual is explicit: no chapter match -> 'unclassified', never dropped.
+
+hs_category_labels <- tibble::tribble(
+  ~category_code,               ~category_label,
+  'ag_live_animals',            'Agriculture & live animals',
+  'processed_foods',            'Processed foods, beverages & tobacco',
+  'minerals_ores',              'Minerals & ores',
+  'energy',                     'Energy (mineral fuels)',
+  'pharmaceuticals',            'Pharmaceuticals',
+  'chemicals',                  'Chemicals (ex-pharma)',
+  'plastics_rubber',            'Plastics & rubber',
+  'leather',                    'Leather & furskins',
+  'wood_paper',                 'Wood, paper & printing',
+  'textiles_apparel_footwear',  'Textiles, apparel & footwear',
+  'stone_glass',                'Stone, cement, ceramics & glass',
+  'precious_metals',            'Precious metals & stones',
+  'iron_steel',                 'Iron & steel',
+  'aluminum',                   'Aluminum',
+  'other_base_metals',          'Other base metals',
+  'semiconductors',             'Semiconductors & electronic components',
+  'electronics',                'Electronics & electrical equipment',
+  'machinery',                  'Industrial machinery & computers',
+  'motor_vehicles',             'Motor vehicles & parts',
+  'other_transport',            'Other transport equipment',
+  'instruments',                'Precision instruments & optical',
+  'misc_manufactures',          'Miscellaneous manufactures',
+  'unclassified',               'Special / unclassified'
+)
+
+# Named lookup: 2-digit HS chapter -> category_code. Chapters with no entry
+# (e.g. 77, reserved; 98-99, special) fall through to 'unclassified'.
+hs_chapter_to_category <- local({
+  m <- character(0)
+  put <- function(m, lo, hi, code) {
+    for (ch in lo:hi) m[[sprintf('%02d', ch)]] <- code
+    m
+  }
+  m <- put(m,  1, 15, 'ag_live_animals')
+  m <- put(m, 16, 24, 'processed_foods')
+  m <- put(m, 25, 26, 'minerals_ores')
+  m[['27']] <- 'energy'
+  m <- put(m, 28, 29, 'chemicals')
+  m[['30']] <- 'pharmaceuticals'
+  m <- put(m, 31, 38, 'chemicals')
+  m <- put(m, 39, 40, 'plastics_rubber')
+  m <- put(m, 41, 43, 'leather')
+  m <- put(m, 44, 49, 'wood_paper')
+  m <- put(m, 50, 67, 'textiles_apparel_footwear')
+  m <- put(m, 68, 70, 'stone_glass')
+  m[['71']] <- 'precious_metals'
+  m <- put(m, 72, 73, 'iron_steel')
+  m <- put(m, 74, 75, 'other_base_metals')
+  m[['76']] <- 'aluminum'
+  m <- put(m, 78, 83, 'other_base_metals')
+  m[['84']] <- 'machinery'
+  m[['85']] <- 'electronics'
+  m[['86']] <- 'other_transport'
+  m[['87']] <- 'motor_vehicles'
+  m <- put(m, 88, 89, 'other_transport')
+  m <- put(m, 90, 92, 'instruments')
+  m <- put(m, 93, 97, 'misc_manufactures')
+  m
+})
+
+#' Classify a vector of product hts10 codes into Budget Lab HS categories.
+#'
+#' Pure function of the 10-digit product code (character, leading zeros
+#' preserved). Vectorized; returns a character vector of category_code.
+#'
+#' @param hs10 Character vector of hts10 codes.
+#' @return Character vector of category_code (never NA; unmatched -> 'unclassified').
+classify_hs10 <- function(hs10) {
+  hs10 <- as.character(hs10)
+  chapter <- substr(hs10, 1, 2)
+  hs4     <- substr(hs10, 1, 4)
+  code <- unname(hs_chapter_to_category[chapter])
+  code[is.na(code)] <- 'unclassified'          # rule 3: explicit residual
+  code[hs4 %in% c('8541', '8542')] <- 'semiconductors'  # rule 1: HS4 carve-out wins
+  code
+}
+
 #' Build daily aggregate statistics
 #'
 #' Since rates only change at revision boundaries, computes one aggregate per
@@ -153,6 +253,17 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
         group_by(gtap_code) %>%
         summarise(sector_total_imports = sum(imports), .groups = 'drop')
     }
+  }
+
+  # --- Budget Lab HS category denominators (for by_hs weighted ETR) ---
+  # Independent of the GTAP crosswalk: category_code is derived from the
+  # product hs10 directly, so by_hs is always produced. Per-category total
+  # imports are the weighted-ETR denominators, mirroring sector_total_imports.
+  if (has_weights) {
+    category_total_imports <- imports %>%
+      mutate(category_code = classify_hs10(hs10)) %>%
+      group_by(category_code) %>%
+      summarise(category_total_imports = sum(imports), .groups = 'drop')
   }
 
   # China code for net authority decomposition
@@ -339,6 +450,52 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     return(row)
   }
 
+  # by_hs mirrors compute_agg_category exactly, but the grouping key is the
+  # Budget Lab HS category_code derived from the product hts10 (no crosswalk
+  # join) and the weighted-ETR denominator is category_total_imports. Same
+  # import-weight base and weighting method as by_category / overall.
+  compute_agg_hs <- function(rev_ts, rev_ts_w, revision, valid_from, valid_until, sub_start = valid_from) {
+    rev_data <- prepare_interval_data(
+      rev_ts %>% mutate(category_code = classify_hs10(hts10)),
+      sub_start, policy_params, stacking_method, stacking = 'always')
+    n_products_rev <- n_distinct(rev_data$hts10)
+    row <- rev_data %>%
+      group_by(category_code) %>%
+      summarise(
+        mean_additional_exposed = mean(total_additional),
+        mean_total_exposed = mean(total_rate),
+        mean_additional_all_pairs = sum(total_additional) / n_products_rev,
+        mean_total_all_pairs = sum(total_rate) / n_products_rev,
+        n_products_present = n_distinct(hts10),
+        n_pairs_present = n(),
+        .groups = 'drop'
+      ) %>%
+      mutate(
+        revision = revision, valid_from = valid_from, valid_until = valid_until,
+        n_products_total = n_products_rev
+      )
+    if (has_weights) {
+      wt_data <- prepare_interval_data(
+        rev_ts_w %>% mutate(category_code = classify_hs10(hts10)),
+        sub_start, policy_params, stacking_method, stacking = 'always')
+      wt_cat <- wt_data %>%
+        group_by(category_code) %>%
+        summarise(
+          tariffed_imports = sum(imports),
+          weighted_numerator = sum(total_rate * imports),
+          .groups = 'drop'
+        ) %>%
+        left_join(category_total_imports, by = 'category_code') %>%
+        mutate(
+          category_total_imports = coalesce(category_total_imports, tariffed_imports),
+          weighted_etr = weighted_numerator / category_total_imports
+        ) %>%
+        select(category_code, weighted_etr)
+      row <- row %>% left_join(wt_cat, by = 'category_code')
+    }
+    return(row)
+  }
+
   # --- Per-revision aggregates (with generic expiry splitting) ---
   # Phase 3c: the unified splitter (src/model/timeline.R) owns interval splitting, fed the
   # EXPIRY boundaries (SECTION_122 / SWISS) — the schedule boundaries that fall
@@ -365,7 +522,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   # reproduce the old two branches exactly: with no inner split points the sole
   # segment is [valid_from, valid_until] with sub_start = valid_from; otherwise
   # [valid_from, s1-1], [s1, s2-1], ..., [sN, valid_until] each with sub_start = s.
-  ov <- list(); ct <- list(); au <- list(); ca <- list()
+  ov <- list(); ct <- list(); au <- list(); ca <- list(); hs <- list()
   seg_i <- 0L
   for (ri in seq_len(nrow(rev_intervals))) {
     rev_id      <- rev_intervals$revision[ri]
@@ -390,12 +547,17 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
       if (has_categories) {
         ca[[seg_i]] <- compute_agg_category(rev_ts, rev_ts_w, rev_id, s, e, sub_start = s)
       }
+      hs[[seg_i]] <- compute_agg_hs(rev_ts, rev_ts_w, rev_id, s, e, sub_start = s)
     }
   }
   agg_overall <- bind_rows(ov)
   agg_by_country <- bind_rows(ct)
   agg_by_authority <- bind_rows(au)
   agg_by_category <- if (has_categories) bind_rows(ca) else tibble()
+  # Attach the human label and order columns (date is prepended by expand).
+  agg_by_hs <- bind_rows(hs) %>%
+    left_join(hs_category_labels, by = 'category_code') %>%
+    relocate(category_label, .after = category_code)
 
   # Add etr_base to authority decomposition so parts sum to weighted_etr.
   # Computed as residual: weighted_etr - sum(authority ETRs). This guarantees
@@ -440,6 +602,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   daily_by_country <- expand_intervals(agg_by_country)
   daily_by_authority <- expand_intervals(agg_by_authority)
   daily_by_category <- if (nrow(agg_by_category) > 0) expand_intervals(agg_by_category) else tibble()
+  daily_by_hs <- if (nrow(agg_by_hs) > 0) expand_intervals(agg_by_hs) else tibble()
 
   message('  Daily overall rows: ', nrow(daily_overall))
   message('  Daily by-country rows: ', nrow(daily_by_country))
@@ -447,16 +610,19 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   if (has_categories) {
     message('  Daily by-category rows: ', nrow(daily_by_category))
   }
+  message('  Daily by-hs rows: ', nrow(daily_by_hs))
 
   return(list(
     daily_overall = daily_overall,
     daily_by_country = daily_by_country,
     daily_by_authority = daily_by_authority,
     daily_by_category = daily_by_category,
+    daily_by_hs = daily_by_hs,
     agg_overall = agg_overall,
     agg_by_country = agg_by_country,
     agg_by_authority = agg_by_authority,
-    agg_by_category = agg_by_category
+    agg_by_category = agg_by_category,
+    agg_by_hs = agg_by_hs
   ))
 }
 
@@ -872,6 +1038,10 @@ save_daily_outputs <- function(daily, out_dir = series_section_dir('daily')) {
   if (has_category) {
     write_csv(daily$daily_by_category, file.path(out_dir, 'daily_by_category.csv'))
   }
+  has_hs <- !is.null(daily$daily_by_hs) && nrow(daily$daily_by_hs) > 0
+  if (has_hs) {
+    write_csv(daily$daily_by_hs, file.path(out_dir, 'daily_by_hs.csv'))
+  }
   saveRDS(daily, file.path(out_dir, 'daily_aggregates.rds'))
 
   # Parquet siblings for cross-language consumers (skipped silently when
@@ -881,6 +1051,9 @@ save_daily_outputs <- function(daily, out_dir = series_section_dir('daily')) {
   write_parquet_if_arrow(daily$daily_by_authority, file.path(out_dir, 'daily_by_authority.csv'))
   if (has_category) {
     write_parquet_if_arrow(daily$daily_by_category, file.path(out_dir, 'daily_by_category.csv'))
+  }
+  if (has_hs) {
+    write_parquet_if_arrow(daily$daily_by_hs, file.path(out_dir, 'daily_by_hs.csv'))
   }
 
   # --- Excel workbook (overwrite individual sheets, preserve workbook) ---
@@ -895,6 +1068,9 @@ save_daily_outputs <- function(daily, out_dir = series_section_dir('daily')) {
   message('  daily_by_authority.csv: ', nrow(daily$daily_by_authority), ' rows')
   if (has_category) {
     message('  daily_by_category.csv: ', nrow(daily$daily_by_category), ' rows')
+  }
+  if (has_hs) {
+    message('  daily_by_hs.csv: ', nrow(daily$daily_by_hs), ' rows')
   }
   message('  daily_aggregates.rds')
   if (requireNamespace('openxlsx', quietly = TRUE)) message('  daily_workbook.xlsx')
@@ -964,7 +1140,8 @@ write_daily_part_for_snapshot <- function(snapshot, revision, valid_from, valid_
     daily_overall = daily$daily_overall,
     daily_by_country = daily$daily_by_country,
     daily_by_authority = daily$daily_by_authority,
-    daily_by_category = daily$daily_by_category
+    daily_by_category = daily$daily_by_category,
+    daily_by_hs = daily$daily_by_hs
   )
   path <- daily_part_path(output_dir, revision)
   saveRDS(part, path)
@@ -1022,7 +1199,8 @@ load_daily_parts_if_complete <- function(snapshot_dir, rev_dates,
     daily_overall      = bind_rows(lapply(parts, `[[`, 'daily_overall')),
     daily_by_country   = bind_rows(lapply(parts, `[[`, 'daily_by_country')),
     daily_by_authority = bind_rows(lapply(parts, `[[`, 'daily_by_authority')),
-    daily_by_category  = bind_rows(lapply(parts, `[[`, 'daily_by_category'))
+    daily_by_category  = bind_rows(lapply(parts, `[[`, 'daily_by_category')),
+    daily_by_hs        = bind_rows(lapply(parts, `[[`, 'daily_by_hs'))
   )
 }
 
@@ -1114,7 +1292,8 @@ build_daily_aggregates_streaming <- function(snapshot_dir, rev_dates,
     daily_overall      = bind_rows(lapply(results, `[[`, 'daily_overall')),
     daily_by_country   = bind_rows(lapply(results, `[[`, 'daily_by_country')),
     daily_by_authority = bind_rows(lapply(results, `[[`, 'daily_by_authority')),
-    daily_by_category  = bind_rows(lapply(results, `[[`, 'daily_by_category'))
+    daily_by_category  = bind_rows(lapply(results, `[[`, 'daily_by_category')),
+    daily_by_hs        = bind_rows(lapply(results, `[[`, 'daily_by_hs'))
   )
 }
 
