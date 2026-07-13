@@ -51,7 +51,8 @@ RELEASE_OUTPUTS <- list(
   list(name = 'daily_overall',       src = 'output/actual/daily/daily_overall.csv',       format = 'csv'),
   list(name = 'daily_by_country',    src = 'output/actual/daily/daily_by_country.csv',    format = 'csv'),
   list(name = 'daily_by_authority',  src = 'output/actual/daily/daily_by_authority.csv',  format = 'csv'),
-  list(name = 'daily_by_category',   src = 'output/actual/daily/daily_by_category.csv',   format = 'csv')
+  list(name = 'daily_by_category',   src = 'output/actual/daily/daily_by_category.csv',   format = 'csv'),
+  list(name = 'daily_by_hs',         src = 'output/actual/daily/daily_by_hs.csv',         format = 'csv')
 )
 
 
