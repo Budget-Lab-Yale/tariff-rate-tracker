@@ -24,15 +24,35 @@ reciprocal, but only 5 of the 8473 lines are on
 II / US Note 2(v)(iii). See also tariff-etr-eval
 `docs/tracker_audits/s232_semi_calibration_2026-04-28.md`.
 
-### 2. Country-specific EO layer appears to bypass the IEEPA exemption list (~$2.3B)
-India pharma (3004): snapshots show `rate_ieepa_recip = 0.25` — exactly the
-India EO (9903.01.84) with the Phase-2 component zeroed — even though **144
-codes under 3004 are on the exempt list**. Same pattern on 9801 US-goods-
-returned: Brazil 40%, India 25% (the EO rates), despite 47 ch98 codes on the
-list. Hypothesis: in `06_calculate_rates.R`, the exemption zeroing is applied
-to the Phase-1/2 reciprocal but the `country_eo` additions are summed on top
-without passing through the same filter. Gaps: India ch30 $1.37B, Brazil ch98
-$568M, India ch98 $293M.
+### 2. Country-specific EO layer appears to bypass the IEEPA exemption list — REFUTED / RESOLVED
+Original hypothesis: the `country_eo` additions were summed on top of
+`rate_ieepa_recip` without passing through the exemption filter, so India pharma
+(3004) showed `rate_ieepa_recip = 0.25` and 9801 US-goods-returned showed the
+full EO rate (Brazil 40%, India 25%) despite being on the exempt list.
+
+**Refuted in the current code.** The surcharge arm of the `rate_ieepa_recip`
+`case_when` (`06_calculate_rates.R:1851-1853`) splits the rate into
+`(ieepa_country_rate − country_eo_rate)` — zeroed by the universal Annex II list
+via `exempt_active` — plus `country_eo_rate`, which is separately zeroed by
+`is_country_eo_exempt`. That flag (line 1837-1841) covers (a) the per-EO annex
+(`country_eo_exempt_products.csv`; Brazil 9903.01.77 lists ch27 energy + more),
+(b) Annex II inheritance for EOs in `country_eo_annex_ii_inherit` (India
+9903.01.84, config default), and (c) the standard ch98 claim paragraph. The
+join key is dot-stripped on both sides (`authority_adapter.R:355` vs
+`substr(hts10,1,8)`), so there is no key mismatch.
+
+Verified in `snapshot_rev_25.rds` (2025-10-14): Brazil ch27 energy
+`rate_ieepa_recip = 0`; India 3004 exempt codes (e.g. 3004.90.92xx) `= 0`;
+Brazil and India 9801 US-goods-returned `= 0`. The one India line still at 0.5
+(3004.43.00.00, norephedrine medicaments) is **correct**, not a gap: the
+reciprocal Annex II list (heading 9903.01.32 / note 2(v)(iii)(a)) as printed in
+the HTS enumerates 3004.41/.42/.49 but omits 3004.43 (a consistent omission that
+also drops 3003.31 and 3003.43); the tracker faithfully reproduces this. 3004.43
+*is* exempt for EU (heading 9903.02.77) and Switzerland (9903.02.86), modeled
+via `floor_exempt_products.csv` — and the snapshot confirms EU/DE 3004.43
+`rate_ieepa_recip = 0` while non-EU origins (India) correctly pay the full rate.
+So there is nothing to add to the universal exempt list; the origin-conditional
+behavior matches the law. (Verified 2026-07-08.)
 
 ### 3. The IEEPA exempt list is static → November 2025 ag carve-out applied retroactively (negative-eta cluster)
 `ieepa_exempt_products.csv` contains coffee (0901: 35 codes), tea (0902),
@@ -69,11 +89,18 @@ specific duties, keeping the lines (base ≈ 0 or a rough AVE) would let the
 15% Swiss-framework surcharge attach. Same missing-line issue seen on
 8408.20.90.90 (Germany).
 
-### 7. Canada crude USMCA eligibility (part of $1.6B ch27 gap)
-2709.00.20.10 shows `usmca_eligible = FALSE` → full 10% energy-carve-out
-fentanyl on a major crude line, while sibling 2709 lines are ~0 after USMCA
+### 7. Canada crude USMCA eligibility (part of $1.6B ch27 gap) — RESOLVED 2026-06-04
+2709.00.20.10 showed `usmca_eligible = FALSE` → full 10% energy-carve-out
+fentanyl on a major crude line, while sibling 2709 lines were ~0 after USMCA
 shares. In practice virtually all Canadian crude clears USMCA-compliant.
-Verify the S/S+ `special`-field extraction for 2709.
+**Fixed** by the two-part USMCA false-negative repair (see `todo.md` Extreme-eta
+review fixes, item 6; commit b3dd1b5): (a) `extract_usmca_eligibility()` now
+inherits the parent legal line's `special` field to statistical suffixes via a
+legal-line stack, and (b) the share loader falls back HTS10 → HS8 value-weighted
+share instead of defaulting absent/zero-trade pairs to 0. Verified in
+`snapshot_rev_25.rds` (rebuilt 2026-06-25): 2709.00.20.10/CA now
+`usmca_eligible = TRUE`, `statutory_rate_ieepa_fent = 0.10` (correct energy tier)
+haircut to an effective `rate_ieepa_fent ≈ 0.0015` by the ~98.5% USMCA share.
 
 ### 8. AD/CVD — out of scope by design, but worth documenting
 Vietnam ch85 collects $1.26B on lines the tracker correctly models at 0

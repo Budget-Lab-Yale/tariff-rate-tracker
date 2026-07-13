@@ -88,6 +88,7 @@ accumulate into an unauditable model.
 | F5 | **Entry-coverage flag** for 2716/2711/2709 — flows that structurally never generate customs entries; eval comparisons should skip them rather than book residual. | metadata | eval item 5b | Phase 3a; sidecar, no rate change |
 | F6 | **Annex II / ch99 claim shares** (IMDB) beyond §301 — generalize U3 to other exemption families. | utilization | etr_adj handoff item 1 | |
 | F7 | **Watch-only**: 0202 TRQ mix (Feb–Mar 2026), China 84/85 stacking. | — | eval item 7 | documented, no action |
+| F8 | **Energy lines on the §232 derivative annexes** — 2710.19.30 (lubricating oil) and 2711.12 (propane) are genuinely enumerated as steel derivatives (note 16(n), heading 9903.81.91, eff. 2025-08-18) and aluminum derivatives (note 19(k), heading 9903.85.08), re-affirmed in the April-2026 annex 2; classification is CORRECT (mirrors beer 2203.00.00 on the aluminum list), not a scraper artifact. `statutory_rate_232 = 0.50`; effective `rate_232 ≈ 0.50 × steel_share ≈ 0.8–1.1%`. Caveat: these are overwhelmingly BULK imports (pipeline/tanker/bulk rail) with ~0 declared container metal, so realized 232 ≈ 0 — the BEA I/O sector metal_share modestly over-states them and feeds energy η. | basis | this review (C) | no classification action; folds into the metal-share calibration, eta queue item 2 |
 
 ---
 

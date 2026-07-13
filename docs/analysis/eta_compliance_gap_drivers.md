@@ -185,3 +185,41 @@ is negative for low-statutory-rate partners. The two baselines bracket the compo
   chapter spread above.
 - `fig_eta_vs_size` / `fig_eta_dist_ecdf`: the most extreme cell-level ηs sit in tiny-revenue
   cells; revenue-weighted, the distribution is far tighter than the raw histogram suggests.
+
+## External corroboration for the energy η (and a time-varying caveat)
+
+*Added 2026-07-08.* Public reporting independently confirms the near-total energy
+under-collection this note attributes to USMCA claiming + carve-outs — it is
+legitimate exemption behavior, not evasion or a statutory-assignment bug, so the
+energy η should stay in η rather than be zeroed out of `rate_h2avg` (that would
+double-count).
+
+- **The claiming surge is real and large.** Importers did not claim USMCA on
+  ~$78B of Canadian crude in 2024 (plus ~$16B of other energy entering tariff-free
+  outside USMCA): when MFN was ~0 the origin paperwork wasn't worth filing. Once
+  the IEEPA tariffs (10% energy tier / 25–35% general) made it worth it, oil & gas
+  USMCA compliance jumped from **~25% (Jun 2024) to ~84% (Jun 2025)**, and **~99%
+  of Canadian oil now enters duty-free** once all exemptions are counted (Census
+  data via Reuters; *The Logic* on the "paperwork scramble"). Non-energy sectors
+  lag at ~45%. Canada supplied a record ~61% of US oil imports in 2025, so this is
+  a large low-collecting flow. This is exactly the "assumed ~88% vs realized ~100%"
+  wedge described above — now with an external magnitude.
+
+- **CAVEAT — claiming is TIME-VARYING, so a static claiming share mis-fits both
+  ends.** The 25%→84% jump happened *within the training window* (2024→2025). A
+  fixed assumed-claiming share baked into the statutory layer is therefore too
+  high in early-2025 (claiming still low → tracker under-states collectible duty)
+  and too low by late-2025 (claiming near-universal → tracker over-states it).
+  Because η is calibrated over the pooled window, a single η per energy cell
+  averages across this ramp and will be biased in any month far from the window
+  mean. For the η owners: consider either (a) a month-varying energy claiming
+  path, or (b) restricting the energy η calibration to the post-surge steady
+  state (≈2025-H2 onward) and flagging the ramp months separately. Ties to the
+  open USMCA-claim-share re-base decision (`docs/internal/eta_statutory_measurement_queue_2026-07.md`
+  item 3).
+
+- Sources: *The Logic* (oilpatch USMCA scramble); Reuters/Census via Wealth
+  Professional (25%→84%→99% compliance); GHY International and PA Petroleum Assoc.
+  (energy carve-out / USMCA-compliant pause); Budget Lab (Yale) and Tax Foundation
+  (effective-vs-statutory framing); Equitable Growth (petroleum & coal among the
+  lowest effective subsector rates); Forbes (Canada 61% of 2025 US oil imports).
