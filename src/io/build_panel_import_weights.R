@@ -772,6 +772,107 @@ make_interval_weights_fn <- function(base_path, crosswalk_path,
 }
 
 
+#' Named revision -> RAW HTS-identity Date, resolved through each revision's
+#' archive_rev_id.
+#'
+#' Real revisions map to themselves; synthetic boundary revisions (bnd_/sched_)
+#' inherit their owning real revision's HTS identity via `archive_rev_id` (the
+#' array timeline records it). Fails loud if any revision has no identity date.
+#'
+#' @param timeline a data frame with `revision` and (optionally) `archive_rev_id`.
+#' @param csv path to revision_dates.csv (RAW effective_date column).
+hts_as_of_dates_from_timeline <- function(timeline,
+                                          csv = here::here('config', 'revision_dates.csv')) {
+  if (!'revision' %in% names(timeline)) {
+    stop('hts_as_of_dates_from_timeline: timeline needs a `revision` column.', call. = FALSE)
+  }
+  revs <- as.character(timeline$revision)
+  arch <- if ('archive_rev_id' %in% names(timeline)) as.character(timeline$archive_rev_id) else revs
+  arch <- ifelse(is.na(arch) | !nzchar(arch), revs, arch)
+  dts <- lapply(arch, function(a) as.Date(.hts_identity_date(a, csv = csv)))
+  names(dts) <- revs
+  miss <- revs[vapply(dts, function(d) length(d) == 0 || is.na(d), logical(1))]
+  if (length(miss)) {
+    stop('hts_as_of_dates_from_timeline: no HTS-identity date for revision(s): ',
+         paste(miss, collapse = ', '),
+         ' (checked archive_rev_id in ', csv, ').', call. = FALSE)
+  }
+  dts
+}
+
+
+#' Resolve the daily-series weight plan from config (+ an optional revision set).
+#'
+#' Returns a normalized plan the daily callers consume without re-reading config:
+#' `list(weight_mode, weight_method, imports, imports_fn, hts_as_of_dates,
+#' weight_context)`. Exactly one of `imports` / `imports_fn` is non-NULL for a
+#' weighted plan; both are NULL for `unweighted`.
+#'
+#' Requires load_local_paths()/load_import_weights()/weight_resolution_error() to
+#' be in scope (sourced by the daily caller scripts).
+#'
+#' @param hts_as_of_dates preferred: a named revision -> Date map (e.g. from
+#'   hts_as_of_dates_from_timeline()). Falls back to per-revision resolution from
+#'   `revisions` if NULL.
+#' @param revisions revision ids to resolve identity dates for when
+#'   hts_as_of_dates is NULL (real revisions only).
+resolve_daily_weight_plan <- function(hts_as_of_dates = NULL, revisions = NULL,
+                                       weight_mode = NULL, weight_method = NULL,
+                                       base_path = NULL, shares_path = NULL,
+                                       crosswalk_path = NULL, overrides_path = NULL) {
+  lp <- load_local_paths()
+  weight_mode   <- weight_mode   %||% (lp$weight_mode %||% 'required')
+  weight_method <- weight_method %||% (lp$weight_method %||% '484f')
+
+  if (identical(weight_mode, 'unweighted')) {
+    return(list(weight_mode = 'unweighted', weight_method = weight_method,
+                imports = NULL, imports_fn = NULL,
+                hts_as_of_dates = NULL, weight_context = NULL))
+  }
+
+  if (identical(weight_method, 'static')) {
+    imports <- load_import_weights(weight_mode = 'required')
+    return(list(weight_mode = 'weighted', weight_method = 'static',
+                imports = imports, imports_fn = NULL,
+                hts_as_of_dates = NULL, weight_context = NULL))
+  }
+
+  # 484f (default): per-interval mapping.
+  base_path      <- base_path      %||% lp$import_weights
+  shares_path    <- shares_path    %||% lp$split_share_imports
+  crosswalk_path <- crosswalk_path %||% here::here('resources', 'hts10_484f_transfers.csv')
+  overrides_path <- overrides_path %||% here::here('resources', 'hts10_484f_overrides.csv')
+  if (is.null(base_path) || !nzchar(base_path) || !file.exists(base_path)) {
+    stop(weight_resolution_error(
+      paste0('weight_method="484f" base file not found: ', base_path %||% '<unset>'),
+      context = 'load'))
+  }
+  if (is.null(crosswalk_path) || !file.exists(crosswalk_path)) {
+    stop('weight_method="484f" requires the transfers crosswalk: ',
+         crosswalk_path %||% '<unset>',
+         '\n  Generate it with: Rscript tools/build_484f_crosswalk.R', call. = FALSE)
+  }
+  if (!is.null(shares_path) && !file.exists(shares_path)) shares_path <- NULL
+  if (!is.null(overrides_path) && !file.exists(overrides_path)) overrides_path <- NULL
+
+  imports_fn <- make_interval_weights_fn(base_path, crosswalk_path,
+                                         shares_path, overrides_path)
+
+  if (is.null(hts_as_of_dates) && !is.null(revisions)) {
+    hts_as_of_dates <- hts_as_of_dates_from_timeline(
+      tibble::tibble(revision = as.character(revisions)))
+  }
+  weight_context <- if (!is.null(hts_as_of_dates)) {
+    list(shared = attr(imports_fn, 'shared_fingerprint'),
+         hts_as_of_dates = hts_as_of_dates)
+  } else NULL
+
+  list(weight_mode = 'weighted', weight_method = '484f',
+       imports = NULL, imports_fn = imports_fn,
+       hts_as_of_dates = hts_as_of_dates, weight_context = weight_context)
+}
+
+
 #' Build and (optionally) write the panel-keyed import-weight file for a vintage.
 #'
 #' @param method '484f' (default; authoritative dated transfers) or 'prefix'

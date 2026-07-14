@@ -39,6 +39,15 @@ split_share_imports: data/weights/hs10_by_country_2025_con.rds
 #                Equivalent to passing --unweighted on the CLI.
 weight_mode: required
 
+# How the daily-series import weights are derived from the 2024 base above.
+#   484f   — (DEFAULT) re-key the 2024 base onto EACH revision's panel codes at
+#            that revision's HTS-identity date via the 484(f) transfer crosswalk
+#            (resources/hts10_484f_transfers.csv) + the 2025 split shares. This
+#            keeps renumbered codes in the weighted denominator across history.
+#   static — legacy: join the 2024 base directly to every interval. Renumbered
+#            codes fall out of the join; kept only for A/B and regression.
+weight_method: 484f
+
 # TPC benchmark data (CSV with HTS10 x country tariff rates).
 # Required by: src/07_validate_tpc.R, ETR comparison overlay.
 # Without this: TPC comparison skipped; core tariff series unaffected.

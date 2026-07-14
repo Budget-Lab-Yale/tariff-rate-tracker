@@ -33,6 +33,7 @@ suppressMessages({
   source(here('src', 'pipeline', '09_daily_series.R'))
   source(here('src', 'io', 'quality_report.R'))
   source(here('src', 'io', 'build_import_weights.R'))
+  source(here('src', 'io', 'build_panel_import_weights.R'))
 })
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -191,11 +192,21 @@ products_last %>%
 # Quality currently streams snapshots serially.
 # Neither needs the 204M-row rate_timeseries.rds. (Weighted-ETR / 08 was removed —
 # the daily series already emits the import-weighted ETR columns it duplicated.)
-# Import weights load OUTSIDE tryCatch so a missing-weights failure aborts loudly.
-imports <- if (unweighted) NULL else { ensure_import_weights(); load_import_weights() }
+# Weight plan resolved OUTSIDE tryCatch so a missing-weights failure aborts
+# loudly. For the 484f method the daily loader validates each cached part's
+# fingerprint against this plan's weight_context (built inputs + per-revision
+# HTS-identity date via archive_rev_id); a mismatch fails the gather.
+if (!unweighted) ensure_import_weights()
+weight_plan <- resolve_daily_weight_plan(
+  hts_as_of_dates = hts_as_of_dates_from_timeline(rev_dates),
+  weight_mode = if (unweighted) 'unweighted' else NULL)
 run_daily_series(snapshot_dir = output_dir, rev_dates = rev_dates,
-                 imports = imports, policy_params = pp,
-                 weight_mode = if (unweighted) 'unweighted' else NULL)
+                 imports = weight_plan$imports,
+                 imports_fn = weight_plan$imports_fn,
+                 hts_as_of_dates = weight_plan$hts_as_of_dates,
+                 weight_context = weight_plan$weight_context,
+                 policy_params = pp,
+                 weight_mode = weight_plan$weight_mode)
 quality <- tryCatch(
   run_quality_report(snapshot_dir = output_dir, rev_dates = rev_dates),
   error = function(e) {

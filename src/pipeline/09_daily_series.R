@@ -1404,10 +1404,16 @@ load_daily_parts_if_complete <- function(snapshot_dir, rev_dates,
 #'
 #' @param snapshot_dir Directory of snapshot_<rev>.rds files
 #' @param rev_dates Revision-date table (from load_revision_dates())
-#' @param imports Import weights tibble (or NULL)
+#' @param imports Static import weights tibble (or NULL). Mutually exclusive with
+#'   imports_fn.
+#' @param imports_fn Per-interval weight provider (see build_daily_aggregates).
+#'   Requires hts_as_of_dates.
+#' @param hts_as_of_dates Named revision -> raw HTS-identity Date (imports_fn mode).
 #' @param policy_params Policy params list (SERIES_HORIZON_END drives the tip interval)
 build_daily_aggregates_streaming <- function(snapshot_dir, rev_dates,
-                                              imports = NULL, policy_params = NULL,
+                                              imports = NULL, imports_fn = NULL,
+                                              hts_as_of_dates = NULL,
+                                              policy_params = NULL,
                                               cores = NULL) {
   # Same interval logic assemble_timeseries() uses (00_build_timeseries.R) so the
   # tip extends to the horizon and boundaries match the combined-ts path exactly.
@@ -1435,7 +1441,9 @@ build_daily_aggregates_streaming <- function(snapshot_dir, rev_dates,
     snap$valid_from  <- rev_intervals$valid_from[i]
     snap$valid_until <- rev_intervals$valid_until[i]
     suppressMessages(
-      build_daily_aggregates(snap, imports = imports, policy_params = policy_params))
+      build_daily_aggregates(snap, imports = imports, imports_fn = imports_fn,
+                             policy_params = policy_params,
+                             hts_as_of_dates = hts_as_of_dates))
   }
 
   results <- if (cores > 1L) {
@@ -1482,25 +1490,33 @@ build_daily_aggregates_streaming <- function(snapshot_dir, rev_dates,
 #'   - streaming: pass `snapshot_dir` (+ `rev_dates`) — reads one snapshot at a
 #'     time, never building the 48 GB combined panel. Identical outputs, far less
 #'     memory/time. This is the preferred path for builds and the parity gate.
-run_daily_series <- function(ts = NULL, imports = NULL, policy_params = NULL,
+run_daily_series <- function(ts = NULL, imports = NULL, imports_fn = NULL,
+                             hts_as_of_dates = NULL, weight_context = NULL,
+                             policy_params = NULL,
                              snapshot_dir = NULL, rev_dates = NULL,
                              weight_mode = NULL) {
-  if (is.null(imports) && !identical(weight_mode, 'unweighted')) {
+  # Back-compat: when a caller supplies neither a static tibble nor a provider
+  # and hasn't opted out, load the legacy static weights (weight_method=static).
+  if (is.null(imports) && is.null(imports_fn) && !identical(weight_mode, 'unweighted')) {
     imports <- load_import_weights(weight_mode = weight_mode)
   }
+  has_weights <- !is.null(imports) || !is.null(imports_fn)
   if (!is.null(snapshot_dir)) {
     if (is.null(rev_dates)) rev_dates <- load_revision_dates()
-    weight_mode <- if (is.null(imports)) 'unweighted' else 'weighted'
+    weight_mode <- if (has_weights) 'weighted' else 'unweighted'
     daily <- load_daily_parts_if_complete(snapshot_dir, rev_dates,
                                           policy_params = policy_params,
-                                          weight_mode = weight_mode)
+                                          weight_mode = weight_mode,
+                                          weight_context = weight_context)
     if (is.null(daily)) {
       stop('Daily aggregate parts are missing or stale for ', snapshot_dir,
            '. Re-run the array build so every timeline row writes a current ',
            weight_mode, ' daily_part_<revision>.rds.')
     }
   } else {
-    daily <- build_daily_aggregates(ts, imports = imports, policy_params = policy_params)
+    daily <- build_daily_aggregates(ts, imports = imports, imports_fn = imports_fn,
+                                    hts_as_of_dates = hts_as_of_dates,
+                                    policy_params = policy_params)
   }
   save_daily_outputs(daily)
   return(invisible(daily))
