@@ -103,7 +103,9 @@ write_build_output <- function(shared_root = SHARED_ROOT_DEFAULT,
                              include_scenarios = TRUE,
                              snapshot_src_root = NULL,
                              output_src_root = NULL,
-                             wipe_vintage = TRUE) {
+                             wipe_vintage = TRUE,
+                             weight_mode = NULL,
+                             weight_method = NULL) {
 
   # Snapshots (the per-revision snapshot_<rev>.rds the finalize splits into
   # parquet) and the already-written daily/quality sections can come from
@@ -222,29 +224,66 @@ write_build_output <- function(shared_root = SHARED_ROOT_DEFAULT,
   # src/io/build_panel_import_weights.R). Keyed to the actual panel; scenarios share
   # that same HS10 universe, so one base serves every series. Best-effort: a
   # weights failure warns and continues — it must never block the panel publish.
-  copied$weights <- list(present = FALSE, files = character())
+  # --- Weights (weight-mode plumbing; never inferred from a missing file) -----
+  # weight_mode: 'required' (default) makes a weights-build failure ABORT the
+  # finalize — no best-effort warn-and-drop. 'unweighted' publishes the rate
+  # panel with weights.present = false and an explicit reason.
+  # weight_method: '484f' (default) maps the 2024 base onto the tip panel at the
+  # tip's HTS-identity date via the committed transfers crosswalk; 'static' is
+  # the legacy direct forward-map.
+  lp_w <- tryCatch(load_local_paths(), error = function(e) list())
+  wmode   <- weight_mode   %||% (lp_w$weight_mode   %||% 'required')
+  wmethod <- weight_method %||% (lp_w$weight_method %||% '484f')
+  wmode   <- match.arg(wmode,   c('required', 'unweighted'))
+  wmethod <- match.arg(wmethod, c('484f', 'static'))
+  copied$weights <- list(present = FALSE, files = character(),
+                         weight_mode = wmode, reason = NA_character_)
+  weights_prov <- NULL
   if (!dry_run) {
-    weights_dir <- file.path(vintage_dir, 'weights')
-    snaps <- copied$timeseries$snapshots
-    tip <- if (length(snaps)) snaps[[which.max(vapply(snaps,
-             function(s) as.numeric(as.Date(s$valid_from)), numeric(1)))]] else NULL
-    base_path <- tryCatch(load_local_paths()$import_weights, error = function(e) NULL)
-    res <- tryCatch(
-      build_panel_import_weights(
-        panel_codes = current_panel_codes(actual_snapshots_dir(vintage_dir)),
-        base_path   = base_path,
-        out_dir     = weights_dir,
-        year        = 2024L,
-        hts_vintage = if (!is.null(tip)) tip$revision else NA_character_),
-      error = function(e) {
-        warning('publish: import-weights step FAILED — rate panel published ',
-                'WITHOUT weights/. ', conditionMessage(e), call. = FALSE)
-        NULL
-      })
-    if (!is.null(res)) {
-      copied$weights <- list(present = TRUE, files = res$files)
-      message('publish: weights -> ', weights_dir,
-              ' (', length(res$files), ' file', if (length(res$files) != 1) 's' else '', ')')
+    if (identical(wmode, 'unweighted')) {
+      copied$weights$reason <-
+        'weight_mode=unweighted — weighted artifact intentionally skipped'
+      message('publish: weight_mode=unweighted — no weights/ published.')
+    } else {
+      weights_dir <- file.path(vintage_dir, 'weights')
+      snaps <- copied$timeseries$snapshots
+      tip <- if (length(snaps)) snaps[[which.max(vapply(snaps,
+               function(s) as.numeric(as.Date(s$valid_from)), numeric(1)))]] else NULL
+      base_path      <- lp_w$import_weights %||% NULL
+      xwalk_path     <- here('resources', 'hts10_484f_transfers.csv')
+      overrides_path <- here('resources', 'hts10_484f_overrides.csv')
+      shares_path    <- lp_w$split_share_imports %||% NULL
+      if (!is.null(shares_path) && !file.exists(shares_path)) shares_path <- NULL
+      if (!file.exists(overrides_path)) overrides_path <- NULL
+      # Tip HTS-identity date (RAW effective_date), resolved through the tip's
+      # archive_rev_id so a synthetic bnd_/sched_ tip inherits its owner's
+      # identity. Only needed for the 484f method.
+      hts_as_of <- if (identical(wmethod, '484f')) {
+        resolve_tip_hts_as_of(actual_snapshots_dir(vintage_dir), snapshot_src_root)
+      } else NULL
+      # weight_mode=required: NO tryCatch — a failure aborts the finalize.
+      res <- build_panel_import_weights(
+        panel_codes    = current_panel_codes(actual_snapshots_dir(vintage_dir)),
+        base_path      = base_path,
+        out_dir        = weights_dir,
+        year           = 2024L,
+        hts_vintage    = if (!is.null(tip)) tip$revision else NA_character_,
+        method         = wmethod,
+        crosswalk_path = if (identical(wmethod, '484f')) xwalk_path else NULL,
+        shares_path    = shares_path,
+        overrides_path = overrides_path,
+        hts_as_of_date = hts_as_of)
+      copied$weights <- list(present = TRUE, files = res$files,
+                             weight_mode = wmode, reason = NA_character_)
+      weights_prov <- build_weights_provenance(
+        res = res, weight_mode = wmode, weight_method = wmethod,
+        base_path = base_path, shares_path = shares_path,
+        crosswalk_path = xwalk_path, overrides_path = overrides_path,
+        hts_as_of = hts_as_of,
+        hts_vintage = if (!is.null(tip)) tip$revision else NA_character_,
+        repo_root = repo_root)
+      message('publish: weights -> ', weights_dir, ' (', wmethod, '; ',
+              length(res$files), ' file', if (length(res$files) != 1) 's' else '', ')')
     }
   }
 
@@ -276,7 +315,8 @@ write_build_output <- function(shared_root = SHARED_ROOT_DEFAULT,
                              build_flags = build_flags,
                              build_started_at = build_started_at,
                              copied = copied,
-                             series_snapshots = series_snapshots)
+                             series_snapshots = series_snapshots,
+                             weights_prov = weights_prov)
 
   if (!dry_run) {
     write(jsonlite::toJSON(manifest, pretty = TRUE, auto_unbox = TRUE, na = 'string'),
@@ -542,6 +582,109 @@ publish_dir <- function(src_dir, dest_dir, min_mtime = NULL, dry_run = FALSE) {
 }
 
 
+#' Tip revision's RAW HTS-identity date, resolving a synthetic bnd_/sched_ tip
+#' through its archive_rev_id (from the scratch's synthetic_revisions.rds).
+#'
+#' @param snaps_dir published actual snapshots dir (for the tip revision id).
+#' @param scratch_dir dir holding synthetic_revisions.rds (the build scratch).
+#' @return a Date (NA if unresolvable).
+#' @keywords internal
+resolve_tip_hts_as_of <- function(snaps_dir, scratch_dir = NULL) {
+  tip_rev <- tryCatch(tip_revision_from_snapshots(snaps_dir),
+                      error = function(e) NA_character_)
+  if (is.na(tip_rev)) return(as.Date(NA))
+  arch <- tip_rev
+  synth_path <- if (!is.null(scratch_dir)) file.path(scratch_dir, 'synthetic_revisions.rds') else NULL
+  if (!is.null(synth_path) && file.exists(synth_path)) {
+    synth <- tryCatch(readRDS(synth_path), error = function(e) NULL)
+    if (!is.null(synth) && 'archive_rev_id' %in% names(synth)) {
+      hit <- synth$archive_rev_id[synth$revision == tip_rev]
+      if (length(hit) >= 1 && !is.na(hit[1]) && nzchar(hit[1])) arch <- hit[1]
+    }
+  }
+  as.Date(.hts_identity_date(arch))
+}
+
+
+#' Assemble the manifest weights provenance block from a build_panel_import_weights
+#' result + the resource files it consumed. Pure (only reads file hashes/sizes).
+#'
+#' @keywords internal
+build_weights_provenance <- function(res, weight_mode, weight_method,
+                                     base_path, shares_path, crosswalk_path,
+                                     overrides_path, hts_as_of, hts_vintage,
+                                     repo_root = here()) {
+  file_sha <- function(f) if (!is.null(f) && file.exists(f))
+    digest::digest(file = f, algo = 'sha256') else NA_character_
+  file_rows <- function(f) if (!is.null(f) && file.exists(f)) {
+    tryCatch(nrow(readRDS(f)), error = function(e) NA_integer_)
+  } else NA_integer_
+  st <- res$stats
+
+  # Source 484(f) PDF hashes from the committed manifest (provenance only).
+  src_manifest <- file.path(repo_root, 'data', '484f', 'source_manifest.csv')
+  source_pdfs <- if (identical(weight_method, '484f') && file.exists(src_manifest)) {
+    mf <- tryCatch(suppressMessages(readr::read_csv(src_manifest,
+                    col_types = readr::cols(.default = readr::col_character()))),
+                   error = function(e) NULL)
+    if (!is.null(mf) && all(c('source_doc', 'sha256') %in% names(mf))) {
+      lapply(seq_len(nrow(mf)), function(i)
+        list(source_doc = mf$source_doc[i], sha256 = mf$sha256[i]))
+    } else list()
+  } else list()
+
+  per_source <- if (!is.null(st$per_source)) {
+    lapply(seq_len(nrow(st$per_source)), function(i)
+      list(share_source = st$per_source$share_source[i],
+           value_usd = st$per_source$value[i]))
+  } else list()
+
+  prov <- list(
+    method                = weight_method,
+    weight_mode           = weight_mode,
+    mapper_schema_version = st$mapper_schema_version %||% NA,
+    hts_as_of_date        = if (!is.null(hts_as_of)) as.character(hts_as_of) else NA_character_,
+    hts_vintage           = as.character(hts_vintage),
+    base = list(
+      source_year        = 2024L,
+      value_type         = 'customs_value',
+      source_description = '2024 U.S. Census customs-value imports (HS10 x country)',
+      path               = base_path %||% NA_character_,
+      sha256             = file_sha(base_path),
+      total_usd          = st$total_in %||% NA_real_,
+      row_count          = file_rows(base_path)
+    ),
+    split_shares = if (!is.null(shares_path)) list(
+      present            = TRUE,
+      source_year        = 2025L,
+      value_type         = 'customs_value',
+      source_description = '2025 U.S. Census customs-value imports (HS10 x country) split-share base',
+      path               = shares_path,
+      sha256             = file_sha(shares_path),
+      row_count          = file_rows(shares_path)
+    ) else list(present = FALSE),
+    crosswalk = list(
+      path   = if (identical(weight_method, '484f')) crosswalk_path else NA_character_,
+      sha256 = if (identical(weight_method, '484f')) file_sha(crosswalk_path) else NA_character_,
+      n_transfer_dates = st$n_transfer_dates %||% NA_integer_
+    ),
+    overrides = list(
+      path   = overrides_path %||% NA_character_,
+      sha256 = file_sha(overrides_path)
+    ),
+    totals = list(
+      total_in_usd  = st$total_in %||% NA_real_,
+      total_out_usd = st$total_out %||% NA_real_,
+      n_weight_rows = st$n_weight_rows %||% NA_integer_,
+      n_global_fallback = st$n_global_fallback %||% NA_integer_
+    ),
+    value_by_share_source = per_source,
+    source_pdfs = source_pdfs
+  )
+  list(weight_mode = weight_mode, method = weight_method, provenance = prov)
+}
+
+
 #' Build the per-vintage manifest.
 #'
 #' @param series_snapshots Named list keyed by series ("actual",
@@ -553,7 +696,8 @@ publish_dir <- function(src_dir, dest_dir, min_mtime = NULL, dry_run = FALSE) {
 #' @keywords internal
 build_manifest <- function(vintage, vintage_dir, repo_root,
                            build_flags, build_started_at, copied,
-                           series_snapshots = list()) {
+                           series_snapshots = list(),
+                           weights_prov = NULL) {
   relativize      <- function(f) sub(paste0('^', vintage_dir, '/?'), '', f)
   file_sha256     <- function(f) if (file.exists(f)) digest::digest(file = f, algo = 'sha256') else NA_character_
   file_size_bytes <- function(f) if (file.exists(f)) as.integer(file.info(f)$size) else NA_integer_
@@ -567,6 +711,7 @@ build_manifest <- function(vintage, vintage_dir, repo_root,
   # (same logical rows as the former single rate_timeseries.parquet).
   series <- lapply(series_snapshots, function(snaps) {
     list(snapshots = lapply(snaps, function(s) list(
+      revision    = s$revision,
       valid_from  = s$valid_from,
       valid_until = s$valid_until,
       path        = relativize(s$path),
@@ -581,19 +726,29 @@ build_manifest <- function(vintage, vintage_dir, repo_root,
   weights_files <- if (!is.null(copied$weights)) copied$weights$files else character()
   weights_pq <- weights_files[grepl('import_weights_hs10_country\\.parquet$', weights_files)]
   weights_block <- if (length(weights_pq) > 0) {
-    list(
+    blk <- list(
       present      = TRUE,
+      weight_mode  = if (!is.null(weights_prov)) weights_prov$weight_mode else NA_character_,
+      method       = if (!is.null(weights_prov)) weights_prov$method else NA_character_,
       path         = relativize(weights_pq[1]),
       keys         = c('hts10', 'country'),
       columns      = c('hts10', 'country', 'imports', 'import_value_year', 'hts_vintage'),
       imports_unit = 'USD',
-      note = paste0('2024 Census customs-value imports mapped forward onto this ',
+      note = paste0('2024 Census customs-value imports mapped onto this ',
                     'vintage\'s panel HS10 universe; country = Census cty_code. ',
                     'Joins the rate panel exactly on (hts10, country); zero-import ',
                     'panel pairs are omitted.')
     )
+    # Merge the full 484f provenance (base/shares hashes+totals, crosswalk +
+    # overrides paths+hashes, mapper version, per-share-source $, source PDFs).
+    if (!is.null(weights_prov)) blk$provenance <- weights_prov$provenance
+    blk
   } else {
-    list(present = FALSE)
+    # weights_mode=unweighted, or no weighted artifact was produced. Never infer
+    # from a missing file — carry the explicit reason forward.
+    list(present = FALSE,
+         weight_mode = if (!is.null(copied$weights)) copied$weights$weight_mode else NA_character_,
+         reason = if (!is.null(copied$weights)) (copied$weights$reason %||% NA_character_) else NA_character_)
   }
 
   git_info <- capture_git_info(repo_root)

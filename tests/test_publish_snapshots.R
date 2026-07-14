@@ -2,7 +2,7 @@
 # per-interval snapshot publish — unit tests
 # =============================================================================
 #
-# Pure-logic checks for the snapshot splitter in src/publish_internal.R on a
+# Pure-logic checks for the snapshot splitter in src/io/write_output.R on a
 # tiny synthetic fixture — no model data, runs in seconds. Covers: interval
 # encoding (inclusive valid_until, tip-to-horizon), dry-run record/path shape,
 # live parquet write + round-trip (row counts, authoritative intervals overwrite
@@ -19,7 +19,9 @@ suppressPackageStartupMessages({
   library(arrow)
 })
 
-source(here('src', 'publish_internal.R'))   # pulls output_paths.R + rate_schema.R (build_rev_intervals)
+source(here('src', 'io', 'write_output.R'))   # publish_series_snapshots + build_manifest
+                                              # + build_weights_provenance (pulls
+                                              # output_paths.R + rate_schema.R)
 
 pass_count <- 0L
 check <- function(cond, msg) {
@@ -130,12 +132,51 @@ check(is.character(man$country_code_vocabulary) && nzchar(man$country_code_vocab
       'country_code_vocabulary present')
 sa <- man$series$actual$snapshots
 check(length(sa) == 3, 'series.actual has 3 snapshots')
-keys <- c('valid_from', 'valid_until', 'path', 'sha256', 'size_bytes', 'n_rows')
+keys <- c('revision', 'valid_from', 'valid_until', 'path', 'sha256', 'size_bytes', 'n_rows')
 check(all(keys %in% names(sa[[1]])), 'snapshot record carries all required keys')
+check(all(nzchar(vapply(sa, `[[`, character(1), 'revision'))),
+      'every snapshot record carries a revision (Phase 5)')
+check(identical(sort(vapply(sa, `[[`, character(1), 'revision')),
+                sort(c('basic', 'rev_1', 'rev_2'))),
+      'snapshot revisions match the fixture')
 check(all(grepl('^actual/snapshots/valid_from=', vapply(sa, `[[`, character(1), 'path'))),
       'manifest paths are vintage-relative Hive paths')
 check(identical(sa[[1]]$sha256, digest::digest(file = recs$snapshots[[1]]$path, algo = 'sha256')),
       'manifest sha256 matches a recomputed digest')
+# weights block absent from this fixture -> present=false, no silent inference
+check(isFALSE(man$weights$present), 'no weights_prov -> weights.present = false')
+
+# --- 4b. build_weights_provenance (Phase 5): pure provenance assembly ----------
+cat('\n--- build_weights_provenance ---\n')
+prov_base <- file.path(tmp, 'wbase.rds')
+saveRDS(tibble(hs10 = c('0101010000', '0202020000'), cty_code = c('1111', '1111'),
+               imports = c(100, 50)), prov_base)
+fake_res <- list(stats = list(
+  mapper_schema_version = 1L, method = '484f', hts_as_of_date = '2026-07-01',
+  total_in = 150, total_out = 150, n_weight_rows = 2L, n_transfer_dates = 3L,
+  n_global_fallback = 0L,
+  per_source = tibble(share_source = c('identity', 'even_fallback'),
+                      value = c(120, 30))))
+prov <- build_weights_provenance(
+  res = fake_res, weight_mode = 'required', weight_method = '484f',
+  base_path = prov_base, shares_path = NULL,
+  crosswalk_path = here('resources', 'hts10_484f_transfers.csv'),
+  overrides_path = NULL, hts_as_of = as.Date('2026-07-01'),
+  hts_vintage = '2026_rev_11', repo_root = here())
+check(identical(prov$method, '484f'), 'provenance method = 484f')
+check(identical(prov$weight_mode, 'required'), 'provenance weight_mode = required')
+p <- prov$provenance
+check(identical(p$hts_as_of_date, '2026-07-01'), 'provenance hts_as_of_date')
+check(identical(p$hts_vintage, '2026_rev_11'), 'provenance hts_vintage')
+check(!is.na(p$base$sha256) && p$base$total_usd == 150, 'base sha256 + total recorded')
+check(isFALSE(p$split_shares$present), 'absent shares -> split_shares.present = false')
+check(!is.na(p$crosswalk$sha256) && p$crosswalk$n_transfer_dates == 3,
+      'crosswalk sha256 + transfer dates recorded')
+check(length(p$value_by_share_source) == 2 &&
+      p$value_by_share_source[[1]]$share_source == 'identity',
+      'value_by_share_source carried through')
+check(is.list(p$source_pdfs) && length(p$source_pdfs) >= 1,
+      'source PDF hashes read from source_manifest.csv')
 
 # --- 5. fail-loud: an unreadable snapshot must stop(), never silently truncate --
 cat('\n--- fail-loud on unreadable snapshot ---\n')

@@ -32,6 +32,7 @@ jobs:
             any::jsonlite
             any::yaml
             any::here
+            any::digest
 
       - name: Cache HTS archives
         uses: actions/cache@v4
@@ -87,3 +88,7 @@ jobs:
         # and the fingerprinted daily-part cache (schema v2). Tempfile fixtures,
         # no arrow / no build data.
         run: Rscript tests/test_daily_interval_weights.R
+
+      # NOTE: tests/test_publish_snapshots.R covers the manifest revision +
+      # 484(f) weights provenance block but needs arrow (parquet), which CI
+      # intentionally omits — it runs via Slurm (see the job scripts).
