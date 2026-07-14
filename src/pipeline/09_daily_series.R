@@ -239,19 +239,39 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   gtap_crosswalk_path <- here('resources', 'hs10_gtap_crosswalk.csv')
   has_categories <- file.exists(gtap_crosswalk_path)
   if (has_categories) {
+    # GTAP sector is keyed on the 6-digit HS heading, NOT the full 10-digit code.
+    # Statistical HS10 suffixes never change the GTAP sector, and HS6 -> GTAP is
+    # a stable 1:1 map, so joining on the HS6 prefix makes the category rollup
+    # suffix-vintage-insensitive: a renumbered HS10 whose HS6 is known still maps
+    # to its sector instead of collapsing to 'unmapped' on an exact-HS10 miss.
     gtap_xwalk <- suppressMessages(
       read_csv(gtap_crosswalk_path, col_types = cols(.default = col_character()))
-    ) %>% select(hs10, gtap_code) %>% distinct()
+    ) %>% transmute(hs6 = hs6_code, gtap_code) %>% distinct()
+    if (anyDuplicated(gtap_xwalk$hs6) > 0) {
+      stop('hs10_gtap_crosswalk.csv maps some HS6 headings to multiple GTAP ',
+           'sectors — the HS6 category join needs a 1:1 HS6 -> GTAP map.', call. = FALSE)
+    }
     # Note: ts/ts_weighted are NOT joined to gtap_xwalk upfront — at full
     # build size (~195M rows) the materialized join OOMs at the coalesce
     # step. compute_agg_category does the join per revision instead.
     if (has_weights) {
       # Per-sector total imports (denominator for sector-weighted ETR).
       sector_total_imports <- imports %>%
-        left_join(gtap_xwalk, by = 'hs10') %>%
+        mutate(hs6 = substr(hs10, 1, 6)) %>%
+        left_join(gtap_xwalk, by = 'hs6') %>%
         mutate(gtap_code = coalesce(gtap_code, 'unmapped')) %>%
         group_by(gtap_code) %>%
         summarise(sector_total_imports = sum(imports), .groups = 'drop')
+      # No positive-weight flow may land 'unmapped' when its HS6 IS known.
+      leaked <- imports %>% filter(imports > 0) %>%
+        mutate(hs6 = substr(hs10, 1, 6)) %>%
+        filter(hs6 %in% gtap_xwalk$hs6) %>%
+        left_join(gtap_xwalk, by = 'hs6') %>%
+        filter(is.na(gtap_code))
+      if (nrow(leaked) > 0) {
+        stop(sprintf('%d positive-weight flow(s) with a known HS6 landed unmapped — bug.',
+                     nrow(leaked)), call. = FALSE)
+      }
     }
   }
 
@@ -407,7 +427,8 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   compute_agg_category <- function(rev_ts, rev_ts_w, revision, valid_from, valid_until, sub_start = valid_from) {
     rev_data <- prepare_interval_data(
       rev_ts %>%
-        left_join(gtap_xwalk, by = c('hts10' = 'hs10')) %>%
+        mutate(hs6 = substr(hts10, 1, 6)) %>%
+        left_join(gtap_xwalk, by = 'hs6') %>%
         mutate(gtap_code = coalesce(gtap_code, 'unmapped')),
       sub_start, policy_params, stacking_method, stacking = 'always')
     n_products_rev <- n_distinct(rev_data$hts10)
@@ -429,7 +450,8 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     if (has_weights) {
       wt_data <- prepare_interval_data(
         rev_ts_w %>%
-          left_join(gtap_xwalk, by = c('hts10' = 'hs10')) %>%
+          mutate(hs6 = substr(hts10, 1, 6)) %>%
+          left_join(gtap_xwalk, by = 'hs6') %>%
           mutate(gtap_code = coalesce(gtap_code, 'unmapped')),
         sub_start, policy_params, stacking_method, stacking = 'always')
       wt_sector <- wt_data %>%
