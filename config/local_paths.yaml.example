@@ -21,6 +21,17 @@
 # Behavior when this file is missing is controlled by `weight_mode` below.
 import_weights: null
 
+# 2025 HS10 x country split-share base (NO GTAP column). Optional. Used by the
+# 484(f) weight mapper to allocate a committee split's value across successor
+# suffixes by their observed 2025 trade (country- and all-country tiers); absent,
+# splits fall back to an even distribution within the HS8 heading.
+#
+# How to obtain:
+#   Rscript src/io/build_import_weights.R --year 2025 --no-gtap \
+#           --raw-dir /path/to/IMDB25mm.ZIPs \
+#           --out data/weights/hs10_by_country_2025_con.rds
+split_share_imports: data/weights/hs10_by_country_2025_con.rds
+
 # Failure mode for weighted outputs when `import_weights` is missing or unset.
 #   required   — (DEFAULT) the build errors out loudly. Use this on production
 #                runs where weighted outputs are expected.

@@ -254,7 +254,8 @@ load_policy_params <- function(yaml_path = NULL,
 #' with NULL for any unset entries. Never required for core build.
 #'
 #' @param yaml_path Path to local_paths.yaml
-#' @return Named list with import_weights, tpc_benchmark, tariff_etrs_repo
+#' @return Named list with import_weights, split_share_imports, tpc_benchmark,
+#'   tariff_etrs_repo, model_data_root, weight_mode
 get_country_constants <- function(pp = NULL) {
   if (is.null(pp)) pp <- tryCatch(load_policy_params(), error = function(e) NULL)
   list(
@@ -296,6 +297,10 @@ get_country_constants <- function(pp = NULL) {
 load_local_paths <- function(yaml_path = here('config', 'local_paths.yaml')) {
   defaults <- list(
     import_weights = NULL,
+    # 2025 HS10 x country split-share base (built via build_import_weights.R
+    # --year 2025 --no-gtap). Optional: enables the 484(f) mapper's country /
+    # all-country 2025 share tiers; absent, splits fall to the even tier.
+    split_share_imports = 'data/weights/hs10_by_country_2025_con.rds',
     tpc_benchmark = 'data/tpc/tariff_by_flow_day.csv',
     tariff_etrs_repo = NULL,
     # External model-data interface root: where the build publishes hour-stamped

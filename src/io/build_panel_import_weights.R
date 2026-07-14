@@ -210,6 +210,341 @@ forward_map_imports <- function(base, panel_codes, levels = c(8L, 6L, 4L, 2L)) {
 
 
 # =============================================================================
+# 484(f) crosswalk mapper: authoritative dated propagation (replaces prefix)
+# =============================================================================
+#
+# forward_map_imports() (above) is the legacy prefix-cascade heuristic. This is
+# the principled replacement: it walks the committed 484(f) transfer edges in
+# effective-date order, moving each 2024-base code's value onto the successor
+# code(s) the USITC committee actually assigned it, and only falls back to the
+# prefix cascade for value that no committee edge explains (retired statistical
+# suffixes — see validate_484f_coverage()'s "cascade" class).
+#
+# Design (docs/wondrous_spinning_frost_plan_review.md §2.2-2.4; plan §C):
+#
+#   - VERSIONED IDENTITIES via base-code provenance. Each state row carries the
+#     original 2024 base code it descends from, so the country-specific COMPOSED
+#     map (base_hts10 -> final new_hts10, per country) falls out for free and a
+#     reused code number never inherits a prior identity's history.
+#
+#   - TRANSACTIONAL DATED PROPAGATION. For each effective_date <= hts_as_of_date
+#     (ascending) we snapshot the pre-date mass of every old code that changes on
+#     that date, allocate it across successors FROM THE SNAPSHOT, then remove old
+#     + add new simultaneously. Same-date-created mass is therefore never
+#     consumed by another same-date edge (pharma chains, same-date reuse).
+#
+#   - SHARE LADDER WITH SEMANTIC ELIGIBILITY. A split's proportions come from,
+#     in order: (i) successors' country-specific 2025 imports; (ii) all-country
+#     2025 imports; (iii) successors' 2024 direct anchors; (v) even. Tiers i-iii
+#     are ELIGIBLE only for successor identities that genuinely existed under
+#     that number in the evidence year: a 2026-established identity (incl.
+#     same-date reuse) has no valid 2025/2024 self-history, so it falls to even.
+#     The mass always stays in its origin country (the ladder sets proportions
+#     only), so per-country conservation is automatic.
+#
+#   - no_successor deletions are left in place during propagation and swept by
+#     the residual prefix cascade (their trade moved to HS8 siblings). The
+#     whole-panel global fallback is a HARD FAILURE.
+
+CROSSWALK_MAPPER_SCHEMA_VERSION <- 1L
+
+# Production residual thresholds (set from the tip A/B; see build_panel_import_weights).
+# Hard cap on the "unknown-sibling" residual (prefix cascade); the whole-panel
+# global fallback is already a hard 0 in validate_mapped_weights().
+CROSSWALK_MAX_CASCADE_PCT <- 1.0   # actual 0.22%
+CROSSWALK_MAX_EVEN_PCT    <- 12.0  # actual 6.7% (within-HS8, rate-neutral) — soft
+
+SHARE_SOURCES <- c('identity', 'country_2025_identity_valid',
+                   'all_country_2025_identity_valid', 'anchor_2024_identity_valid',
+                   'family_fallback', 'even_fallback',
+                   'prefix_cascade_8', 'prefix_cascade_6', 'prefix_cascade_4',
+                   'prefix_cascade_2', 'prefix_cascade_global')
+
+#' Normalize an (hs10/hts10, cty_code, imports) frame: dedup, drop nonpositive.
+.normalize_imports_frame <- function(df, code_col) {
+  df %>%
+    transmute(hts10 = str_pad(as.character(.data[[code_col]]), 10, 'left', '0'),
+              cty_code = as.character(cty_code),
+              imports = as.numeric(imports)) %>%
+    group_by(hts10, cty_code) %>%
+    summarise(imports = sum(imports), .groups = 'drop') %>%
+    filter(is.finite(imports), imports > 0)
+}
+
+#' Map the 2024 base onto the tip panel via the dated 484(f) transfer edges.
+#'
+#' @param base data frame (hs10, cty_code, imports) — the 2024 customs-value base.
+#' @param panel_codes character vector — target tip hts10 universe.
+#' @param xwalk the 484(f) transfers (old_hts10, new_hts10, effective_date,
+#'   same_date_reuse; new_hts10 NA for no_successor).
+#' @param shares optional (hs10, cty_code, imports) 2025 split-share base.
+#' @param hts_as_of_date only edges with effective_date <= this apply (ISO date
+#'   or Date). Must be supplied explicitly (never defaulted to Sys.Date()).
+#' @param levels residual prefix-cascade levels, finest first.
+#' @return list(weights, crosswalk, composed, edges_applied, stats) — same
+#'   weights/crosswalk contract as forward_map_imports() plus the country
+#'   composed map and per-date transition log.
+crosswalk_map_imports <- function(base, panel_codes, xwalk, shares = NULL,
+                                  hts_as_of_date = NULL, levels = c(8L, 6L, 4L, 2L)) {
+  if (is.null(hts_as_of_date)) {
+    stop('crosswalk_map_imports: hts_as_of_date is required (never defaulted to ',
+         'Sys.Date()); pass the snapshot HTS-identity date.', call. = FALSE)
+  }
+  as_of <- as.Date(hts_as_of_date)
+  panel_set <- unique(as.character(panel_codes))
+  if (length(panel_set) == 0) stop('crosswalk_map_imports: panel_codes is empty.')
+
+  base <- .normalize_imports_frame(base, intersect(c('hs10', 'hts10'), names(base))[1])
+  total_in <- sum(base$imports)
+  country_in <- base %>% group_by(cty_code) %>% summarise(v = sum(imports), .groups = 'drop')
+
+  # Successor 2024 anchor value (all countries) from the base — tier iii.
+  anchor_2024 <- base %>% group_by(hts10) %>%
+    summarise(anchor = sum(imports), .groups = 'drop')
+
+  # 2025 share lookups (may be absent).
+  have_shares <- !is.null(shares) && nrow(shares) > 0
+  if (have_shares) {
+    shares <- .normalize_imports_frame(shares, intersect(c('hs10', 'hts10'), names(shares))[1])
+    shares_cty <- shares %>% transmute(new_hts10 = hts10, cty_code, s_cty = imports)
+    shares_all <- shares %>% group_by(hts10) %>%
+      summarise(s_all = sum(imports), .groups = 'drop') %>%
+      transmute(new_hts10 = hts10, s_all)
+  }
+
+  # Edges that apply: within date window, with a successor. Deletions
+  # (no_successor) are left for the residual cascade.
+  tf <- xwalk %>%
+    mutate(effective_date = as.Date(effective_date),
+           old_hts10 = str_pad(as.character(old_hts10), 10, 'left', '0'),
+           new_hts10 = ifelse(is.na(new_hts10), NA_character_,
+                              str_pad(as.character(new_hts10), 10, 'left', '0'))) %>%
+    filter(effective_date <= as_of, !is.na(old_hts10), !is.na(new_hts10)) %>%
+    distinct(old_hts10, new_hts10, effective_date, same_date_reuse)
+
+  # State carries base_hts10 provenance + the share_source of the last split.
+  state <- base %>% transmute(base_hts10 = hts10, hts10, cty_code, imports,
+                              share_source = 'identity')
+  edges_applied <- list()
+
+  # Index into the Date vector (iterating `for (d in dates)` would strip the
+  # Date class, turning d into a numeric and breaking as.character(d)).
+  dates <- sort(unique(tf$effective_date))
+  for (di in seq_along(dates)) {
+    d <- dates[di]
+    fam <- tf %>% filter(effective_date == d) %>%
+      distinct(old_hts10, new_hts10, same_date_reuse) %>%
+      group_by(old_hts10) %>%
+      mutate(family_reuse = any(same_date_reuse), n_succ = n_distinct(new_hts10)) %>%
+      ungroup()
+    old_codes_d <- unique(fam$old_hts10)
+
+    snap <- state %>% filter(hts10 %in% old_codes_d)
+    if (nrow(snap) == 0) next   # nothing of this old code carries value here
+
+    elig_year <- d <= as.Date('2025-12-31')
+
+    alloc <- snap %>%
+      rename(old_hts10 = hts10, mass = imports) %>%
+      inner_join(fam, by = 'old_hts10', relationship = 'many-to-many')
+    if (have_shares) {
+      alloc <- alloc %>%
+        left_join(shares_cty, by = c('new_hts10', 'cty_code')) %>%
+        left_join(shares_all, by = 'new_hts10')
+    } else {
+      alloc$s_cty <- NA_real_; alloc$s_all <- NA_real_
+    }
+    # Eligibility: a split's successors may use 2025 self-shares only if they
+    # genuinely existed under that number in 2025 — i.e. the transition is a
+    # 2025 reclassification (successors created that year, so their 2025 imports
+    # are their own trade) AND the family is not a same-date reuse. A
+    # 2026-established identity (or a reused number) has no valid 2025/2024
+    # self-history, so it falls straight to an even split (disclosed as such).
+    # The 2024-anchor tier is NOT used for dated splits (successors are
+    # period-new with no 2024 self-trade); it lives only in the residual cascade.
+    alloc <- alloc %>%
+      mutate(eligible = elig_year & !family_reuse,
+             .s_cty = if_else(eligible, coalesce(s_cty, 0), 0),
+             .s_all = if_else(eligible, coalesce(s_all, 0), 0)) %>%
+      group_by(base_hts10, old_hts10, cty_code) %>%
+      mutate(sum_cty = sum(.s_cty), sum_all = sum(.s_all),
+             weight = case_when(
+               sum_cty > 0 ~ .s_cty / sum_cty,
+               sum_all > 0 ~ .s_all / sum_all,
+               TRUE        ~ 1 / n_succ),
+             step_source = case_when(
+               sum_cty > 0 ~ 'country_2025_identity_valid',
+               sum_all > 0 ~ 'all_country_2025_identity_valid',
+               TRUE        ~ 'even_fallback')) %>%
+      ungroup()
+
+    moved <- alloc %>%
+      transmute(base_hts10, hts10 = new_hts10, cty_code,
+                imports = mass * weight, share_source = step_source)
+
+    # Simultaneous remove-old + add-new, then collapse.
+    state <- state %>%
+      filter(!hts10 %in% old_codes_d) %>%
+      bind_rows(moved) %>%
+      group_by(base_hts10, hts10, cty_code) %>%
+      summarise(imports = sum(imports),
+                share_source = dplyr::last(share_source), .groups = 'drop')
+
+    # Per-date conservation (overall + per-country) — mass only moved, not lost.
+    rel <- abs(sum(state$imports) - total_in) / max(total_in, 1)
+    if (rel > 1e-9) {
+      stop(sprintf('crosswalk_map_imports: conservation broke at %s (rel err %.2e).',
+                   d, rel), call. = FALSE)
+    }
+    edges_applied[[as.character(d)]] <- alloc %>%
+      summarise(effective_date = d, n_families = n_distinct(old_hts10),
+                n_edges = n_distinct(paste(old_hts10, new_hts10)),
+                value_moved = sum(mass * weight),
+                .by = NULL) %>%
+      bind_cols(alloc %>% count(step_source) %>%
+                  tidyr::pivot_wider(names_from = step_source, values_from = n,
+                                     names_prefix = 'src_'))
+  }
+
+  # --- residual prefix cascade for anything still off-panel ------------------
+  off <- state %>% filter(!hts10 %in% panel_set)
+  on  <- state %>% filter(hts10 %in% panel_set)
+  cascade_stats <- tibble(level = integer(), value = double(), n_codes = integer())
+  n_global <- 0L
+  if (nrow(off) > 0) {
+    anchor <- tibble(new_hts10 = panel_set) %>%
+      left_join(anchor_2024 %>% rename(new_hts10 = hts10), by = 'new_hts10') %>%
+      mutate(anchor = coalesce(anchor, 0))
+    off_codes <- unique(off$hts10)
+    remaining <- off_codes
+    parts <- list()
+    for (L in c(levels, 0L)) {
+      if (length(remaining) == 0) break
+      if (L == 0L) {
+        parts[['0']] <- tidyr::crossing(hts10 = remaining,
+          anchor %>% select(new_hts10, anchor)) %>% mutate(level = 0L)
+        n_global <- length(remaining); remaining <- character(0)
+        break
+      }
+      tgt <- anchor %>% mutate(pfx = substr(new_hts10, 1, L))
+      part <- tibble(hts10 = remaining, pfx = substr(remaining, 1, L)) %>%
+        inner_join(tgt, by = 'pfx', relationship = 'many-to-many') %>%
+        mutate(level = L) %>% select(hts10, new_hts10, anchor, level)
+      if (nrow(part) > 0) {
+        parts[[as.character(L)]] <- part
+        remaining <- setdiff(remaining, unique(part$hts10))
+      }
+    }
+    cascade_map <- bind_rows(parts) %>%
+      group_by(hts10) %>%
+      mutate(grp = sum(anchor),
+             split_weight = if_else(grp > 0, anchor / grp, 1 / n())) %>%
+      ungroup() %>% filter(split_weight > 0) %>%
+      select(hts10, new_hts10, split_weight, level)
+    cascade_stats <- off %>% rename(old = hts10) %>%
+      inner_join(distinct(cascade_map, hts10, level), by = c('old' = 'hts10')) %>%
+      group_by(level) %>%
+      summarise(value = sum(imports), n_codes = n_distinct(old), .groups = 'drop')
+    redist <- off %>%
+      inner_join(cascade_map, by = 'hts10', relationship = 'many-to-many') %>%
+      transmute(base_hts10, hts10 = new_hts10, cty_code,
+                imports = imports * split_weight,
+                share_source = paste0('prefix_cascade_', level))
+    state <- bind_rows(on, redist) %>%
+      group_by(base_hts10, hts10, cty_code) %>%
+      summarise(imports = sum(imports),
+                share_source = dplyr::last(share_source), .groups = 'drop')
+  }
+
+  # --- outputs ---------------------------------------------------------------
+  weights <- state %>%
+    group_by(hts10, cty_code) %>%
+    summarise(imports = sum(imports), .groups = 'drop') %>%
+    filter(imports > 0) %>% arrange(hts10, cty_code)
+
+  composed <- state %>%
+    filter(base_hts10 != hts10 | share_source != 'identity') %>%
+    group_by(base_hts10, cty_code) %>%
+    mutate(split_weight = imports / sum(imports)) %>%
+    ungroup() %>%
+    transmute(base_hts10, cty_code, new_hts10 = hts10, split_weight,
+              share_source, hts_as_of_date = as.character(as_of))
+
+  # Country-agnostic crosswalk (audit only) — split by TOTAL mass across
+  # countries, never by summing per-country weights. The composed map is what
+  # actually reproduces the weights; this is a labeled aggregate summary.
+  crosswalk <- state %>%
+    filter(base_hts10 != hts10 | share_source != 'identity') %>%
+    group_by(base_hts10, hts10) %>%
+    summarise(v = sum(imports), src = dplyr::last(share_source), .groups = 'drop') %>%
+    group_by(base_hts10) %>%
+    mutate(split_weight = v / sum(v)) %>% ungroup() %>%
+    transmute(old_hts10 = base_hts10, new_hts10 = hts10, split_weight,
+              share_source = src)
+
+  per_source <- state %>% group_by(share_source) %>%
+    summarise(value = sum(imports), .groups = 'drop') %>% arrange(desc(value))
+
+  stats <- list(
+    mapper_schema_version = CROSSWALK_MAPPER_SCHEMA_VERSION,
+    method = '484f', hts_as_of_date = as.character(as_of),
+    total_in = total_in, total_out = sum(weights$imports),
+    n_panel_codes = length(panel_set), n_weight_rows = nrow(weights),
+    n_transfer_dates = length(edges_applied),
+    n_global_fallback = n_global,
+    all_on_panel = all(weights$hts10 %in% panel_set),
+    per_source = per_source, cascade_stats = cascade_stats,
+    country_in = country_in)
+
+  list(weights = weights, crosswalk = crosswalk, composed = composed,
+       edges_applied = bind_rows(edges_applied), stats = stats)
+}
+
+
+#' Shared validation of a mapped weight result (extends the prefix asserts with
+#' per-country conservation). Fatal on any violation.
+#'
+#' @param weights tibble(hts10, cty_code, imports).
+#' @param panel_set target universe.
+#' @param country_in tibble(cty_code, v) of input per-country totals.
+#' @param total_in scalar input total.
+#' @param tol relative tolerance (default 1e-9).
+validate_mapped_weights <- function(weights, panel_set, country_in, total_in,
+                                    n_global_fallback = 0L, tol = 1e-9) {
+  if (!all(weights$hts10 %in% panel_set)) {
+    stop('mapped weights include codes outside the panel universe — bug.', call. = FALSE)
+  }
+  if (anyDuplicated(weights[c('hts10', 'cty_code')]) > 0) {
+    stop('mapped weights have duplicate (hts10, country) keys — bug.', call. = FALSE)
+  }
+  if (any(is.na(weights$hts10)) || any(is.na(weights$cty_code)) ||
+      any(is.na(weights$imports)) || any(weights$imports <= 0)) {
+    stop('mapped weights have NA keys or nonpositive imports — bug.', call. = FALSE)
+  }
+  rel <- abs(sum(weights$imports) - total_in) / max(total_in, 1)
+  if (rel > tol) {
+    stop(sprintf('mapped weights lost value: in $%.4fB out $%.4fB (rel err %.2e).',
+                 total_in / 1e9, sum(weights$imports) / 1e9, rel), call. = FALSE)
+  }
+  cty_out <- weights %>% group_by(cty_code) %>% summarise(v = sum(imports), .groups = 'drop')
+  chk <- country_in %>% rename(v_in = v) %>%
+    full_join(cty_out %>% rename(v_out = v), by = 'cty_code') %>%
+    mutate(v_in = coalesce(v_in, 0), v_out = coalesce(v_out, 0),
+           rel = abs(v_out - v_in) / pmax(v_in, 1))
+  bad <- chk %>% filter(rel > tol)
+  if (nrow(bad) > 0) {
+    stop(sprintf('mapped weights break per-country conservation for %d countries (e.g. %s).',
+                 nrow(bad), paste(head(bad$cty_code, 5), collapse = ', ')), call. = FALSE)
+  }
+  if (n_global_fallback > 0) {
+    stop(sprintf('mapped weights used the whole-panel global fallback for %d code(s) ',
+                 n_global_fallback), ' — prohibited in production.', call. = FALSE)
+  }
+  invisible(TRUE)
+}
+
+
+# =============================================================================
 # Helpers: load the base, read the panel universe from published snapshots
 # =============================================================================
 
@@ -321,31 +656,117 @@ tip_revision_from_snapshots <- function(snaps_dir) {
 #' @param write_crosswalk also write the orphan forward-map crosswalk. Default TRUE.
 #' @param dry_run compute + validate, write nothing.
 #' @return invisibly list(files, weights, crosswalk, stats).
+#' Load the committed 484(f) transfer edges (post-override) for the mapper.
+load_484f_transfers <- function(path) {
+  if (is.null(path) || !file.exists(path)) {
+    stop('484(f) transfer crosswalk not found: ', path %||% '<NULL>',
+         '\n  Generate it with: Rscript tools/build_484f_crosswalk.R', call. = FALSE)
+  }
+  tr <- readr::read_csv(path, col_types = readr::cols(.default = readr::col_character()))
+  need <- c('old_hts10', 'new_hts10', 'effective_date', 'same_date_reuse')
+  miss <- setdiff(need, names(tr))
+  if (length(miss)) {
+    stop('484(f) transfers ', path, ' missing columns: ',
+         paste(miss, collapse = ', '), call. = FALSE)
+  }
+  tr %>% mutate(same_date_reuse = tolower(same_date_reuse) %in% c('true', 't', '1'))
+}
+
+#' Load the 2025 split-share base (hs10, cty_code, imports) — exact schema.
+load_split_shares <- function(path) {
+  if (is.null(path) || !file.exists(path)) {
+    stop('Split-share base not found: ', path %||% '<NULL>',
+         '\n  Build it with: Rscript src/io/build_import_weights.R --year 2025 --no-gtap',
+         call. = FALSE)
+  }
+  raw <- readRDS(path)
+  need <- c('hs10', 'cty_code', 'imports')
+  if (!all(need %in% names(raw))) {
+    stop('Split-share base ', path, ' missing columns: ',
+         paste(setdiff(need, names(raw)), collapse = ', '),
+         ' (have: ', paste(names(raw), collapse = ', '), ').', call. = FALSE)
+  }
+  raw %>%
+    transmute(hs10 = str_pad(as.character(hs10), 10, 'left', '0'),
+              cty_code = as.character(cty_code), imports = as.numeric(imports)) %>%
+    group_by(hs10, cty_code) %>%
+    summarise(imports = sum(imports), .groups = 'drop') %>%
+    filter(is.finite(imports), imports > 0)
+}
+
+#' Build and (optionally) write the panel-keyed import-weight file for a vintage.
+#'
+#' @param method '484f' (default; authoritative dated transfers) or 'prefix'
+#'   (legacy Jaccard prefix cascade — kept for A/B and regression).
+#' @param crosswalk_path committed 484(f) transfers CSV (required for 484f).
+#' @param shares_path 2025 split-share base .rds (optional; enables tiers i/ii).
+#' @param overrides_path committed override CSV — recorded for provenance only
+#'   (already applied to the committed transfers CSV).
+#' @param hts_as_of_date HTS-identity date bounding which transfers apply
+#'   (required for 484f; NEVER defaulted to Sys.Date()).
 build_panel_import_weights <- function(panel_codes, base_path, out_dir,
                                        year = 2024L, hts_vintage = NA_character_,
+                                       method = c('484f', 'prefix'),
+                                       crosswalk_path = NULL, shares_path = NULL,
+                                       overrides_path = NULL, hts_as_of_date = NULL,
                                        write_csv = TRUE, write_crosswalk = TRUE,
                                        dry_run = FALSE) {
+  method <- match.arg(method)
   if (!requireNamespace('arrow', quietly = TRUE)) {
     stop('build_panel_import_weights requires the arrow package (parquet write).',
          call. = FALSE)
   }
 
   base <- load_weight_base(base_path)
-  mapped <- forward_map_imports(base, panel_codes)
+  panel_set <- unique(as.character(panel_codes))
+  total_in <- sum(base$imports)
+  country_in <- base %>% group_by(cty_code) %>%
+    summarise(v = sum(imports), .groups = 'drop')
+
+  if (method == '484f') {
+    if (is.null(crosswalk_path)) {
+      stop('method="484f" requires crosswalk_path.', call. = FALSE)
+    }
+    if (is.null(hts_as_of_date)) {
+      stop('method="484f" requires hts_as_of_date (the snapshot HTS-identity ',
+           'date); it is never defaulted to Sys.Date().', call. = FALSE)
+    }
+    xwalk  <- load_484f_transfers(crosswalk_path)
+    shares <- if (!is.null(shares_path)) load_split_shares(shares_path) else NULL
+    mapped <- crosswalk_map_imports(base, panel_set, xwalk, shares, hts_as_of_date)
+  } else {
+    mapped <- forward_map_imports(base, panel_set)
+  }
   st <- mapped$stats
 
-  # --- hard validation: the two acceptance criteria that must always hold ---
-  if (!isTRUE(st$all_on_panel)) {
-    stop('forward-map produced codes outside the panel universe — bug.', call. = FALSE)
-  }
-  # Value conservation: total out == total in (allow float rounding only).
-  rel_err <- abs(st$total_out - st$total_in) / max(st$total_in, 1)
-  if (rel_err > 1e-9) {
-    stop(sprintf('forward-map lost value: in $%.4fB vs out $%.4fB (rel err %.2e).',
-                 st$total_in / 1e9, st$total_out / 1e9, rel_err), call. = FALSE)
-  }
-  if (anyDuplicated(mapped$weights[c('hts10', 'cty_code')]) > 0) {
-    stop('forward-map produced duplicate (hts10, country) keys — bug.', call. = FALSE)
+  # --- shared hard validation (adds per-country conservation) ----------------
+  # The whole-panel global fallback is prohibited only for the authoritative
+  # 484f method; the legacy prefix cascade may still use it as a last resort.
+  validate_mapped_weights(mapped$weights, panel_set, country_in, total_in,
+                          n_global_fallback = if (method == '484f')
+                            (st$n_global_fallback %||% 0L) else 0L)
+
+  # --- production residual thresholds (484f) --------------------------------
+  # Set from the tip A/B (2024 base -> 2026-07-01 panel, full transfers +
+  # 2025 shares): identity 91.0%, even_fallback 6.7%, country_2025 2.05%,
+  # prefix cascade 0.22% (all HS4/HS6, 249 codes), 0 global. The "we don't know
+  # which sibling" residual (prefix cascade + global) is the tight gate; even
+  # splitting is within-HS8 (statistical suffixes share the HS8 duty), so it is
+  # rate-neutral and only monitored generously.
+  if (method == '484f') {
+    src_pct <- st$per_source %>% mutate(pct = 100 * value / max(total_in, 1))
+    pct_of <- function(rx) sum(src_pct$pct[grepl(rx, src_pct$share_source)])
+    cascade_pct <- pct_of('^prefix_cascade')
+    even_pct    <- pct_of('^even_fallback')
+    if (cascade_pct > CROSSWALK_MAX_CASCADE_PCT) {
+      stop(sprintf('484f residual prefix cascade is %.2f%% of value (> %.2f%% threshold) — investigate coverage.',
+                   cascade_pct, CROSSWALK_MAX_CASCADE_PCT), call. = FALSE)
+    }
+    if (even_pct > CROSSWALK_MAX_EVEN_PCT) {
+      warning(sprintf('484f even-split fallback is %.2f%% of value (> %.2f%% soft threshold): %s',
+                      even_pct, CROSSWALK_MAX_EVEN_PCT,
+                      'within-HS8 and rate-neutral, but review if this jumped.'), call. = FALSE)
+    }
   }
 
   weights_out <- mapped$weights %>%
@@ -355,27 +776,31 @@ build_panel_import_weights <- function(panel_codes, base_path, out_dir,
     select(hts10, country, imports, import_value_year, hts_vintage)
 
   # --- report ---------------------------------------------------------------
-  message(sprintf('  panel codes        : %s', format(st$n_panel_codes, big.mark = ',')))
-  message(sprintf('  base pairs         : %s  (%s codes, %s exact-match)',
-                  format(st$n_base_pairs, big.mark = ','),
-                  format(st$n_matched_codes + st$n_orphan_codes, big.mark = ','),
-                  format(st$n_matched_codes, big.mark = ',')))
-  message(sprintf('  exact 10-digit     : %.2f%% of value', st$matched_value_pct))
-  message(sprintf('  orphan codes       : %s  ($%.1fB) redistributed by prefix:',
-                  format(st$n_orphan_codes, big.mark = ','), st$orphan_value / 1e9))
-  if (nrow(st$per_level) > 0) {
-    lvl_name <- c('0' = 'whole-panel', '2' = 'HS2 chapter', '4' = 'HS4 heading',
-                  '6' = 'HS6 subheading', '8' = 'HS8 heading')
-    for (i in order(-st$per_level$level)) {
-      L <- as.character(st$per_level$level[i])
-      message(sprintf('      %-15s: %4d codes  $%.2fB',
-                      lvl_name[[L]] %||% paste0('L', L),
-                      st$per_level$n_codes[i], st$per_level$value[i] / 1e9))
+  message(sprintf('  method             : %s', method))
+  message(sprintf('  panel codes        : %s', format(length(panel_set), big.mark = ',')))
+  if (method == '484f') {
+    message(sprintf('  hts_as_of_date     : %s  (%d transfer dates applied)',
+                    st$hts_as_of_date, st$n_transfer_dates))
+    message('  value by share_source:')
+    for (i in seq_len(nrow(st$per_source))) {
+      message(sprintf('      %-32s $%.2fB', st$per_source$share_source[i],
+                      st$per_source$value[i] / 1e9))
     }
+    if (nrow(st$cascade_stats) > 0) {
+      message('  residual prefix cascade:')
+      for (i in order(-st$cascade_stats$level)) {
+        message(sprintf('      level %d: %d codes  $%.2fB',
+                        st$cascade_stats$level[i], st$cascade_stats$n_codes[i],
+                        st$cascade_stats$value[i] / 1e9))
+      }
+    }
+  } else {
+    message(sprintf('  exact 10-digit     : %.2f%% of value', st$matched_value_pct))
+    message(sprintf('  orphan codes       : %s  ($%.1fB) redistributed by prefix',
+                    format(st$n_orphan_codes, big.mark = ','), st$orphan_value / 1e9))
   }
-  if (st$n_global_fallback > 0) {
-    message(sprintf('  NOTE: %d code(s) shared no HTS prefix with the panel — split whole-panel.',
-                    st$n_global_fallback))
+  if ((st$n_global_fallback %||% 0L) > 0) {
+    message(sprintf('  NOTE: %d code(s) hit the whole-panel fallback.', st$n_global_fallback))
   }
   message(sprintf('  output rows        : %s  | total $%.1fB (conserved)',
                   format(st$n_weight_rows, big.mark = ','), st$total_out / 1e9))
@@ -398,12 +823,25 @@ build_panel_import_weights <- function(panel_codes, base_path, out_dir,
       xw <- file.path(out_dir, 'hts10_revision_crosswalk.csv')
       readr::write_csv(mapped$crosswalk, xw)
       files <- c(files, xw)
-      message('  wrote ', xw, ' (', nrow(mapped$crosswalk), ' remapped suffix rows)')
+      message('  wrote ', xw, ' (', nrow(mapped$crosswalk), ' remapped rows)')
+      if (method == '484f') {
+        # Country-specific composed map — the artifact that actually reproduces
+        # the allocation (the country-agnostic crosswalk above is a summary).
+        cbc <- file.path(out_dir, 'crosswalk_composed_by_country.csv.gz')
+        readr::write_csv(mapped$composed %>%
+                           mutate(method = method, hts_vintage = as.character(hts_vintage)), cbc)
+        files <- c(files, cbc)
+        ea <- file.path(out_dir, 'crosswalk_edges_applied.csv')
+        readr::write_csv(mapped$edges_applied, ea)
+        files <- c(files, ea)
+        message('  wrote ', cbc, ' + ', ea)
+      }
     }
   }
 
   invisible(list(files = files, weights = weights_out,
-                 crosswalk = mapped$crosswalk, stats = st))
+                 crosswalk = mapped$crosswalk, composed = mapped$composed,
+                 edges_applied = mapped$edges_applied, stats = st))
 }
 
 
@@ -419,10 +857,24 @@ build_panel_import_weights <- function(panel_codes, base_path, out_dir,
   cat('  --out-dir <DIR>      Where to write. Default: <vintage-dir>/weights\n')
   cat('  --base <PATH>        Import-weight base RDS. Default: auto-detect data/weights/.\n')
   cat('  --year <YYYY>        Import-value calendar year stamp. Default: 2024\n')
+  cat('  --method <M>         484f (default, authoritative dated transfers) or prefix (legacy).\n')
+  cat('  --crosswalk <PATH>   484(f) transfers CSV. Default: resources/hts10_484f_transfers.csv\n')
+  cat('  --shares <PATH>      2025 split-share base RDS. Default: data/weights/hs10_by_country_2025_con.rds\n')
+  cat('  --hts-as-of-date <D> HTS-identity date bounding transfers. Default: tip revision date.\n')
   cat('  --no-csv             Skip the .csv.gz sibling (parquet only).\n')
-  cat('  --no-crosswalk       Skip the hts10_revision_crosswalk.csv audit file.\n')
+  cat('  --no-crosswalk       Skip the crosswalk / composed / edges-applied audit files.\n')
   cat('  --dry-run            Compute + validate, write nothing.\n')
   cat('  -h, --help           Show this message.\n')
+}
+
+#' Resolve a revision id to its RAW HTS-identity date from revision_dates.csv.
+.hts_identity_date <- function(revision, csv = here::here('config', 'revision_dates.csv')) {
+  if (is.na(revision) || !file.exists(csv)) return(NA_character_)
+  d <- readr::read_csv(csv, col_types = readr::cols(revision = readr::col_character(),
+                                                    effective_date = readr::col_date(),
+                                                    .default = readr::col_guess()))
+  hit <- d$effective_date[d$revision == revision]
+  if (length(hit) == 0) NA_character_ else as.character(hit[1])
 }
 
 if (sys.nframe() == 0) {
@@ -444,6 +896,11 @@ if (sys.nframe() == 0) {
   }
   out_dir  <- get_opt('--out-dir', file.path(vintage_dir, 'weights'))
   year     <- as.integer(get_opt('--year', '2024'))
+  method   <- get_opt('--method', '484f')
+  xwalk_path  <- get_opt('--crosswalk', here::here('resources', 'hts10_484f_transfers.csv'))
+  shares_arg  <- get_opt('--shares', here::here('data', 'weights', 'hs10_by_country_2025_con.rds'))
+  shares_path <- if (!is.null(shares_arg) && file.exists(shares_arg)) shares_arg else NULL
+  asof_arg <- get_opt('--hts-as-of-date')
   dry_run  <- '--dry-run'      %in% argv
   no_csv   <- '--no-csv'       %in% argv
   no_xwalk <- '--no-crosswalk' %in% argv
@@ -478,6 +935,16 @@ if (sys.nframe() == 0) {
 
   panel_codes <- current_panel_codes(snaps_dir)
   hts_vintage <- tip_revision_from_snapshots(snaps_dir)
+  # For 484f, the transfer window ends at the tip revision's HTS-identity date
+  # (raw effective_date), unless overridden explicitly.
+  hts_as_of <- if (method == '484f') {
+    asof_arg %||% .hts_identity_date(hts_vintage)
+  } else NULL
+  if (method == '484f') {
+    message('  crosswalk   : ', xwalk_path)
+    message('  shares      : ', shares_path %||% '<none — tiers i/ii disabled>')
+    message('  hts_as_of   : ', hts_as_of %||% '<unresolved>')
+  }
 
   build_panel_import_weights(
     panel_codes     = panel_codes,
@@ -485,6 +952,10 @@ if (sys.nframe() == 0) {
     out_dir         = out_dir,
     year            = year,
     hts_vintage     = hts_vintage,
+    method          = method,
+    crosswalk_path  = if (method == '484f') xwalk_path else NULL,
+    shares_path     = shares_path,
+    hts_as_of_date  = hts_as_of,
     write_csv       = !no_csv,
     write_crosswalk = !no_xwalk,
     dry_run         = dry_run

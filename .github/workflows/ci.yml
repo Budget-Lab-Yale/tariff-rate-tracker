@@ -76,3 +76,8 @@ jobs:
         # Archive-coverage validator over synthesized fixtures — needs jsonlite,
         # no pdftools/arrow/build data.
         run: Rscript tests/test_484f_coverage.R
+
+      - name: Run 484(f) weight-mapper tests
+        # Pure versioned-identity mapper over synthetic fixtures — no arrow,
+        # no build data.
+        run: Rscript tests/test_crosswalk_mapper.R
