@@ -2,6 +2,13 @@
 # =============================================================================
 # build_hts_concordance.R
 #
+# DEPRECATED (2026-07-14): superseded by the authoritative 484(f) transfer
+# crosswalk in tools/build_484f_crosswalk.R -> resources/hts10_484f_transfers.csv.
+# The Jaccard word-overlap heuristic below is retained only for archived
+# import-remapping scripts that still reference resources/hts_concordance.csv;
+# it must not be used for import-weight revision mapping. New code should
+# consume the dated, explicit 484(f) transfers instead. No behavior change.
+#
 # Builds an HTS10 product concordance mapping that tracks how product codes
 # change across HTS revisions. Inspired by Pierce & Schott (2012) algorithm.
 #

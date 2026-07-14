@@ -1,0 +1,10 @@
+HTS History – Microporous Plastic Sheets (HTS 3921.19.00)
+
+HTS Code                 Action                                                      Effective Date
+
+3921.19.0000             Annotated (transferred to 3921.19.0010 and                  2025/01/01
+                         39.21.19.0090).
+
+3921.19.0010             Established (transferred from 3921.19.0000 (pt.)).          2025/01/01
+
+3921.19.0090             Established (transferred from 3921.19.0000 (pt.)).          2025/01/01

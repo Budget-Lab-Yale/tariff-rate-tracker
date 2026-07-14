@@ -1,0 +1,23 @@
+9.     HTS 3004.90.92                                Pharmaceutical Section II
+
+HTS History – Antifungals
+
+HTS Code                 Action                                                      Effective Date
+
+3004.90.9202             Discontinued (transferred to 3004.90.9203).                 2026/02/01
+
+3004.90.9203             Established (transferred from 3004.90.9202 (pt.)).          2026/02/01
+
+10.    HTS 3004.90.92                              Supplement to Pharmaceutical Sections I & II
+
+HTS Changes
+
+ Discontinued Number              Article Description          Renumbered As:
+ 3004.90.9206                     Other Antifungals            3004.90.9208
+ 3004.90.9208                     Antiprotozoals, containing   3004.90.9209
+                                  metronidazole or its salts
+ 3004.90.9212                     Other Antiprotozoals         3004.90.9210
+
+Schedule B Changes
+
+ 3004.90.9208    - - - - - - Antifungals                                                  kg

@@ -67,3 +67,7 @@ jobs:
 
       - name: Run scenario-registry tests
         run: Rscript tests/test_scenario_registry.R
+
+      - name: Run 484(f) crosswalk parser tests
+        # Pure grammar — no pdftools, arrow, or build data required.
+        run: Rscript tests/test_484f_parser.R
