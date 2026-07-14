@@ -1,0 +1,1206 @@
+                484(f) Committee Changes to the HTS and Schedule B
+                                  for July 1, 2025
+
+
+1.     HTS 0901.11.00, 0901.12.00,                                           Coffee
+       0901.21.00 and 0901.22.00
+
+
+     HTS
+                Stat                                                                                Unit of
+  Heading/                                            Article description
+               Suffix                                                                              Quantity
+ Subheading
+0901                    Coffee, whether or not roasted or decaffeinated; coffee husks and skins;
+                        coffee substitutes containing coffee in any proportion:
+                            Coffee, not roasted:
+0901.11.00                      Not decaffeinated……………………………………………………………………..
+                                     ***
+                                     Robusta:
+              35 (45)                      Certified organic…………………………………………………………. kg
+              40 (55)                      Other………………………………………………………………………….. kg
+                                     Other:
+              50 (45)                      Certified organic…………………………………………………………. kg
+              65 (55)                      Other………………………………………………………………………….. kg
+0901.12.00                      Decaffeinated…………………………………………………………………………….
+                                     Arabica:
+              20 (15)                      Certified organic…………………………………………………………. kg
+              35 (25)                      Other………………………………………………………………………….. kg
+                                     Robusta:
+              40 (15)                      Certified organic…………………………………………………………. kg
+              55 (25)                      Other………………………………………………………………………….. kg
+                                     Other:
+              60 (15)                      Certified organic…………………………………………………………. kg
+              75 (25)                      Other………………………………………………………………………….. kg
+                            Coffee, roasted:
+0901.21.00                      Not decaffeinated………………………………………………………………………
+                                     In retail containers weighing 2 kg or less:
+                                           Arabica:
+              15 (35)                           Certified organic…………………………………………………… kg
+              20 (45)                           Other……………………………………………………………………. kg
+                                           Robusta:
+              25 (35)                           Certified organic………………………………………………….. kg
+              29 (45)                           Other…………………………………………………………………… kg
+                                           Other:
+
+
+                                                        1
+    HTS
+                 Stat                                                                                 Unit of
+  Heading/                                             Article description
+                Suffix                                                                               Quantity
+ Subheading
+               40 (35)                            Certified organic………………………………………………….. kg
+               49 (45)                            Other…………………………………………………………………… kg
+                                      ***
+0901.22.00                        Decaffeinated……………………………………………………………………………
+                                      In retail containers weighing 2 kg or less:
+                                            ***                                                  kg
+                                            Other:
+               40 (45)                            Arabica………………………………………………………………… kg
+               50 (45)                            Robusta……………………………………………………………….. kg
+               55 (45)                            Other…………………………………………………………………… kg
+                                      Other:
+                                            Arabica:
+               65 (60)                            Certified organic………………………………………………….. kg
+               70 (60)                            Other……………………………………………………………………. kg
+                                            Robusta:
+               75 (60)                            Certified organic………………………………………………….. kg
+               80 (60)                            Other…………………………………………………………………… kg
+               90 (60)                      Other………………………………………………………………………….. kg
+
+
+
+
+HTS History - Coffee
+
+HTS Code                 Action                                                     Effective Date
+0901.11.0035             Established (transferred from 0901.11.0045 (pt.)).         2025/07/01
+0901.11.0040             Established (transferred from 0901.11.0055 (pt.)).         2025/07/01
+0901.11.0045             Discontinued (transferred to 0901.11.0035 and              2025/07/01
+                         0901.11.0050).
+0901.11.0050             Established (transferred from 0901.11.0045 (pt.)).         2025/07/01
+0901.11.0055             Discontinued (transferred to 0901.11.0040 and              2025/07/01
+                         0901.11.0065).
+0901.11.0065             Established (transferred from 0901.11.0055 (pt.)).         2025/07/01
+0901.12.0015             Discontinued (transferred to 0901.12.0020, 0901.12.0040    2025/07/01
+                         and 0901.12.0060).
+0901.12.0020             Established (transferred from 0901.12.0015 (pt.)).         2025/07/01
+0901.12.0025             Discontinued (transferred to 0901.12.0035, 0901.12.0055    2025/07/01
+                         and 0901.12.0075).
+0901.12.0035             Established (transferred from 0901.12.0025 (pt.)).         2025/07/01
+0901.12.0040             Established (transferred from 0901.12.0015 (pt.)).         2025/07/01
+0901.12.0055             Established (transferred from 0901.12.0025 (pt.)).         2025/07/01
+0901.12.0060             Established (transferred from 0901.12.0015 (pt.)).         2025/07/01
+0901.12.0075             Established (transferred from 0901.12.0025 (pt.)).         2025/07/01
+
+
+                                                         2
+HTS Code                 Action                                                      Effective Date
+0901.21.0015             Established (transferred from 0901.21.0035 (pt.)).          2025/07/01
+0901.21.0020             Established (transferred from 0901.21.0045 (pt.)).          2025/07/01
+0901.21.0025             Established (transferred from 0901.21.0035 (pt.)).          2025/07/01
+0901.21.0029             Established (transferred from 0901.21.0045 (pt.)).          2025/07/01
+0901.21.0035             Discontinued (transferred to 0901.21.0015, 0901.21.0025     2025/07/01
+                         and 0901.21.0040).
+0901.21.0040             Established (transferred from 0901.21.0035 (pt.)).          2025/07/01
+0901.21.0045             Discontinued (transferred to 0901.21.0020, 0901.21.0029     2025/07/01
+                         and 0901.21.0049).
+0901.21.0049             Established (transferred from 0901.21.0045 (pt.)).          2025/07/01
+0901.22.0040             Established (transferred from 0901.22.0045 (pt.)).          2025/07/01
+0901.22.0045             Discontinued (transferred to 0901.22.0040, 0901.22.0050     2025/07/01
+                         and 0901.22.0055).
+0901.22.0050             Established (transferred from 0901.22.0045 (pt.)).          2025/07/01
+0901.22.0055             Established (transferred from 0901.22.0045 (pt.)).          2025/07/01
+0901.22.0060             Discontinued (transferred to 0901.22.0065, 0901.22.0070,    2025/07/01
+                         0901.22.0075, 0901.22.0080, and 0901.22.0090)
+0901.22.0065             Established (transferred from 0901.22.0060 (pt.)).          2025/07/01
+0901.22.0070             Established (transferred from 0901.22.0060 (pt.)).          2025/07/01
+0901.22.0075             Established (transferred from 0901.22.0060 (pt.)).          2025/07/01
+0901.22.0080             Established (transferred from 0901.22.0060 (pt.)).          2025/07/01
+0901.22.0090             Established (transferred from 0901.22.0060 (pt.)).          2025/07/01
+
+
+
+
+2.     HTS 2825.60.00                                            Germanium Dioxide and Zirconium
+                                                                 Dioxide
+
+     HTS
+                 Stat                                                                                  Unit of
+  Heading/                                          Article description
+                Suffix                                                                                Quantity
+ Subheading
+2825                      Hydrazine and hydroxylamine and their inorganic salts; other
+                          inorganic bases; other metal oxides, hydroxides and peroxides
+                              ***
+2825.60.00                    Germanium oxides and zirconium dioxide…….………………………………….
+               10 (00)                 Germanium dioxide.………………………………………………………….                  kg
+               20 (00)                 Zirconium dioxide …………………………………………………………….. kg
+               50 (00)                 Other…………………………………………………………………………………. kg
+
+
+
+
+                                                      3
+HTS History – Germanium Dioxide and Zirconium Dioxide
+
+HTS Code                   Action                                                      Effective Date
+
+2825.60.0000               Annotated (transferred to 2825.60.0010, 2825.60.0020        2025/07/01
+                           and 2825.60.0050).
+
+2825.60.0010               Established (transferred from 2825.60.0000 (pt.)).          2025/07/01
+
+2825.60.0020               Established (transferred from 2825.60.0000 (pt.)).          2025/07/01
+
+2825.60.0050               Established (transferred from 2825.60.0000 (pt.)).          2025/07/01
+
+
+
+
+3.        HTS 2827.39.90                                              Lithium Chloride
+
+     HTS
+                  Stat                                                                                   Unit of
+  Heading/                                            Article description
+                 Suffix                                                                                 Quantity
+ Subheading
+2827                        Chlorides, chloride oxides and chloride hydroxides; bromides and
+                            bromide oxides; iodides and iodide oxides:
+                                Other chlorides:
+2827.39                              Other:
+                                         ***
+2827.39.90                               Other………………………………………………………………………………….
+                10 (00)                        Of lithium……………………………………………………………………. kg
+                50 (00)                        Other………………………………………………………………………….. kg
+
+
+
+
+HTS History – Lithium Chloride – HTS 2827.39.90
+
+HTS Code                   Action                                                      Effective Date
+
+2827.39.9000               Annotated (transferred to 2827.39.9010 and                  2025/07/01
+                           2827.39.9050)
+
+2827.39.9010               Established (transferred from 2827.39.9000 (pt.)).          2025/07/01
+
+2827.39.9050               Established (transferred from 2827.39.9000 (pt.)).          2025/07/01
+
+
+
+
+                                                        4
+4.        HTS 2836.99.50                                      Zirconium Carbonates
+
+     HTS
+                  Stat                                                                                      Unit of
+  Heading/                                             Article description
+                 Suffix                                                                                    Quantity
+ Subheading
+2836                        Carbonates; peroxocarbonates (percarbonates); commercial ammonium
+                            carbonate containing ammonium carbamate:
+                                Other:
+                                     ***
+2836.99                              Other:
+                                           ***
+2836.99.50                                 Other………………………………………………………………………………….
+                10 (00)                          Zirconium carbonates…………………………………………………. kg
+                50 (00)                          Other………………………………………………………………………….. kg
+
+
+
+
+HTS History – Zirconium Carbonates (HTS 2836.99.50)
+
+HTS Code                   Action                                                         Effective Date
+
+2836.99.5000               Annotated (transferred to 2836.99.5010 and                     2025/07/01
+                           2836.99.5050).
+
+2836.99.5010               Established (transferred from 2836.99.5000 (pt.)).             2025/07/01
+
+2836.99.5050               Established (transferred from 2836.99.5000 (pt.)).             2025/07/01
+
+
+
+
+5.         HTS 2842.90.90                                               Selenides and Tellurides
+
+     HTS
+                  Stat                                                                                      Unit of
+  Heading/                                             Article description
+                 Suffix                                                                                    Quantity
+ Subheading
+2842                        Other salts of inorganic acids or peroxoacids (including aluminosilicates
+                            whether or not chemically defined), other than azides:
+                                ***
+2842.90                         Other:
+                                     ***
+2842.90.90                           Other………………………………………………………………………………………..
+                10 (00)                    Selenides and tellurides……………………………………………………… kg
+                50 (00)                    Other…………………………………………………………………………………. kg
+
+
+
+
+                                                         5
+HTS History – Selenides and Tellurides – (2842.90.90)
+
+HTS Code                   Action                                                      Effective Date
+
+2842.90.9000               Annotated (transferred to 2842.90.9010 and                  2025/07/01
+                           2842.90.9050).
+
+2842.90.9010               Established (transferred from 2842.90.9000 (pt.)).          2025/07/01
+
+2842.90.9050               Established (transferred from 2842.90.9000 (pt.)).          2025/07/01
+
+
+
+
+6.        HTS 2930.90.43 and                                                    Terbufos (ISO)
+          Sch. B 2930.90.4398
+
+HTS
+
+     HTS
+                   Stat                                                                                  Unit of
+  Heading/                                                Article description
+                  Suffix                                                                                Quantity
+ Subheading
+2930                        Organo-sulfur compounds:
+2930.90                         Other:
+                                     Other:
+                                         Pesticides:
+                                              ***
+                                              Other:
+                                                    ***
+2930.90.43                                          Other…………………………………………………………………….
+                                                          ***
+                30 (95)                                   Terbufos (ISO)………………………………………………. kg
+                                                          ***
+                90 (95)                                   Other……………………………………………………………. kg
+
+
+
+
+HTS History – Terbufos
+
+HTS Code                   Action                                                      Effective Date
+
+2930.90.4330               Established (transferred from 2930.90.4395 (pt.)).          2025/07/01
+
+2930.90.4390               Established (transferred from 2930.90.4395 (pt.)).          2025/07/01
+
+
+
+
+                                                            6
+HTS Code                    Action                                               Effective Date
+
+2930.90.4395                Discontinued (transferred to 2930.90.4330 and        2025/07/01
+                            2930.90.4390).
+
+
+
+
+Schedule B
+
+Schedule B          Stat                                                                        Unit of
+No. and                                                Commodity Description
+                   Suffix                                                                      Quantity
+Headings
+2930                         Organo-sulfur compounds:
+                                 ***
+2930.90                          Other:
+                                       ***
+                                       Other:
+                                             Pesticides:
+                                                 ***
+2930.90           4330                           Terbufos (ISO)…………………………………………………………..       kg
+                  (4398)
+                  4399                           Other……………………………………………………………………….            kg
+                  (4398)
+
+
+
+
+Schedule B History - Terbufos
+
+Schedule B Code             Action                                               Effective Date
+
+2930.90.4330                Established (transferred from 2930.90.4398 (pt.)).   2025/07/01
+
+2930.90.4398                Discontinued (transferred to 2930.90.4330 and        2025/07/01
+                            2930.90.4399).
+
+2930.90.4399                Established (transferred from 2930.90.4398 (pt.)).   2025/07/01
+
+
+
+
+                                                           7
+7.        HTS 7013.37.10                                                        Crystalline Glassware
+          and 7013.9940
+
+     HTS
+                  Stat                                                                                     Unit of
+  Heading/                                               Article Description
+                 Suffix                                                                                   Quantity
+ Subheading
+7013                        Glassware of a kind used for table, kitchen, toilet, office, indoor
+                            decoration or similar purposes (other than that of heading 7010 or
+                            7018):
+                                Other drinking glasses, other than of glass-ceramics:
+7013.37                               Other:
+                                          ***
+                                          Other:
+7013.37.10      01 (10,                         Valued not over $0.30 each…………………………………………
+                90)
+                10                                    Crystalline or non-lead crystal……………………………… No.
+                90                                    Other…………………………………………………………………… No.
+                                ***
+                                Other glassware:
+7013.99                               Other:
+                                          Other:
+                                                ***
+                                                Other:
+7013.99.40      01 (10,                               Valued not over $0.30 each…………………………………
+                90)
+                10                                       Crystalline or non-lead crystal………………………     No.
+                90                                       Other……………………………………………………………                 No.
+
+*Due to low trade between 2020 – 2025, statistical reporting numbers 7013.37.1010 and 7013.99.4010
+will be removed as detailed in the table above and history table below.
+
+
+
+HTS History – Crystalline Glassware
+
+HTS Code                   Action                                                        Effective Date
+7013.37.1001               Established (transferred from 7013.37. 1010 and               2025/07/01
+                           7013.37.1090).
+7013.37.1010               Discontinued (transferred to 7013.37.1001).                   2025/07/01
+7013.37.1090               Discontinued (transferred to 7013.37.1001).                   2025/07/01
+7013.99.4001               Established (transferred from 7013.99.4010 and                2025/07/01
+                           7013.99.4090).
+7013.99.4010               Discontinued (transferred to 7013.99.4001).                   2025/07/01
+7013.99.4090               Discontinued (transferred to 7013.99.4001).                   2025/07/01
+
+
+
+
+                                                           8
+8.        HTS 7113.19.50                                                          Gold Jewelry
+
+
+     HTS
+                    Stat                                                                                     Unit of
+  Heading/                                                 Article description
+                   Suffix                                                                                   Quantity
+ Subheading
+7113                         Articles of jewelry and parts thereof, of precious metals or of metal clad
+                             with precious metal:
+                                  Of precious metal whether or not plated or clad with precious
+                                  metal:
+7113.19                                Of other precious metal, whether or not plated or clad with
+                                       precious metal:
+                                           ***
+                                          Other:
+                                               ***
+7113.19.50                                     Other…………………………………………………………………………..
+                                                     ***
+                                                     Other:
+                 91 (90)                                   Articles of jewelry, of gold, other than rope,
+                                                           curb, cable, chain, necklaces, neck chains or
+                                                           clasps…………………………………………………………….. pcs
+                 95 (90)                                   Other…………………………………………………………….. g
+
+
+
+
+ Statistical note 2 to chapter 71 will be modified by adding statistical reporting number
+ 7113.19.5091 in lieu of 7113.19.5045.
+
+
+
+
+HTS History – Gold Jewelry
+
+HTS Code                    Action                                                         Effective Date
+
+Chapter 71, statistical     Modified statistical note 2 to read as follows: “For the       2025/07/01
+note 2                      purposes of reporting under statistical numbers
+                            7113.19.5021 through 7113.19.5091, each piece is
+                            individually counted. For example, a pair of earrings is
+                            counted as two pieces and a necklace and its pendant are
+                            counted as one piece.”
+
+7113.19.5090                Discontinued (transferred to 7113.19.5091 and                  2025/07/01
+                            7113.19.5095).
+
+7113.19.5091                Established (transferred from 7113.19.5090 (pt.)).             2025/07/01
+
+7113.19.5095                Established (transferred from 7113.19.5090 (pt.)).             2025/07/01
+
+
+                                                              9
+9.     HTS 7308.20.00                                                 Wind-Specific Tubular Towers
+
+     HTS
+                 Stat                                                                                      Unit of
+  Heading/                                           Article Description
+                Suffix                                                                                    Quantity
+ Subheading
+7308                      Structures (excluding prefabricated buildings of heading 9406) and parts
+                          of structures (for example, bridges and bridge sections, lock gates,
+                          towers, lattice masts, roofs, roofing frameworks, doors and windows and
+                          their frames and thresholds for doors, shutters, balustrades, pillars and
+                          columns) of iron or steel; plates, rods, angles, shapes, sections, tubes
+                          and the like, prepared for use in structures, of iron or steel:
+                               ***
+7308.20.00                    Towers and lattice masts………………………………………………………………….
+               30 (20)             Tubular, whether or not tapered, and sectional components
+                                   thereof…..…………………………………………………………………………………                             kg
+               35 (20)             Tubular wind turbine towers, whether or not tapered, and
+                                   sectional components thereof………………………………………………….                      kg
+
+
+
+
+HTS History – Wind-Specific Tubular Towers
+
+HTS Code                 Action                                                          Effective Date
+
+7308.20.0020             Discontinued (transferred to 7308.20.0030 and                   2025/07/01
+                         7308.20.0035).
+
+7308.20.0030             Established (transferred from 7308.20.0020 (pt.)).              2025/07/01
+
+7308.20.0035             Established (transferred from 7308.20.0020 (pt.)).              2025/07/01
+
+
+
+
+10.    HTS 7310.21.00                                                 Aerosol Cans
+
+     HTS
+                 Stat                                                                                      Unit of
+  Heading/                                           Article description
+                Suffix                                                                                    Quantity
+ Subheading
+7310                      Tanks, casks, drums, cans, boxes and similar containers, for any material
+                          (other than compressed or liquified gas), of iron or steel of a capacity not
+                          exceeding 300 liters, whether or not lined or heat insulated, but not
+                          fitted with mechanical or thermal equipment:
+                               ***
+
+
+                                                       10
+    HTS
+                  Stat                                                                                    Unit of
+  Heading/                                              Article description
+                 Suffix                                                                                  Quantity
+ Subheading
+                                Of a capacity of less than 50 liters:
+7310.21.00                          Cans which are to be closed by soldering or crimping………………..
+                                           ***
+                70 (50)                    Containers of a circular cross section, of a capacity not
+                                           exceeding 11.4 liters, of a kind used for aerosols……………….. No.
+                75 (50)                    Other………………………………………………………………………………….. No.
+
+
+
+
+HTS History – Aerosol Cans (7310.21.00)
+
+HTS Code                   Action                                                       Effective Date
+7310.21.0050               Discontinued ( transferred to 7310.21.0070 and               2025/07/01
+                           7310.21.0075)
+7310.21.0070               Established (transferred from 7310.21.0050 (pt.)).           2025/07/01
+7310.21.0075               Established (transferred from 7310.21.0050 (pt.)).           2025/07/01
+
+
+
+
+11.       HTS 7601.10.60                                                High Purity Aluminum
+
+     HTS
+                  Stat                                                                                    Unit of
+  Heading/                                              Article description
+                 Suffix                                                                                  Quantity
+ Subheading
+7601                        Unwrought aluminum:
+7601.10                         Aluminum, not alloyed:
+                                     ***
+7601.10.60                          Other…………………………………………………………………………………………
+                40 (30)                    Of 99.9 percent aluminum or greater………………………………… kg
+                45 (30)                    Of greater than 99.8 percent but less than 99.9 percent……. kg
+                90                         Other………………………………………………………………………………….. kg
+
+
+
+
+HTS History – High Purity Aluminum
+
+HTS Code                   Action                                                       Effective Date
+7601.10.6030               Discontinued (transferred to 7601.10.6040 and                2025/07/01
+                           7601.10.6045).
+7601.10.6040               Established (transferred from 7601.10.6030 (pt.)).           2025/07/01
+7601.10.6045               Established (transferred from 7601.10.6030 (pt.)).           2025/07/01
+
+
+
+                                                         11
+12.      HTS 7602.00.00 and                                            Aluminum Scrap
+         Sch. B 7602.00.0035
+
+HTS
+
+    HTS
+                    Stat                                                                                 Unit of
+  Heading/                                             Article description
+                   Suffix                                                                               Quantity
+ Subheading
+7602.00.00                   Aluminum waste and scrap………………………………………………………………………
+                  35*            Recyclable used beverage containers………………………………………………. kg
+                                 ***
+                  98             Other………………………………………………………………………………………………. kg
+
+
+
+
+Schedule B
+
+Schedule B          Stat                                                                              Unit of
+No. and                                             Commodity Description
+                   Suffix                                                                            Quantity
+Headings
+7602                         Aluminum waste and scrap:
+7602.00.00        35*            Recyclable used beverage containers…………………………………………..              kg
+                                 ***
+                  98             Other…………………………………………………………………………………………….                          kg
+
+
+*For 7602.00.0035 (HTS & Schedule B) the word “used” is being added the article description.
+
+
+
+HTS/Sch. B History – Modifying 7602.00.0035 to include the word “used”
+
+HTS/Sch. B Code             Action                                                     Effective Date
+
+HTS
+
+7602.00.0035                The article description for HTS 7602.00.0035 is modified   2025/07/01
+                            to read, “ Recyclable used beverage containers”.
+
+Sch. B
+
+7602.00.0035                The article description for HTS 7602.00.0035 is modified   2025/07/01
+                            to read, “ Recyclable used beverage containers”.
+
+
+
+
+                                                         12
+13.       HTS 7612.90.10                                               Aluminum Aerosol Cans
+
+     HTS
+                  Stat                                                                                     Unit of
+  Heading/                                            Article description
+                 Suffix                                                                                   Quantity
+ Subheading
+7612                        Aluminum casks, drums, cans, boxes and similar containers (including
+                            rigid or collapsible tubular containers), for any material (other than
+                            compressed or liquified gas), of a capacity not exceeding 300 liters,
+                            whether or not lined or heat insulated, but not fitted with mechanical or
+                            thermal equipment:
+                                 ***
+7612.90                         Other:
+7612.90.10                          Of a capacity not exceeding 20 liters………………………………………….
+                                         Cans of a capacity not exceeding 355 ml:
+                40 (30)                      With a circular cross section, of a kind used for
+                                             aerosols………………………………………………………………………. No.
+                45 (30)                      Other………………………………………………………………………….. No.
+
+
+
+
+HTS History – Aluminum Aerosol Cans (7612.90.10)
+
+HTS Code                   Action                                                        Effective Date
+7612.90.1030               Discontinued (transferred to 7612.90.1040 and                 2025/07/01
+                           7612.90.1045).
+7612.90.1040               Established (transferred from 7612.90.1030 (pt.)).            2025/07/01
+7612.90.1045               Established (transferred from 7612.90.1030 (pt.)).            2025/07/01
+
+
+
+
+14.       HTS 8309.90.00                                               Aluminum Can Ends
+
+     HTS
+                  Stat                                                                                     Unit of
+  Heading/                                            Article description
+                 Suffix                                                                                   Quantity
+ Subheading
+8309                        Stoppers, caps and lids (including crown corks, screw caps, and pouring
+                            stoppers), capsules for bottles, threaded bungs, bung covers, seals and
+                            other packing accessories, and parts thereof, of base metal:
+                                ***
+8309.90.00                      Other………………………………………………………………………………………………..
+                                     Of aluminum:
+                20 (10)                  For cans of a kind used for the conveyance of beverages as
+                                         described in statistical note 1 to this chapter…………………….. kg
+                                                                                                    No.
+                25 (10)                  Other…………………………………………………………………………………. kg
+                                                                                                    No.
+                                     Other:
+                80 (90)                  Of steel……………………………………………………………………………… kg
+
+                                                        13
+    HTS
+                    Stat                                                                                 Unit of
+  Heading/                                            Article description
+                   Suffix                                                                               Quantity
+ Subheading
+                                                                                                    No.
+                  85 (90)                 Other…………………………………………………………………………………. kg
+                                                                                No.
+
+
+
+
+      The following new statistical note 1 will be added to chapter 83:
+
+              “1. For the purposes of statistical reporting number 8309.90.0020 cans of a kind used for
+              the conveyance of beverages include those with “stay on tab ends” and “ring pull tab
+              ends.”
+
+
+
+
+HTS History – Can Ends (8309.90.00)
+
+HTS Code                    Action                                                     Effective Date
+New statistical note 1,     The following new statistical note 1 will be added to      2025/07/01
+ch. 83                      chapter 83: For the purposes of statistical reporting
+                            number 8309.90.0020 cans of a kind used for the
+                            conveyance of beverages included those with “stay on tab
+                            ends” and “ring pull tab ends.”
+8309.90.0010                Discontinued (transferred to 8309.90.0020 and              2025/07/01
+                            8309.90.0025).
+8309.90.0020                Established (transferred from 8309.90.0010 (pt.)).         2025/07/01
+8309.90.0025                Established (transferred from 8309.90.0010 (pt.)).         2025/07/01
+8309.90.0080                Established (transferred from 8309.90.0090 (pt.)).         2025/07/01
+8309.90.0085                Established (transferred from 8309.90.0090 (pt.)).         2025/07/01
+8309.90.0090                Discontinued (transferred to 8309.90.0080 and              2025/07/01
+                            8309.90.0085).
+
+
+
+
+15.       HTS 8412.90.90                                              Wind Turbine Blades and Hubs
+
+     HTS
+                    Stat                                                                                 Unit of
+  Heading/                                            Article Description
+                   Suffix                                                                               Quantity
+ Subheading
+8412                         Other engines and motors, and parts thereof:
+                                 ***
+8412.90                          Parts:
+
+
+                                                        14
+    HTS
+                       Stat                                                                                   Unit of
+  Heading/                                                  Article Description
+                      Suffix                                                                                 Quantity
+ Subheading
+                                         ***
+8412.90.90                               Other……………………………………………………………………………………….
+                                               ***
+                                               Other:
+                     70 (81)                         Wind turbine blades, imported in accordance with
+                                                     statistical note 2 to this chapter…………………………………. kg
+
+                     75 (81)                         Wind turbine hubs……………………………………………………... kg
+
+                     85                              Other………………………………………………………………………….. kg
+
+
+
+
+ The following new statistical note 2 will be added to chapter 84
+
+           “2. Wind turbine blades shall be counted individually and not as blade sets.”
+
+ Current statistical notes 2 through 4 in chapter 84 will be renumbered as statistical notes 3
+ through 5, respectively.
+
+ ** Please see the statistical note modification table below section 18, detailing how the
+ statistical notes in chapter 84 will be modified.**
+
+
+
+
+HTS History – Wind Turbine Blades and Hubs
+
+HTS Code                       Action                                                       Effective Date
+
+Chapter 84, new                The following new statistical note 2 is added in numerical   2025/07/01
+statistical note 2             order: “Wind turbine blades shall be counted individually
+                               and not as blade sets.”.
+
+Chapter 84, current            Renumbered as statistical notes 3 through 5, respectively.   2025/07/01
+statistical notes 2
+through 4
+
+8412.90.9070                   Established (transferred from 8412.90.9081 (pt.)).           2025/07/01
+
+8412.90.9075                   Established (transferred from 8412.90.9081 (pt.)).           2025/07/01
+
+8412.90.9081                   Discontinued (transferred to 8412.90.9070 and                2025/07/01
+                               8412.90.9075).
+
+
+                                                              15
+HTS Code                 Action                                                         Effective Date
+
+8427.10.8020;            Article descriptions are modified as “statistical note 4 to    2025/07/01
+8427.10.8040;            this chapter” instead of “statistical note 3 to this
+8427.10.8070;            chapter”.
+8427.20.8020; and
+8427.90.0020
+
+
+
+
+16.    HTS 8418.10.00                                        Top Mount Refrigerators
+
+     HTS
+                 Stat                                                                                     Unit of
+  Heading/                                           Ar cle descrip on
+                Suﬃx                                                                                     Quan ty
+ Subheading
+8418                      Refrigerators, freezers and other refrigeraƟng or freezing equipment,
+                          electric or other; heat pumps, other than the air condiƟoning machines
+                          of heading 8415; parts thereof:
+8418.10.00                     Combined refrigerator-freezers, fiƩed with separate external
+                               doors or drawers, or combinaƟons thereof……………………………………….
+                                    Compression type:
+                                       ***
+                                        Having a refrigerated volume of 382 liters and over:
+                                             ***
+               80 (75)                       Refrigerators with a top freezer compartment…………….. No.
+               85 (75)                       Other…………………………………………………………………………… No.
+
+
+
+
+HTS History – Top Mount Refrigerators
+
+HTS Code                 Action                                                         Effective Date
+8418.10.0075             Discontinued (transferred to 8418.10.0080 and                  2025/07/01
+                         8418.10.0085).
+8418.10.0080             Established (transferred from 8418.10.0075 (pt.)).             2025/07/01
+8418.10.0085             Established (transferred from 8418.10.0075 (pt.)).             2025/07/01
+
+
+
+
+17.    HTS 8483.40.50                                                 Wind Turbine Gear Boxes and
+                                                                      Gear Box Parts
+
+     HTS
+                 Stat                                                                                     Unit of
+  Heading/                                           Article Description
+                Suffix                                                                                   Quantity
+ Subheading
+8483                      Transmission shafts (including camshafts and crankshafts)
+                          and cranks; bearing housings, housed bearings and plain shaft
+                          bearings; gears and gearing; ball or roller screws; gear boxes
+
+                                                       16
+   HTS
+                 Stat                                                                             Unit of
+ Heading/                                            Article Description
+                Suffix                                                                           Quantity
+Subheading
+                         and other speed changers, including torque converters;
+                         flywheels and pulleys, including pulley blocks; clutches and
+                         shaft couplings (including universal joints); parts thereof:
+                             ***
+8483.40                      Gears and gearing, other than toothed wheels, chain sprockets and
+                             other transmission elements entered separately; ball or roller
+                             screws; gear boxes and other speed changers, including torque
+                             converters:
+                                 ***
+                                  Gear boxes and other speed changers:
+                                      Fixed ratio speed changers, multiple and variable ratio
+                                      speed changers each ratio of which is selected by manual
+                                      manipulation:
+                                          ***
+8483.40.50                                 Other………………………………………………………………………….
+                                               ***
+               20 (50)                         Gear boxes and speed changers for wind
+                                               turbines, as described in statistical note 6 to No.
+                                               this chapter………………………………………………………….
+               80 (50)                         Other…………………………………………………………………... No.
+
+
+
+
+ The following new statistical note will be added to chapter 84:
+
+          “6. For the purposes of statistical reporting number 8483.40.5020, the term "gear boxes
+          and speed changers for wind turbines" refers to all configurations of gear boxes and
+          speed changers designed for wind turbines, including fixed ratio, multiple ratio, and
+          variable ratio speed changers.”
+
+ Current statistical note 4 in chapter 84 will be renumbered as statistical note 5.
+
+ ** Please see the statistical note modification table below Item # 18 detailing how the
+ statistical notes in chapter 84 will be modified.**
+
+
+
+
+                                                      17
+HTS History – Wind Turbine Gear Boxes and Gear Box Parts
+
+HTS Code                       Action                                                        Effective Date
+
+Chapter 84, new                The following new statistical note 6 is added in numerical    2025/07/01
+statistical note 6             order: “For the purposes of statistical reporting number
+                               8483.40.5020, the term "gear boxes and speed changers
+                               for wind turbines" refers to all configurations of gear
+                               boxes and speed changers designed for wind turbines,
+                               including fixed ratio, multiple ratio, and variable ratio
+                               speed changers.”.
+
+Chapter 84, current            Renumbered as statistical note 5.                             2025/07/01
+statistical note 4
+
+8483.40.5020                   Established (transferred from 8483.40.5050 (pt.)).            2025/07/01
+
+8483.40.5050                   Discontinued (transferred to 8483.40.5020 and                 2025/07/01
+                               8483.40.5080).
+
+8483.40.5080                   Established (transferred from 8483.40.5050 (pt.)).            2025/07/01
+
+
+
+
+18.       HTS 8483.90.50                                                   Parts of Gear Boxes and Speed
+                                                                           Changers for Wind Turbines
+
+     HTS
+                       Stat                                                                                    Unit of
+  Heading/                                                Article Description
+                      Suffix                                                                                  Quantity
+ Subheading
+8483                            Transmission shafts (including camshafts and crankshafts)
+                                and cranks; bearing housings, housed bearings and plain shaft
+                                bearings; gears and gearing; ball or roller screws; gear boxes
+                                and other speed changers, including torque converters;
+                                flywheels and pulleys, including pulley blocks; clutches and
+                                shaft couplings (including universal joints); parts thereof:
+                                    ***
+8483.90                             Toothed wheels, chain sprockets and other transmission elements
+                                    presented separately; parts:
+                                        ***
+8483.90.50                               Parts of gearing, gear boxes and other speed changers:
+                                             ***
+                     20 (90)                 Parts of gear boxes and speed changers for wind turbines... kg
+                     80 (90)                 Other…………………………………………………………………………………. kg
+
+
+
+
+                                                            18
+HTS History – Parts of Gear Boxes and Speed Changers for Wind Turbines
+
+HTS Code                 Action                                                         Effective Date
+
+8483.90.5020             Established (transferred from 8483.90.5090 (pt.)).             2025/07/01
+
+8483.90.5080             Established (transferred from 8483.90.5090 (pt.)).             2025/07/01
+
+8483.90.5090             Discontinued (transferred to 8483.90.5020 and                  2025/07/01
+                         8483.90.5080).
+
+
+
+
+                Statistical Note and Article Description Modifications to Chapter 84
+
+ (Item # 15) - 8412.90.90 – Approved statistical note will be added as new statistical note 2.
+
+ Current statistical note 2 will be renumbered as statistical note 3.
+
+ The article description for current statistical reporting number 8413.91.9065 will be modified to
+ read, “Sucker rods of a kind described in statistical note 3 to this chapter.“
+
+ Current statistical note 3 will be renumbered as new statistical note 4.
+
+ The article description for current statistical reporting numbers 8427.10.8020, 8427.10.8040,
+ 8427.10.8070, 8427.20.8020 and 8427.90.0020, should be modified by replacing, “statistical note
+ 3 to this chapter” with “statistical note 4 to this chapter”.
+
+ Current statistical note 4 will be renumbered as new statistical note 5.
+
+ (Item # 17) – 8483.40.50 – approved statistical note will be added as new statistical note 6.
+
+
+
+
+19.    HTS 8501.64.01                                                Wind Turbine Generators
+
+
+
+     HTS
+                 Stat                                                                                     Unit of
+  Heading/                                          Article Description
+                Suffix                                                                                   Quantity
+ Subheading
+8501                      Electric motors and generators (excluding generating sets):
+                              ***
+                               AC generators (alternators), other than photovoltaic generators:
+
+
+                                                      19
+    HTS
+                 Stat                                                                                  Unit of
+  Heading/                                          Article Description
+                Suffix                                                                                Quantity
+ Subheading
+                                   ***
+8501.64.01                        Of an output exceeding 750 kVA………………………………………………
+               10 (21,                   For wind-powered generating sets classified within
+               30, 50)                   8502.31.00………………………………………………………………………... No.
+                                         Other:
+               25                           Exceeding 750 kVA but not exceeding 10,000 kVA……..      No.
+               35 (30)                      Exceeding 10,000 kVA but not exceeding 40,000 kVA... No.
+               55 (50)                      Other………………………………………………………………………….                      No.
+
+*Current statistical reporting number 8501.64.0121 is deleted; Current statistical reporting number
+8501.64.0125 is relocated as detailed in the above table.
+
+
+HTS History – Wind Turbine Generators
+
+HTS Code                 Action                                                      Effective Date
+
+8501.64.0110             Established (transferred from 8501.64.0121 (pt.)            2025/07/01
+                         8501.64.0130 (pt.), 8501.64.0150 (pt.)).
+
+8501.64.0121             Discontinued (transferred to 8501.64.0110).                 2025/07/01
+
+8501.64.0130             Discontinued (transferred to 8501.64.0110 and               2025/07/01
+                         8501.64.0135).
+
+8501.64.0135             Established (transferred from 8501.64.0130 (pt.)).          2025/07/01
+
+8501.64.0150             Discontinued (transferred to 8501.64.0110 and               2025/07/01
+                         8501.64.0155).
+
+8501.64.0155             Established (transferred from 8501.64.0150 (pt.)).          2025/07/01
+
+
+
+
+20.     HTS 8517.62.00                                              Switching and Routing Apparatus
+                                                                    Unit of Quantity Change
+
+     HTS
+                 Stat                                                                                  Unit of
+  Heading/                                          Article Description
+                Suffix                                                                                Quantity
+ Subheading
+8517                      Telephone sets, including smartphones and other telephones for cellular
+                          networks or for other wireless networks; other apparatus for the
+                          transmission or reception of voice, images or other data, including
+                          apparatus for communication in a wired or wireless network (such as a
+
+                                                      20
+    HTS
+                 Stat                                                                                    Unit of
+  Heading/                                          Article Description
+                Suffix                                                                                  Quantity
+ Subheading
+                          local or wide area network), other than transmission or reception
+                          apparatus of heading 8443, 8525, 8527 or 8528; parts thereof:
+                               Other apparatus for transmission or reception of voice, images or
+                               other data, including apparatus for communication in a wired or
+                               wireless network (such as a local or wide area network):
+                                    ***
+8517.62.00                         Machines for the reception, conversion and transmission or
+                                   regeneration of voice, images or other data, including
+                                   switching and routing apparatus……………………………………………….
+                                       ***
+               90                      Other…………………………………………………………………………………. No.
+
+
+
+
+HTS History – Switching and Routing Apparatus Unit of Quantity Change
+
+HTS Code                 Action                                                        Effective Date
+8517.62.0090             Changed the unit of quantity from “kg” to “No.”.              2025/07/01
+
+
+
+
+21.    HTS 8542.39.00                                                Adjustable Integrated Circuits
+
+
+     HTS
+                 Stat                                                                                    Unit of
+  Heading/                                          Article Description
+                Suffix                                                                                  Quantity
+ Subheading
+8542                      Electronic integrated circuits; parts thereof:
+                              Electronic integrated circuits:
+                                   ***
+8542.39.00                         Other:
+                                        ***
+               70 (60)                  With adjustable performance characteristics, not
+                                        elsewhere specified or included.……………………………………….            No.
+               90 (60)                  Other………….………..……………………………………………………………                      No.
+
+
+
+
+HTS History – Adjustable Integrated Circuits
+
+HTS Code                 Action                                                        Effective Date
+8542.39.0060             Discontinued (transferred to 8542.39.0070 and                 2025/07/01
+                         8542.39.0090).
+8542.39.0070             Established (transferred from 8542.39.0060 (pt.)).            2025/07/01
+
+                                                      21
+HTS Code                   Action                                                       Effective Date
+8542.39.0090               Established (transferred from 8542.39.0060 (pt.)).           2025/07/01
+
+
+
+
+22.       HTS 8607.30.10                                               Freight Rail Coupling Systems and Parts
+
+
+
+     HTS
+                  Stat                                                                                    Unit of
+  Heading/                                             Article Description
+                 Suffix                                                                                  Quantity
+ Subheading
+8607                        Parts of railway or tramway locomotives or rolling stock:
+8607.30                         Hooks and other coupling devices, buffers, and parts thereof:
+8607.30.10                          For vehicles of heading 8605 or 8606:
+                10 (00)                    Assembled freight rail couplers …………………………………………. kg
+                50 (00)                    Freight rail coupler parts……………………………………………………. kg
+                90 (00)                    Other ……………………………………………………………………………….                     kg
+
+
+
+
+HTS History – Freight Rail Coupling System and Parts
+
+HTS Code                   Action                                                       Effective Date
+8607.30.1000               Annotated (transferred to 8607.30.1010, 8607.30.1050         2025/07/01
+                           and 8607.30.1090)
+8607.30.1010               Established (transferred from 8607.30.1000 (pt.)).           2025/07/01
+8607.30.1050               Established (transferred from 8607.30.1000 (pt.)).           2025/07/01
+8607.30.1090               Established (transferred from 8607.30.1000 (pt.)).           2025/07/01
+
+
+
+
+23.       HTS 9401.99.90                                               Collapsible Sofa Bed Decks
+
+     HTS
+                  Stat                                                                                    Unit of
+  Heading/                                             Article Description
+                 Suffix                                                                                  Quantity
+ Subheading
+9401                        Seats (other than those of heading 9402), whether or not convertible
+                            into beds, and parts thereof:
+                                 Parts:
+                                     ***
+9401.99                              Other:
+                                           ***
+9401.99.90                                 Other………………………………………………………………………………….
+                                                 ***
+
+
+
+                                                        22
+    HTS
+                       Stat                                                                                   Unit of
+  Heading/                                                Article Description
+                      Suffix                                                                                 Quantity
+ Subheading
+                     30 (81)                     Mechanically collapsible sofa bed seat deck
+                                                 components, covered or uncovered as
+                                                 described in statistical note 2 to this
+                                                 chapter……………………………………………………………………….. No.
+                     70 (81)                     Other…………………………………………………………………………... No.
+
+
+
+
+ The following new statistical note 2 will be added to chapter 94:
+
+           “2. For the purposes of statistical reporting number 9401.99.9030, mechanically
+           collapsible sofa bed seat deck components are characterized by an articulating array of
+           metal torsion hinges and struts that square-fold to transition from flat to erect and vice
+           versa and are attached permanently to a controller frame consisting of a metal bar that
+           acts as a bi-directional transit controller.”
+
+ Current statistical notes 2 through 6 in chapter 94 will be renumbered as statistical notes 3
+ through 7, respectively.
+
+
+
+HTS History – Collapsible Sofa Bed Decks
+
+HTS Code                       Action                                                       Effective Date
+
+Chapter 94, new                The following new statistical note 2 is added in numerical   2025/07/01
+statistical note 2             order: “For the purposes of statistical reporting number
+                               9401.99.9030, mechanically collapsible sofa bed seat deck
+                               components are characterized by an articulating array of
+                               metal torsion hinges and struts that square-fold to
+                               transition from flat to erect and vice versa and are
+                               attached permanently to a controller frame consisting of
+                               a metal bar that acts as a bi-directional transit
+                               controller.”.
+
+Chapter 84, current            Renumbered as statistical notes 3 through 7, respectively.   2025/07/01
+statistical note 2
+through 6
+
+9401.99.9030                   Established (transferred from 9401.99.9081 (pt.)).           2025/07/01
+
+9401.99.9070                   Established (transferred from 9401.99.9081 (pt.)).           2025/07/01
+
+
+
+
+                                                            23
+HTS Code       Action                                          Effective Date
+
+9401.99.9081   Discontinued (transferred to 9401.99.9030 and   2025/07/01
+               9401.99.9070).
+
+
+
+
+                                          24
+

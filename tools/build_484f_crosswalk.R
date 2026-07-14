@@ -42,11 +42,17 @@
 #
 # Archive-coverage validation (does every disappearing/established ordinary-
 # merchandise code in the cached HTS universes have an edge here, both
-# directions?) is Phase 2 and lives in `validate_484f_coverage()` — a stub here.
+# directions?) lives in `validate_484f_coverage()` and runs by default.
 #
-# Usage (one-shot, requires pdftools):
-#   Rscript tools/build_484f_crosswalk.R              # extract + reconcile + write
-#   Rscript tools/build_484f_crosswalk.R --dry-run    # extract + reconcile, no write
+# Text extraction prefers pdftools on the committed PDF, but falls back to the
+# committed poppler text sidecar (`data/484f/text/<doc>.txt`, hash-verified)
+# when pdftools is absent — so the crosswalk regenerates on the cluster R
+# (which has no PDF toolchain) without changing the auditable PDF source.
+#
+# Usage (one-shot):
+#   Rscript tools/build_484f_crosswalk.R              # extract + reconcile + coverage + write
+#   Rscript tools/build_484f_crosswalk.R --dry-run    # all validation, no write
+#   Rscript tools/build_484f_crosswalk.R --no-coverage  # parser only
 #
 # CI runs the pure grammar via tests/test_484f_parser.R; it does NOT run this
 # builder end-to-end (no pdftools, no committed PDFs on the runner beyond the
@@ -85,9 +91,11 @@ HTS_HEADING_RE <- '^\\s*HTS\\s+(History|Code|Changes)\\b'
 SCHED_B_HEADING_RE <-
   '(Schedule\\W*B\\W*(History|Code|Changes))|(^\\s*Schedule B\\s*$)'
 
-# Supplement "Renumbered As:" table header (three columns: Discontinued Number,
-# Article Description, Renumbered As:).
-SUPPLEMENT_HEADER_RE <- 'Discontinued Number.*Renumbered As'
+# Supplement "Renumbered As:" table header (three columns: <old-code-column>,
+# Article Description, Renumbered As:). The old-code column is labeled
+# "Discontinued Number" in the Jan-2026 pharmaceutical supplement and "Deleted
+# Number" in the Jul-2026 one — both introduce the same old->new renumbering grid.
+SUPPLEMENT_HEADER_RE <- '(Discontinued|Deleted) Number.*Renumbered As'
 
 # A numbered product-section header, e.g. "10.    HTS 3004.90.92  Supplement ...".
 # Clears supplement state.
@@ -606,18 +614,63 @@ reconcile_484f_edges <- function(assertions, source_hashes = NULL, strict = TRUE
 }
 
 # -----------------------------------------------------------------------------
-# PDF extraction (requires pdftools; one-shot only)
+# Text extraction (pdftools when available; committed poppler sidecar otherwise)
 # -----------------------------------------------------------------------------
+#
+# The source of truth is the committed PDF (`data/484f/<doc>.pdf`, hash-verified
+# in source_manifest.csv). `pdftools` (poppler) is the canonical extractor but is
+# NOT installed on the cluster R, so we also commit the exact poppler text
+# extraction as a form-feed-delimited sidecar (`data/484f/text/<doc>.txt`, its
+# own hash in source_manifest.csv `text_sha256`). This keeps CROSSWALK
+# REGENERATION reproducible on the cluster without a PDF toolchain, while the PDF
+# remains the auditable primary. When pdftools IS present the sidecar is bypassed
+# and text comes straight from the PDF (a mismatch would then surface as a
+# two-sided / coverage failure).
 
-#' Extract PDF text as a list of per-page character vectors of lines.
-extract_484f_pages <- function(pdf_path) {
-  if (!requireNamespace('pdftools', quietly = TRUE)) {
-    stop('extract_484f_pages requires the pdftools package, which is not ',
-         'installed on the cluster R. Regenerate the crosswalk on a machine ',
-         'with pdftools; production reads only the committed CSV.', call. = FALSE)
-  }
-  pages <- pdftools::pdf_text(pdf_path)
+#' Sidecar text path for a source doc basename (484f_2025-01.pdf -> .../text/484f_2025-01.txt).
+sidecar_text_path <- function(source_doc, dir_484f = here('data', '484f')) {
+  file.path(dir_484f, 'text', sub('\\.pdf$', '.txt', source_doc))
+}
+
+#' Split a poppler text dump into per-page vectors of lines.
+#'
+#' pdftools::pdf_text() and `pdftotext` both separate pages with a form feed
+#' (\f). We split on \f into pages, then each page on newlines. Trailing empty
+#' page fragments (a final \f) are dropped.
+split_text_to_pages <- function(text) {
+  pages <- strsplit(text, '\f', fixed = TRUE)[[1]]
+  pages <- pages[nzchar(pages) | seq_along(pages) < length(pages)]
   lapply(pages, function(p) strsplit(p, '\n', fixed = TRUE)[[1]])
+}
+
+#' Extract source text as a list of per-page character vectors of lines.
+#'
+#' Prefers pdftools on the raw PDF; falls back to the committed, hash-verified
+#' text sidecar. `expected_text_sha256` (from the manifest) is enforced against
+#' the sidecar when the fallback path is taken.
+extract_484f_pages <- function(pdf_path, source_doc = basename(pdf_path),
+                               dir_484f = dirname(pdf_path),
+                               expected_text_sha256 = NA_character_) {
+  if (requireNamespace('pdftools', quietly = TRUE) && file.exists(pdf_path)) {
+    pages <- pdftools::pdf_text(pdf_path)
+    return(lapply(pages, function(p) strsplit(p, '\n', fixed = TRUE)[[1]]))
+  }
+  txt_path <- sidecar_text_path(source_doc, dir_484f)
+  if (!file.exists(txt_path)) {
+    stop('extract_484f_pages: pdftools unavailable and no committed text ',
+         'sidecar for ', source_doc, ' at ', txt_path,
+         '. Regenerate the sidecar on a machine with pdftools/poppler.',
+         call. = FALSE)
+  }
+  if (!is.na(expected_text_sha256) && nzchar(expected_text_sha256)) {
+    actual <- digest::digest(file = txt_path, algo = 'sha256')
+    if (!identical(actual, expected_text_sha256)) {
+      stop(sprintf('484(f) text sidecar hash mismatch for %s:\n  manifest: %s\n  actual:   %s',
+                   source_doc, expected_text_sha256, actual), call. = FALSE)
+    }
+  }
+  raw <- paste(readLines(txt_path, warn = FALSE), collapse = '\n')
+  split_text_to_pages(raw)
 }
 
 #' Flatten per-page lines into a (lines, page_of_line) pair for the parser.
@@ -664,14 +717,340 @@ verify_484f_sources <- function(dir_484f = here('data', '484f')) {
 }
 
 # -----------------------------------------------------------------------------
-# Coverage validation (Phase 2 — stub)
+# Coverage validation (Phase 2)
 # -----------------------------------------------------------------------------
+#
+# Does every ordinary-merchandise 10-digit code that DISAPPEARS or is
+# ESTABLISHED across the cached HTS archive universes have an explaining edge in
+# the 484(f) crosswalk (both directions)? And does every pre-panel 2024-base
+# code that is absent from the 2025 basic universe have an old-side edge?
+#
+# Scoping matches the weight base exactly: 10-digit codes (dotted
+# dddd.dd.dd.dd), chapters 98-99 excluded (see build_import_weights.R:452-455).
+# Archive ordering uses the RAW HTS-identity effective_date (never the policy
+# retimed date) because a code's identity changes when USITC publishes the
+# revision, not when a tariff policy takes legal effect.
+#
+# Genuinely non-484(f) churn (mid-cycle Census corrections that no committee
+# document explains) is allowed ONLY through the committed exceptions resource
+# `resources/hts10_484f_coverage_exceptions.csv`; an exception that matches no
+# actual uncovered churn (stale) fails the build, mirroring the overrides
+# contract.
 
-#' Scoped archive-coverage validation over cached HTS universes. Phase 2.
-validate_484f_coverage <- function(transfers, ...) {
-  stop('validate_484f_coverage() is a Phase 2 deliverable (json + json.gz ',
-       'archive discovery, scoped disappearance/establishment coverage both ',
-       'directions). Not yet implemented.', call. = FALSE)
+COVERAGE_EXCEPTIONS_SCHEMA <- c('hts10', 'direction', 'transition_to',
+                                'reason', 'evidence', 'approved_by')
+
+# Dotted 10-digit leaf as it appears in an HTS archive: dddd.dd.dd.dd.
+ARCHIVE_HTS10_RE <- '^[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}$'
+
+#' Discover HTS archive snapshots (both .json and .json.gz), deduped.
+#'
+#' @return tibble(revision, year, rev) — one row per revision, gz/raw collapsed.
+discover_hts_archives <- function(archive_dir) {
+  files <- list.files(archive_dir, pattern = '^hts_[0-9]{4}_.+\\.json(\\.gz)?$')
+  if (length(files) == 0) {
+    return(tibble(revision = character(), year = integer(), rev = character()))
+  }
+  m <- str_match(files, '^hts_([0-9]{4})_(.+)\\.json(?:\\.gz)?$')
+  tibble(file = files, year = as.integer(m[, 2]), rev = m[, 3]) %>%
+    mutate(revision = if_else(year == 2025L, rev, paste0(year, '_', rev))) %>%
+    distinct(revision, year, rev) %>%
+    arrange(year, rev)
+}
+
+#' Resolve an archive path, preferring the committed gzip.
+resolve_archive_path <- function(archive_dir, year, rev) {
+  base <- file.path(archive_dir, sprintf('hts_%d_%s', year, rev))
+  gz <- paste0(base, '.json.gz'); raw <- paste0(base, '.json')
+  if (file.exists(gz))  return(gz)
+  if (file.exists(raw)) return(raw)
+  stop('HTS archive not found: ', base, '.json[.gz]', call. = FALSE)
+}
+
+#' Ordinary-merchandise 10-digit code universe from one archive file.
+archive_ordinary_hts10 <- function(path) {
+  if (!requireNamespace('jsonlite', quietly = TRUE)) {
+    stop('archive_ordinary_hts10 requires the jsonlite package.', call. = FALSE)
+  }
+  con <- if (grepl('\\.gz$', path)) gzfile(path) else path
+  txt <- paste(readLines(con, warn = FALSE), collapse = '\n')
+  recs <- jsonlite::fromJSON(txt, simplifyDataFrame = TRUE)
+  h <- recs$htsno
+  h <- h[!is.na(h) & grepl(ARCHIVE_HTS10_RE, h)]
+  codes <- gsub('.', '', h, fixed = TRUE)
+  unique(codes[!grepl('^(98|99)', codes)])
+}
+
+#' HS8 headings present in an archive: every 8-digit tariff line AND every HS8
+#' prefix of a 10-digit code. Used to tell a dropped statistical suffix (HS8
+#' persists -> prefix cascade recovers it) from a vanished heading (genuine gap).
+archive_hs8_present <- function(path) {
+  if (!requireNamespace('jsonlite', quietly = TRUE)) {
+    stop('archive_hs8_present requires the jsonlite package.', call. = FALSE)
+  }
+  con <- if (grepl('\\.gz$', path)) gzfile(path) else path
+  txt <- paste(readLines(con, warn = FALSE), collapse = '\n')
+  recs <- jsonlite::fromJSON(txt, simplifyDataFrame = TRUE)
+  h <- recs$htsno; h <- h[!is.na(h)]
+  eight <- gsub('.', '', h[grepl('^[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}$', h)], fixed = TRUE)
+  ten   <- gsub('.', '', h[grepl(ARCHIVE_HTS10_RE, h)], fixed = TRUE)
+  unique(c(eight, substr(ten, 1, 8)))
+}
+
+#' Load HTS-identity dates (RAW effective_date, never policy) for archive order.
+load_hts_identity_dates <- function(path) {
+  d <- readr::read_csv(path, col_types = readr::cols(
+    revision = readr::col_character(),
+    effective_date = readr::col_date(),
+    .default = readr::col_guess()))
+  d %>% transmute(revision, effective_date) %>%
+    filter(!is.na(effective_date)) %>% arrange(effective_date)
+}
+
+#' Load + validate the committed coverage-exceptions resource.
+load_484f_coverage_exceptions <- function(path) {
+  if (is.null(path) || !file.exists(path)) {
+    return(tibble(!!!setNames(rep(list(character()), length(COVERAGE_EXCEPTIONS_SCHEMA)),
+                              COVERAGE_EXCEPTIONS_SCHEMA)))
+  }
+  ex <- readr::read_csv(path, col_types = readr::cols(.default = readr::col_character()))
+  missing <- setdiff(COVERAGE_EXCEPTIONS_SCHEMA, names(ex))
+  if (length(missing)) {
+    stop('hts10_484f_coverage_exceptions.csv missing columns: ',
+         paste(missing, collapse = ', '), call. = FALSE)
+  }
+  bad_dir <- setdiff(unique(ex$direction), c('disappeared', 'established'))
+  if (length(bad_dir)) {
+    stop('hts10_484f_coverage_exceptions.csv bad direction(s): ',
+         paste(bad_dir, collapse = ', '), call. = FALSE)
+  }
+  ex
+}
+
+#' Detect a directed cycle (length >= 2) among same-date edges via Kahn peeling.
+#'
+#' Self-edges (old == new, legitimate same-date reuse) are excluded upstream.
+has_directed_cycle <- function(old_codes, new_codes) {
+  nodes <- unique(c(old_codes, new_codes))
+  edges <- tibble(from = old_codes, to = new_codes)
+  repeat {
+    outdeg <- setdiff(edges$from, edges$to)   # nodes with no incoming edge
+    sinks  <- setdiff(edges$to, edges$from)   # nodes with no outgoing edge
+    removable <- union(outdeg, sinks)
+    keep <- !(edges$from %in% removable | edges$to %in% removable)
+    if (all(keep) || sum(keep) == nrow(edges)) break
+    edges <- edges[keep, , drop = FALSE]
+    if (nrow(edges) == 0) break
+  }
+  nrow(edges) > 0
+}
+
+#' Scoped archive-coverage validation over cached HTS universes.
+#'
+#' @param transfers the reconciled HTS transfer edges (reconcile_484f_edges()$transfers).
+#' @param archive_dir directory of hts_<year>_<rev>.json[.gz] archives.
+#' @param revision_dates_path config/revision_dates.csv (HTS-identity dates).
+#' @param weight_base_path optional 2024 import weight base .rds for the
+#'   pre-panel completeness check; NULL skips it.
+#' @param basic_revision the revision whose universe is the 2025 basic panel.
+#' @param exceptions_path committed coverage-exceptions CSV (documented non-484f churn).
+#' @param strict if TRUE, any uncovered churn / stale exception / same-date cycle fails.
+#' @return list(inspected, transitions, uncovered_disappeared, uncovered_established,
+#'   prepanel_missing, source_edges_unobserved, cycles, exceptions_used).
+validate_484f_coverage <- function(transfers,
+                                   archive_dir = here('data', 'hts_archives'),
+                                   revision_dates_path = here('config', 'revision_dates.csv'),
+                                   weight_base_path = NULL,
+                                   basic_revision = 'basic',
+                                   exceptions_path = here('resources', 'hts10_484f_coverage_exceptions.csv'),
+                                   strict = TRUE) {
+  stopifnot(all(c('old_hts10', 'new_hts10', 'effective_date') %in% names(transfers)))
+
+  disc  <- discover_hts_archives(archive_dir)
+  dates <- load_hts_identity_dates(revision_dates_path)
+  snaps <- dates %>% inner_join(disc, by = 'revision') %>% arrange(effective_date)
+  if (nrow(snaps) < 2) {
+    stop('validate_484f_coverage: need >= 2 archive snapshots, found ',
+         nrow(snaps), ' in ', archive_dir, call. = FALSE)
+  }
+  exceptions <- load_484f_coverage_exceptions(exceptions_path)
+
+  message(sprintf('Coverage: inspecting %d ordered archive snapshots (%s .. %s)',
+                  nrow(snaps), min(snaps$effective_date), max(snaps$effective_date)))
+
+  universes <- setNames(
+    lapply(seq_len(nrow(snaps)),
+           function(i) archive_ordinary_hts10(
+             resolve_archive_path(archive_dir, snaps$year[i], snaps$rev[i]))),
+    snaps$revision)
+
+  # --- Per-transition disappeared / established ------------------------------
+  transitions <- map_dfr(2:nrow(snaps), function(i) {
+    u0 <- universes[[i - 1]]; u1 <- universes[[i]]
+    tibble(
+      transition_from = snaps$revision[i - 1],
+      transition_to   = snaps$revision[i],
+      date_from = snaps$effective_date[i - 1],
+      date_to   = snaps$effective_date[i],
+      n_disappeared = length(setdiff(u0, u1)),
+      n_established = length(setdiff(u1, u0)),
+      disappeared = list(setdiff(u0, u1)),
+      established = list(setdiff(u1, u0)))
+  })
+
+  old_set <- unique(transfers$old_hts10[!is.na(transfers$old_hts10)])
+  new_set <- unique(transfers$new_hts10[!is.na(transfers$new_hts10)])
+
+  ex_dis <- exceptions %>% filter(direction == 'disappeared')
+  ex_est <- exceptions %>% filter(direction == 'established')
+  ex_used <- rep(FALSE, nrow(exceptions))
+
+  # Uncovered = churn code not explained by any edge AND not excepted.
+  churn_long <- transitions %>%
+    transmute(transition_to,
+              disappeared = disappeared, established = established) %>%
+    { bind_rows(
+        tibble(direction = 'disappeared',
+               transition_to = rep(.$transition_to, lengths(.$disappeared)),
+               hts10 = unlist(.$disappeared)),
+        tibble(direction = 'established',
+               transition_to = rep(.$transition_to, lengths(.$established)),
+               hts10 = unlist(.$established))) }
+
+  mark_ex_used <- function(direction, hts10, transition_to) {
+    hit <- exceptions$direction == direction & exceptions$hts10 == hts10 &
+      (is.na(exceptions$transition_to) | exceptions$transition_to == transition_to |
+         exceptions$transition_to == '')
+    ex_used[hit] <<- TRUE
+    any(hit)
+  }
+
+  # An exception is only "used" if it absorbs an ACTUALLY-uncovered code — a
+  # documented exception for a code that a 484(f) edge already covers is stale.
+  churn_long <- churn_long %>%
+    mutate(covered = if_else(direction == 'disappeared',
+                             hts10 %in% old_set, hts10 %in% new_set),
+           excepted = pmap_lgl(list(direction, hts10, transition_to, covered),
+             function(dir, h, tr, cov) if (isTRUE(cov)) FALSE else mark_ex_used(dir, h, tr)))
+
+  uncovered <- churn_long %>% filter(!covered, !excepted)
+  uncovered_dis <- uncovered %>% filter(direction == 'disappeared')
+  uncovered_est <- uncovered %>% filter(direction == 'established')
+
+  # --- Pre-panel completeness (2024 base absent from 2025 basic) -------------
+  #
+  # A 2024-base code missing from the 2025 basic universe is classified:
+  #   covered   - explained by a 484(f) old-side edge (a real committee change);
+  #   cascade   - its HS8 heading still exists, so it is a retired statistical
+  #               suffix the weight mapper's prefix cascade recovers exactly at
+  #               HS8 (Census suffix churn, much of it predating the Jul-2024
+  #               doc; NOT a missing committee edge) — reported, not fatal;
+  #   vanished  - even the HS8 heading is gone, so the value cannot be recovered
+  #               by prefix and needs a real remap; fatal unless documented.
+  prepanel_missing <- tibble(hts10 = character())
+  prepanel_summary <- tibble()
+  if (!is.null(weight_base_path) && file.exists(weight_base_path)) {
+    if (!basic_revision %in% names(universes)) {
+      stop('validate_484f_coverage: basic_revision "', basic_revision,
+           '" has no archive universe.', call. = FALSE)
+    }
+    base <- readRDS(weight_base_path)
+    base_col <- intersect(c('hs10', 'hts10'), names(base))[1]
+    imp_col  <- intersect(c('imports', 'value', 'customs_value'), names(base))[1]
+    base_tot <- base %>%
+      transmute(hts10 = as.character(.data[[base_col]]),
+                imports = if (!is.na(imp_col)) .data[[imp_col]] else NA_real_) %>%
+      filter(grepl('^[0-9]{10}$', hts10), !grepl('^(98|99)', hts10)) %>%
+      group_by(hts10) %>% summarise(imports = sum(imports, na.rm = TRUE), .groups = 'drop')
+
+    hs8_present <- archive_hs8_present(
+      resolve_archive_path(archive_dir, snaps$year[match(basic_revision, snaps$revision)],
+                           snaps$rev[match(basic_revision, snaps$revision)]))
+
+    pre <- base_tot %>%
+      filter(!hts10 %in% universes[[basic_revision]]) %>%
+      mutate(klass = case_when(
+        hts10 %in% old_set              ~ 'covered',
+        substr(hts10, 1, 8) %in% hs8_present ~ 'cascade',
+        TRUE                            ~ 'vanished'))
+    prepanel_summary <- pre %>% group_by(klass) %>%
+      summarise(n = n(), usd_bn = sum(imports) / 1e9, .groups = 'drop')
+
+    vanished <- pre %>% filter(klass == 'vanished')
+    van_excepted <- vapply(vanished$hts10,
+      function(c) mark_ex_used('disappeared', c, basic_revision), logical(1))
+    prepanel_missing <- vanished[!van_excepted, c('hts10', 'imports')]
+    message(sprintf('Pre-panel: %d 2024-base codes absent from %s ($%.1fB); classes:',
+                    nrow(pre), basic_revision, sum(pre$imports) / 1e9))
+    for (i in seq_len(nrow(prepanel_summary))) {
+      message(sprintf('  %-8s n=%-4d $%.2fB', prepanel_summary$klass[i],
+                      prepanel_summary$n[i], prepanel_summary$usd_bn[i]))
+    }
+    message(sprintf('  vanished-HS8 uncovered+undocumented (fatal): %d',
+                    nrow(prepanel_missing)))
+  }
+
+  # --- Source edges never observed in an archive transition ------------------
+  observed_dis <- churn_long %>% filter(direction == 'disappeared') %>% pull(hts10)
+  observed_est <- churn_long %>% filter(direction == 'established') %>% pull(hts10)
+  source_edges_unobserved <- transfers %>%
+    filter(!is.na(new_hts10)) %>%
+    mutate(old_seen = old_hts10 %in% observed_dis,
+           new_seen = new_hts10 %in% observed_est) %>%
+    filter(!old_seen & !new_seen) %>%
+    select(any_of(c('old_hts10', 'new_hts10', 'effective_date',
+                    'change_type', 'source_doc')))
+
+  # --- Same-date cycle validation --------------------------------------------
+  cycles <- transfers %>%
+    filter(!is.na(new_hts10), old_hts10 != new_hts10) %>%
+    group_by(effective_date) %>%
+    summarise(cycle = has_directed_cycle(old_hts10, new_hts10), .groups = 'drop') %>%
+    filter(cycle)
+
+  # --- Report ----------------------------------------------------------------
+  message(sprintf('Coverage: %d transitions; %d/%d disappeared covered, %d/%d established covered',
+                  nrow(transitions),
+                  sum(churn_long$direction == 'disappeared' & (churn_long$covered | churn_long$excepted)),
+                  sum(churn_long$direction == 'disappeared'),
+                  sum(churn_long$direction == 'established' & (churn_long$covered | churn_long$excepted)),
+                  sum(churn_long$direction == 'established')))
+  message(sprintf('  documented exceptions used: %d/%d; source edges unobserved: %d; same-date cycles: %d',
+                  sum(ex_used), nrow(exceptions), nrow(source_edges_unobserved), nrow(cycles)))
+
+  problems <- character()
+  if (nrow(uncovered_dis))
+    problems <- c(problems, sprintf('%d uncovered disappearances (e.g. %s)',
+      nrow(uncovered_dis), paste(head(uncovered_dis$hts10, 8), collapse = ', ')))
+  if (nrow(uncovered_est))
+    problems <- c(problems, sprintf('%d uncovered establishments (e.g. %s)',
+      nrow(uncovered_est), paste(head(uncovered_est$hts10, 8), collapse = ', ')))
+  if (nrow(prepanel_missing))
+    problems <- c(problems, sprintf('%d pre-panel 2024-base codes with vanished HS8 heading uncovered (e.g. %s)',
+      nrow(prepanel_missing), paste(head(prepanel_missing$hts10, 8), collapse = ', ')))
+  if (nrow(cycles))
+    problems <- c(problems, sprintf('same-date directed cycle(s) at: %s',
+      paste(cycles$effective_date, collapse = ', ')))
+  if (any(!ex_used))
+    problems <- c(problems, sprintf('stale coverage exception(s): %s',
+      paste(exceptions$hts10[!ex_used], collapse = ', ')))
+
+  if (length(problems) && strict) {
+    stop('484(f) coverage validation failed:\n  - ',
+         paste(problems, collapse = '\n  - '),
+         '\nAdd a committed edge (source doc) or a documented coverage exception.',
+         call. = FALSE)
+  }
+
+  list(inspected = snaps %>% select(revision, effective_date, year, rev),
+       transitions = transitions %>% select(-disappeared, -established),
+       uncovered_disappeared = uncovered_dis,
+       uncovered_established = uncovered_est,
+       prepanel_missing = prepanel_missing,
+       prepanel_summary = prepanel_summary,
+       source_edges_unobserved = source_edges_unobserved,
+       cycles = cycles,
+       exceptions_used = tibble(exceptions, used = ex_used))
 }
 
 # -----------------------------------------------------------------------------
@@ -681,15 +1060,23 @@ validate_484f_coverage <- function(transfers, ...) {
 build_484f_crosswalk <- function(dir_484f = here('data', '484f'),
                                  overrides_path = here('resources', 'hts10_484f_overrides.csv'),
                                  out_path = here('resources', 'hts10_484f_transfers.csv'),
+                                 run_coverage = TRUE,
+                                 archive_dir = here('data', 'hts_archives'),
+                                 weight_base_path = here('data', 'weights', 'hs10_by_country_gtap_2024_con.rds'),
+                                 coverage_report_path = here('resources', 'hts10_484f_coverage_report.csv'),
                                  dry_run = FALSE) {
   manifest <- verify_484f_sources(dir_484f)
   overrides <- load_484f_overrides(overrides_path)
 
   present <- manifest %>% filter(status == 'present')
+  text_sha <- if ('text_sha256' %in% names(present)) present$text_sha256
+              else rep(NA_character_, nrow(present))
   all_assertions <- map_dfr(seq_len(nrow(present)), function(i) {
     doc <- present$source_doc[i]
     message('Parsing ', doc, ' ...')
-    pages <- extract_484f_pages(present$path[i])
+    pages <- extract_484f_pages(present$path[i], source_doc = doc,
+                                dir_484f = dir_484f,
+                                expected_text_sha256 = text_sha[i])
     fl <- flatten_pages(pages)
     parse_484f_lines(fl$lines, source_doc = doc, page_of_line = fl$page_of_line)
   })
@@ -705,11 +1092,24 @@ build_484f_crosswalk <- function(dir_484f = here('data', '484f'),
                   nrow(rec$schedule_b)))
   message(sprintf('HTS transfer edges: %d', nrow(rec$transfers)))
 
+  cov <- NULL
+  if (run_coverage) {
+    message('\nRunning archive-coverage validation ...')
+    cov <- validate_484f_coverage(
+      rec$transfers, archive_dir = archive_dir,
+      weight_base_path = if (!is.null(weight_base_path) &&
+                             file.exists(weight_base_path)) weight_base_path else NULL)
+    if (!dry_run && !is.null(coverage_report_path)) {
+      readr::write_csv(cov$transitions, coverage_report_path)
+      message('Wrote coverage report ', coverage_report_path)
+    }
+  }
+
   if (!dry_run) {
     readr::write_csv(rec$transfers, out_path)
     message('Wrote ', out_path)
   }
-  invisible(rec)
+  invisible(c(rec, list(coverage = cov)))
 }
 
 # -----------------------------------------------------------------------------
@@ -719,8 +1119,11 @@ build_484f_crosswalk <- function(dir_484f = here('data', '484f'),
 if (sys.nframe() == 0) {
   args <- commandArgs(trailingOnly = TRUE)
   if (length(args) && any(args %in% c('-h', '--help'))) {
-    cat('Usage: Rscript tools/build_484f_crosswalk.R [--dry-run]\n')
+    cat('Usage: Rscript tools/build_484f_crosswalk.R [--dry-run] [--no-coverage]\n',
+        '  --dry-run      parse + reconcile + validate, do not write CSVs\n',
+        '  --no-coverage  skip archive-coverage validation (parser only)\n', sep = '')
     quit(status = 0)
   }
-  build_484f_crosswalk(dry_run = any(args == '--dry-run'))
+  build_484f_crosswalk(dry_run = any(args == '--dry-run'),
+                       run_coverage = !any(args == '--no-coverage'))
 }

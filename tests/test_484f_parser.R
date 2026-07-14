@@ -170,6 +170,35 @@ run_test('supplement: Schedule B Changes heading clears supplement (9208 not re-
 })
 
 # =============================================================================
+message('\n=== supplement: "Deleted Number ... Renumbered As" header (Jul-2026) ===')
+
+# The Jul-2026 document labels the supplement old-code column "Deleted Number"
+# rather than Jan-2026's "Discontinued Number". SUPPLEMENT_HEADER_RE must match
+# both, and the standard "Deleted (transferred to ...)" same-date re-establish
+# rows must coexist with the supplement grid.
+suppdel <- parse_reconcile('supplement_deleted_hts.txt')
+
+run_test('supplement (Deleted header): renumber grid parsed with inherited date', {
+  t <- suppdel$transfers
+  stopifnot(has_edge(t, '3004909212', '3004909213'),
+            has_edge(t, '3004909213', '3004909214'))
+  ren <- t %>% filter(old_hts10 == '3004909212', new_hts10 == '3004909213')
+  stopifnot(nrow(ren) == 1, all(ren$effective_date == '2026-07-01'))
+})
+run_test('supplement (Deleted header): same-date re-establish 9211 kept as reuse', {
+  t <- suppdel$transfers
+  stopifnot(has_edge(t, '3004909211', '3004909211'),   # re-established identity
+            has_edge(t, '3004909211', '3004909212'))
+  self <- t %>% filter(old_hts10 == '3004909211', new_hts10 == '3004909211')
+  stopifnot(nrow(self) == 1, all(self$same_date_reuse))
+})
+run_test('supplement (Deleted header): "will not be renumbered" line adds no edge', {
+  t <- suppdel$transfers
+  stopifnot(!has_edge(t, '3004909215', '3004909215'),
+            sum(t$new_hts10 == '3004909215', na.rm = TRUE) == 0)
+})
+
+# =============================================================================
 message('\n=== all five verbs, leading whitespace, paren-spacing ===')
 
 verbs <- parse_reconcile('verb_variants_hts.txt')
