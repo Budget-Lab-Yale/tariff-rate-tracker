@@ -194,6 +194,34 @@ run_test('weight_stats carries the per-revision fingerprint', {
 })
 
 # =============================================================================
+# 3b. Weighted rate uses the STORED (effective) total_rate, NOT a re-derivation
+#     from base_rate — so trade-preference (USMCA/FTA) duty-free is respected.
+# =============================================================================
+message('\n--- 3b: weighted rate respects stored exemptions ---')
+
+run_test('USMCA duty-free row contributes its stored 0 rate, not the statutory base', {
+  # Same product, two countries: one USMCA duty-free (base 0.5 but stored
+  # total_rate 0), one full statutory (stored total_rate 0.5). No policy_params,
+  # so no live expiry — the effective helper must keep the stored total_rate.
+  ts <- tibble(
+    hts10 = '2401106530', country = c('1220', '5700'),
+    revision = 'rev_b',
+    base_rate = 0.5, statutory_base_rate = 0.5,
+    rate_232 = 0, rate_301 = 0, rate_ieepa_recip = 0, rate_ieepa_fent = 0,
+    rate_s122 = 0, rate_section_201 = 0, rate_other = 0,
+    metal_share = 0, usmca_eligible = c(TRUE, FALSE),
+    total_additional = 0, total_rate = c(0, 0.5),      # duty-free vs full statutory
+    effective_date = as.Date('2026-06-01'),
+    valid_from = as.Date('2026-06-01'), valid_until = as.Date('2026-12-31'))
+  W <- mk_w(list(list('2401106530', '1220', 100), list('2401106530', '5700', 100)))
+  d <- suppressMessages(build_daily_aggregates(ts, date_range = DR, imports = W))
+  etr <- d$agg_overall$weighted_etr
+  # Stored basis: (0*100 + 0.5*100) / 200 = 0.25.
+  # A re-derivation from base_rate would re-charge the duty-free row -> 0.5 (the bug).
+  stopifnot(abs(etr - 0.25) < 1e-9)
+})
+
+# =============================================================================
 # 4. make_interval_weights_fn (real mapper, tiny inputs)
 # =============================================================================
 message('\n--- 4: make_interval_weights_fn ---')

@@ -67,6 +67,55 @@ prepare_interval_data <- function(rev_data, sub_start, policy_params,
   rev_data
 }
 
+#' Interval slice with the AUTHORITATIVE effective rate (for rate aggregation).
+#'
+#' The snapshot's stored `total_rate` / `total_additional` are the effective rates
+#' — they already reflect trade-preference and MFN-exemption reductions (USMCA/FTA
+#' duty-free, GSP, per-country MFN exemption shares) and minted expiries (s122).
+#' Re-deriving them from `base_rate + Σ rate_*` (as prepare_interval_data(stacking=
+#' 'always') does) discards those reductions and re-charges the full statutory duty
+#' on goods that actually enter duty-free — overstating the rate. So rate
+#' aggregation must use the STORED total_rate, NOT a re-derivation.
+#'
+#' The ONE exception is a LIVE mid-interval expiry zeroing (the Swiss framework for
+#' CH/LI after its expiry — s122 moved to boundary minting, so only Swiss remains):
+#' there the stored total_rate is stale, so re-derive ONLY the rows the expiry
+#' actually changes, leaving every other row on its authoritative stored rate.
+#'
+#' @return rev_data with stored total_rate/total_additional, except expiry-affected
+#'   rows re-derived. NB: authority decomposition still uses prepare_interval_data +
+#'   compute_net_authority_contributions (it needs per-authority components, which
+#'   are unaffected by the base/exemption issue).
+prepare_interval_data_effective <- function(rev_data, sub_start, policy_params,
+                                            stacking_method) {
+  if (is.null(rev_data) || nrow(rev_data) == 0) return(rev_data)
+  # The stored total_rate/total_additional reflect the CANONICAL build stacking
+  # (mutual_exclusion) AND the effective, exemption-reduced rates. They are the
+  # authoritative rates for that method. For an ALTERNATIVE stacking method the
+  # caller explicitly wants a re-derivation (a different combination of the same
+  # components), so fall back to the full re-stack. (That alternative view re-uses
+  # base_rate and so cannot reproduce the stored exemption reductions — an accepted
+  # limitation of the non-canonical stacking, which the daily default never uses.)
+  if (!identical(stacking_method, 'mutual_exclusion')) {
+    return(prepare_interval_data(rev_data, sub_start, policy_params, stacking_method,
+                                 stacking = 'always'))
+  }
+  if (is.null(policy_params)) return(rev_data)
+  zeroed <- apply_expiry_zeroing(rev_data, sub_start, policy_params)
+  comp <- intersect(c('rate_232', 'rate_301', 'rate_301_cs', 'rate_ieepa_recip',
+                      'rate_ieepa_fent', 'rate_s122', 'rate_section_201', 'rate_other'),
+                    names(rev_data))
+  changed <- rep(FALSE, nrow(rev_data))
+  for (cc in comp) changed <- changed | (abs(zeroed[[cc]] - rev_data[[cc]]) > 1e-12)
+  if (any(changed)) {
+    rr <- apply_stacking_rules(zeroed[changed, , drop = FALSE],
+                               stacking_method = stacking_method)
+    rev_data$total_rate[changed] <- rr$total_rate
+    rev_data$total_additional[changed] <- rr$total_additional
+  }
+  rev_data
+}
+
 # =============================================================================
 # Budget Lab Tariff HS Aggregation
 # =============================================================================
@@ -339,9 +388,8 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
 
   # Helper: compute aggregates for one revision interval (or sub-interval)
   compute_agg_overall <- function(rev_ts, rev_ts_w, wctx, revision, valid_from, valid_until, sub_start = valid_from) {
-    rev_data <- prepare_interval_data(rev_ts,
-                                      sub_start, policy_params, stacking_method,
-                                      stacking = 'conditional')
+    rev_data <- prepare_interval_data_effective(rev_ts,
+                                                sub_start, policy_params, stacking_method)
     n_products <- n_distinct(rev_data$hts10)
     n_countries <- n_distinct(rev_data$country)
     n_pairs <- nrow(rev_data)
@@ -361,11 +409,9 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
       n_all_pairs = n_all_pairs
     )
     if (has_weights) {
-      wt_data <- prepare_interval_data(rev_ts_w,
-                                       sub_start, policy_params, stacking_method,
-                                       stacking = 'none')
+      wt_data <- prepare_interval_data_effective(rev_ts_w,
+                                                 sub_start, policy_params, stacking_method)
       if (nrow(wt_data) > 0) {
-        wt_data <- apply_stacking_rules(wt_data, stacking_method = stacking_method)
         row$weighted_etr <- sum(wt_data$total_rate * wt_data$imports) / wctx$total_imports
         row$weighted_etr_additional <- sum(wt_data$total_additional * wt_data$imports) / wctx$total_imports
         row$matched_imports_b <- sum(wt_data$imports) / 1e9
@@ -381,9 +427,8 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   }
 
   compute_agg_country <- function(rev_ts, rev_ts_w, wctx, revision, valid_from, valid_until, sub_start = valid_from) {
-    rev_data <- prepare_interval_data(rev_ts,
-                                      sub_start, policy_params, stacking_method,
-                                      stacking = 'always')
+    rev_data <- prepare_interval_data_effective(rev_ts,
+                                                sub_start, policy_params, stacking_method)
     n_products_rev <- n_distinct(rev_data$hts10)
     row <- rev_data %>%
       group_by(country) %>%
@@ -400,9 +445,8 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
         n_products_total = n_products_rev
       )
     if (has_weights) {
-      wt_data <- prepare_interval_data(rev_ts_w,
-                                       sub_start, policy_params, stacking_method,
-                                       stacking = 'always')
+      wt_data <- prepare_interval_data_effective(rev_ts_w,
+                                                 sub_start, policy_params, stacking_method)
       wt_country <- wt_data %>%
         group_by(country) %>%
         summarise(
@@ -470,12 +514,12 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   }
 
   compute_agg_category <- function(rev_ts, rev_ts_w, wctx, revision, valid_from, valid_until, sub_start = valid_from) {
-    rev_data <- prepare_interval_data(
+    rev_data <- prepare_interval_data_effective(
       rev_ts %>%
         mutate(hs6 = substr(hts10, 1, 6)) %>%
         left_join(gtap_xwalk, by = 'hs6') %>%
         mutate(gtap_code = coalesce(gtap_code, 'unmapped')),
-      sub_start, policy_params, stacking_method, stacking = 'always')
+      sub_start, policy_params, stacking_method)
     n_products_rev <- n_distinct(rev_data$hts10)
     row <- rev_data %>%
       group_by(gtap_code) %>%
@@ -493,12 +537,12 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
         n_products_total = n_products_rev
       )
     if (has_weights) {
-      wt_data <- prepare_interval_data(
+      wt_data <- prepare_interval_data_effective(
         rev_ts_w %>%
           mutate(hs6 = substr(hts10, 1, 6)) %>%
           left_join(gtap_xwalk, by = 'hs6') %>%
           mutate(gtap_code = coalesce(gtap_code, 'unmapped')),
-        sub_start, policy_params, stacking_method, stacking = 'always')
+        sub_start, policy_params, stacking_method)
       wt_sector <- wt_data %>%
         group_by(gtap_code) %>%
         summarise(
@@ -522,9 +566,9 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   # join) and the weighted-ETR denominator is category_total_imports. Same
   # import-weight base and weighting method as by_category / overall.
   compute_agg_hs <- function(rev_ts, rev_ts_w, wctx, revision, valid_from, valid_until, sub_start = valid_from) {
-    rev_data <- prepare_interval_data(
+    rev_data <- prepare_interval_data_effective(
       rev_ts %>% mutate(category_code = classify_hs10(hts10)),
-      sub_start, policy_params, stacking_method, stacking = 'always')
+      sub_start, policy_params, stacking_method)
     n_products_rev <- n_distinct(rev_data$hts10)
     row <- rev_data %>%
       group_by(category_code) %>%
@@ -542,9 +586,9 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
         n_products_total = n_products_rev
       )
     if (has_weights) {
-      wt_data <- prepare_interval_data(
+      wt_data <- prepare_interval_data_effective(
         rev_ts_w %>% mutate(category_code = classify_hs10(hts10)),
-        sub_start, policy_params, stacking_method, stacking = 'always')
+        sub_start, policy_params, stacking_method)
       wt_cat <- wt_data %>%
         group_by(category_code) %>%
         summarise(
