@@ -179,12 +179,24 @@ classify_hs10 <- function(hs10) {
 #'
 #' @param ts Timeseries tibble with valid_from/valid_until
 #' @param date_range Length-2 Date vector (start, end). Default: full timeseries range
-#' @param imports Optional tibble with hs10, cty_code, imports columns for weighting
+#' @param imports Optional static tibble with hs10, cty_code, imports columns:
+#'   one weight context for the whole series. Mutually exclusive with imports_fn.
+#' @param imports_fn Optional provider function for PER-INTERVAL weights.
+#'   Called once per revision with interval_context =
+#'   list(revision, hts_as_of_date, policy_valid_from, panel_codes); must return
+#'   list(weights = tibble(hs10, cty_code, imports), stats, fingerprint).
+#'   Requires hts_as_of_dates. Mutually exclusive with imports.
 #' @param policy_params Optional policy params list (from load_policy_params())
+#' @param hts_as_of_dates Named lookup (revision -> raw HTS-identity Date, from
+#'   revision_dates$effective_date, NEVER policy valid_from). Required with
+#'   imports_fn; supplies each interval_context's hts_as_of_date.
 #' @return List with daily_overall, daily_by_country, daily_by_authority tibbles
+#'   (plus agg_* interval tables and, in imports_fn mode, weight_stats).
 build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
+                                   imports_fn = NULL,
                                    policy_params = NULL,
-                                   stacking_method = 'mutual_exclusion') {
+                                   stacking_method = 'mutual_exclusion',
+                                   hts_as_of_dates = NULL) {
 
   stopifnot(
     'valid_from' %in% names(ts),
@@ -206,28 +218,21 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   message('Building daily aggregates for ', date_range[1], ' to ', date_range[2])
   message('  Revisions: ', nrow(rev_intervals))
 
-  # Optionally join import weights
-  has_weights <- !is.null(imports)
-  total_imports <- NA_real_
-  if (has_weights) {
-    message('  Using import weights (', nrow(imports), ' flows)')
-    # Total imports across ALL flows — denominator for weighted ETR.
-    # Products not in the timeseries (no additional tariffs) implicitly
-    # have rate = 0 and contribute only to the denominator.
-    total_imports <- sum(imports$imports)
-    message('  Total imports: $', round(total_imports / 1e9, 1), 'B')
-    ts_weighted <- ts %>%
-      inner_join(
-        imports %>% select(hs10, cty_code, imports),
-        by = c('hts10' = 'hs10', 'country' = 'cty_code')
-      )
-    # Per-country total imports (denominator for country-weighted ETR). Depends
-    # only on `imports`, so compute once here rather than re-derive it inside
-    # compute_agg_country on every revision / sub-interval call.
-    country_total_imp <- imports %>%
-      group_by(cty_code) %>%
-      summarise(country_total_imports = sum(imports), .groups = 'drop') %>%
-      rename(country = cty_code)
+  # Provider contract: EITHER a static `imports` tibble (one weight context for
+  # the whole series) OR an `imports_fn(interval_context)` that yields
+  # per-interval weights — never both. `has_weights` is true in either case;
+  # the interval-local weight context (denominators) is built by
+  # make_weight_context() below, once for the static tibble or once per
+  # revision for imports_fn.
+  if (!is.null(imports) && !is.null(imports_fn)) {
+    stop('build_daily_aggregates: pass at most one of `imports` / `imports_fn`.',
+         call. = FALSE)
+  }
+  use_imports_fn <- !is.null(imports_fn)
+  has_weights    <- !is.null(imports) || use_imports_fn
+  if (use_imports_fn && is.null(hts_as_of_dates)) {
+    stop('build_daily_aggregates: imports_fn requires hts_as_of_dates ',
+         '(a named revision -> raw HTS-identity date lookup).', call. = FALSE)
   }
 
   # --- GTAP category crosswalk (HS10 → GTAP sector) ---
@@ -254,16 +259,33 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     # Note: ts/ts_weighted are NOT joined to gtap_xwalk upfront — at full
     # build size (~195M rows) the materialized join OOMs at the coalesce
     # step. compute_agg_category does the join per revision instead.
-    if (has_weights) {
+  }
+
+  # --- Interval-local weight context ----------------------------------------
+  # Build the weighted-ETR denominators from an imports tibble
+  # (hs10, cty_code, imports). This closes over gtap_xwalk / has_categories
+  # (constants shared by every interval), NOT over the denominators themselves:
+  # every compute_agg_* helper reads the denominators only from the `wctx` it is
+  # passed, so the identical helpers serve both the static (`imports`) and the
+  # per-interval (`imports_fn`) paths. sector_total_imports is NULL when no GTAP
+  # crosswalk is present.
+  make_weight_context <- function(imp) {
+    total_imports <- sum(imp$imports)
+    country_total_imp <- imp %>%
+      group_by(cty_code) %>%
+      summarise(country_total_imports = sum(imports), .groups = 'drop') %>%
+      rename(country = cty_code)
+    sector_total_imports <- NULL
+    if (has_categories) {
       # Per-sector total imports (denominator for sector-weighted ETR).
-      sector_total_imports <- imports %>%
+      sector_total_imports <- imp %>%
         mutate(hs6 = substr(hs10, 1, 6)) %>%
         left_join(gtap_xwalk, by = 'hs6') %>%
         mutate(gtap_code = coalesce(gtap_code, 'unmapped')) %>%
         group_by(gtap_code) %>%
         summarise(sector_total_imports = sum(imports), .groups = 'drop')
       # No positive-weight flow may land 'unmapped' when its HS6 IS known.
-      leaked <- imports %>% filter(imports > 0) %>%
+      leaked <- imp %>% filter(imports > 0) %>%
         mutate(hs6 = substr(hs10, 1, 6)) %>%
         filter(hs6 %in% gtap_xwalk$hs6) %>%
         left_join(gtap_xwalk, by = 'hs6') %>%
@@ -273,18 +295,41 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
                      nrow(leaked)), call. = FALSE)
       }
     }
-  }
-
-  # --- Budget Lab HS category denominators (for by_hs weighted ETR) ---
-  # Independent of the GTAP crosswalk: category_code is derived from the
-  # product hs10 directly, so by_hs is always produced. Per-category total
-  # imports are the weighted-ETR denominators, mirroring sector_total_imports.
-  if (has_weights) {
-    category_total_imports <- imports %>%
+    # Per-category total imports (denominator for by_hs weighted ETR).
+    # Independent of the GTAP crosswalk: category_code is derived from the
+    # product hs10 directly, so by_hs is always produced.
+    category_total_imports <- imp %>%
       mutate(category_code = classify_hs10(hs10)) %>%
       group_by(category_code) %>%
       summarise(category_total_imports = sum(imports), .groups = 'drop')
+    list(
+      imports = imp,
+      total_imports = total_imports,
+      country_total_imp = country_total_imp,
+      sector_total_imports = sector_total_imports,
+      category_total_imports = category_total_imports
+    )
   }
+
+  # Static mode: one weight context + one weighted join, reused for every
+  # interval (byte-identical to the pre-refactor behavior). imports_fn mode
+  # builds the context per revision inside the loop below.
+  wctx_static <- NULL
+  ts_weighted <- NULL
+  if (has_weights && !use_imports_fn) {
+    message('  Using import weights (', nrow(imports), ' flows)')
+    wctx_static <- make_weight_context(imports)
+    message('  Total imports: $', round(wctx_static$total_imports / 1e9, 1), 'B')
+    # Products not in the timeseries (no additional tariffs) implicitly have
+    # rate = 0 and contribute only to the denominator.
+    ts_weighted <- ts %>%
+      inner_join(
+        imports %>% select(hs10, cty_code, imports),
+        by = c('hts10' = 'hs10', 'country' = 'cty_code')
+      )
+  }
+  # Per-revision weight fingerprint + mapper stats (imports_fn mode only).
+  weight_stats <- list()
 
   # China code for net authority decomposition
   CTY_CHINA <- if (!is.null(policy_params)) policy_params$CTY_CHINA %||% '5700' else '5700'
@@ -293,7 +338,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   # Uses shared helpers from helpers.R to detect all finalized=false overrides
 
   # Helper: compute aggregates for one revision interval (or sub-interval)
-  compute_agg_overall <- function(rev_ts, rev_ts_w, revision, valid_from, valid_until, sub_start = valid_from) {
+  compute_agg_overall <- function(rev_ts, rev_ts_w, wctx, revision, valid_from, valid_until, sub_start = valid_from) {
     rev_data <- prepare_interval_data(rev_ts,
                                       sub_start, policy_params, stacking_method,
                                       stacking = 'conditional')
@@ -321,21 +366,21 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
                                        stacking = 'none')
       if (nrow(wt_data) > 0) {
         wt_data <- apply_stacking_rules(wt_data, stacking_method = stacking_method)
-        row$weighted_etr <- sum(wt_data$total_rate * wt_data$imports) / total_imports
-        row$weighted_etr_additional <- sum(wt_data$total_additional * wt_data$imports) / total_imports
+        row$weighted_etr <- sum(wt_data$total_rate * wt_data$imports) / wctx$total_imports
+        row$weighted_etr_additional <- sum(wt_data$total_additional * wt_data$imports) / wctx$total_imports
         row$matched_imports_b <- sum(wt_data$imports) / 1e9
-        row$total_imports_b <- total_imports / 1e9
+        row$total_imports_b <- wctx$total_imports / 1e9
       } else {
         row$weighted_etr <- 0
         row$weighted_etr_additional <- 0
         row$matched_imports_b <- 0
-        row$total_imports_b <- total_imports / 1e9
+        row$total_imports_b <- wctx$total_imports / 1e9
       }
     }
     return(row)
   }
 
-  compute_agg_country <- function(rev_ts, rev_ts_w, revision, valid_from, valid_until, sub_start = valid_from) {
+  compute_agg_country <- function(rev_ts, rev_ts_w, wctx, revision, valid_from, valid_until, sub_start = valid_from) {
     rev_data <- prepare_interval_data(rev_ts,
                                       sub_start, policy_params, stacking_method,
                                       stacking = 'always')
@@ -365,7 +410,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
           weighted_numerator = sum(total_rate * imports),
           .groups = 'drop'
         ) %>%
-        left_join(country_total_imp, by = 'country') %>%
+        left_join(wctx$country_total_imp, by = 'country') %>%
         mutate(
           country_total_imports = coalesce(country_total_imports, tariffed_imports),
           weighted_etr = weighted_numerator / country_total_imports
@@ -376,7 +421,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     return(row)
   }
 
-  compute_agg_authority <- function(rev_ts, rev_ts_w, revision, valid_from, valid_until, sub_start = valid_from) {
+  compute_agg_authority <- function(rev_ts, rev_ts_w, wctx, revision, valid_from, valid_until, sub_start = valid_from) {
     rev_data <- prepare_interval_data(rev_ts,
                                       sub_start, policy_params, stacking_method,
                                       stacking = 'none')
@@ -409,13 +454,13 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
         wt_net <- compute_net_authority_contributions(wt_data, cty_china = CTY_CHINA,
                                                       stacking_method = stacking_method)
         if (!'net_301_cs' %in% names(wt_net)) wt_net$net_301_cs <- 0
-        row$etr_232 <- sum(wt_net$net_232 * wt_net$imports) / total_imports
-        row$etr_301 <- sum((wt_net$net_301 + wt_net$net_301_cs) * wt_net$imports) / total_imports
-        row$etr_ieepa <- sum(wt_net$net_ieepa * wt_net$imports) / total_imports
-        row$etr_fentanyl <- sum(wt_net$net_fentanyl * wt_net$imports) / total_imports
-        row$etr_s122 <- sum(wt_net$net_s122 * wt_net$imports) / total_imports
-        row$etr_section_201 <- sum(wt_net$net_section_201 * wt_net$imports) / total_imports
-        row$etr_other <- sum(wt_net$net_other * wt_net$imports) / total_imports
+        row$etr_232 <- sum(wt_net$net_232 * wt_net$imports) / wctx$total_imports
+        row$etr_301 <- sum((wt_net$net_301 + wt_net$net_301_cs) * wt_net$imports) / wctx$total_imports
+        row$etr_ieepa <- sum(wt_net$net_ieepa * wt_net$imports) / wctx$total_imports
+        row$etr_fentanyl <- sum(wt_net$net_fentanyl * wt_net$imports) / wctx$total_imports
+        row$etr_s122 <- sum(wt_net$net_s122 * wt_net$imports) / wctx$total_imports
+        row$etr_section_201 <- sum(wt_net$net_section_201 * wt_net$imports) / wctx$total_imports
+        row$etr_other <- sum(wt_net$net_other * wt_net$imports) / wctx$total_imports
       } else {
         row$etr_232 <- row$etr_301 <- row$etr_ieepa <- row$etr_fentanyl <- 0
         row$etr_s122 <- row$etr_section_201 <- row$etr_other <- 0
@@ -424,7 +469,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     return(row)
   }
 
-  compute_agg_category <- function(rev_ts, rev_ts_w, revision, valid_from, valid_until, sub_start = valid_from) {
+  compute_agg_category <- function(rev_ts, rev_ts_w, wctx, revision, valid_from, valid_until, sub_start = valid_from) {
     rev_data <- prepare_interval_data(
       rev_ts %>%
         mutate(hs6 = substr(hts10, 1, 6)) %>%
@@ -461,7 +506,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
           weighted_numerator = sum(total_rate * imports),
           .groups = 'drop'
         ) %>%
-        left_join(sector_total_imports, by = 'gtap_code') %>%
+        left_join(wctx$sector_total_imports, by = 'gtap_code') %>%
         mutate(
           sector_total_imports = coalesce(sector_total_imports, tariffed_imports),
           weighted_etr = weighted_numerator / sector_total_imports
@@ -476,7 +521,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   # Budget Lab HS category_code derived from the product hts10 (no crosswalk
   # join) and the weighted-ETR denominator is category_total_imports. Same
   # import-weight base and weighting method as by_category / overall.
-  compute_agg_hs <- function(rev_ts, rev_ts_w, revision, valid_from, valid_until, sub_start = valid_from) {
+  compute_agg_hs <- function(rev_ts, rev_ts_w, wctx, revision, valid_from, valid_until, sub_start = valid_from) {
     rev_data <- prepare_interval_data(
       rev_ts %>% mutate(category_code = classify_hs10(hts10)),
       sub_start, policy_params, stacking_method, stacking = 'always')
@@ -507,7 +552,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
           weighted_numerator = sum(total_rate * imports),
           .groups = 'drop'
         ) %>%
-        left_join(category_total_imports, by = 'category_code') %>%
+        left_join(wctx$category_total_imports, by = 'category_code') %>%
         mutate(
           category_total_imports = coalesce(category_total_imports, tariffed_imports),
           weighted_etr = weighted_numerator / category_total_imports
@@ -551,7 +596,37 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     valid_from  <- rev_intervals$valid_from[ri]
     valid_until <- rev_intervals$valid_until[ri]
     rev_ts   <- ts %>% filter(revision == rev_id)
-    rev_ts_w <- if (has_weights) ts_weighted %>% filter(revision == rev_id) else NULL
+
+    # Resolve this revision's weight context + weighted slice ONCE (reused by
+    # every aggregator across every sub-interval; sub-intervals differ only by
+    # expiry zeroing of rates, never by HTS identity, so the panel codes and
+    # denominators are constant within a revision).
+    wctx <- NULL
+    rev_ts_w <- NULL
+    if (has_weights) {
+      if (use_imports_fn) {
+        rev_as_of <- hts_as_of_dates[[as.character(rev_id)]]
+        if (is.null(rev_as_of) || is.na(rev_as_of)) {
+          stop('build_daily_aggregates: no hts_as_of_date for revision "', rev_id,
+               '" in hts_as_of_dates.', call. = FALSE)
+        }
+        ictx <- list(revision = rev_id,
+                     hts_as_of_date = as.Date(rev_as_of),
+                     policy_valid_from = valid_from,
+                     panel_codes = unique(as.character(rev_ts$hts10)))
+        iw <- imports_fn(ictx)
+        stopifnot(is.list(iw), !is.null(iw$weights))
+        iw_w <- iw$weights %>% select(hs10, cty_code, imports)
+        wctx <- make_weight_context(iw_w)
+        rev_ts_w <- rev_ts %>%
+          inner_join(iw_w, by = c('hts10' = 'hs10', 'country' = 'cty_code'))
+        weight_stats[[as.character(rev_id)]] <-
+          list(fingerprint = iw$fingerprint, stats = iw$stats)
+      } else {
+        wctx <- wctx_static
+        rev_ts_w <- ts_weighted %>% filter(revision == rev_id)
+      }
+    }
 
     starts_inner <- timeline_split_points(valid_from, valid_until, exp_bounds)
     if (length(starts_inner) == 0) {
@@ -563,13 +638,13 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     for (k in seq_along(starts)) {
       s <- starts[k]; e <- ends[k]
       seg_i <- seg_i + 1L
-      ov[[seg_i]] <- compute_agg_overall(rev_ts, rev_ts_w, rev_id, s, e, sub_start = s)
-      ct[[seg_i]] <- compute_agg_country(rev_ts, rev_ts_w, rev_id, s, e, sub_start = s)
-      au[[seg_i]] <- compute_agg_authority(rev_ts, rev_ts_w, rev_id, s, e, sub_start = s)
+      ov[[seg_i]] <- compute_agg_overall(rev_ts, rev_ts_w, wctx, rev_id, s, e, sub_start = s)
+      ct[[seg_i]] <- compute_agg_country(rev_ts, rev_ts_w, wctx, rev_id, s, e, sub_start = s)
+      au[[seg_i]] <- compute_agg_authority(rev_ts, rev_ts_w, wctx, rev_id, s, e, sub_start = s)
       if (has_categories) {
-        ca[[seg_i]] <- compute_agg_category(rev_ts, rev_ts_w, rev_id, s, e, sub_start = s)
+        ca[[seg_i]] <- compute_agg_category(rev_ts, rev_ts_w, wctx, rev_id, s, e, sub_start = s)
       }
-      hs[[seg_i]] <- compute_agg_hs(rev_ts, rev_ts_w, rev_id, s, e, sub_start = s)
+      hs[[seg_i]] <- compute_agg_hs(rev_ts, rev_ts_w, wctx, rev_id, s, e, sub_start = s)
     }
   }
   agg_overall <- bind_rows(ov)
@@ -644,7 +719,8 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     agg_by_country = agg_by_country,
     agg_by_authority = agg_by_authority,
     agg_by_category = agg_by_category,
-    agg_by_hs = agg_by_hs
+    agg_by_hs = agg_by_hs,
+    weight_stats = weight_stats
   ))
 }
 
@@ -1132,30 +1208,65 @@ daily_part_path <- function(snapshot_dir, revision) {
 #' The output is intentionally small compared with the snapshot and is safe to
 #' bind in gather. It is valid only for the stored interval and weight mode; the
 #' gather path verifies both before using it.
+# The daily-part schema. v2 adds the per-interval weight fingerprint
+# (metadata$weight_metadata) and interval-local weights via imports_fn; v1 parts
+# are rejected by load_daily_parts_if_complete() and must be rebuilt.
+DAILY_PART_SCHEMA_VERSION <- 2L
+
 write_daily_part_for_snapshot <- function(snapshot, revision, valid_from, valid_until,
                                           output_dir, imports = NULL,
+                                          imports_fn = NULL, hts_as_of_date = NULL,
                                           policy_params = NULL,
                                           stacking_method = 'mutual_exclusion') {
-  weight_mode <- if (is.null(imports)) 'unweighted' else 'weighted'
+  if (!is.null(imports) && !is.null(imports_fn)) {
+    stop('write_daily_part_for_snapshot: pass at most one of imports / imports_fn.',
+         call. = FALSE)
+  }
+  weight_mode <- if (is.null(imports) && is.null(imports_fn)) 'unweighted' else 'weighted'
 
   snapshot <- enforce_rate_schema(snapshot)
   snapshot$revision <- revision
   snapshot$valid_from <- as.Date(valid_from)
   snapshot$valid_until <- as.Date(valid_until)
 
+  hts_as_of_dates <- NULL
+  if (!is.null(imports_fn)) {
+    if (is.null(hts_as_of_date)) {
+      stop('write_daily_part_for_snapshot: imports_fn requires hts_as_of_date ',
+           '(the revision\'s RAW HTS-identity date).', call. = FALSE)
+    }
+    hts_as_of_dates <- setNames(list(as.Date(hts_as_of_date)), as.character(revision))
+  }
+
   daily <- suppressMessages(
-    build_daily_aggregates(snapshot, imports = imports,
+    build_daily_aggregates(snapshot, imports = imports, imports_fn = imports_fn,
                            policy_params = policy_params,
-                           stacking_method = stacking_method)
+                           stacking_method = stacking_method,
+                           hts_as_of_dates = hts_as_of_dates)
   )
 
+  # Weight fingerprint — recorded only for the imports_fn (per-interval) path.
+  # A static `imports` tibble has no dated provenance to fingerprint, and an
+  # unweighted part has no weights, so both carry weight_metadata = NULL and the
+  # loader validates them without weight hashes.
+  weight_metadata <- NULL
+  if (!is.null(imports_fn)) {
+    ws <- daily$weight_stats[[as.character(revision)]]
+    if (is.null(ws) || is.null(ws$fingerprint)) {
+      stop('write_daily_part_for_snapshot: imports_fn produced no weight ',
+           'fingerprint for revision ', revision, '.', call. = FALSE)
+    }
+    weight_metadata <- ws$fingerprint
+  }
+
   part <- list(
-    schema_version = 1L,
+    schema_version = DAILY_PART_SCHEMA_VERSION,
     metadata = list(
       revision = revision,
       valid_from = as.Date(valid_from),
       valid_until = as.Date(valid_until),
       weight_mode = weight_mode,
+      weight_metadata = weight_metadata,
       n_snapshot_rows = nrow(snapshot),
       created_at = Sys.time()
     ),
@@ -1172,13 +1283,41 @@ write_daily_part_for_snapshot <- function(snapshot, revision, valid_from, valid_
 }
 
 
+#' Do a stored part's weight hashes match the expected weight context?
+#'
+#' `expected` is list(shared = <shared fingerprint from make_interval_weights_fn>,
+#' hts_as_of_dates = named revision -> Date). Returns TRUE/FALSE. The
+#' target_code_hash is NOT re-checked here (that would require re-reading the
+#' snapshot, defeating the cache); the caller's part-vs-snapshot mtime check
+#' catches a changed code universe.
+daily_weight_fingerprint_matches <- function(stored, expected, revision) {
+  if (is.null(stored)) return(FALSE)
+  sh <- expected$shared
+  keys <- c('method', 'mapper_schema_version', 'base_sha256', 'shares_sha256',
+            'crosswalk_sha256', 'overrides_sha256')
+  for (k in keys) {
+    if (!identical(as.character(stored[[k]]), as.character(sh[[k]]))) return(FALSE)
+  }
+  exp_asof <- expected$hts_as_of_dates[[as.character(revision)]]
+  if (is.null(exp_asof)) return(FALSE)
+  identical(as.character(stored$hts_as_of_date), as.character(as.Date(exp_asof)))
+}
+
 #' Bind precomputed array-task daily parts if they exactly match final intervals.
 #'
-#' Returns NULL when the cache is incomplete, stale, or for the wrong weight mode.
-#' Callers should then fall back to the snapshot-streaming path.
+#' Returns NULL when the cache is incomplete, stale, the wrong weight mode, an old
+#' schema version, or (for weighted parts with a `weight_context`) a mismatched
+#' weight fingerprint. Callers then fall back to the snapshot-streaming path.
+#'
+#' @param weight_context Optional list(shared, hts_as_of_dates) from a
+#'   make_interval_weights_fn() provider (`attr(fn, 'shared_fingerprint')` +
+#'   the per-revision raw HTS-identity dates). When supplied and
+#'   weight_mode == 'weighted', each part's recorded weight fingerprint must
+#'   match it. NULL skips fingerprint validation (static / unweighted paths).
 load_daily_parts_if_complete <- function(snapshot_dir, rev_dates,
                                          policy_params = NULL,
-                                         weight_mode = c('weighted', 'unweighted')) {
+                                         weight_mode = c('weighted', 'unweighted'),
+                                         weight_context = NULL) {
   weight_mode <- match.arg(weight_mode)
   rev_intervals <- build_snapshot_intervals_for_daily(snapshot_dir, rev_dates, policy_params)
 
@@ -1202,6 +1341,13 @@ load_daily_parts_if_complete <- function(snapshot_dir, rev_dates,
     })
     if (is.null(part) || !is.list(part) || is.null(part$metadata)) return(NULL)
 
+    # Reject stale schema versions (v1 has no weight fingerprint) — rebuild.
+    if (!identical(as.integer(part$schema_version %||% 1L), DAILY_PART_SCHEMA_VERSION)) {
+      message('Daily part cache stale for ', row$revision, ' (schema v',
+              part$schema_version %||% 1L, ' != v', DAILY_PART_SCHEMA_VERSION, ')')
+      return(NULL)
+    }
+
     meta <- part$metadata
     valid <- identical(as.character(meta$revision), as.character(row$revision)) &&
       identical(as.Date(meta$valid_from), as.Date(row$valid_from)) &&
@@ -1212,6 +1358,16 @@ load_daily_parts_if_complete <- function(snapshot_dir, rev_dates,
               ' (expected ', row$valid_from, '..', row$valid_until,
               ', ', weight_mode, ')')
       return(NULL)
+    }
+
+    # Weight-fingerprint validation for the weighted per-interval path.
+    if (weight_mode == 'weighted' && !is.null(weight_context)) {
+      if (!daily_weight_fingerprint_matches(meta$weight_metadata, weight_context,
+                                            row$revision)) {
+        message('Daily part cache stale for ', row$revision,
+                ' (weight fingerprint mismatch — inputs or hts_as_of_date changed)')
+        return(NULL)
+      }
     }
     parts[[i]] <- part
   }

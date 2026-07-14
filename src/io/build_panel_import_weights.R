@@ -694,6 +694,84 @@ load_split_shares <- function(path) {
     filter(is.finite(imports), imports > 0)
 }
 
+#' Construct a memoized per-interval weight provider for the daily series.
+#'
+#' Returns a function suitable as `build_daily_aggregates(imports_fn = ...)`. The
+#' 2024 base, the 484(f) transfers, and the 2025 shares are loaded ONCE and their
+#' sha256s precomputed for the cache fingerprint. Each call maps the base onto the
+#' interval's panel codes at the interval's `hts_as_of_date` (RAW HTS-identity
+#' date, never policy valid_from) via crosswalk_map_imports(). Results are
+#' memoized per revision, because every sub-interval of a revision shares that
+#' revision's HTS identity (sub-splits differ only by expiry zeroing of rates).
+#'
+#' @param base_path 2024 customs-value base RDS (hs10, cty_code, imports [+gtap]).
+#' @param crosswalk_path committed 484(f) transfers CSV.
+#' @param shares_path 2025 split-share base RDS (optional; enables share tiers i/ii).
+#' @param overrides_path committed overrides CSV (provenance / fingerprint only;
+#'   already applied to the committed transfers CSV).
+#' @return function(interval_context) -> list(weights = tibble(hs10, cty_code,
+#'   imports), stats, fingerprint). interval_context must carry `revision`,
+#'   `hts_as_of_date`, and `panel_codes`.
+make_interval_weights_fn <- function(base_path, crosswalk_path,
+                                     shares_path = NULL, overrides_path = NULL) {
+  if (!requireNamespace('digest', quietly = TRUE)) {
+    stop('make_interval_weights_fn requires the digest package.', call. = FALSE)
+  }
+  base   <- load_weight_base(base_path)
+  xwalk  <- load_484f_transfers(crosswalk_path)
+  shares <- if (!is.null(shares_path)) load_split_shares(shares_path) else NULL
+
+  file_sha <- function(p) {
+    if (!is.null(p) && file.exists(p)) digest::digest(file = p, algo = 'sha256')
+    else NA_character_
+  }
+  # Shared (vintage-level) fingerprint components: the same for every interval.
+  # Exposed as an attribute so the daily-part cache loader can validate a part
+  # WITHOUT re-reading snapshots (the per-revision hts_as_of_date / panel-code
+  # hash are recorded in each part and validated separately).
+  shared_fp <- list(
+    method                = '484f',
+    mapper_schema_version = CROSSWALK_MAPPER_SCHEMA_VERSION,
+    base_sha256           = file_sha(base_path),
+    shares_sha256         = file_sha(shares_path),
+    crosswalk_sha256      = file_sha(crosswalk_path),
+    overrides_sha256      = file_sha(overrides_path)
+  )
+
+  # Memoize per revision — the mapper is the expensive step and every
+  # sub-interval of a revision would otherwise recompute the same weights.
+  cache <- new.env(parent = emptyenv())
+  fn <- function(interval_context) {
+    ctx <- interval_context
+    rev <- as.character(ctx$revision)
+    if (!is.null(cache[[rev]])) return(cache[[rev]])
+    if (is.null(ctx$panel_codes) || length(ctx$panel_codes) == 0) {
+      stop('make_interval_weights_fn: interval_context$panel_codes empty for revision ',
+           rev, '.', call. = FALSE)
+    }
+    if (is.null(ctx$hts_as_of_date) || is.na(ctx$hts_as_of_date)) {
+      stop('make_interval_weights_fn: interval_context$hts_as_of_date missing for revision ',
+           rev, '.', call. = FALSE)
+    }
+    as_of <- as.Date(ctx$hts_as_of_date)
+    mapped <- crosswalk_map_imports(base, ctx$panel_codes, xwalk, shares, as_of)
+    # crosswalk_map_imports yields (hts10, cty_code, imports); the daily provider
+    # contract expects (hs10, cty_code, imports).
+    weights <- mapped$weights %>% rename(hs10 = hts10)
+    fingerprint <- c(shared_fp, list(
+      hts_as_of_date   = as.character(as_of),
+      target_code_hash = digest::digest(
+        sort(unique(as.character(ctx$panel_codes))), algo = 'sha256')
+    ))
+    res <- list(weights = weights, stats = mapped$stats, fingerprint = fingerprint)
+    cache[[rev]] <- res
+    res
+  }
+  attr(fn, 'shared_fingerprint') <- shared_fp
+  fn
+}
+
+
 #' Build and (optionally) write the panel-keyed import-weight file for a vintage.
 #'
 #' @param method '484f' (default; authoritative dated transfers) or 'prefix'

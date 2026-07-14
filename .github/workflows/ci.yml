@@ -81,3 +81,9 @@ jobs:
         # Pure versioned-identity mapper over synthetic fixtures — no arrow,
         # no build data.
         run: Rscript tests/test_crosswalk_mapper.R
+
+      - name: Run daily per-interval weight tests
+        # Provider contract, interval weight context, make_interval_weights_fn,
+        # and the fingerprinted daily-part cache (schema v2). Tempfile fixtures,
+        # no arrow / no build data.
+        run: Rscript tests/test_daily_interval_weights.R
