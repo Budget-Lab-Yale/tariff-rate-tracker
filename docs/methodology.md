@@ -255,6 +255,14 @@ Weighted ETRs are reporting outputs, not separate production logic. They use loc
 - authority
 - GTAP sector
 
+The overall series (`daily_overall`) carries three import-weighted rate columns; `by_country` and `by_category` carry `weighted_etr` and `weighted_etr_new`:
+
+- **`weighted_etr`** — import-weighted **total** effective rate: `Σ(total_rate · imports) / Σ imports`. Includes the MFN base plus every additional-duty layer (after mutual-exclusion stacking).
+- **`weighted_etr_additional`** — import-weighted rate of the **additional-duty layers only** (base-excluded): `Σ(total_additional · imports) / Σ imports`. This includes legacy pre-2025 trade remedies (Section 232 metals, Section 301 China), so it is non-zero on the 2025-01-01 baseline. *(`daily_overall` only.)*
+- **`weighted_etr_new`** — import-weighted total ETR **in excess of the Jan-1-2025 baseline**: `weighted_etr(t) − weighted_etr(2025-01-01)`. This isolates the increase attributable to the 2025+ tariff actions and is 0 on 2025-01-01 by construction. Each series is differenced against its **own** 2025-01-01 value (overall against the single baseline; `by_country`/`by_category` against each group's baseline).
+
+The three are related by: `weighted_etr = weighted_etr_new + weighted_etr(2025-01-01)`, and `weighted_etr − weighted_etr_additional` is the import-weighted MFN base. `weighted_etr_new` is only emitted for weighted builds; unweighted builds omit all three.
+
 ## Validation and external comparison
 
 ### TPC

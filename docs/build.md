@@ -194,8 +194,8 @@ Pass `--with-artifacts` to include the heavier artifact-dependent integration ch
 | `data/timeseries/daily_part_*.rds` | per-revision daily aggregate cache written by the Slurm array tasks; gather validates and binds these when complete, otherwise falls back to snapshot streaming |
 | `data/timeseries/metadata.rds` | finalized-build marker and data-as-of metadata |
 | `data/timeseries/delta_*.rds` | revision-to-revision diffs |
-| `output/actual/daily/daily_overall.csv` | daily aggregate mean and weighted ETR series |
-| `output/actual/daily/daily_by_country.csv` | daily country-level aggregate rates |
+| `output/actual/daily/daily_overall.csv` | daily aggregate mean and weighted ETR series. Three weighted columns: `weighted_etr` (total), `weighted_etr_additional` (additional layers only, base-excluded), `weighted_etr_new` (total in excess of the Jan-1-2025 baseline). See [docs/methodology.md](methodology.md#weighted-etrs). |
+| `output/actual/daily/daily_by_country.csv` | daily country-level aggregate rates (incl. `weighted_etr` and `weighted_etr_new` vs each country's Jan-1-2025 baseline) |
 | `output/actual/daily/daily_by_authority.csv` | daily authority decomposition |
 | `output/actual/daily/daily_by_category.csv` | daily by-GTAP-sector aggregate rates (only when import weights available) |
 | `output/actual/quality/` | build diagnostics and quality checks |
