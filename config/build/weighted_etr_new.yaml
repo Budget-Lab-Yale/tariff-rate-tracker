@@ -1,0 +1,23 @@
+# weighted_etr_new build — actual + new_301, weighted, first vintage to carry
+# the new daily-series column weighted_etr_new (import-weighted total ETR in
+# excess of the Jan-1-2025 baseline). Matches the scenario set of the current
+# `latest` (2026-07-15-13: actual + new_301).
+#
+# Builds a fresh vintage and VERIFIES it, but does NOT move `latest`: review the
+# new vintage (confirm weighted_etr_new is present and 0 on 2025-01-01) against
+# the current latest, then repoint deliberately with
+#   Rscript scripts/publish_vintage.R --latest-only   (TARIFF_VINTAGE=<vintage>)
+#
+#   bash scripts/submit_build_array.sh --config config/build/weighted_etr_new.yaml
+
+model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker
+policy_params_path: config/policy_params.yaml
+
+scenarios:
+  - new_301
+
+use_hts_dates: false
+weight_mode: required       # weighted outputs — weighted_etr_new only exists here
+update_latest: false        # review the vintage before repointing latest
+allow_partial: false
+verify: true                # finalize runs scripts/verify_build.R against the vintage
