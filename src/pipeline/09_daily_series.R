@@ -83,9 +83,11 @@ prepare_interval_data <- function(rev_data, sub_start, policy_params,
 #' actually changes, leaving every other row on its authoritative stored rate.
 #'
 #' @return rev_data with stored total_rate/total_additional, except expiry-affected
-#'   rows re-derived. NB: authority decomposition still uses prepare_interval_data +
-#'   compute_net_authority_contributions (it needs per-authority components, which
-#'   are unaffected by the base/exemption issue).
+#'   rows re-derived. NB: the authority decomposition uses prepare_interval_data +
+#'   compute_net_authority_contributions for the per-authority split, then scales
+#'   those contributions to this stored total_additional (see compute_agg_authority)
+#'   so its parts stay on the same effective basis as weighted_etr — otherwise the
+#'   etr_base residual mixes bases and goes negative on FTA/USMCA duty-free goods.
 prepare_interval_data_effective <- function(rev_data, sub_start, policy_params,
                                             stacking_method) {
   if (is.null(rev_data) || nrow(rev_data) == 0) return(rev_data)
@@ -465,6 +467,28 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     return(row)
   }
 
+  # Scale the re-derived per-authority contributions to the STORED effective
+  # additional per cell, so the authority decomposition reflects trade-preference
+  # / MFN-exemption reductions the same way weighted_etr (agg_overall) does. The
+  # net_* are the mutual-exclusion split of the UN-reduced statutory additional;
+  # their per-cell sum is the re-derived additional, while total_additional (stored)
+  # is the effective, exemption-reduced additional. Scaling by their ratio makes
+  # Σ authorities == weighted effective additional, so etr_base (= weighted_etr −
+  # Σ authorities) collapses to the weighted effective BASE (>= 0) instead of a
+  # mixed-basis residual that goes negative on FTA/USMCA duty-free goods. Canonical
+  # (mutual_exclusion) stacking only; the tpc_additive view re-derives weighted_etr
+  # too, so it stays self-consistent without scaling.
+  auth_net_cols <- c('net_232', 'net_301', 'net_301_cs', 'net_ieepa',
+                     'net_fentanyl', 'net_s122', 'net_section_201', 'net_other')
+  scale_net_to_effective <- function(net_df, eff_additional) {
+    if (!identical(stacking_method, 'mutual_exclusion')) return(net_df)
+    cols <- intersect(auth_net_cols, names(net_df))
+    rederived <- Reduce(`+`, net_df[cols])
+    f <- ifelse(rederived > 1e-12, pmax(eff_additional, 0) / rederived, 0)
+    for (cc in cols) net_df[[cc]] <- net_df[[cc]] * f
+    net_df
+  }
+
   compute_agg_authority <- function(rev_ts, rev_ts_w, wctx, revision, valid_from, valid_until, sub_start = valid_from) {
     rev_data <- prepare_interval_data(rev_ts,
                                       sub_start, policy_params, stacking_method,
@@ -477,6 +501,12 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     # daily decomposition needs no new column — byte-identical in baseline, where
     # net_301_cs = 0. Guard the tpc_additive path, which omits net_301_cs.
     if (!'net_301_cs' %in% names(net_data)) net_data$net_301_cs <- 0
+    # Reduce to the effective additional (same authoritative basis as weighted_etr).
+    # prepare_interval_data_effective preserves rev_ts row order, so total_additional
+    # aligns positionally with net_data.
+    eff_data <- prepare_interval_data_effective(rev_ts, sub_start, policy_params,
+                                                stacking_method)
+    net_data <- scale_net_to_effective(net_data, eff_data$total_additional)
 
     row <- tibble(
       revision = revision,
@@ -498,6 +528,9 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
         wt_net <- compute_net_authority_contributions(wt_data, cty_china = CTY_CHINA,
                                                       stacking_method = stacking_method)
         if (!'net_301_cs' %in% names(wt_net)) wt_net$net_301_cs <- 0
+        eff_wt <- prepare_interval_data_effective(rev_ts_w, sub_start, policy_params,
+                                                  stacking_method)
+        wt_net <- scale_net_to_effective(wt_net, eff_wt$total_additional)
         row$etr_232 <- sum(wt_net$net_232 * wt_net$imports) / wctx$total_imports
         row$etr_301 <- sum((wt_net$net_301 + wt_net$net_301_cs) * wt_net$imports) / wctx$total_imports
         row$etr_ieepa <- sum(wt_net$net_ieepa * wt_net$imports) / wctx$total_imports
