@@ -319,6 +319,42 @@ read_imdb_zip <- function(zip_path, target_year, type = c('con', 'gen')) {
 
 
 # =============================================================================
+# Shared Census-IMDB store (parsed detail parquet, managed by the Census-IMDB
+# repo). When all 12 monthly parquets for the target year are present, the build
+# reads them instead of downloading + fixed-width-parsing 12 ZIPs (~15-20 min).
+# The store carries both con_val_mo and gen_val_mo, so con and gen builds are
+# both supported. Rows are filtered to the target calendar year exactly as
+# read_imdb_zip does (dropping prior-period corrections embedded in a monthly
+# file), so sum(value) by HS10 x country is identical to the ZIP path. Set
+# IMDB_USE_STORE=0 to force the ZIP path.
+# =============================================================================
+IMDB_STORE_DIR <- Sys.getenv('IMDB_STORE_DIR',
+  '/nfs/roberts/project/pi_nrs36/shared/raw_data/Census-IMDB')
+IMDB_USE_STORE <- !identical(Sys.getenv('IMDB_USE_STORE', '1'), '0')
+
+#' Read one calendar year from the shared store, in read_imdb_zip's shape.
+#' Returns NULL (caller falls back to ZIPs) if disabled or any month missing.
+read_imdb_store_year <- function(yr, type = c('con', 'gen')) {
+  type <- match.arg(type)
+  if (!IMDB_USE_STORE) return(NULL)
+  yms   <- sprintf('%d-%02d', yr, 1:12)
+  paths <- file.path(IMDB_STORE_DIR, 'detail',
+                     paste0('imdb_detail_', yms, '.parquet'))
+  if (!all(file.exists(paths))) return(NULL)
+  value_col <- if (type == 'con') 'con_val_mo' else 'gen_val_mo'
+  purrr::map_dfr(paths, function(p) {
+    arrow::read_parquet(p, col_select = c('hs10', 'cty_code',
+                                          'year_month', value_col)) |>
+      filter(substr(year_month, 1, 4) == as.character(yr)) |>
+      transmute(year  = as.integer(substr(year_month, 1, 4)),
+                month = as.integer(substr(year_month, 6, 7)),
+                hs10  = stringr::str_pad(hs10, 10, side = 'left', pad = '0'),
+                cty_code,
+                value = .data[[value_col]])
+  })
+}
+
+# =============================================================================
 # Pre-build orchestration helper
 # =============================================================================
 
@@ -421,28 +457,36 @@ build_import_weights <- function(year,
   message('URL template:  ', url_template)
   message('')
 
-  # 1. Get / verify ZIPs
-  ensure_zips_present(raw_dir, year, url_template, force = force_download)
-
-  yy <- sprintf('%02d', year %% 100)
-  zip_pattern <- sprintf('^IMDB%s\\d{2}\\.ZIP$', yy)
-  zip_files <- list.files(raw_dir, pattern = zip_pattern,
-                          full.names = TRUE, ignore.case = TRUE)
-  zip_files <- sort(zip_files)
-
-  if (length(zip_files) != 12) {
-    stop('Expected 12 monthly ZIPs for year ', year, ', found ', length(zip_files),
-         ' in ', raw_dir)
-  }
-
-  # 2. Parse and aggregate
-  message('\nReading ', length(zip_files), ' monthly ZIP files...')
+  # 1. Source monthly rows: shared Census-IMDB store first (all 12 months
+  #    present), else download + parse the 12 ZIPs.
   t_parse <- Sys.time()
-  monthly <- purrr::map_dfr(zip_files, read_imdb_zip,
-                            target_year = year, type = type)
-  message(sprintf('Loaded %s monthly records in %s',
-                  format(nrow(monthly), big.mark = ','),
-                  format_elapsed(as.numeric(difftime(Sys.time(), t_parse, units = 'secs')))))
+  monthly <- read_imdb_store_year(year, type)
+  if (!is.null(monthly)) {
+    message(sprintf('\nUsing shared Census-IMDB store: loaded %s monthly records in %s',
+                    format(nrow(monthly), big.mark = ','),
+                    format_elapsed(as.numeric(difftime(Sys.time(), t_parse, units = 'secs')))))
+  } else {
+    ensure_zips_present(raw_dir, year, url_template, force = force_download)
+
+    yy <- sprintf('%02d', year %% 100)
+    zip_pattern <- sprintf('^IMDB%s\\d{2}\\.ZIP$', yy)
+    zip_files <- list.files(raw_dir, pattern = zip_pattern,
+                            full.names = TRUE, ignore.case = TRUE)
+    zip_files <- sort(zip_files)
+
+    if (length(zip_files) != 12) {
+      stop('Expected 12 monthly ZIPs for year ', year, ', found ', length(zip_files),
+           ' in ', raw_dir)
+    }
+
+    # 2. Parse and aggregate
+    message('\nReading ', length(zip_files), ' monthly ZIP files...')
+    monthly <- purrr::map_dfr(zip_files, read_imdb_zip,
+                              target_year = year, type = type)
+    message(sprintf('Loaded %s monthly records in %s',
+                    format(nrow(monthly), big.mark = ','),
+                    format_elapsed(as.numeric(difftime(Sys.time(), t_parse, units = 'secs')))))
+  }
 
   message('Aggregating to HS10 x country...')
   t_agg <- Sys.time()
