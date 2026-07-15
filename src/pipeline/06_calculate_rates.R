@@ -2987,14 +2987,21 @@ calculate_rates_for_revision <- function(
         rates <- rates %>%
           mutate(
             .ann1c_framework_rate = apply_rate_semantics(fw_floor, 'floor_post_mfn', base_rate),
+            # NA-safe gate: s232_annex is NA on non-annex products, and a bare
+            # `s232_annex == 'annex_1c'` yields NA (not FALSE) there — which, AND-ed
+            # with a framework-country match, makes if_else() return NA rate_232 for
+            # EVERY non-annex product of a framework country. That NA then poisons
+            # stacking (total_additional -> NA) and enforce_rate_schema silently
+            # coalesces it to 0, wiping §122/base. Guard with !is.na (mirrors the
+            # sibling floor-recompute block below).
             rate_232 = if_else(
-              s232_annex == 'annex_1c' & country %in% fw_countries,
+              !is.na(s232_annex) & s232_annex == 'annex_1c' & country %in% fw_countries,
               pmin(rate_232, .ann1c_framework_rate),
               rate_232
             ),
             .ann1c_usmetal_rate = apply_rate_semantics(usm_floor, 'floor_post_mfn', base_rate),
             rate_232 = if_else(
-              s232_annex == 'annex_1c' & !is.na(usm_share) & usm_share > 0,
+              !is.na(s232_annex) & s232_annex == 'annex_1c' & !is.na(usm_share) & usm_share > 0,
               usm_share * pmin(rate_232, .ann1c_usmetal_rate) + (1 - usm_share) * rate_232,
               rate_232
             )
