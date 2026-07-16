@@ -1,0 +1,25 @@
+# Combined weighted build — 484(f) per-interval weights + weighted_etr_new.
+#
+# Run on branch 484f-weighted-etr-new (merge of 484f-weights + master's
+# weighted_etr_new work). A single weighted build carries BOTH features:
+#   - weight_method defaults to '484f', so the daily series re-keys the 2024
+#     weight base onto each revision's panel via the transfers crosswalk.
+#   - add_weighted_etr_new() emits weighted_etr_new (import-weighted total ETR
+#     in excess of the Jan-1-2025 baseline) wherever weighted_etr exists.
+#
+# Scenario set matches the current `latest` (actual + new_301). Unlike the two
+# source configs, this one REPOINTS `latest` after verify (John's call, 2026-07-16).
+#
+#   bash scripts/submit_build_array.sh --config config/build/weighted_484f_etr_new.yaml
+
+model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker
+policy_params_path: config/policy_params.yaml
+
+scenarios:
+  - new_301
+
+use_hts_dates: false
+weight_mode: required       # weighted outputs; weight_method defaults to '484f'
+update_latest: true         # repoint latest to the new vintage after verify
+allow_partial: false
+verify: true                # finalize runs scripts/verify_build.R against the vintage
