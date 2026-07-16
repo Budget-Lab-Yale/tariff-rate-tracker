@@ -37,7 +37,7 @@ When these files are updated, the preferred standard is to document:
 | USITC DataWeb API | USMCA utilization shares | Optional refresh path through `tools/download_usmca_dataweb.R`; requires a user-managed API token in `.env` |
 | BEA input-output tables | Metal content estimation | Used to build the committed BEA-based metal-share resource |
 | Congressional Budget Office tariff analysis files | Alternative metal-share buckets | Used for optional sensitivity methods documented in `docs/assumptions.md` |
-| Census Bureau monthly merchandise-trade IMDByymm.ZIP files | HS10×country import weights for weighted ETR and daily series | Built locally via `src/io/build_import_weights.R`; output (e.g. `hs10_by_country_gtap_2024_con.rds`) is referenced from `config/local_paths.yaml`. See [docs/weights.md](docs/weights.md). |
+| Census Bureau monthly merchandise-trade IMDByymm.ZIP files | HS10×country import weights for weighted ETR and daily series | Built via `src/io/build_import_weights.R`, which reads the shared **Census-IMDB** store parsed-detail parquets when present (`$IMDB_STORE_DIR`, default `…/shared/raw_data/Census-IMDB`; `IMDB_USE_STORE=0` to force ZIPs) and falls back to downloading the ZIPs otherwise. Output (e.g. `hs10_by_country_gtap_2024_con.rds`) is referenced from `config/local_paths.yaml`. See [docs/weights.md](docs/weights.md). |
 
 ## Comparison and validation inputs
 

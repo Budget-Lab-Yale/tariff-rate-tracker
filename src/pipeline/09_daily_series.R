@@ -1119,6 +1119,7 @@ build_daily_workbook_readme <- function() {
     c('n_pairs', 'Number of tariffed product-country pairs (sparse panel)'),
     c('n_all_pairs', 'Total product-country pairs in full Cartesian panel (n_products x n_countries)'),
     c('weighted_etr', 'Import-weighted effective tariff rate (total rate); NA if no import weights'),
+    c('weighted_etr_new', 'Import-weighted total ETR in excess of the Jan-1-2025 baseline (weighted_etr minus its 2025-01-01 value); the increase attributable to 2025+ tariff actions'),
     c('weighted_etr_additional', 'Import-weighted effective tariff rate (additional duties only)'),
     c('matched_imports_b', 'Total imports ($B) matched to tariff data'),
     c('total_imports_b', 'Total imports ($B) in the weight file'),
@@ -1140,6 +1141,7 @@ build_daily_workbook_readme <- function() {
     c('revision', 'HTS revision identifier'),
     c('n_products_total', 'Total products in the revision (denominator for all_pairs means)'),
     c('weighted_etr', 'Import-weighted ETR for this country; NA if no import weights'),
+    c('weighted_etr_new', 'Import-weighted ETR for this country in excess of its Jan-1-2025 baseline (weighted_etr minus its own 2025-01-01 value)'),
     c('', ''),
 
     # --- daily_by_authority ---
@@ -1181,12 +1183,80 @@ build_daily_workbook_readme <- function() {
 }
 
 
+# The Jan-1-2025 baseline date for weighted_etr_new. This is the tracker's
+# pre-2025-actions starting point (revision 'basic', the first snapshot). Kept a
+# named constant so the "new" reference point is defined in exactly one place.
+WEIGHTED_ETR_NEW_BASELINE_DATE <- as.Date('2025-01-01')
+
+#' Add weighted_etr_new: the import-weighted total ETR IN EXCESS of Jan 1 2025.
+#'
+#' weighted_etr_new(t) = weighted_etr(t) - weighted_etr(2025-01-01), i.e. the
+#' increase in the import-weighted total effective rate relative to the
+#' pre-2025-actions baseline (what the 2025+ tariff actions added on top of what
+#' was already in place). It is DISTINCT from weighted_etr_additional, which
+#' remains the import-weighted sum of all additional-duty layers (base-excluded)
+#' and includes legacy pre-2025 232/301.
+#'
+#' This is inherently CROSS-REVISION (it references the 2025-01-01 row), so it
+#' cannot be computed inside a per-snapshot build_daily_aggregates() call. It is
+#' applied here, on the fully-assembled daily series, keyed on each series' own
+#' 2025-01-01 value: overall against the single baseline, by_country against each
+#' country's baseline, by_category against each GTAP sector's baseline. Series
+#' without weighted_etr (unweighted builds) and by_authority (a net_* authority
+#' decomposition with no total) are left untouched.
+#'
+#' @param daily List with expanded daily_* frames (each has a `date` column)
+#' @return `daily` with weighted_etr_new added where applicable
+add_weighted_etr_new <- function(daily,
+                                 baseline_date = WEIGHTED_ETR_NEW_BASELINE_DATE) {
+  add_one <- function(df, group_keys = character(0)) {
+    if (is.null(df) || nrow(df) == 0 || !'weighted_etr' %in% names(df)) return(df)
+    bl_date <- if (any(df$date == baseline_date)) {
+      baseline_date
+    } else {
+      m <- min(df$date)
+      message('  weighted_etr_new: no ', baseline_date,
+              ' baseline row present; using earliest date ', m, ' instead')
+      m
+    }
+    if (length(group_keys) == 0) {
+      bl <- df$weighted_etr[df$date == bl_date][1]
+      df$weighted_etr_new <- df$weighted_etr - bl
+    } else {
+      base_tbl <- df %>%
+        filter(date == bl_date) %>%
+        select(all_of(group_keys), .etr_base_2025 = weighted_etr) %>%
+        distinct()
+      df <- df %>%
+        left_join(base_tbl, by = group_keys) %>%
+        mutate(weighted_etr_new = weighted_etr - coalesce(.etr_base_2025, 0)) %>%
+        select(-.etr_base_2025)
+    }
+    df %>% relocate(weighted_etr_new, .after = weighted_etr)
+  }
+
+  daily$daily_overall  <- add_one(daily$daily_overall)
+  daily$daily_by_country <- add_one(daily$daily_by_country, 'country')
+  if (!is.null(daily$daily_by_category)) {
+    daily$daily_by_category <- add_one(daily$daily_by_category, 'gtap_code')
+  }
+  daily
+}
+
+
 #' Save daily series outputs to disk
 #'
 #' @param daily List from build_daily_aggregates()
 #' @param out_dir Output directory
 save_daily_outputs <- function(daily, out_dir = series_section_dir('daily')) {
   ensure_dir(out_dir)
+
+  # Attach weighted_etr_new (excess over the Jan-1-2025 baseline) here, the single
+  # choke point every fully-assembled series passes through (legacy combined,
+  # array-part bind, and streaming all route here). Per-snapshot part builders
+  # save their own RDS directly and never reach this, which is correct — the
+  # column is cross-revision and undefined for a single-snapshot frame.
+  daily <- add_weighted_etr_new(daily)
 
   write_csv(daily$daily_overall, file.path(out_dir, 'daily_overall.csv'))
 

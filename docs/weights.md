@@ -47,10 +47,21 @@ Rscript src/io/build_import_weights.R --year 2024
 
 ## Building the file from scratch
 
-The repo ships `src/io/build_import_weights.R`, which downloads the 12 monthly
-Census Bureau IMDByymm.ZIPs, parses the IMP_DETL.TXT fixed-width files,
-aggregates HS10 × country consumption imports, and joins the in-repo GTAP
+The repo ships `src/io/build_import_weights.R`, which sources monthly Census
+import detail, aggregates HS10 × country imports, and joins the in-repo GTAP
 crosswalk.
+
+**Source: shared Census-IMDB store (default) or Census ZIPs (fallback).** When
+all 12 monthly parsed-detail parquets for the target year are present in the
+shared **Census-IMDB** store (`$IMDB_STORE_DIR`, default
+`/nfs/roberts/project/pi_nrs36/shared/raw_data/Census-IMDB`, managed by the
+Census-IMDB repo), the build reads them directly — skipping the ~15-20 min
+download + fixed-width parse of 12 ZIPs. Both `con` and `gen` builds are
+supported (the store carries `con_val_mo` and `gen_val_mo`). The store path
+reproduces the ZIP path's HS10 × country aggregate exactly (verified to $0 for
+2024 con and gen). Set `IMDB_USE_STORE=0` to force the ZIP path; when the store
+is absent (external clone), it falls back automatically to downloading +
+parsing the ZIPs as before.
 
 ```bash
 # Default: 2024 consumption imports, output to data/weights/hs10_by_country_gtap_2024_con.rds
