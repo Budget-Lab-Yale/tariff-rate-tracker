@@ -399,8 +399,18 @@ read_csv_cached <- function(path, ...) {
 # =============================================================================
 # HTS Concordance
 # =============================================================================
+#
+# DEPRECATED (2026-07-14): the Jaccard-heuristic concordance
+# (resources/hts_concordance.csv) is superseded by the authoritative dated
+# 484(f) transfer crosswalk (resources/hts10_484f_transfers.csv, built by
+# tools/build_484f_crosswalk.R). These loaders remain only for archived
+# import-remapping consumers; do not use them for import-weight revision
+# mapping. No behavior change.
 
 #' Load and chain HTS product concordance for import remapping
+#'
+#' @section Deprecated:
+#' Heuristic — superseded by the 484(f) transfer crosswalk. See note above.
 #'
 #' Reads the concordance CSV and builds a cumulative old->new mapping between
 #' two revisions. Used to remap import product codes (which may reflect an

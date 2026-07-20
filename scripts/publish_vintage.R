@@ -45,6 +45,12 @@ shared_root <- if (nzchar(mdr)) mdr else SHARED_ROOT_DEFAULT
 vintage_dir <- file.path(shared_root, vintage)
 update_latest <- !identical(Sys.getenv('TARIFF_UPDATE_LATEST', '1'), '0')
 
+# Weight-mode plumbing (never inferred). TARIFF_WEIGHT_MODE / TARIFF_WEIGHT_METHOD
+# override config; unset -> NULL -> write_build_output resolves from local_paths.
+env_or_null <- function(k) { v <- Sys.getenv(k, unset = ''); if (nzchar(v)) v else NULL }
+weight_mode   <- env_or_null('TARIFF_WEIGHT_MODE')
+weight_method <- env_or_null('TARIFF_WEIGHT_METHOD')
+
 if (latest_only) {
   if (!dir.exists(vintage_dir)) {
     stop('--latest-only: vintage dir does not exist: ', vintage_dir, call. = FALSE)
@@ -67,7 +73,9 @@ res <- write_build_output(
   wipe_vintage      = FALSE,              # do NOT clear the vintage; the gather populated it
   build_started_at  = NULL,               # scratch metadata just finalized; skip stale guard
   include_scenarios = TRUE,               # sweep every scenarios/<name> built this run
-  update_latest     = update_latest
+  update_latest     = update_latest,
+  weight_mode       = weight_mode,
+  weight_method     = weight_method
 )
 message('Finalized vintage: ', res$vintage_dir,
         if (update_latest) paste0(' (latest -> ', res$vintage, ')') else ' (latest unchanged)')

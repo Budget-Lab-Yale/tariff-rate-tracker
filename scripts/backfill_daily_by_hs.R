@@ -23,7 +23,11 @@ suppressMessages({
   source(here('src', 'core', 'helpers.R'))
   source(here('src', 'model', 'rate_schema.R'))
   source(here('src', 'model', 'stacking.R'))
+  source(here('src', 'model', 'policy_params.R'))
+  source(here('src', 'model', 'revisions.R'))
   source(here('src', 'pipeline', '09_daily_series.R'))
+  source(here('src', 'io', 'build_import_weights.R'))
+  source(here('src', 'io', 'build_panel_import_weights.R'))
 })
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -38,11 +42,25 @@ if (is.na(vintage) || !dir.exists(vintage)) stop('Pass an existing vintage dir')
 
 pp <- load_policy_params()
 
-# Use the SAME build-internal weights the daily series used (config
-# local_paths$import_weights .rds), NOT the vintage's published tariff-model
-# weights parquet — those are a re-based downstream artifact and give slightly
-# different weighted_etr. The self-check below confirms the match.
-imports <- load_import_weights()
+# Reproduce the SAME weights the daily build used. Under weight_method=484f that
+# means the per-interval provider, so the recompute must key each interval's
+# weights to that revision's HTS identity — same as the array build. The
+# per-revision HTS-identity dates come from the array timeline (archive_rev_id,
+# so synthetic bnd_/sched_ rows inherit their owner); it is REQUIRED for the 484f
+# method here. The self-check below confirms the recompute matches the published
+# daily.
+timeline_path <- Sys.getenv('REV_TIMELINE', 'output/build_array_timeline.rds')
+timeline <- if (file.exists(timeline_path)) {
+  readRDS(timeline_path) %>% mutate(effective_date = as.Date(effective_date))
+} else NULL
+hts_as_of_dates <- if (!is.null(timeline)) hts_as_of_dates_from_timeline(timeline) else NULL
+weight_plan <- resolve_daily_weight_plan(hts_as_of_dates = hts_as_of_dates)
+if (identical(weight_plan$weight_method, '484f') && is.null(hts_as_of_dates)) {
+  stop('backfill_daily_by_hs: weight_method=484f needs per-revision HTS-identity ',
+       'dates. Set REV_TIMELINE to the vintage\'s build_array_timeline.rds, or set ',
+       'weight_method: static in config/local_paths.yaml for a legacy recompute.',
+       call. = FALSE)
+}
 
 # Recompute one series (actual or a scenario) from its published parquet
 # partitions, mirroring build_daily_aggregates_streaming (per-snapshot -> bind).
@@ -54,7 +72,9 @@ process_series <- function(series_dir) {
           ': ', length(parts), ' interval(s)')
   res <- lapply(parts, function(pd) {
     snap <- read_parquet(file.path(pd, 'rates.parquet')) %>% enforce_rate_schema()
-    suppressMessages(build_daily_aggregates(snap, imports = imports, policy_params = pp))
+    suppressMessages(build_daily_aggregates(
+      snap, imports = weight_plan$imports, imports_fn = weight_plan$imports_fn,
+      hts_as_of_dates = weight_plan$hts_as_of_dates, policy_params = pp))
   })
   list(
     daily_overall     = bind_rows(lapply(res, `[[`, 'daily_overall')),

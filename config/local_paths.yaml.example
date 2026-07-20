@@ -21,12 +21,32 @@
 # Behavior when this file is missing is controlled by `weight_mode` below.
 import_weights: null
 
+# 2025 HS10 x country split-share base (NO GTAP column). Optional. Used by the
+# 484(f) weight mapper to allocate a committee split's value across successor
+# suffixes by their observed 2025 trade (country- and all-country tiers); absent,
+# splits fall back to an even distribution within the HS8 heading.
+#
+# How to obtain:
+#   Rscript src/io/build_import_weights.R --year 2025 --no-gtap \
+#           --raw-dir /path/to/IMDB25mm.ZIPs \
+#           --out data/weights/hs10_by_country_2025_con.rds
+split_share_imports: data/weights/hs10_by_country_2025_con.rds
+
 # Failure mode for weighted outputs when `import_weights` is missing or unset.
 #   required   — (DEFAULT) the build errors out loudly. Use this on production
 #                runs where weighted outputs are expected.
 #   unweighted — explicit opt-out. The build runs but skips weighted outputs.
 #                Equivalent to passing --unweighted on the CLI.
 weight_mode: required
+
+# How the daily-series import weights are derived from the 2024 base above.
+#   484f   — (DEFAULT) re-key the 2024 base onto EACH revision's panel codes at
+#            that revision's HTS-identity date via the 484(f) transfer crosswalk
+#            (resources/hts10_484f_transfers.csv) + the 2025 split shares. This
+#            keeps renumbered codes in the weighted denominator across history.
+#   static — legacy: join the 2024 base directly to every interval. Renumbered
+#            codes fall out of the join; kept only for A/B and regression.
+weight_method: 484f
 
 # TPC benchmark data (CSV with HTS10 x country tariff rates).
 # Required by: src/07_validate_tpc.R, ETR comparison overlay.

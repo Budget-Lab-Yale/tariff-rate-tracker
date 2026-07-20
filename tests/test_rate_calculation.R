@@ -676,15 +676,32 @@ run_test('adds missing columns with defaults', {
   stopifnot(result$total_rate == 0)
 })
 
-run_test('fills NAs in rate columns with 0', {
+run_test('fills NAs in per-authority rate columns with 0', {
+  # A bind_rows MFN-only grid pair legitimately leaves an absent authority column
+  # NA — that IS a 0 rate. (total_additional/total_rate are NOT filled here — see
+  # the fail-loud test below.)
   df <- tibble(
     hts10 = '0101300000', country = '5700',
-    base_rate = NA_real_, rate_232 = NA_real_,
-    total_rate = NA_real_
+    base_rate = NA_real_, rate_232 = NA_real_
   )
   result <- enforce_rate_schema(df)
   stopifnot(result$base_rate == 0)
   stopifnot(result$rate_232 == 0)
+})
+
+run_test('fails loud on NA total (never silently coalesces to 0)', {
+  # A NA total after stacking means an upstream rate was NA entering
+  # apply_stacking_rules (NA poisons the arithmetic). enforce_rate_schema must
+  # STOP, not coalesce to 0 — coalescing is how the annex_1c framework NA-condition
+  # bug wiped §122 on framework-country goods and shipped silently.
+  df <- tibble(
+    hts10 = '0101300000', country = '5700',
+    rate_s122 = 0.1, total_additional = NA_real_, total_rate = NA_real_
+  )
+  err <- tryCatch({ enforce_rate_schema(df); NA_character_ },
+                  error = function(e) conditionMessage(e))
+  stopifnot(!is.na(err))
+  stopifnot(grepl('NA total_additional', err))
 })
 
 run_test('preserves extra columns', {

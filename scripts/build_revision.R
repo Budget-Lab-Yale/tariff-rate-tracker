@@ -30,6 +30,7 @@ suppressMessages({
   source(here('src', 'model', 'policy_params.R'))
   source(here('src', 'pipeline', '09_daily_series.R'))
   source(here('src', 'io', 'build_import_weights.R'))
+  source(here('src', 'io', 'build_panel_import_weights.R'))
 })
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -101,28 +102,36 @@ if (!nzchar(Sys.getenv('TARIFF_SKIP_DAILY_PARTS'))) {
     horizon_end
   }
 
-  imports <- NULL
-  if (!unweighted) {
-    imports <- tryCatch(
-      load_import_weights(),
-      error = function(e) {
-        message('  Daily part precompute skipped (weights unavailable): ',
-                conditionMessage(e))
-        NULL
-      }
-    )
-  }
+  # Resolve this revision's weight plan (weight_mode / weight_method from config;
+  # --unweighted forces the opt-out). For the 484f method the interval's weights
+  # are mapped from the 2024 base onto THIS revision's panel at its RAW
+  # HTS-identity date (resolved through archive_rev_id, so synthetic bnd_ rows
+  # inherit their owner's identity).
+  plan <- tryCatch(
+    resolve_daily_weight_plan(
+      hts_as_of_dates = hts_as_of_dates_from_timeline(ri),
+      weight_mode = if (unweighted) 'unweighted' else NULL
+    ),
+    error = function(e) {
+      message('  Daily part precompute skipped (weights unavailable): ',
+              conditionMessage(e))
+      NULL
+    }
+  )
 
-  if (unweighted || !is.null(imports)) {
-    write_daily_part_for_snapshot(
-      snapshot = res$rates,
-      revision = rev_id,
-      valid_from = valid_from,
-      valid_until = valid_until,
-      output_dir = output_dir,
-      imports = imports,
-      policy_params = pp_build,
-      stacking_method = 'mutual_exclusion'
-    )
+  if (!is.null(plan)) {
+    common <- list(snapshot = res$rates, revision = rev_id,
+                   valid_from = valid_from, valid_until = valid_until,
+                   output_dir = output_dir, policy_params = pp_build,
+                   stacking_method = 'mutual_exclusion')
+    if (identical(plan$weight_mode, 'unweighted')) {
+      do.call(write_daily_part_for_snapshot, common)
+    } else if (identical(plan$weight_method, 'static')) {
+      do.call(write_daily_part_for_snapshot, c(common, list(imports = plan$imports)))
+    } else {
+      do.call(write_daily_part_for_snapshot,
+              c(common, list(imports_fn = plan$imports_fn,
+                             hts_as_of_date = plan$hts_as_of_dates[[rev_id]])))
+    }
   }
 }

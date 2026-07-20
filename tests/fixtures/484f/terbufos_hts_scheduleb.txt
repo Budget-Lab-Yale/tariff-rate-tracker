@@ -1,0 +1,31 @@
+HTS History – Terbufos
+
+HTS Code                   Action                                                      Effective Date
+
+2930.90.4330               Established (transferred from 2930.90.4395 (pt.)).          2025/07/01
+
+2930.90.4390               Established (transferred from 2930.90.4395 (pt.)).          2025/07/01
+
+                                                            6
+HTS Code                    Action                                               Effective Date
+
+2930.90.4395                Discontinued (transferred to 2930.90.4330 and        2025/07/01
+                            2930.90.4390).
+
+Schedule B
+
+Schedule B          Stat                                                                        Unit of
+No. and                                                Commodity Description
+Headings
+2930.90           4330                           Terbufos (ISO)                               kg
+
+Schedule B History - Terbufos
+
+Schedule B Code             Action                                               Effective Date
+
+2930.90.4330                Established (transferred from 2930.90.4398 (pt.)).   2025/07/01
+
+2930.90.4398                Discontinued (transferred to 2930.90.4330 and        2025/07/01
+                            2930.90.4399).
+
+2930.90.4399                Established (transferred from 2930.90.4398 (pt.)).   2025/07/01

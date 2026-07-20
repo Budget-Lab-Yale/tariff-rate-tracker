@@ -55,6 +55,7 @@ parse_args <- function(argv) {
     crosswalk    = here('resources', 'hs10_gtap_crosswalk.csv'),
     keep_zips    = FALSE,
     force        = FALSE,
+    no_gtap      = FALSE,
     help         = FALSE
   )
 
@@ -95,6 +96,8 @@ parse_args <- function(argv) {
       defaults$keep_zips <- TRUE
     } else if (a == '--force') {
       defaults$force <- TRUE
+    } else if (a == '--no-gtap') {
+      defaults$no_gtap <- TRUE
     } else {
       stop('Unknown argument: ', a, ' (use --help)', call. = FALSE)
     }
@@ -107,9 +110,13 @@ parse_args <- function(argv) {
   }
 
   if (is.null(defaults$out)) {
+    # --no-gtap drops the GTAP dimension entirely, so the filename drops the
+    # "gtap" token: hs10_by_country_<year>_<type>.rds (the split-share base the
+    # 484(f) weight mapper consumes) vs hs10_by_country_gtap_<year>_<type>.rds.
+    stem <- if (defaults$no_gtap) 'hs10_by_country_%d_%s.rds'
+            else 'hs10_by_country_gtap_%d_%s.rds'
     defaults$out <- here('data', 'weights',
-                         sprintf('hs10_by_country_gtap_%d_%s.rds',
-                                 defaults$year, defaults$type))
+                         sprintf(stem, defaults$year, defaults$type))
   }
 
   if (is.null(defaults$raw_dir)) {
@@ -134,6 +141,11 @@ print_help <- function() {
   cat('  --url-template <STR>   Override download URL. Use {year}, {yy}, {mm} placeholders.\n')
   cat('                         Default: ', DEFAULT_URL_TEMPLATE, '\n', sep = '')
   cat('  --crosswalk <PATH>     HS10 -> GTAP crosswalk CSV. Default: resources/hs10_gtap_crosswalk.csv\n')
+  cat('  --no-gtap              Skip the GTAP crosswalk join entirely. Emits\n')
+  cat('                         (hs10, cty_code, imports) with NO gtap_code column\n')
+  cat('                         to hs10_by_country_<year>_<type>.rds — the split-share\n')
+  cat('                         base for the 484(f) weight mapper. No code is dropped\n')
+  cat('                         for being unmapped (there is no crosswalk to miss).\n')
   cat('  --keep-zips            Do not delete downloaded ZIPs after building.\n')
   cat('  --force                Re-download even if the ZIP exists locally.\n')
   cat('  -h, --help             Show this message.\n')
@@ -441,19 +453,21 @@ build_import_weights <- function(year,
                                   crosswalk     = here('resources',
                                                        'hs10_gtap_crosswalk.csv'),
                                   keep_zips     = FALSE,
-                                  force_download = FALSE) {
+                                  force_download = FALSE,
+                                  no_gtap       = FALSE) {
 
-  if (!file.exists(crosswalk)) {
+  if (!no_gtap && !file.exists(crosswalk)) {
     stop('HS10 -> GTAP crosswalk not found at ', crosswalk,
          '. Set --crosswalk or check the install.')
   }
 
   message('\n', strrep('=', 70))
-  message('BUILD IMPORT WEIGHTS — year=', year, ' type=', type)
+  message('BUILD IMPORT WEIGHTS — year=', year, ' type=', type,
+          if (no_gtap) '  (no-gtap: split-share base)' else '')
   message(strrep('=', 70))
   message('Raw directory: ', raw_dir)
   message('Output file:   ', out_path)
-  message('Crosswalk:     ', crosswalk)
+  if (!no_gtap) message('Crosswalk:     ', crosswalk)
   message('URL template:  ', url_template)
   message('')
 
@@ -501,7 +515,13 @@ build_import_weights <- function(year,
                   format(nrow(hs10_by_country), big.mark = ','),
                   format_elapsed(as.numeric(difftime(Sys.time(), t_agg, units = 'secs')))))
 
-  # 3. Join GTAP crosswalk
+  # 3. Join GTAP crosswalk (skipped entirely under --no-gtap)
+  if (no_gtap) {
+    message('Skipping GTAP crosswalk join (--no-gtap): emitting hs10 x country only.')
+    result <- hs10_by_country |>
+      select(hs10, cty_code, imports) |>
+      arrange(hs10, cty_code)
+  } else {
   message('Joining HS10 -> GTAP crosswalk...')
   xwalk <- read_csv(crosswalk, show_col_types = FALSE,
                     col_types = cols(hs10 = col_character(),
@@ -547,13 +567,16 @@ build_import_weights <- function(year,
 
     result <- result |> filter(!is.na(gtap_code))
   }
+  }  # end !no_gtap
 
   # 4. Sanity checks
   message('\nResult summary:')
   message(sprintf('  rows         : %s', format(nrow(result), big.mark = ',')))
   message(sprintf('  hs10         : %s', format(dplyr::n_distinct(result$hs10), big.mark = ',')))
   message(sprintf('  countries    : %s', format(dplyr::n_distinct(result$cty_code), big.mark = ',')))
-  message(sprintf('  gtap_code    : %s', format(dplyr::n_distinct(result$gtap_code), big.mark = ',')))
+  if (!no_gtap) {
+    message(sprintf('  gtap_code    : %s', format(dplyr::n_distinct(result$gtap_code), big.mark = ',')))
+  }
   message(sprintf('  total $      : $%.1fB', sum(result$imports) / 1e9))
 
   if (sum(result$imports) < 1e12) {
@@ -600,6 +623,7 @@ if (sys.nframe() == 0) {
     url_template   = opts$url_template,
     crosswalk      = opts$crosswalk,
     keep_zips      = opts$keep_zips,
-    force_download = opts$force
+    force_download = opts$force,
+    no_gtap        = opts$no_gtap
   )
 }

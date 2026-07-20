@@ -1,0 +1,13 @@
+HTS History – Verb Variants
+
+HTS Code                 Action                                                      Effective Date
+
+   1111.11.1111          Established ( transferred from 1111.11.1000 (pt.)).         2026/07/01
+
+1111.11.1000             Deleted (transferred to 1111.11.1111 and 1111.11.2222).     2026/07/01
+
+1111.11.2222             Established ( transferred from 1111.11.1000 (pt.)).         2026/07/01
+
+3333.33.0001             Renumbered (transferred to 3333.33.0002).                   2026/02/01
+
+3333.33.0002             Established (transferred from 3333.33.0001).                2026/02/01

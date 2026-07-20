@@ -1,0 +1,559 @@
+                   484(f) Committee Changes to the HTS and Schedule B
+                                     for July 1, 2024
+
+
+
+1.        Statistical Changes to the HTS                              Duplicate Numbers
+          (HTS 0704.90.4025)
+
+
+
+0704.90.4025 will be renumbered in the HTS as 0704.90.4028.
+
+HTS History – Duplicate Numbers
+
+HTS Code                   Action                                                       Effective Date
+
+0704.90.4025               Discontinued (transferred to 0704.90.4028).                  2024/07/01
+
+0704.90.4028               Established (transferred from 0704.90.4025).                 2024/07/01
+
+
+
+
+2.        HTS 0811.90.80                                         Frozen Peaches and Peach Puree
+          and 2007.99.65
+
+
+Frozen Peaches
+
+     HTS
+                   Stat                                                                               Unit of
+  Heading/                                            Article description
+                  Suffix                                                                             Quantity
+ Subheading
+0811                        Fruit and nuts, uncooked or cooked by steaming or boiling in water,
+                            frozen, whether or not containing added sugar or other sweetening
+                            matter:
+0811.90                          Other:
+                                    ***
+0811.90.80                          Other…………………………………………………………………………………………
+                                          ***
+                 90 (95)                  Peaches…………………………………………………………………………….. kg
+                 97 (95)                  Other…………………………………………………………………………………. kg
+
+
+
+
+                                                        1
+Peach Puree
+
+     HTS
+                 Stat                                                                                     Unit of
+  Heading/                                                 Article description
+                Suffix                                                                                   Quantity
+ Subheading
+2007                      Jams, fruit jellies, marmalades, fruit or nut purée and fruit or nut pastes,
+                          obtained by cooking, whether or not containing added sugar or other
+                          sweetening matter:
+                              ***
+                              Other:
+                                   ***
+2007.99                            Other:
+                                         ***
+                                         Pastes and purees:
+                                               ***
+2007.99.65                                     Other…………………………………………………………………………..
+                                                     ***
+               25 (20)                               Peach…………………………………………………………………… kg
+               35 (20)                               Other……………………………………………………………………. kg
+
+
+
+
+HTS History ‐Frozen Peaches and Peach Puree
+
+HTS Code                 Action                                                           Effective Date
+
+0811.90.8090             Established (transferred from 0811.90.8095 (pt.)).               2024/07/01
+
+0811.90.8095             Discontinued (transferred to 0811.90.8090 and                    2024/07/01
+                         0811.90.8097)
+
+0811.90.8097             Established (transferred from 0811.90.8095 (pt.)).               2024/07/01
+
+2007.99.6520             Discontinued (transferred to 2007.99.6525 and                    2024/07/01
+                         2007.99.6535)
+
+2007.99.6525             Established (transferred from 2007.99.6520 (pt.)).               2024/07/01
+
+2007.99.6535             Established (transferred from 2007.99.6520 (pt.)).               2024/07/01
+
+
+
+
+                                                             2
+3.        HTS 2915.90.18 and                                     Perfluorooctanoic Acids and Their
+          Sch. B 2915.90.0000                                    Salts
+
+HTS
+
+     HTS
+                   Stat                                                                              Unit of
+  Heading/                                           Article description
+                  Suffix                                                                            Quantity
+ Subheading
+2915                       Saturated acyclic monocarboxylic acids and their anhydrides, halides,
+                           peroxides and peroxyacids; their halogenated, sulfonated, nitrated or
+                           nitrosated derivatives:
+                                ***
+2915.90                         Other:
+                                   Acids:
+                                      ***
+                                         Other:
+                                           ***
+2915.90.18                                 Other……………………………………………………………………………….
+                10 (00)                      Perfluorooctanoic acids and their salts………………………… kg
+                90 (00)                      Other…………………………………………………………………………… kg
+
+
+
+
+Schedule B
+
+Schedule B         Stat                                                                              Unit of
+No. and                                           Commodity Description
+                  Suffix                                                                            Quantity
+Headings
+2915                       Saturated acyclic monocarboxylic acids and their anhydrides, halides,
+                           peroxides and peroxyacids; their halogenated, sulfonated, nitrated or
+                           nitrosated derivatives:
+                               ***
+2915.90                         Other…………………………………………………………………………………………….
+                0010               Perfluorooctanoic acids and their salts……….………………………….          kg
+                (0000)
+                0090               Other……………………………………………………………………………………..                         kg
+                (0000)
+
+
+
+
+                                                       3
+HTS History ‐ Perfluorooctanoic acids and their salts
+
+HTS Code                    Action                                                          Effective Date
+
+2915.90.1800                Annotated (transferred to 2915.90.1810 and                      2024/07/01
+                            2915.90.1890).
+
+2915.90.1810                Established (transferred from 2915.90.1800 (pt.)).              2024/07/01
+
+2915.90.1890                Established (transferred from 2915.90.1800 (pt.)).              2024/07/01
+
+
+Schedule B History ‐ Perfluorooctanoic acids and their salts
+
+Schedule B Code             Action                                                          Effective Date
+
+2915.90.0000                Annotated (transferred to 2915.90.0010 and                      2024/07/01
+                            2915.90.1000).
+
+2915.90.0010                Established (transferred from 2915.90.0000 (pt.)).              2024/07/01
+
+2915.90.0090                Established (transferred from 2915.90.0000 (pt.)).              2024/07/01
+
+
+
+
+4.        HTS 3926.90.99                                        Rigid Plastic Conduit
+
+     HTS
+                    Stat                                                                                      Unit of
+  Heading/                                              Article description
+                   Suffix                                                                                    Quantity
+ Subheading
+3926                         Other articles of plastics and articles of other materials of headings 3901
+                             to 3914:
+3926.90                          Other:
+3926.90.99                            Other…………………………………………………………………………………………
+                                          ***
+                  87 (85)                 Rigid tubes or pipes suitable for use as electrical conduit….. kg
+                  89 (85)                 Other…………………………………………………………………………………. kg and
+                                                                                No.
+
+
+
+
+                                                          4
+HTS History – Rigid Plastic Conduit
+
+HTS Code                   Action                                                          Effective Date
+
+3926.90.9985               Discontinued (transferred to 3926.90.9987 and                   2024/07/01
+                           3926.90.9989).
+
+3926.90.9987               Established (transferred from 3926.90.9985 (pt.)).              2024/07/01
+
+3926.90.9989               Established (transferred from 3926.90.9985 (pt.)).              2024/07/01
+
+
+
+
+5.        HTS 7306.30.50                                        Circular Welded Pipe
+
+
+     HTS
+                  Stat                                                                                   Unit of
+  Heading/                                             Article description
+                 Suffix                                                                                 Quantity
+ Subheading
+7306                        Other tubes, pipes and hollow profiles (for example, open seamed or
+                            welded, riveted or similarly closed), of iron or steel:
+                                ***
+7306.30                         Other, welded, of circular cross section, of iron or nonalloy steel:
+                                     ***
+                                     Having a wall thickness of 1.65 mm or more:
+                                         ***
+7306.30.50                               Other………………………………………………………………………
+                                             ***
+                                             Other:
+                                                  With an outside diameter not exceeding
+                                                  114.3 mm:
+                                                      Galvanized:
+                                                             Imported with coupling:
+                26 (25)                                          With an outside diameter not
+                                                                 exceeding 50.8 mm ………………………            kg
+                27 (25)                                          With an outside diameter exceeding
+                                                                 50.8 mm but not exceeding 114.3
+                                                                 mm…………………………………………………                  kg
+                                                             Other:
+                31 (32)                                            With an outside diameter not
+                                                                   exceeding 50.8 mm………………………… kg
+                33 (32)                                            With an outside diameter exceeding
+                                                                   50.8 mm but not exceeding 114.3
+                                                                   mm…………………………………………………. kg
+                                                       Other:
+                                                             ***
+
+                                                         5
+    HTS
+                 Stat                                                                             Unit of
+  Heading/                                          Article description
+                Suffix                                                                           Quantity
+ Subheading
+                                                          Imported with coupling:
+               41 (40)                                        With an outside diameter not
+                                                              exceeding 50.8 mm…………………………. kg
+               43 (40)                                        With an outside diameter exceeding
+                                                              50.8 mm but not exceeding 114.3
+                                                              mm………………………………………………….. kg
+                                                          Other:
+               56 (55)                                        With an outside diameter not
+                                                              exceeding 50.8 mm…………………………. kg
+               57 (55)                                        With an outside diameter exceeding
+                                                              50.8 mm but not exceeding 114.3
+                                                              mm………………………………………………….. kg
+
+
+HTS History
+
+HTS Code                 Action                                                     Effective Date
+
+7306.30.5025             Discontinued (transferred to 7306.30.5026 and              2024/07/01
+                         7306.30.5027)
+
+7306.30.5026             Established (transferred from 7306.30.5025 (pt.)).         2024/07/01
+
+7306.30.5027             Established (transferred from 7306.30.5025 (pt.)).         2024/07/01
+
+7306.30.5031             Established (transferred from 7306.30.5032 (pt.)).         2024/07/01
+
+7306.30.5032             Discontinued (transferred to 7306.30.5031 and              2024/07/01
+                         7306.30.5033).
+
+7306.30.5033             Established (transferred from 7306.30.5032 (pt.)).         2024/07/01
+
+7306.30.5040             Discontinued (transferred to 7306.30.5041 and              2024/07/01
+                         7306.30.5043).
+
+7306.30.5041             Established (transferred from 7306.30.5040 (pt.)).         2024/07/01
+
+7306.30.5043             Established (transferred from 7306.30.5040 (pt.)).         2024/07/01
+
+7306.30.5055             Discontinued (transferred to 7306.30.5056 and              2024/07/01
+                         7306.30.5057).
+
+7306.30.5056             Established (transferred from 7306.30.5055 (pt.)).         2024/07/01
+
+7306.30.5057             Established (transferred from 7306.30.5055 (pt.)).         2024/07/01
+
+
+
+
+                                                      6
+6.     HTS 8309.90.00                                                Aluminum Lids
+
+
+
+     HTS
+                 Stat                                                                                Unit of
+  Heading/                                          Article description
+                Suffix                                                                              Quantity
+ Subheading
+8309                      Stoppers, caps and lids (including crown corks, screw caps and pouring
+                          stoppers), capsules for bottles, threaded bungs, bung covers, seals and
+                          other packing accessories, and parts thereof, of base metal:
+                              ***
+8309.90.00                    Other………………………………………………………………………………………………..
+               10 (00)             Of aluminum…………………………………………………………………………….. kg
+                                                                              No.
+               90 (00)             Other……………………………………………………………………………………….. kg
+                                                                              No.
+
+
+
+
+HTS History ‐Aluminum Lids
+
+HTS Code                 Action                                                        Effective Date
+
+8309.90.0000             Annotated (transferred to 8309.90.0010 and                    2024/07/01
+                         8309.90.0090)
+
+8309.90.0010             Established (transferred from 8309.90.0000 (pt.)).            2024/07/01
+
+8309.90.0090             Established (transferred from 8309.90.0000 (pt.)).            2024/07/01
+
+
+
+
+7.     HTS 8542.31.00                                         Integrated Circuits
+       and 8542.39.00
+
+
+     HTS
+                 Stat                                                                                Unit of
+  Heading/                                          Article Description
+                Suffix                                                                              Quantity
+ Subheading
+8542                      Electronic integrated circuits; parts thereof:
+                              Electronic integrated circuits:
+8542.31.00                         Processors and controllers, whether or not combined with
+                                   memories, converters, logic circuits, amplifiers, clock and
+                                   timing circuits, or other circuits:
+                                        Controllers (including microcontrollers):
+               15 (01)                      8‐bit……………………………………………………………………………. No.
+               20 (01)                      16‐bit………………………………………………………………………….. No.
+
+
+                                                       7
+    HTS
+                 Stat                                                                            Unit of
+  Heading/                                          Article Description
+                Suffix                                                                          Quantity
+ Subheading
+               25 (01)                     32‐bit…………………………………………………………………………..                 No.
+               30 (01)                     Other…………………………………………………………………………..                  No.
+                                       Processors (including microprocessors):
+               35 (01)                     Digital signal processors (DSPs)……………………………………       No.
+               40 (01)                     Graphics processing units (GPUs)………………………………..       No.
+               45 (01)                     Central processing units (CPUs)…………………………………..       No.
+               50 (01)                     Other…………………………………………………………………………..                  No.
+                                        Programmable logic devices (PLDs):
+               55 (01)                       Complex programmable logic devices (CPLDs)…………….   No.
+               60 (01)                       Field programmable gate arrays (FPGAs)…………………….    No.
+               65 (01)                       Other…………………………………………………………………………..                No.
+               70 (01)                  System on chip (SoCs)…………………………………………………………             No.
+               75 (01)                  Other………………………………………………………………………………….                   No.
+                                    ***
+8542.39.00                          Other:
+               10 (01)                  RF transceivers…………………………………………………………………..              No.
+               20 (01)                  Active filters………………………………………………………………………               No.
+                                        Data converters:
+               30 (01)                       Analog to digital converters (ADCs)……………………………..   No.
+               40 (01)                       Digital to analog converters (DACs)……………………………..   No.
+               50 (01)                       Other…………………………………………………………………………..                No.
+               60 (01)                  Other………………………………………………………………………………….                   No.
+
+
+
+
+HTS History – Integrated Circuits
+
+HTS Code                 Action                                                    Effective Date
+
+8542.31.0001             Annotated (transferred to 8542.31.0015, 8542.31.0020,     2024/07/01
+                         8542.31.0025, 8542.31.0030, 8542.31.0035, 8542.31.0040,
+                         8542.31.0045, 8542.31.0050, 8542.31.0055, 8542.31.0060,
+                         8542.31.0065, 8542.31.0070 and 8542.31.0075
+
+8542.31.0015             Established (transferred from 8542.31.0001 (pt.)).        2024/07/01
+
+8542.31.0020             Established (transferred from 8542.31.0001 (pt.)).        2024/07/01
+
+8542.31.0025             Established (transferred from 8542.31.0001 (pt.)).        2024/07/01
+
+8542.31.0030             Established (transferred from 8542.31.0001 (pt.)).        2024/07/01
+
+8542.31.0035             Established (transferred from 8542.31.0001 (pt.)).        2024/07/01
+
+8542.31.0040             Established (transferred from 8542.31.0001 (pt.)).        2024/07/01
+
+8542.31.0045             Established (transferred from 8542.31.0001 (pt.)).        2024/07/01
+
+
+
+                                                      8
+HTS Code                  Action                                                                              Effective Date
+
+8542.31.0050              Established (transferred from 8542.31.0001 (pt.)).                                  2024/07/01
+
+8542.31.0055              Established (transferred from 8542.31.0001 (pt.)).                                  2024/07/01
+
+8542.31.0060              Established (transferred from 8542.31.0001 (pt.)).                                  2024/07/01
+
+8542.31.0065              Established (transferred from 8542.31.0001 (pt.)).                                  2024/07/01
+
+8542.31.0070              Established (transferred from 8542.31.0001 (pt.)).                                  2024/07/01
+
+8542.31.0075              Established (transferred from 8542.31.0001 (pt.)).                                  2024/07/01
+
+8542.39.0001              Annotated (transferred to 8542.39.0010, 8542.39.0020,                               2024/07/01
+                          8542.39.0030, 8542.39.0040, 8542.39.0050 and
+                          8542.39.0060)
+
+8542.39.0010              Established (transferred from 8542.39.0001 (pt.)).                                  2024/07/01
+
+8542.39.0020              Established (transferred from 8542.39.0001 (pt.)).                                  2024/07/01
+
+8542.39.0030              Established (transferred from 8542.39.0001 (pt.)).                                  2024/07/01
+
+8542.39.0040              Established (transferred from 8542.39.0001 (pt.)).                                  2024/07/01
+
+8542.39.0050              Established (transferred from 8542.39.0001 (pt.)).                                  2024/07/01
+
+8542.39.0060              Established (transferred from 8542.39.0001 (pt.)).                                  2024/07/01
+
+
+
+
+8.        HTS 9401.61.20, 9401.69.40                                               Wood Furniture
+          and 9403.30.80
+
+
+     HTS
+                  Stat                                                                                                         Unit of
+  Heading/                                                 Article description
+                 Suffix                                                                                                       Quantity
+ Subheading
+9401                       Seats (other than those of heading 9402), whether or not convertible
+                           into beds, and parts thereof:
+                                ***
+                                Other seats, with wooden frames:
+9401.61                             Upholstered:
+                                        Chairs:
+9401.61.20                                  Of Teak .......................................................................
+                                                Household:
+                11 (10)                              Of plantation‐grown teak ............................                    No.
+                15 (10)                              Other ............................................................       No.
+
+
+                                                               9
+    HTS
+                 Stat                                                                                                           Unit of
+  Heading/                                                Article description
+                Suffix                                                                                                         Quantity
+ Subheading
+                                             Other:
+               31 (30)                           Of plantation‐grown teak ............................                         No.
+               35 (30)                           Other ............................................................            No.
+                                          ***
+                                       ***
+9401.69                            Other:
+                                        ***
+                                        Other:
+                                            Chairs:
+9401.69.40                                          Of Teak ................................................................
+                                                        Household:
+               11 (10)                                       Of plantation‐grown teak ......................                   No.
+               15 (10)                                       Other .....................................................       No.
+                                                          Other:
+               31 (30)                                       Of plantation‐grown teak ......................                   No.
+               35 (30)                                          Other .....................................................    No.
+
+
+
+
+HTS History – Wood Furniture
+
+HTS Code                 Action                                                                               Effective Date
+
+9401.61.2010             Discontinued (transferred to 9401.61.2011 and                                        2024/07/01
+                         9401.61.2015).
+
+9401.61.2011             Established (transferred from 9401.61.2010 (pt.)).                                   2024/07/01
+
+9401.61.2015             Established (transferred from 9401.61.2010 (pt.)).                                   2024/07/01
+
+9401.61.2030             Discontinued (transferred to 9401.61.2031 and                                        2024/07/01
+                         9401.61.2035).
+
+9401.61.2031             Established (transferred from 9401.61.2030 (pt.)).                                   2024/07/01
+
+9401.61.2035             Established (transferred from 9401.61.2030 (pt.)).                                   2024/07/01
+
+9401.69.4010             Discontinued (transferred to 9401.69.4011 and                                        2024/07/01
+                         9401.69.4015).
+
+9401.69.4011             Established (transferred from 9401.69.4010 (pt.)).                                   2024/07/01
+
+9401.69.4015             Established (transferred from 9401.69.4010 (pt.)).                                   2024/07/01
+
+9401.69.4030             Discontinued (transferred to 9401.69.4031 and                                        2024/07/01
+                         9401.69.4035).
+
+
+                                                             10
+HTS Code                 Action                                                          Effective Date
+
+9401.69.4031             Established (transferred from 9401.69.4030 (pt.)).              2024/07/01
+
+9401.69.4035             Established (transferred from 9401.69.4030 (pt.)).              2024/07/01
+
+
+
+
+9.       HTS Statistical Note 4 of Section XI;                        Conforming Changes
+         Statistical Note 1 and 1(b) of
+         Subchapter II, Chapter 98;
+         and 9802.00.8055
+
+9802.00.8068 will be renumbered in the HTS as 9802.00.8069.
+
+HTS History ‐ Conforming Changes
+
+HTS Code                 Action                                                          Effective Date
+Statistical note 4,      Discontinued.                                                   2024/07/01
+section XI
+Statistical note 1,      Modified statistical note 1 to read as follows: “For articles   2024/07/01
+subch II, ch 98          admitted under statistical reporting number
+                         9802.00.6000, 9802.00.8015, 9802.00.8016 or
+                         9802.00.8069 two values shall be reported‐‐the first
+                         following the first statistical reporting number of the
+                         statistical citation (i.e., 9802.00.6000, 9802.00.8015,
+                         9802.00.8016 or 9802.00.8069) and the second following
+                         the statistical reporting number of the provision in
+                         chapters 1‐97 from which the rate of duty is derived, as
+                         follows:”
+Statistical note 1(b),   Modified statistical note 1(b) to read as follows: “For         2024/07/01
+subch II, ch 98          statistical reporting number 9802.00.8015, 9802.00.8016
+                         or 9802.00.8069:”
+9802.00.8055             Discontinued.                                                   2024/07/01
+9802.00.8068             Discontinued (transferred to 9802.00.8069).                     2024/07/01
+9802.00.8069             Established (transferred from 9802.00.8068).                    2024/07/01
+
+
+
+
+                                                       11
+

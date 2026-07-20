@@ -45,10 +45,32 @@ enforce_rate_schema <- function(df) {
     }
   }
 
-  # Fill NAs in numeric rate columns (bind_rows can introduce NAs)
+  # Fail loud on a NA effective total. total_additional/total_rate are computed by
+  # apply_stacking_rules() from the (already-filled) per-authority rate columns, so
+  # a NA here means a rate column was NA when it ENTERED stacking — NA then poisons
+  # the arithmetic (`NA > 0` is NA, `x * NA` is NA). Silently coalescing it to 0 (as
+  # this function did until 2026-07-15) masks a real bug: that is exactly how the
+  # annex_1c framework if_else NA-condition (06:3005) wiped §122 on framework-country
+  # non-annex goods and shipped a spurious ~1.4pp 06-08 drop to the panel + model.
+  # Surface it here instead of hiding it. Fix the upstream source; never coalesce.
+  for (col in c('total_additional', 'total_rate')) {
+    na_idx <- which(is.na(df[[col]]))
+    if (length(na_idx) > 0) {
+      ex <- utils::head(df[na_idx, c('hts10', 'country'), drop = FALSE], 5)
+      stop('enforce_rate_schema: ', length(na_idx), ' row(s) have NA ', col,
+           ' after stacking — an upstream rate column was NA entering ',
+           'apply_stacking_rules() (NA poisons the total). Fix the source; do NOT ',
+           'coalesce to 0. Sample (hts10/country): ',
+           paste(sprintf('%s/%s', ex$hts10, ex$country), collapse = ', '))
+    }
+  }
+
+  # Fill NAs in the per-authority rate columns + base (bind_rows for MFN-only grid
+  # pairs legitimately leaves an absent authority column NA — that IS a 0 rate).
+  # NB: total_additional/total_rate are deliberately NOT in this list — they are
+  # guarded above (a NA total is a bug, not a fill-to-0 case).
   rate_cols <- c('base_rate', 'statutory_base_rate', 'rate_232', 'rate_301', 'rate_301_cs',
-                 'rate_ieepa_recip', 'rate_ieepa_fent', 'rate_s122', 'rate_section_201', 'rate_other',
-                 'total_additional', 'total_rate')
+                 'rate_ieepa_recip', 'rate_ieepa_fent', 'rate_s122', 'rate_section_201', 'rate_other')
   # Every rate_cols entry is in RATE_SCHEMA and the loop above guarantees each
   # RATE_SCHEMA column exists, so all are present here — no membership guard needed.
   for (col in rate_cols) {

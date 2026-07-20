@@ -1,0 +1,27 @@
+# 484(f) per-interval weights validation build — actual + new_301.
+#
+# First full-scale run of the 484(f) per-interval import-weight fix (branch
+# 484f-weights): the daily series re-keys the 2024 weight base onto EACH
+# revision's panel at that revision's HTS-identity date via the committed
+# transfers crosswalk, instead of joining one static tip weight set across all
+# history (the source of the end-2026 statutory-rate understatement).
+#
+# Builds a fresh vintage and VERIFIES it, but does NOT move `latest`: review the
+# corrected tracker daily statutory series against the current production vintage
+# first (the end-2026 daily line should rise from ~8.4% toward the ~9% model
+# tile), then repoint `latest` deliberately with
+#   Rscript scripts/publish_vintage.R --latest-only <vintage>
+#
+#   bash scripts/submit_build_array.sh --config config/build/weights_484f.yaml
+
+model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker
+policy_params_path: config/policy_params.yaml
+
+scenarios:
+  - new_301
+
+use_hts_dates: false
+weight_mode: required       # weight_method (484f) comes from config/local_paths.yaml
+update_latest: false        # review the corrected vintage before repointing latest
+allow_partial: false
+verify: true                # finalize runs scripts/verify_build.R against the vintage

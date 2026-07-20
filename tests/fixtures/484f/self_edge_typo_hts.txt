@@ -1,0 +1,10 @@
+HTS History – Aircraft Seat Parts
+
+HTS Code                 Action                                                      Effective Date
+
+9401.99.9040             Established (transferred from 9401.99.9070 (pt.)).          2026/02/01
+
+9401.99.9070             Discontinued (transferred to 9401.99.9040 and              2026/02/01
+                         9401.99.9070).
+
+9401.99.9085             Established (transferred from 9401.99.9070 (pt.)).          2026/02/01

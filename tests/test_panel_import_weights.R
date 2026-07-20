@@ -98,7 +98,7 @@ saveRDS(base %>% mutate(gtap_code = 'xxx'), base_rds)
 
 out <- build_panel_import_weights(
   panel_codes = panel, base_path = base_rds, out_dir = file.path(tmp, 'weights'),
-  year = 2024L, hts_vintage = '2026_rev_9')
+  year = 2024L, hts_vintage = '2026_rev_9', method = 'prefix')  # legacy arrow round-trip
 
 pq <- file.path(tmp, 'weights', 'import_weights_hs10_country.parquet')
 check(file.exists(pq),                                       'parquet written')

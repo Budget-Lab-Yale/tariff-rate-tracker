@@ -1,0 +1,17 @@
+1.    HTS 3004.90.92                              Antineoplastic Supplement Section
+
+HTS History – Sulfonamides
+
+HTS Code                   Action                                                          Effective Date
+3004.90.9211               Deleted (transferred to 3004.90.9211 and 3004.90.9212)          2026/07/01
+3004.90.9211               Established (transferred from 3004.90.9211 (pt.)).              2026/07/01
+3004.90.9212               Established (transferred from 3004.90.9211 (pt.)).              2026/07/01
+
+ Deleted Number                           Article Description                   Renumbered As:
+ 3004.90.9212                             Containing Levofloxacin or its        3004.90.9213
+                                          salts
+ 3004.90.9213                             Containing Linezolid or its salts     3004.90.9214
+
+                                 **3004.90.9215 will not be renumbered **
+
+                                                           40
