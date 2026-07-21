@@ -274,7 +274,7 @@ compute_stacking_contributions <- function(df, policy) {
 apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutual_exclusion',
                                  stacking_policy = NULL) {
   # Ensure optional columns exist and have no NAs
-  df <- ensure_cols(df, list(rate_s122 = 0, rate_section_201 = 0, metal_share = 1.0),
+  df <- ensure_cols(df, list(rate_s122 = 0, rate_s338 = 0, rate_section_201 = 0, metal_share = 1.0),
                     fill_na = TRUE)
 
   # TPC additive: all authorities stack with no mutual exclusion.

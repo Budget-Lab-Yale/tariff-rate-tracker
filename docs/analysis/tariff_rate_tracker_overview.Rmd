@@ -89,6 +89,7 @@ authority_colors <- c(
   'IEEPA'        = '#7570b3',
   'Fentanyl'     = '#e7298a',
   'Section 122'  = '#66a61e',
+  'Section 338'  = '#a6761d',
   'Section 201'  = '#e6ab02'
 )
 
@@ -174,7 +175,7 @@ The pipeline runs in seven stages for each HTS revision:
 
 1. **Parse Chapter 99 entries**: extract additional-duty rates, classify
    each entry by tariff authority (Section 232, 301, IEEPA reciprocal,
-   fentanyl, Section 122, Section 201).
+   fentanyl, Section 122, Section 338, Section 201).
 
 2. **Parse product master records**: extract ~19,800 HTS-10 product
    lines with base MFN rates, footnote references, and special program
@@ -317,6 +318,7 @@ authority_long <- daily_authority %>%
              `IEEPA`       = etr_ieepa,
              `Fentanyl`    = etr_fentanyl,
              `Section 122` = etr_s122,
+             `Section 338` = etr_s338,
              `Section 201` = etr_section_201)
     } else {
       select(., date, revision,
@@ -325,6 +327,7 @@ authority_long <- daily_authority %>%
              `IEEPA`       = mean_ieepa,
              `Fentanyl`    = mean_fentanyl,
              `Section 122` = mean_s122,
+             `Section 338` = mean_s338,
              `Section 201` = mean_section_201)
     }
   } %>%
@@ -333,7 +336,7 @@ authority_long <- daily_authority %>%
 
 authority_long$authority <- factor(
   authority_long$authority,
-  levels = c('Section 122', 'Fentanyl', 'IEEPA', 'Section 301', 'Section 232')
+  levels = c('Section 338', 'Section 122', 'Fentanyl', 'IEEPA', 'Section 301', 'Section 232')
 )
 
 ggplot(authority_long, aes(x = date, y = rate * 100, fill = authority)) +
@@ -799,7 +802,7 @@ auth_rows <- daily_authority %>%
   filter(date %in% focus_dates) %>%
   select(date, revision,
          etr_232, etr_301, etr_ieepa, etr_fentanyl,
-         etr_s122, etr_section_201, etr_other)
+         etr_s122, etr_s338, etr_section_201, etr_other)
 
 if (nrow(auth_rows) == 0) {
   for (d in focus_dates) {
@@ -809,7 +812,7 @@ if (nrow(auth_rows) == 0) {
     auth_rows <- bind_rows(auth_rows, nearest %>%
       select(date, revision,
              etr_232, etr_301, etr_ieepa, etr_fentanyl,
-             etr_s122, etr_section_201, etr_other))
+             etr_s122, etr_s338, etr_section_201, etr_other))
   }
 }
 
@@ -821,14 +824,15 @@ auth_display <- auth_rows %>%
     `IEEPA Reciprocal` = paste0(round(etr_ieepa * 100, 2), '%'),
     `IEEPA Fentanyl` = paste0(round(etr_fentanyl * 100, 2), '%'),
     `Section 122` = paste0(round(etr_s122 * 100, 2), '%'),
+    `Section 338` = paste0(round(etr_s338 * 100, 2), '%'),
     `Section 201` = paste0(round(etr_section_201 * 100, 2), '%'),
     Total = paste0(round((etr_232 + etr_301 + etr_ieepa + etr_fentanyl +
-                          etr_s122 + etr_section_201 + etr_other) * 100, 2), '%')
+                          etr_s122 + etr_s338 + etr_section_201 + etr_other) * 100, 2), '%')
   ) %>%
   select(Date, `Section 232`, `Section 301`, `IEEPA Reciprocal`,
-         `IEEPA Fentanyl`, `Section 122`, `Section 201`, Total)
+         `IEEPA Fentanyl`, `Section 122`, `Section 338`, `Section 201`, Total)
 
-kable(auth_display, align = 'lrrrrrrr',
+kable(auth_display, align = 'lrrrrrrrr',
       caption = 'Tracker ETR decomposition by tariff authority (import-weighted)')
 ```
 

@@ -49,7 +49,8 @@ ov <- prod %>% filter(hts8 %in% gn6$hts8) %>% count(program)
 ok(!'alcohol' %in% ov$program && !'dairy' %in% ov$program,
    'GN6 overlap: alcohol/dairy = 0')
 ok(identical(ov$n[ov$program == 'motor_vehicles'], 28L), 'GN6 overlap: motor_vehicles = 28')
-ok('22083030' %in% prod$hts8[prod$program == 'alcohol'], 'Canadian whisky 2208.30.30 on alcohol list')
+ok('22083030' %in% prod$hts8[prod$program == 'alcohol'], 'Irish/Scotch whisky 2208.30.30 on alcohol list')
+ok('22083060' %in% prod$hts8[prod$program == 'alcohol'], 'Canadian whisky 2208.30.60 on alcohol list (proclamation target)')
 ok('44130000' %in% prod$hts8[prod$program == 'alcohol'], 'densified wood 4413.00.00 on alcohol list (wood §232 test article)')
 
 cat('\n== adapter: .build_section_338 (baseline config, date-gate) ==\n')
@@ -106,7 +107,7 @@ fix_spec$programs[[1]]$exempt_products$gn6_utilization <-
 specs_fix <- list(section_338 = fix_spec)
 
 products <- tibble(
-  hts10 = c('2208303000',    # whisky (alcohol list)
+  hts10 = c('2208303000',    # Irish/Scotch whisky (alcohol list)
             '0402100500',    # dairy list
             '4413000000',    # alcohol list, wood §232 HEADING arm (0% rate)
             '7203100000',    # mv list, §232 STATUTORY arm (statutory > 0)
@@ -134,7 +135,7 @@ rates <- tibble(
 
 out <- suppressMessages(apply_section338(rates, specs_fix, products, c(CA, '5700')))
 g <- function(h, c) out$rate_s338[out$hts10 == h & out$country == c]
-ok(isTRUE(all.equal(g('2208303000', CA), 0.50)), 'Canada whisky 2208.30.30 -> +50pp')
+ok(isTRUE(all.equal(g('2208303000', CA), 0.50)), 'Irish/Scotch whisky 2208.30.30 -> +50pp')
 ok(isTRUE(all.equal(g('2208303000', '5700'), 0)), 'non-Canada row -> 0')
 ok(isTRUE(all.equal(g('0402100500', CA), 0.50)), 'Canada dairy 0402.10.05 -> +50pp')
 ok(isTRUE(all.equal(g('4413000000', CA), 0)),

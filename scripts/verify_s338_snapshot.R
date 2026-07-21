@@ -57,10 +57,16 @@ plain <- ca %>% filter(hts8 %in% covered$hts8, !hts8 %in% gn6_overlap,
 must(nrow(plain) > 0 && all(abs(plain$rate_s338 - 0.50) < 1e-12),
      sprintf('full 0.50 on the %d plain covered Canada rows', nrow(plain)))
 
-# whisky spot check
-wh <- ca %>% filter(hts8 == '22083030')
-must(nrow(wh) > 0 && all(abs(wh$rate_s338 - 0.50) < 1e-12),
-     'Canadian whisky 2208.30.30 -> 0.50')
+# whisky spot checks. 2208.30.30 is Irish/Scotch whisky; Canadian whisky (the
+# proclamation's actual high-trade target) classifies under 2208.30.60. Both are
+# on the alcohol list — check each so a regression isolated to the Canadian line
+# is caught.
+wh_is <- ca %>% filter(hts8 == '22083030')
+must(nrow(wh_is) > 0 && all(abs(wh_is$rate_s338 - 0.50) < 1e-12),
+     'Irish/Scotch whisky 2208.30.30 -> 0.50')
+wh_ca <- ca %>% filter(hts8 == '22083060')
+must(nrow(wh_ca) > 0 && all(abs(wh_ca$rate_s338 - 0.50) < 1e-12),
+     'Canadian whisky 2208.30.60 -> 0.50')
 
 # beer 2203.00.00: on the alcohol list AND annex_2-tagged (removed from the
 # aluminum-derivative scope by the April 2026 annex) — must PAY the 0.50.

@@ -120,6 +120,18 @@ if (length(dups) > 0) {
 gn6 <- extract_block(alcohol_txt, 'appears in the .Special. subcolumn')
 gn6 <- sort(unique(gn6))
 
+# Guard the GN6 count like the covered lists above: extract_block breaks at the
+# first blank/non-code line once started, so a re-extraction under a different
+# pdftotext/poppler could silently truncate the 554-code block at a page break.
+# Without this stop() the short list writes cleanly and covered∩GN6 lines then
+# lose their utilization scaling (pay the full 0.50). Hand-verified 2026-07-20.
+expected_gn6 <- 554L
+if (length(gn6) != expected_gn6) {
+  stop('GN6 note-51(d) row-count mismatch: expected ', expected_gn6,
+       ', got ', length(gn6),
+       ' — likely a pdftotext page-break truncation in extract_block')
+}
+
 # Sort covered list within program for a stable diff-able CSV
 prod <- prod[order(match(prod$program, names(programs)), prod$hts8), ]
 

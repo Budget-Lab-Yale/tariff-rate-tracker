@@ -257,11 +257,14 @@ classify_authority <- function(ch99_code) {
 
   # Section 338 Canada (proclamations of 2026-07-20): charging headings
   # 9903.03.12-.14 plus the companion §232 / civil-aircraft exception headings
-  # .15-.16. Exact-match BEFORE the broader 9903.03.xx Section 122 bucket so a
-  # future HTS archive that prints these headings cannot pollute the s122
-  # extraction (the +50% would otherwise ride rate_s122); the params-fed
-  # apply_section338() stays the single rate source regardless.
-  if (ch99_code %in% sprintf('9903.03.%02d', 12:16)) {
+  # .15-.16. Match on the heading SEGMENTS (parts[2]==3 & parts[3] in 12:16),
+  # not the 8-digit string, BEFORE the broader 9903.03.xx Section 122 bucket:
+  # a future HTS archive that prints these with a statistical suffix (e.g.
+  # 9903.03.12.10) must still route here, otherwise it falls through to
+  # section_122 and the +50% rides rate_s122. The params-fed apply_section338()
+  # stays the single rate source regardless.
+  third <- if (length(parts) >= 3) suppressWarnings(as.integer(parts[3])) else NA_integer_
+  if (isTRUE(middle == 3 && !is.na(third) && third %in% 12:16)) {
     return('section_338')
   }
 
@@ -534,7 +537,8 @@ add_blanket_pairs <- function(rates, products, covered_hts10, country_rates,
     left_join(country_rates, by = 'country') %>%
     mutate(
       rate_232 = 0, rate_301 = 0, rate_301_cs = 0, rate_ieepa_recip = 0,
-      rate_ieepa_fent = 0, rate_s122 = 0, rate_section_201 = 0, rate_other = 0
+      rate_ieepa_fent = 0, rate_s122 = 0, rate_s338 = 0,
+      rate_section_201 = 0, rate_other = 0
     )
 
   new_pairs[[rate_col]] <- new_pairs$blanket_rate

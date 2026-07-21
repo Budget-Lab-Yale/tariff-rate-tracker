@@ -3462,10 +3462,25 @@ calculate_rates_for_revision <- function(
   # 6b-br. Section 301 Brazil duties (see apply_section301_brazil)
   rates <- apply_section301_brazil(rates, specs, products, countries)
 
-  # 6b-338. Section 338 Canada duties (see apply_section338). Runs AFTER every
-  # §232 step (statutory_rate_232 / s232_annex / heading_program are final) so
-  # the note-51(c) full-exclusion scope mask reads settled values, and BEFORE
-  # the dense grid / statutory save like the other blanket authorities.
+  # 6b-338. Section 338 Canada duties (see apply_section338). Placed after the
+  # §232 PRIMARY steps (metals/annex/heading assignment) and before the dense
+  # grid / statutory save, like the other blanket authorities. The note-51(c)
+  # exclusion mask reads statutory_rate_232 / s232_annex / heading_program here,
+  # which is the correct "provided for in a §232 heading" statutory-membership
+  # test — NOT the effective rate.
+  #
+  # CAVEAT (was previously mis-documented as "reads settled values"): a few LATER
+  # §232 steps still mutate these mask columns — 6e/6f recompute annex_3/annex_1c
+  # framework floors (can raise statutory_rate_232 from 0), 7c note-35 aircraft
+  # zeroing sets s232_annex to NA (but leaves statutory_rate_232 > 0), and the 7d
+  # applicability shadow raises statutory_rate_232 from 0. This is currently
+  # EXACT — no covered-list HTS8 is in the annex_3/annex_1c-framework, semi, or
+  # 7d-shadow populations, and 7c leaves statutory_rate_232 positive — so the
+  # mask value at 6b-338 equals the final value. scripts/verify_s338_snapshot.R
+  # rebuilds the mask from FINAL columns and asserts rate_s338 == 0 on every
+  # in-scope row, so any future divergence FAILS the verify. TRIPWIRE: if a
+  # future covered-list revision adds a code in those populations, move this call
+  # (and the rate_s338 statutory save / ch98 / value-basis handling) after 7d.
   rates <- apply_section338(rates, specs, products, countries)
 
   # 6b1. Section 201 safeguard / solar (see apply_section201)

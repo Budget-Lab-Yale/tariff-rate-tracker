@@ -1368,7 +1368,11 @@ daily_part_path <- function(snapshot_dir, revision) {
 # The daily-part schema. v2 adds the per-interval weight fingerprint
 # (metadata$weight_metadata) and interval-local weights via imports_fn; v1 parts
 # are rejected by load_daily_parts_if_complete() and must be rebuilt.
-DAILY_PART_SCHEMA_VERSION <- 2L
+# v3 adds the Section 338 authority decomposition (mean_s338 / etr_s338) and
+# folds etr_s338 into the etr_base residual; v2 parts lack those columns and
+# carry a stale etr_base, so a mixed gather would produce NA s338 columns and a
+# broken etr_base identity — rejecting v2 forces a rebuild.
+DAILY_PART_SCHEMA_VERSION <- 3L
 
 write_daily_part_for_snapshot <- function(snapshot, revision, valid_from, valid_until,
                                           output_dir, imports = NULL,
