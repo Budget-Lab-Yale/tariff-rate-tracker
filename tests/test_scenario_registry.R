@@ -265,7 +265,9 @@ expected_disables <- list(
   no_301 = 'section_301',
   no_232 = 'section_232',
   no_s122 = 'section_122',
-  pre_2025 = c('ieepa_reciprocal', 'ieepa_fentanyl', 'section_122')
+  # section_338 (2026-08-19 Canada +50%) is a baseline authority added after the
+  # legacy engine, so a "pre-2025 only" counterfactual must disable it too.
+  pre_2025 = c('ieepa_reciprocal', 'ieepa_fentanyl', 'section_122', 'section_338')
 )
 
 for (nm in names(expected_disables)) {
