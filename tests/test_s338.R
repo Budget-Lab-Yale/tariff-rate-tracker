@@ -94,10 +94,12 @@ ok(identical(stacking_policy_from_specs(base_specs, '5700'), pol),
 
 cat('\n== calculator: apply_section338 (synthetic fixture) ==\n')
 # Synthetic spec: Canada 0.50, covered list from the real CSV, GN6 utilization
-# CONTROLLED so all three fallback tiers are deterministic:
+# CONTROLLED so both fallback tiers are deterministic (no HS2-mean tier for §338):
 #   8529.90.16xx measured 0.40   -> factor 0.60
-#   8517.62.00xx unmeasured, HS2-85 mean = 0.40 -> factor 0.60
-#   9403.20.00xx unmeasured, no HS2-94 measurement -> share 0 -> factor 1.00
+#   8517.62.00xx unmeasured (same ch85 as the measured code) -> share 0 ->
+#                factor 1.00 — proves §338 does NOT pool the sibling's share via
+#                an HS2 mean the way §122 does
+#   9403.20.00xx unmeasured, no ch94 measurement -> share 0 -> factor 1.00
 fix_spec <- spec_on
 fix_spec$programs[[1]]$exempt_products$gn6_utilization <-
   setNames(0.40, '8529901620')
@@ -145,8 +147,8 @@ ok(isTRUE(all.equal(g('3303003000', CA), 0.50)),
    'annex_2 (REMOVED from §232 scope) covered article PAYS 0.50 (beer-class fix)')
 ok(isTRUE(all.equal(g('7326200000', CA), 0)), 'uncovered product -> 0 (positive lists only)')
 ok(isTRUE(all.equal(g('8529901620', CA), 0.50 * 0.60)), 'GN6 measured (8529.90.16, share .40) -> 0.30')
-ok(isTRUE(all.equal(g('8517620000', CA), 0.50 * 0.60)), 'GN6 unmeasured (8517.62.00) -> HS2-85 mean .40 -> 0.30')
-ok(isTRUE(all.equal(g('9403200011', CA), 0.50)), 'GN6 unmeasured, no HS2 measurement -> share 0 -> full 0.50 (NOT §122\'s full exemption)')
+ok(isTRUE(all.equal(g('8517620000', CA), 0.50)), 'GN6 unmeasured (8517.62.00) -> share 0 -> full 0.50 (no HS2-mean pooling from ch85 sibling)')
+ok(isTRUE(all.equal(g('9403200011', CA), 0.50)), 'GN6 unmeasured, no measurement -> share 0 -> full 0.50 (NOT §122\'s full exemption)')
 ok(isTRUE(all.equal(g('2203000060', CA), 0.50)), 'missing covered Canada pair seeded at 0.50')
 ok(length(g('2203000060', '5700')) == 0, 'no non-Canada pairs seeded')
 

@@ -1259,10 +1259,12 @@ apply_section338 <- function(rates, specs, products, countries) {
   #         exclusion.
   #       * GN6 civil aircraft (note 51(d) / heading 9903.03.16): the exemption
   #         is USE-conditional, so covered∩GN6 lines are scaled by
-  #         (1 - GN6 utilization share), share = measured HTS10 -> HS2 mean of
-  #         measured -> 0. The 0 fallback (vs §122's -> 1) is deliberate: the
-  #         28 affected mv-list codes (routers, furniture, cameras) are
-  #         overwhelmingly NOT aircraft-certified entries.
+  #         (1 - GN6 utilization share), share = measured HTS10 -> 0 (unmeasured).
+  #         Unlike §122 there is NO HS2-mean interpolation tier and the fallback
+  #         is 0 (vs §122's -> 1): the 28 affected mv-list codes (routers,
+  #         furniture, cameras) are overwhelmingly NOT aircraft-certified entries,
+  #         so an unmeasured one is treated as fully dutiable, not interpolated
+  #         from the aircraft-heavy §122 chapter mean.
   #     rate_s338 is a RATE_SCHEMA column: it persists all-zero in pre-08-19
   #     revisions (baseline column, unlike the scenario s301fl/br columns).
   s338_spec <- specs[['section_338']]
@@ -1289,22 +1291,25 @@ apply_section338 <- function(rates, specs, products, countries) {
     s338_scope <- intersect(names(s338_by_country), countries)
 
     # Per-HTS10 GN6 retention factor on covered∩GN6 lines: 1 - exempt share,
-    # share = measured -> HS2 mean of measured -> 0 (see docstring).
+    # share = measured GN6 utilization -> 0 (unmeasured). NOTE the deliberate
+    # divergence from §122's measured -> HS2-mean-of-measured -> 1 ladder: §122's
+    # exempt set is genuinely civil-aircraft, so an unmeasured sibling is likely
+    # aircraft and an HS2-chapter mean is a reasonable interpolation. §338's
+    # covered∩GN6 overlap is CONSUMER goods (routers, monitors, furniture) that
+    # merely share an HTS8 with the note-51(d) aircraft list; note 51(d)'s own
+    # judgment (and docs/statutory_deviations.md S7) is that these unmeasured
+    # overlap codes are NOT aircraft entries -> full duty. An HS2 mean over the
+    # shared §122 aircraft-utilization table would pool genuine-aircraft shares
+    # (~0.17 on chs 84/85) onto them, understating the duty ~9pp and contradicting
+    # that judgment — so there is NO HS2-mean tier here: unmeasured -> 0 (full).
     gn6_share_tbl <- NULL
     if (length(gn6_hts8) > 0) {
       gn6_hts10_all <- products %>%
         filter(substr(hts10, 1, 8) %in% gn6_hts8) %>% distinct(hts10)
-      hs2_mean <- if (length(gn6_util) > 0) {
-        tibble(hts10 = names(gn6_util), share = unname(gn6_util)) %>%
-          mutate(hs2 = substr(hts10, 1, 2)) %>%
-          group_by(hs2) %>% summarise(hs2_share = mean(share), .groups = 'drop')
-      } else tibble(hs2 = character(0), hs2_share = numeric(0))
       meas <- tibble(hts10 = names(gn6_util), meas_share = unname(gn6_util))
       gn6_share_tbl <- gn6_hts10_all %>%
         left_join(meas, by = 'hts10') %>%
-        mutate(hs2 = substr(hts10, 1, 2)) %>%
-        left_join(hs2_mean, by = 'hs2') %>%
-        mutate(gn6_exempt_share = pmin(pmax(coalesce(meas_share, hs2_share, 0), 0), 1),
+        mutate(gn6_exempt_share = pmin(pmax(coalesce(meas_share, 0), 0), 1),
                gn6_factor = 1 - gn6_exempt_share) %>%
         select(hts10, gn6_factor)
     }
