@@ -68,6 +68,7 @@ section_301_brazil:
 # discover_boundaries() subtracts — so it MUST be re-listed here). Both §301
 # authorities are DATE-gated, so the empty-ops mint at 2026-07-24 activates them.
 # deep-merge REPLACES a list wholesale, so re-list the baseline overrides too:
-# 2026-06-08 = §232 metals Annex I-C/III update (Proc. 11032); 2026-09-29 = pharma
-# §232 turn-on; 2026-07-24 = the §301 turn-on. Keep all three.
-boundary_overrides: ['2026-06-08', '2026-07-24', '2026-09-29']
+# 2026-06-08 = §232 metals Annex I-C/III update (Proc. 11032); 2026-08-19 = §338
+# Canada turn-on; 2026-09-29 = pharma §232 turn-on; 2026-07-24 = the §301 turn-on.
+# Keep all four.
+boundary_overrides: ['2026-06-08', '2026-07-24', '2026-08-19', '2026-09-29']

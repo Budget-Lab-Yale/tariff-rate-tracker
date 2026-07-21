@@ -449,6 +449,7 @@ authority_columns:
   ieepa_reciprocal: rate_ieepa_recip
   ieepa_fentanyl:   rate_ieepa_fent
   section_122:      rate_s122
+  section_338:      rate_s338
   other:            rate_other
 
 # --- Section 301 content-split classification (A2) ---
@@ -857,6 +858,34 @@ section_122:
   rate: 0.10                    # 10% non-discriminatory rate (from 9903.03.01)
   exempt_products: 'resources/s122_exempt_products.csv'
 
+# --- Section 338 (Trade Act of 1930 §338, Canada) ---
+# Three proclamations signed 2026-07-20 (effective 2026-08-19): +50% ad-valorem
+# additional duty on products of Canada over three positive HTS-8 lists, via new
+# ch99 headings under U.S. note 51 (alcohol 9903.03.12, dairy 9903.03.13,
+# "motor vehicles" 9903.03.14 — actual vehicles are §232-covered and excluded;
+# that list is misc consumer goods). Sources: data/s338/; lists built by
+# scripts/build_s338_annex.R. No HTS archive carries the 9903.03.1x headings yet,
+# so the authority is hand-fed from this block + the side-data lists (the
+# pharma/Brazil pattern), independent of the ch99 parse; reconcile when a real
+# revision lands. Applies regardless of USMCA origin (usmca 'none'); stacks
+# ADDITIVELY on everything (note 51(a): "in addition to any additional duty").
+# §232 interaction (note 51(c) / heading 9903.03.15) is a FULL per-article
+# exclusion — any article in §232 SCOPE pays zero S338 even on non-metal content,
+# and USMCA-eligible auto parts paying 0% §232 are still excluded — so it is
+# implemented as a per-row scope mask in the calculator (statutory_rate_232 > 0 |
+# s232_annex | heading_program), NOT as content_split (which would leak the
+# non-metal fraction) and NOT rate_232 > 0 (which would miss 0%-paying parts).
+# GN6 civil aircraft (note 51(d) / 9903.03.16) is USE-conditional: covered∩GN6
+# lines are scaled by measured GN6 utilization (measured -> HS2 mean -> 0; the
+# 0 fallback differs from §122's ->1 because the affected mv-list codes —
+# routers, furniture — are overwhelmingly NOT aircraft parts).
+section_338:
+  effective_date: '2026-08-19'
+  rate: 0.50
+  country: '1220'                                    # Canada census code
+  products_file: 'resources/s338_products.csv'
+  gn6_exempt_products: 'resources/s338_gn6_exempt_products.csv'
+
 # --- Series time horizon ---
 # End date for timeseries valid_until on the final revision.
 # Controls how far forward daily series, ETR queries, and exports extend.
@@ -901,7 +930,10 @@ series_horizon:
 # that date. collect_schedule_boundaries already carries it and (since 2026-06-25) it
 # is no longer subtracted by expiry_boundaries(), so it mints cleanly; the override is
 # the explicit, pharma-parallel anchor.
-boundary_overrides: ['2026-06-08', '2026-07-24', '2026-09-29']
+# 2026-08-19 is the §338 Canada turn-on (three proclamations of 2026-07-20):
+# config-driven (section_338 above), no Ch99 offset in any archive; the adapter's
+# date-gate re-resolves it as-of that date, so an empty-ops mint materializes it.
+boundary_overrides: ['2026-06-08', '2026-07-24', '2026-08-19', '2026-09-29']
 
 # --- Validation thresholds ---
 validation_thresholds:

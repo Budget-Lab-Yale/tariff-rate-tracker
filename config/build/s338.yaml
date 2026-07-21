@@ -1,0 +1,25 @@
+# s338 build — actual + new_301, first vintage to carry the Section 338 Canada
+# authority (three proclamations signed 2026-07-20, +50% on the alcohol/dairy/
+# "motor vehicles" HTS-8 lists, effective 2026-08-19; branch s338-ca):
+#   * new rate_s338 RATE_SCHEMA column (all-zero before 2026-08-19)
+#   * new bnd_2026-08-19 boundary mint (turn-on interval)
+#   * daily_by_authority gains mean_s338 / etr_s338
+#
+# Builds a fresh vintage and VERIFIES it, but does NOT move `latest`: spot-check
+# with scripts/verify_s338_snapshot.R, review vs the prior vintage, then repoint
+# deliberately with
+#   Rscript scripts/publish_vintage.R --latest-only <vintage>
+#
+#   bash scripts/submit_build_array.sh --config config/build/s338.yaml
+
+model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker
+policy_params_path: config/policy_params.yaml
+
+scenarios:
+  - new_301
+
+use_hts_dates: false
+weight_mode: required
+update_latest: false        # review the s338 vintage before repointing latest
+allow_partial: false
+verify: true                # finalize runs scripts/verify_build.R against the vintage

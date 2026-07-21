@@ -115,6 +115,7 @@ The production code tracks these authorities:
 - IEEPA reciprocal
 - IEEPA fentanyl
 - Section 122
+- Section 338 (Canada, effective 2026-08-19)
 - Section 201
 - other residual Chapter 99 provisions
 
@@ -128,6 +129,7 @@ In words:
 - For derivative 232 products, IEEPA reciprocal and Section 122 apply only to the non-metal portion. The non-metal share is computed per metal type: steel chapters (72/73) use `1 - steel_share`, aluminum chapters (76) and derivatives use `1 - aluminum_share`, and copper headings use `1 - copper_share`. This ensures IEEPA fills only the portion not claimed by the active 232 program's specific metal type, rather than the aggregate metal content.
 - Fentanyl on 232 products: for China, fentanyl stacks in full (not scaled by metal share); for other countries (CA/MX), fentanyl is scaled by the non-metal share, following the same content-based split as IEEPA reciprocal.
 - Section 301 contributes only for China (the builder assigns `rate_301` exclusively to China-origin products). Non-China 301 is excluded from stacking to match the decomposition. If non-China Section 301 tariffs emerge in the future, they should use a dedicated authority column.
+- Section 338 (`rate_s338`) is additive: U.S. note 51(a) imposes it on top of every other duty, so it is never scaled by the non-metal share. Its Section 232 interaction is a full per-article *exclusion* applied when the rate is constructed (see the Section 338 section below), not a stacking-time displacement — by the time stacking runs, `rate_s338` is already zero on every 232-scope row.
 - Section 201 and other provisions contribute at their full rates.
 
 **Post-annex (effective 2026-04-06):** The Section 232 annex restructuring proclamation applies 232 tariffs to the full customs value of imported products, eliminating the metal-content-based split for derivatives. For products with an annex classification (`s232_annex` != NA), `nonmetal_share` is forced to 0. IEEPA reciprocal, fentanyl, and Section 122 contribute zero on post-annex 232 products. Annex II products (removed from 232 scope, `rate_232 = 0`) are excluded from this override and receive full IEEPA/S122. Pre-annex stacking behavior is completely unchanged.
@@ -210,6 +212,21 @@ The repo enforces Section 122 timing in three places:
 - build-time per-revision rate construction
 - daily aggregate splitting and zeroing
 - point-in-time and filtered daily queries
+
+### Section 338 (Canada)
+
+Three Section 338 (Trade Act of 1930) proclamations signed 2026-07-20, effective 2026-08-19, impose an additional 50% ad-valorem duty on products of Canada over three positive HTS-8 lists, via new chapter-99 headings under U.S. note 51: alcohol → 9903.03.12 (63 codes), dairy → 9903.03.13 (52 codes), and "motor vehicles" → 9903.03.14 (439 codes). Despite the third proclamation's title, actual vehicles are Section 232-covered and therefore excluded — that list is miscellaneous consumer goods (personal-care products, plywood, apparel, consumer electronics, furniture, art). Sources are archived in `data/s338/`; the lists are extracted by `scripts/build_s338_annex.R` into `resources/s338_products.csv`.
+
+Because no HTS archive carries the 9903.03.1x headings yet, the authority is hand-fed from `config/policy_params.yaml` (`section_338:`) plus the side-data lists — the same pattern as the pharma §232 and Brazil §301 turn-ons — and is date-gated in the authority adapter. The turn-on is materialized in the panel by the `bnd_2026-08-19` boundary mint (`boundary_overrides`). When a real HTS revision publishes the headings, the hand-fed treatment should be reconciled against the parse.
+
+Mechanics:
+
+- **Rate and scope.** +50 percentage points (`rate_s338`) on Canada rows whose HTS-8 is on a covered list. The duty applies regardless of USMCA origin (`usmca_treatment = 'none'`): no USMCA share reduction is applied.
+- **Section 232 full exclusion (note 51(c) / heading 9903.03.15).** Any article *in Section 232 scope* is fully excluded — it pays zero Section 338 even on its non-metal content, and a USMCA-eligible auto part paying 0% under Section 232 is still excluded. Implemented as a per-row scope mask (`statutory_rate_232 > 0`, or an `s232_annex` classification, or a `heading_program` flag), deliberately not the content-split stacking class (which would leak the duty onto the non-metal fraction) and not `rate_232 > 0` (which would miss zero-paying USMCA parts). The mask is self-updating: when the pharma Section 232 heading activates on 2026-09-29, patented-pharma rows drop out of Section 338, matching note 51(c)(8)'s 9903.04.60–66 exclusion.
+- **GN6 civil aircraft (note 51(d) / heading 9903.03.16).** The 554-code note 51(d) list overlaps the covered lists on 28 HTS-8 codes (all on the motor-vehicles list). The exemption is use-conditional (GN6-certified entries only), so overlap lines are scaled by `1 − GN6 utilization share`, with the share resolved measured HTS10 → HS2 mean of measured → 0. The terminal 0 fallback deliberately differs from Section 122's fallback to full exemption: the affected codes (routers, furniture, cameras) are overwhelmingly not aircraft-certified entries. Measured shares come from the same IMDB measurement as the Section 122 aircraft scaling (`resources/s122_aircraft_utilization.csv`; 24 of the 28 codes are measured).
+- **Chapter 98.** Note 51(a) carries the standard chapter-98 paragraph; `rate_s338` participates in the shared ch98 secondary-classification zeroing and the 9802 value-basis conversion alongside the other additional-duty authorities.
+
+`rate_s338` is a permanent `RATE_SCHEMA` column: it persists (all-zero) in pre-2026-08-19 revisions, unlike the scenario-scoped `rate_s301fl`/`rate_s301br` columns which are dropped when inactive.
 
 ## Assumptions and parameter choices
 

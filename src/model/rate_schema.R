@@ -12,7 +12,7 @@ library(tidyverse)
 RATE_SCHEMA <- c(
   'hts10', 'country', 'base_rate', 'statutory_base_rate',
   'rate_232', 'rate_301', 'rate_301_cs', 'rate_ieepa_recip', 'rate_ieepa_fent',
-  'rate_s122', 'rate_section_201', 'rate_other',
+  'rate_s122', 'rate_s338', 'rate_section_201', 'rate_other',
   'metal_share', 'heading_program',
   'total_additional', 'total_rate',
   'usmca_eligible', 'revision', 'effective_date',
@@ -31,7 +31,8 @@ enforce_rate_schema <- function(df) {
   defaults <- list(
     hts10 = NA_character_, country = NA_character_,
     base_rate = 0, statutory_base_rate = 0, rate_232 = 0, rate_301 = 0, rate_301_cs = 0,
-    rate_ieepa_recip = 0, rate_ieepa_fent = 0, rate_s122 = 0, rate_section_201 = 0, rate_other = 0,
+    rate_ieepa_recip = 0, rate_ieepa_fent = 0, rate_s122 = 0, rate_s338 = 0,
+    rate_section_201 = 0, rate_other = 0,
     metal_share = 1.0, heading_program = FALSE,
     total_additional = 0, total_rate = 0,
     usmca_eligible = FALSE, revision = NA_character_,
@@ -70,7 +71,8 @@ enforce_rate_schema <- function(df) {
   # NB: total_additional/total_rate are deliberately NOT in this list — they are
   # guarded above (a NA total is a bug, not a fill-to-0 case).
   rate_cols <- c('base_rate', 'statutory_base_rate', 'rate_232', 'rate_301', 'rate_301_cs',
-                 'rate_ieepa_recip', 'rate_ieepa_fent', 'rate_s122', 'rate_section_201', 'rate_other')
+                 'rate_ieepa_recip', 'rate_ieepa_fent', 'rate_s122', 'rate_s338',
+                 'rate_section_201', 'rate_other')
   # Every rate_cols entry is in RATE_SCHEMA and the loop above guarantees each
   # RATE_SCHEMA column exists, so all are present here — no membership guard needed.
   for (col in rate_cols) {

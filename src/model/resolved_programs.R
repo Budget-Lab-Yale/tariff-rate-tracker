@@ -48,6 +48,7 @@ RESOLVED_AUTHORITIES <- tibble::tribble(
   'rate_301_cs',      'section_301_cs',    's301cs',
   'rate_s301fl',      'section_301_forced_labor', 's301fl',
   'rate_s301br',      'section_301_brazil', 's301br',
+  'rate_s338',        'section_338',       's338',
   'rate_s122',        'section_122',       's122',
   'rate_section_201', 'section_201',       's201',
   'rate_other',       'other',             'other'

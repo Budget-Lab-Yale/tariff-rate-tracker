@@ -72,6 +72,8 @@ check_schema <- function(ts) {
 compute_revision_quality <- function(ts) {
   # base_rate_type exposure flag may be absent on pre-2026-07 timeseries.
   if (!'base_rate_type' %in% names(ts)) ts$base_rate_type <- NA_character_
+  # rate_s338 may be absent on pre-2026-07-20 panels (added to RATE_SCHEMA then).
+  if (!'rate_s338' %in% names(ts)) ts$rate_s338 <- 0
   ts %>%
     group_by(revision, effective_date) %>%
     summarise(
@@ -87,6 +89,7 @@ compute_revision_quality <- function(ts) {
       pct_ieepa_recip = round(mean(rate_ieepa_recip > 0) * 100, 1),
       pct_ieepa_fent = round(mean(rate_ieepa_fent > 0) * 100, 1),
       pct_s122 = round(mean(rate_s122 > 0) * 100, 1),
+      pct_s338 = round(mean(rate_s338 > 0) * 100, 1),
       pct_usmca = round(mean(usmca_eligible, na.rm = TRUE) * 100, 1),
       # Unweighted exposure flag: share of pairs whose base MFN rate is a
       # specific/compound duty the model treats as 0 (no AVE conversion).
@@ -231,7 +234,7 @@ check_authority_timeline <- function(rev_quality) {
   authority_map <- c(
     s232 = 'pct_232', s301 = 'pct_301',
     ieepa_recip = 'pct_ieepa_recip', ieepa_fent = 'pct_ieepa_fent',
-    s122 = 'pct_s122'
+    s122 = 'pct_s122', s338 = 'pct_s338'
   )
 
   all_revisions <- rev_quality$revision

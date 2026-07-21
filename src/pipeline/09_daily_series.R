@@ -105,7 +105,8 @@ prepare_interval_data_effective <- function(rev_data, sub_start, policy_params,
   if (is.null(policy_params)) return(rev_data)
   zeroed <- apply_expiry_zeroing(rev_data, sub_start, policy_params)
   comp <- intersect(c('rate_232', 'rate_301', 'rate_301_cs', 'rate_ieepa_recip',
-                      'rate_ieepa_fent', 'rate_s122', 'rate_section_201', 'rate_other'),
+                      'rate_ieepa_fent', 'rate_s122', 'rate_s338',
+                      'rate_section_201', 'rate_other'),
                     names(rev_data))
   changed <- rep(FALSE, nrow(rev_data))
   for (cc in comp) changed <- changed | (abs(zeroed[[cc]] - rev_data[[cc]]) > 1e-12)
@@ -479,7 +480,8 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   # (mutual_exclusion) stacking only; the tpc_additive view re-derives weighted_etr
   # too, so it stays self-consistent without scaling.
   auth_net_cols <- c('net_232', 'net_301', 'net_301_cs', 'net_ieepa',
-                     'net_fentanyl', 'net_s122', 'net_section_201', 'net_other')
+                     'net_fentanyl', 'net_s122', 'net_s338', 'net_section_201',
+                     'net_other')
   scale_net_to_effective <- function(net_df, eff_additional) {
     if (!identical(stacking_method, 'mutual_exclusion')) return(net_df)
     cols <- intersect(auth_net_cols, names(net_df))
@@ -501,6 +503,9 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     # daily decomposition needs no new column — byte-identical in baseline, where
     # net_301_cs = 0. Guard the tpc_additive path, which omits net_301_cs.
     if (!'net_301_cs' %in% names(net_data)) net_data$net_301_cs <- 0
+    # net_s338 is guarded the same way (the tpc_additive path of older snapshots
+    # may omit it; the canonical policy path always carries it).
+    if (!'net_s338' %in% names(net_data)) net_data$net_s338 <- 0
     # Reduce to the effective additional (same authoritative basis as weighted_etr).
     # prepare_interval_data_effective preserves rev_ts row order, so total_additional
     # aligns positionally with net_data.
@@ -517,6 +522,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
       mean_ieepa = mean(net_data$net_ieepa),
       mean_fentanyl = mean(net_data$net_fentanyl),
       mean_s122 = mean(net_data$net_s122),
+      mean_s338 = mean(net_data$net_s338),
       mean_section_201 = mean(net_data$net_section_201),
       mean_other = mean(net_data$net_other)
     )
@@ -528,6 +534,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
         wt_net <- compute_net_authority_contributions(wt_data, cty_china = CTY_CHINA,
                                                       stacking_method = stacking_method)
         if (!'net_301_cs' %in% names(wt_net)) wt_net$net_301_cs <- 0
+        if (!'net_s338' %in% names(wt_net)) wt_net$net_s338 <- 0
         eff_wt <- prepare_interval_data_effective(rev_ts_w, sub_start, policy_params,
                                                   stacking_method)
         wt_net <- scale_net_to_effective(wt_net, eff_wt$total_additional)
@@ -536,11 +543,12 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
         row$etr_ieepa <- sum(wt_net$net_ieepa * wt_net$imports) / wctx$total_imports
         row$etr_fentanyl <- sum(wt_net$net_fentanyl * wt_net$imports) / wctx$total_imports
         row$etr_s122 <- sum(wt_net$net_s122 * wt_net$imports) / wctx$total_imports
+        row$etr_s338 <- sum(wt_net$net_s338 * wt_net$imports) / wctx$total_imports
         row$etr_section_201 <- sum(wt_net$net_section_201 * wt_net$imports) / wctx$total_imports
         row$etr_other <- sum(wt_net$net_other * wt_net$imports) / wctx$total_imports
       } else {
         row$etr_232 <- row$etr_301 <- row$etr_ieepa <- row$etr_fentanyl <- 0
-        row$etr_s122 <- row$etr_section_201 <- row$etr_other <- 0
+        row$etr_s122 <- row$etr_s338 <- row$etr_section_201 <- row$etr_other <- 0
       }
     }
     return(row)
@@ -953,7 +961,7 @@ export_daily_slice <- function(ts, date_range, countries = NULL, products = NULL
   # Select output columns
   default_columns <- c('date', 'hts10', 'country', 'base_rate',
                         'rate_232', 'rate_301', 'rate_ieepa_recip', 'rate_ieepa_fent',
-                        'rate_s122', 'rate_section_201', 'rate_other',
+                        'rate_s122', 'rate_s338', 'rate_section_201', 'rate_other',
                         'total_additional', 'total_rate', 'revision')
   out_cols <- if (!is.null(columns)) columns else default_columns
   out_cols <- intersect(out_cols, names(expanded))

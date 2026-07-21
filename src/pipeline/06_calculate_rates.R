@@ -897,8 +897,12 @@ ensure_dense_grid <- function(rates, products, countries, context = 'MFN-only') 
   # `base_rate_type` (exposure flag) rides on all_products_base alongside
   # base_rate — new MFN-only pairs get its 'free' default there, not the
   # new_pairs mutate. Harmless to list even when rates lacks the column.
+  # rate_s338 is set explicitly (0: a new MFN-only pair is by definition not
+  # s338-covered — the 6b-338 seeder materialized every covered Canada pair)
+  # but conditionally dropped below: the post-IEEPA call site precedes the
+  # 6b-338 block, so the column does not exist there yet.
   EXPLICIT_SET_COLUMNS <- c(REQUIRED_RATE_COLS, 'base_rate', 'base_rate_type',
-                            'statutory_rate_232', 'heading_program')
+                            'statutory_rate_232', 'heading_program', 'rate_s338')
 
   set_cols <- c(EXPLICIT_SET_COLUMNS, SAFE_NA_COLUMNS)
   unaccounted <- setdiff(names(rates), set_cols)
@@ -925,7 +929,7 @@ ensure_dense_grid <- function(rates, products, countries, context = 'MFN-only') 
     anti_join(existing_pairs, by = c('hts10', 'country')) %>%
     mutate(
       rate_232 = 0, rate_301 = 0, rate_301_cs = 0, rate_ieepa_recip = 0,
-      rate_ieepa_fent = 0, rate_s122 = 0,
+      rate_ieepa_fent = 0, rate_s122 = 0, rate_s338 = 0,
       rate_section_201 = 0, rate_other = 0,
       statutory_rate_232 = 0,
       heading_program = FALSE
@@ -944,6 +948,12 @@ ensure_dense_grid <- function(rates, products, countries, context = 'MFN-only') 
   # definition not a heading-program product, so FALSE (not NA) is correct.
   if (!'heading_program' %in% names(rates)) {
     new_pairs <- new_pairs %>% select(-heading_program)
+  }
+
+  # rate_s338 appears once the 6b-338 block has run; the post-IEEPA call site
+  # precedes it. Same contract as heading_program above.
+  if (!'rate_s338' %in% names(rates)) {
+    new_pairs <- new_pairs %>% select(-rate_s338)
   }
 
   if (nrow(new_pairs) > 0) {
@@ -1217,6 +1227,169 @@ apply_section301_brazil <- function(rates, specs, products, countries) {
     message('  Section 301 Brazil: 25% on ', sum(rates$rate_s301br > 0),
             ' product-country pairs across ', length(br_scope), ' economies (',
             length(br_exempt_hts8), ' Annex HTS8 exempt)')
+  }
+
+  rates
+}
+
+# --- Step 6b-338: Section 338 Canada duties (baseline) ------------------------
+apply_section338 <- function(rates, specs, products, countries) {
+  # 6b-338. Apply Section 338 duties: +50% on products of Canada over the three
+  #     positive HTS-8 lists (U.S. note 51(b), headings 9903.03.12-.14; three
+  #     proclamations signed 2026-07-20, effective 2026-08-19). BASELINE
+  #     authority — signed law — hand-fed from policy params + side-data lists
+  #     (no HTS archive carries the 9903.03.1x headings yet; pharma/Brazil
+  #     pattern). Stacks ADDITIVELY (note 51(a): in addition to every other
+  #     duty) via stacking class 'additive'; usmca 'none' (the duty applies
+  #     regardless of USMCA origin), so rate_s338 is NOT in the step-7 USMCA
+  #     reduction sets. Two in-scope reductions:
+  #       * §232 FULL per-article exclusion (note 51(c) / heading 9903.03.15):
+  #         any article in §232 SCOPE — statutory_rate_232 > 0 (metals +
+  #         derivatives incl. deal countries), an s232_annex tag (the annex
+  #         regime, incl. its zero-rate tiers), or heading_program (autos/MHD/
+  #         wood/semi/pharma headings, incl. USMCA-eligible parts paying 0%) —
+  #         pays ZERO s338, even on its non-metal content. Deliberately a scope
+  #         MASK, not content_split (which would leak s338 onto the non-metal
+  #         fraction) and not rate_232 > 0 (which would miss 0%-paying USMCA
+  #         parts). Self-updating: when pharma-§232 activates (2026-09-29) its
+  #         heading rows drop out here, matching note 51(c)(8)'s 9903.04.60-66
+  #         exclusion.
+  #       * GN6 civil aircraft (note 51(d) / heading 9903.03.16): the exemption
+  #         is USE-conditional, so covered∩GN6 lines are scaled by
+  #         (1 - GN6 utilization share), share = measured HTS10 -> HS2 mean of
+  #         measured -> 0. The 0 fallback (vs §122's -> 1) is deliberate: the
+  #         28 affected mv-list codes (routers, furniture, cameras) are
+  #         overwhelmingly NOT aircraft-certified entries.
+  #     rate_s338 is a RATE_SCHEMA column: it persists all-zero in pre-08-19
+  #     revisions (baseline column, unlike the scenario s301fl/br columns).
+  s338_spec <- specs[['section_338']]
+  s338_by_country <- if (is.null(s338_spec)) numeric(0) else {
+    bc <- .rate_get(s338_spec$programs[[1]]$rate, 'by_country')
+    if (.rate_is_hollow(bc)) numeric(0) else bc
+  }
+  rates$rate_s338 <- 0
+  if (length(s338_by_country) > 0) {
+    list_file <- s338_spec$programs[[1]]$product_scope$list_file %||%
+      'resources/s338_products.csv'
+    s338_path <- here(list_file)
+    if (!file.exists(s338_path)) {
+      stop('Section 338 product list not found at ', s338_path,
+           ' — run scripts/build_s338_annex.R')
+    }
+    s338_products <- read_csv_cached(s338_path, col_types = cols(
+      hts8 = col_character(), program = col_character(),
+      ch99_heading = col_character()))
+    covered_hts8 <- unique(s338_products$hts8)
+    ep <- s338_spec$programs[[1]]$exempt_products %||% list()
+    gn6_hts8 <- intersect(ep$gn6_hts8 %||% character(0), covered_hts8)
+    gn6_util <- ep$gn6_utilization %||% setNames(numeric(0), character(0))
+    s338_scope <- intersect(names(s338_by_country), countries)
+
+    # Per-HTS10 GN6 retention factor on covered∩GN6 lines: 1 - exempt share,
+    # share = measured -> HS2 mean of measured -> 0 (see docstring).
+    gn6_share_tbl <- NULL
+    if (length(gn6_hts8) > 0) {
+      gn6_hts10_all <- products %>%
+        filter(substr(hts10, 1, 8) %in% gn6_hts8) %>% distinct(hts10)
+      hs2_mean <- if (length(gn6_util) > 0) {
+        tibble(hts10 = names(gn6_util), share = unname(gn6_util)) %>%
+          mutate(hs2 = substr(hts10, 1, 2)) %>%
+          group_by(hs2) %>% summarise(hs2_share = mean(share), .groups = 'drop')
+      } else tibble(hs2 = character(0), hs2_share = numeric(0))
+      meas <- tibble(hts10 = names(gn6_util), meas_share = unname(gn6_util))
+      gn6_share_tbl <- gn6_hts10_all %>%
+        left_join(meas, by = 'hts10') %>%
+        mutate(hs2 = substr(hts10, 1, 2)) %>%
+        left_join(hs2_mean, by = 'hs2') %>%
+        mutate(gn6_exempt_share = pmin(pmax(coalesce(meas_share, hs2_share, 0), 0), 1),
+               gn6_factor = 1 - gn6_exempt_share) %>%
+        select(hts10, gn6_factor)
+    }
+
+    # §232 scope mask over EXISTING rows (note 51(c)); see docstring.
+    stat232  <- if ('statutory_rate_232' %in% names(rates)) {
+      coalesce(rates$statutory_rate_232, 0)
+    } else coalesce(rates$rate_232, 0)
+    annex232 <- if ('s232_annex' %in% names(rates)) !is.na(rates$s232_annex) else FALSE
+    headprog <- if ('heading_program' %in% names(rates)) {
+      coalesce(rates$heading_program, FALSE)
+    } else FALSE
+    in_232_scope <- stat232 > 0 | annex232 | headprog
+
+    s338_tbl <- tibble(country = names(s338_by_country),
+                       .s338_rate = unname(as.numeric(s338_by_country)))
+    rates <- rates %>%
+      left_join(s338_tbl, by = 'country', relationship = 'many-to-one') %>%
+      mutate(rate_s338 = if_else(
+        !is.na(.s338_rate) & substr(hts10, 1, 8) %in% covered_hts8 & !in_232_scope,
+        .s338_rate, 0)) %>%
+      select(-.s338_rate)
+    if (!is.null(gn6_share_tbl)) {
+      rates <- rates %>%
+        left_join(gn6_share_tbl, by = 'hts10', relationship = 'many-to-one') %>%
+        mutate(rate_s338 = if_else(!is.na(gn6_factor),
+                                   rate_s338 * gn6_factor, rate_s338)) %>%
+        select(-gn6_factor)
+    }
+
+    # Seed missing (covered hts10 x Canada) pairs. Pairs already in `rates` were
+    # handled (and 232-masked) above; a MISSING pair can still be in §232 scope
+    # when its row was never materialized (zero-rate annex tiers don't seed
+    # rows), so exclude the product-level §232 sets: the spec's annex tier map
+    # (the same source the row tag comes from) and the heading-program product
+    # set (product-level by construction, 06:~3017).
+    annex_tier_hts10 <- names(specs[['section_232']]$annex$tier %||%
+                                setNames(character(0), character(0)))
+    heading_hts10 <- if ('heading_program' %in% names(rates)) {
+      unique(rates$hts10[coalesce(rates$heading_program, FALSE)])
+    } else character(0)
+    covered_hts10 <- products %>%
+      filter(substr(hts10, 1, 8) %in% covered_hts8) %>%
+      pull(hts10) %>%
+      setdiff(annex_tier_hts10) %>%
+      setdiff(heading_hts10)
+    gn6_covered_hts10 <- if (!is.null(gn6_share_tbl)) gn6_share_tbl$hts10 else character(0)
+    plain_hts10 <- setdiff(covered_hts10, gn6_covered_hts10)
+
+    s338_country_rates <- tibble(
+      country = s338_scope,
+      blanket_rate = unname(as.numeric(s338_by_country[s338_scope])))
+    rates <- add_blanket_pairs(rates, products, plain_hts10, s338_country_rates,
+                               'rate_s338', 'Section 338 (Canada)')
+
+    # GN6 lines carry a per-line scaled rate (varies by hts10), so
+    # add_blanket_pairs' single-blanket contract does not fit — seed the missing
+    # pairs with the scaled rate directly (mirrors the §122 GN6 seeding block).
+    gn6_add <- intersect(gn6_covered_hts10, covered_hts10)
+    if (length(gn6_add) > 0 && length(s338_scope) > 0) {
+      gf <- gn6_share_tbl %>% filter(hts10 %in% gn6_add, gn6_factor > 0)
+      existing_gn6 <- rates %>%
+        filter(hts10 %in% gf$hts10, country %in% s338_scope) %>%
+        select(hts10, country)
+      new_gn6 <- products %>%
+        filter(hts10 %in% gf$hts10) %>%
+        select(hts10, base_rate, dplyr::any_of('base_rate_type')) %>%
+        default_base_cols() %>%
+        tidyr::expand_grid(country = s338_scope) %>%
+        anti_join(existing_gn6, by = c('hts10', 'country')) %>%
+        left_join(gf, by = 'hts10') %>%
+        mutate(rate_232 = 0, rate_301 = 0, rate_301_cs = 0, rate_ieepa_recip = 0,
+               rate_ieepa_fent = 0, rate_s122 = 0,
+               rate_s338 = unname(s338_by_country[country]) * gn6_factor,
+               rate_section_201 = 0, rate_other = 0) %>%
+        select(-gn6_factor)
+      if (nrow(new_gn6) > 0) {
+        message('  Adding ', nrow(new_gn6),
+                ' product-country pairs for Section 338 (GN6 aircraft residual)')
+        rates <- bind_rows(rates, new_gn6)
+      }
+    }
+
+    message('  Section 338 (Canada): ',
+            round(mean(s338_by_country[s338_scope]) * 100), '% on ',
+            sum(rates$rate_s338 > 0), ' product-country pairs (',
+            length(covered_hts8), ' HTS8 covered, §232-scope excluded, ',
+            length(gn6_hts8), ' GN6 HTS8 utilization-scaled)')
   }
 
   rates
@@ -3272,6 +3445,12 @@ calculate_rates_for_revision <- function(
   # 6b-br. Section 301 Brazil duties (see apply_section301_brazil)
   rates <- apply_section301_brazil(rates, specs, products, countries)
 
+  # 6b-338. Section 338 Canada duties (see apply_section338). Runs AFTER every
+  # §232 step (statutory_rate_232 / s232_annex / heading_program are final) so
+  # the note-51(c) full-exclusion scope mask reads settled values, and BEFORE
+  # the dense grid / statutory save like the other blanket authorities.
+  rates <- apply_section338(rates, specs, products, countries)
+
   # 6b1. Section 201 safeguard / solar (see apply_section201)
   rates <- apply_section201(rates, ch99_data, specs, pp, products, countries)
 
@@ -3304,7 +3483,7 @@ calculate_rates_for_revision <- function(
   if (length(ch98_secondary) > 0) {
     ch98_m <- rates$hts10 %in% ch98_secondary
     ch98_cols <- c('rate_301', 'rate_301_cs', 'rate_s301fl', 'rate_s301br',
-                   'rate_s122', 'rate_section_201', 'rate_other')
+                   'rate_s338', 'rate_s122', 'rate_section_201', 'rate_other')
     ch98_cols <- intersect(ch98_cols, names(rates))
     # coalesce: grid-expanded pairs can carry NA in rate columns at this point
     n_zeroed <- sum(ch98_m & Reduce(`|`, lapply(
@@ -3326,8 +3505,8 @@ calculate_rates_for_revision <- function(
   ch98_vb <- pp$ch98_value_basis$dutiable_value_shares
   if (!is.null(ch98_vb)) {
     vb_cols <- intersect(
-      c('rate_301', 'rate_301_cs', 'rate_s301fl', 'rate_s301br', 'rate_s122',
-        'rate_ieepa_recip', 'rate_ieepa_fent', 'rate_other'),
+      c('rate_301', 'rate_301_cs', 'rate_s301fl', 'rate_s301br', 'rate_s338',
+        'rate_s122', 'rate_ieepa_recip', 'rate_ieepa_fent', 'rate_other'),
       names(rates))
     n_vb <- 0L
     for (code in names(ch98_vb)) {
@@ -3355,6 +3534,7 @@ calculate_rates_for_revision <- function(
       statutory_rate_301_cs      = rate_301_cs,
       statutory_rate_s301fl      = rate_s301fl,
       statutory_rate_s301br      = rate_s301br,
+      statutory_rate_s338        = rate_s338,
       statutory_rate_s122        = rate_s122,
       statutory_rate_section_201 = rate_section_201,
       statutory_rate_other       = rate_other
@@ -3810,6 +3990,16 @@ calculate_rates_for_revision <- function(
   }
   if ('statutory_rate_s301br' %in% names(rates)) {
     rates$statutory_rate_s301br <- coalesce(rates$statutory_rate_s301br, 0)
+  }
+  # Section 338 (baseline column): 0-fill rows added after the 6b-338 block
+  # (e.g. the §201 blanket seeder + dense-grid MFN-only pairs) so it enters
+  # stacking clean. Unlike s301fl/br it is NEVER dropped when all-zero —
+  # rate_s338 is RATE_SCHEMA proper.
+  if ('rate_s338' %in% names(rates)) {
+    rates$rate_s338 <- coalesce(rates$rate_s338, 0)
+  }
+  if ('statutory_rate_s338' %in% names(rates)) {
+    rates$statutory_rate_s338 <- coalesce(rates$statutory_rate_s338, 0)
   }
 
   # 7g. Authority kill-switch (counterfactual scenarios). `disabled_authorities`
