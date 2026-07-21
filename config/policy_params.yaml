@@ -873,8 +873,10 @@ section_122:
 # exclusion — any article in §232 SCOPE pays zero S338 even on non-metal content,
 # and USMCA-eligible auto parts paying 0% §232 are still excluded — so it is
 # implemented as a per-row scope mask in the calculator (statutory_rate_232 > 0 |
-# s232_annex | heading_program), NOT as content_split (which would leak the
-# non-metal fraction) and NOT rate_232 > 0 (which would miss 0%-paying parts).
+# in-scope s232_annex tier (1a/1b/1c/3) | heading_program), NOT as content_split
+# (which would leak the non-metal fraction) and NOT rate_232 > 0 (which would
+# miss 0%-paying parts). annex_2 = REMOVED from §232 scope, so those articles
+# (incl. beer 2203.00.00, explicitly on the alcohol list) still pay S338.
 # GN6 civil aircraft (note 51(d) / 9903.03.16) is USE-conditional: covered∩GN6
 # lines are scaled by measured GN6 utilization (measured -> HS2 mean -> 0; the
 # 0 fallback differs from §122's ->1 because the affected mv-list codes —

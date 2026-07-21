@@ -255,6 +255,16 @@ classify_authority <- function(ch99_code) {
 
   middle <- as.integer(parts[2])
 
+  # Section 338 Canada (proclamations of 2026-07-20): charging headings
+  # 9903.03.12-.14 plus the companion §232 / civil-aircraft exception headings
+  # .15-.16. Exact-match BEFORE the broader 9903.03.xx Section 122 bucket so a
+  # future HTS archive that prints these headings cannot pollute the s122
+  # extraction (the +50% would otherwise ride rate_s122); the params-fed
+  # apply_section338() stays the single rate source regardless.
+  if (ch99_code %in% sprintf('9903.03.%02d', 12:16)) {
+    return('section_338')
+  }
+
   # Section 122: 9903.03.xx (Phase 3, post-SCOTUS blanket)
   if (middle == 3) {
     return('section_122')

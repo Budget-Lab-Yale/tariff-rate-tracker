@@ -751,7 +751,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
       left_join(overall_etr, by = c('revision', 'valid_from', 'valid_until')) %>%
       mutate(
         etr_base = weighted_etr - (etr_232 + etr_301 + etr_ieepa + etr_fentanyl +
-                                    etr_s122 + etr_section_201 + etr_other)
+                                    etr_s122 + etr_s338 + etr_section_201 + etr_other)
       ) %>%
       select(-weighted_etr)
   }
@@ -1163,6 +1163,7 @@ build_daily_workbook_readme <- function() {
     c('mean_ieepa', 'Mean net IEEPA reciprocal contribution (mutual exclusion with 232)'),
     c('mean_fentanyl', 'Mean net IEEPA fentanyl contribution (CA, MX, CN)'),
     c('mean_s122', 'Mean net Section 122 contribution (post-IEEPA invalidation, 150-day limit)'),
+    c('mean_s338', 'Mean net Section 338 contribution (Canada +50%, effective 2026-08-19)'),
     c('mean_section_201', 'Mean net Section 201 contribution (safeguard duties, very small)'),
     c('mean_other', 'Mean net other tariff contribution'),
     c('etr_232', 'Import-weighted ETR contribution from Section 232'),
@@ -1170,11 +1171,12 @@ build_daily_workbook_readme <- function() {
     c('etr_ieepa', 'Import-weighted ETR contribution from IEEPA reciprocal'),
     c('etr_fentanyl', 'Import-weighted ETR contribution from IEEPA fentanyl'),
     c('etr_s122', 'Import-weighted ETR contribution from Section 122'),
+    c('etr_s338', 'Import-weighted ETR contribution from Section 338 (Canada)'),
     c('etr_section_201', 'Import-weighted ETR contribution from Section 201'),
     c('etr_other', 'Import-weighted ETR contribution from other authorities'),
     c('etr_base', 'Import-weighted base rate contribution (residual: weighted_etr minus all authority ETRs)'),
     c('', ''),
-    c('Note: etr_base + etr_232 + etr_301 + etr_ieepa + etr_fentanyl + etr_s122 + etr_section_201 + etr_other = weighted_etr (from daily_overall)', ''),
+    c('Note: etr_base + etr_232 + etr_301 + etr_ieepa + etr_fentanyl + etr_s122 + etr_s338 + etr_section_201 + etr_other = weighted_etr (from daily_overall)', ''),
     c('', ''),
 
     # --- Notes ---

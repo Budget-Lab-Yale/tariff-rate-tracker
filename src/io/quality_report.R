@@ -89,7 +89,10 @@ compute_revision_quality <- function(ts) {
       pct_ieepa_recip = round(mean(rate_ieepa_recip > 0) * 100, 1),
       pct_ieepa_fent = round(mean(rate_ieepa_fent > 0) * 100, 1),
       pct_s122 = round(mean(rate_s122 > 0) * 100, 1),
-      pct_s338 = round(mean(rate_s338 > 0) * 100, 1),
+      # Canada-only, positive-list coverage (~0.02% of pairs) vanishes at the
+      # 1-decimal rounding the broad authorities use; keep 4 decimals so the
+      # authority-timeline gate can distinguish it from 0.
+      pct_s338 = round(mean(rate_s338 > 0) * 100, 4),
       pct_usmca = round(mean(usmca_eligible, na.rm = TRUE) * 100, 1),
       # Unweighted exposure flag: share of pairs whose base MFN rate is a
       # specific/compound duty the model treats as 0 (no AVE conversion).

@@ -108,7 +108,8 @@ products <- tibble(
             '0402100500',    # dairy list
             '4413000000',    # alcohol list, wood §232 HEADING arm (0% rate)
             '7203100000',    # mv list, §232 STATUTORY arm (statutory > 0)
-            '7801100000',    # mv list, §232 ANNEX arm (s232_annex tag, rate 0)
+            '7801100000',    # mv list, §232 ANNEX arm (in-scope tier, rate 0)
+            '3303003000',    # mv list, annex_2 (REMOVED from §232 scope) — PAYS
             '7326200000',    # NOT covered (mask-free control)
             '8529901620',    # mv list, GN6 measured
             '8517620000',    # mv list, GN6 unmeasured (HS2-85 mean)
@@ -118,14 +119,14 @@ products <- tibble(
 
 rates <- tibble(
   hts10   = c('2208303000', '2208303000', '0402100500', '4413000000',
-              '7203100000', '7801100000', '7326200000',
+              '7203100000', '7801100000', '3303003000', '7326200000',
               '8529901620', '8517620000', '9403200011'),
-  country = c(CA, '5700', CA, CA, CA, CA, CA, CA, CA, CA),
+  country = c(CA, '5700', CA, CA, CA, CA, CA, CA, CA, CA, CA),
   base_rate = 0,
-  rate_232           = c(0, 0, 0, 0,    0.25, 0,          0.25, 0, 0, 0),
-  statutory_rate_232 = c(0, 0, 0, 0,    0.25, 0,          0.25, 0, 0, 0),
-  s232_annex = c(NA, NA, NA, NA, NA, 'annex_1b', NA, NA, NA, NA),
-  heading_program = c(FALSE, FALSE, FALSE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE),
+  rate_232           = c(0, 0, 0, 0,    0.25, 0,          0, 0.25, 0, 0, 0),
+  statutory_rate_232 = c(0, 0, 0, 0,    0.25, 0,          0, 0.25, 0, 0, 0),
+  s232_annex = c(NA, NA, NA, NA, NA, 'annex_1b', 'annex_2', NA, NA, NA, NA),
+  heading_program = c(FALSE, FALSE, FALSE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE),
   rate_301 = 0, rate_301_cs = 0, rate_ieepa_recip = 0, rate_ieepa_fent = 0,
   rate_s122 = 0, rate_section_201 = 0, rate_other = 0)
 
@@ -139,7 +140,9 @@ ok(isTRUE(all.equal(g('4413000000', CA), 0)),
 ok(isTRUE(all.equal(g('7203100000', CA), 0)),
    'covered article with statutory §232 > 0 (statutory arm) -> 0')
 ok(isTRUE(all.equal(g('7801100000', CA), 0)),
-   'covered article with s232_annex tag, rate 0 (annex arm) -> 0')
+   'covered article with in-scope s232_annex tier, rate 0 (annex arm) -> 0')
+ok(isTRUE(all.equal(g('3303003000', CA), 0.50)),
+   'annex_2 (REMOVED from §232 scope) covered article PAYS 0.50 (beer-class fix)')
 ok(isTRUE(all.equal(g('7326200000', CA), 0)), 'uncovered product -> 0 (positive lists only)')
 ok(isTRUE(all.equal(g('8529901620', CA), 0.50 * 0.60)), 'GN6 measured (8529.90.16, share .40) -> 0.30')
 ok(isTRUE(all.equal(g('8517620000', CA), 0.50 * 0.60)), 'GN6 unmeasured (8517.62.00) -> HS2-85 mean .40 -> 0.30')

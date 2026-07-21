@@ -66,6 +66,9 @@ jobs:
       - name: Run rate-calculation tests
         run: Rscript tests/test_rate_calculation.R
 
+      - name: Run Section 338 Canada tests
+        run: Rscript tests/test_s338.R
+
       - name: Run scenario-registry tests
         run: Rscript tests/test_scenario_registry.R
 

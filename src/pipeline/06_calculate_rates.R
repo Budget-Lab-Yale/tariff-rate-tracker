@@ -180,7 +180,8 @@ calculate_rates_fast <- function(products, ch99_data, countries,
 
   # Ensure all columns exist
   for (col in c('rate_section_232', 'rate_section_301', 'rate_ieepa_reciprocal',
-                'rate_ieepa_fentanyl', 'rate_section_122', 'rate_section_201', 'rate_other')) {
+                'rate_ieepa_fentanyl', 'rate_section_122', 'rate_section_338',
+                'rate_section_201', 'rate_other')) {
     if (!(col %in% names(rates_wide))) {
       rates_wide[[col]] <- 0
     }
@@ -200,7 +201,8 @@ calculate_rates_fast <- function(products, ch99_data, countries,
       rate_301 = rate_section_301,
       rate_ieepa_recip = rate_ieepa_reciprocal,
       rate_ieepa_fent = rate_ieepa_fentanyl,
-      rate_s122 = rate_section_122
+      rate_s122 = rate_section_122,
+      rate_s338 = rate_section_338
     )
 
   # rate_301_cs (content-split 301 flavor): no upstream Ch99 producer, so seed it at
@@ -1245,9 +1247,10 @@ apply_section338 <- function(rates, specs, products, countries) {
   #     reduction sets. Two in-scope reductions:
   #       * §232 FULL per-article exclusion (note 51(c) / heading 9903.03.15):
   #         any article in §232 SCOPE — statutory_rate_232 > 0 (metals +
-  #         derivatives incl. deal countries), an s232_annex tag (the annex
-  #         regime, incl. its zero-rate tiers), or heading_program (autos/MHD/
-  #         wood/semi/pharma headings, incl. USMCA-eligible parts paying 0%) —
+  #         derivatives incl. deal countries), an IN-SCOPE s232_annex tier
+  #         (annex_1a/1b/1c/3; annex_2 = removed from scope and still pays),
+  #         or heading_program (autos/MHD/wood/semi/pharma headings, incl.
+  #         USMCA-eligible parts paying 0%) —
   #         pays ZERO s338, even on its non-metal content. Deliberately a scope
   #         MASK, not content_split (which would leak s338 onto the non-metal
   #         fraction) and not rate_232 > 0 (which would miss 0%-paying USMCA
@@ -1306,11 +1309,19 @@ apply_section338 <- function(rates, specs, products, countries) {
         select(hts10, gn6_factor)
     }
 
-    # §232 scope mask over EXISTING rows (note 51(c)); see docstring.
+    # §232 scope mask over EXISTING rows (note 51(c)); see docstring. The annex
+    # arm is TIER-SCOPED: annex_2 = REMOVED from §232 scope (statutory 0, not
+    # "provided for" in the 9903.82 headings note 51(c)(1) cites), so those
+    # articles still pay s338 — 54 covered Canada lines incl. beer 2203.00.00,
+    # which the alcohol proclamation lists explicitly. A bare !is.na(s232_annex)
+    # arm wrongly exempted them (caught in the codex cross-check 2026-07-20).
+    S338_ANNEX_IN_SCOPE <- c('annex_1a', 'annex_1b', 'annex_1c', 'annex_3')
     stat232  <- if ('statutory_rate_232' %in% names(rates)) {
       coalesce(rates$statutory_rate_232, 0)
     } else coalesce(rates$rate_232, 0)
-    annex232 <- if ('s232_annex' %in% names(rates)) !is.na(rates$s232_annex) else FALSE
+    annex232 <- if ('s232_annex' %in% names(rates)) {
+      rates$s232_annex %in% S338_ANNEX_IN_SCOPE
+    } else FALSE
     headprog <- if ('heading_program' %in% names(rates)) {
       coalesce(rates$heading_program, FALSE)
     } else FALSE
@@ -1334,12 +1345,13 @@ apply_section338 <- function(rates, specs, products, countries) {
 
     # Seed missing (covered hts10 x Canada) pairs. Pairs already in `rates` were
     # handled (and 232-masked) above; a MISSING pair can still be in §232 scope
-    # when its row was never materialized (zero-rate annex tiers don't seed
-    # rows), so exclude the product-level §232 sets: the spec's annex tier map
-    # (the same source the row tag comes from) and the heading-program product
-    # set (product-level by construction, 06:~3017).
-    annex_tier_hts10 <- names(specs[['section_232']]$annex$tier %||%
-                                setNames(character(0), character(0)))
+    # when its row was never materialized, so exclude the product-level §232
+    # sets: the spec's annex tier map (the same source the row tag comes from,
+    # tier-scoped like the row mask — annex_2 products still pay) and the
+    # heading-program product set (product-level by construction, 06:~3017).
+    annex_tier_map <- specs[['section_232']]$annex$tier %||%
+      setNames(character(0), character(0))
+    annex_tier_hts10 <- names(annex_tier_map)[annex_tier_map %in% S338_ANNEX_IN_SCOPE]
     heading_hts10 <- if ('heading_program' %in% names(rates)) {
       unique(rates$hts10[coalesce(rates$heading_program, FALSE)])
     } else character(0)

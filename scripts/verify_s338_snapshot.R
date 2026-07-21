@@ -45,10 +45,14 @@ must(all(ca$rate_s338[!ca$hts8 %in% covered$hts8] == 0),
      'rate_s338 = 0 off the covered lists (positive lists only)')
 must(all(ca$rate_s338 <= 0.50 + 1e-12), 'rate_s338 never exceeds 0.50')
 
+# annex_2 = REMOVED from §232 scope — those articles still pay (note 51(c)
+# cites the 9903.82 rate headings, which no longer provide for them).
+ANNEX_IN_SCOPE <- c('annex_1a', 'annex_1b', 'annex_1c', 'annex_3')
+
 # full 0.50 on covered, non-232, non-GN6-overlap rows
 plain <- ca %>% filter(hts8 %in% covered$hts8, !hts8 %in% gn6_overlap,
                        coalesce(statutory_rate_232, 0) == 0,
-                       is.na(s232_annex),
+                       !s232_annex %in% ANNEX_IN_SCOPE,
                        !coalesce(heading_program, FALSE))
 must(nrow(plain) > 0 && all(abs(plain$rate_s338 - 0.50) < 1e-12),
      sprintf('full 0.50 on the %d plain covered Canada rows', nrow(plain)))
@@ -58,12 +62,23 @@ wh <- ca %>% filter(hts8 == '22083030')
 must(nrow(wh) > 0 && all(abs(wh$rate_s338 - 0.50) < 1e-12),
      'Canadian whisky 2208.30.30 -> 0.50')
 
-# §232 full-exclusion mask
+# beer 2203.00.00: on the alcohol list AND annex_2-tagged (removed from the
+# aluminum-derivative scope by the April 2026 annex) — must PAY the 0.50.
+beer <- ca %>% filter(hts8 == '22030000')
+must(nrow(beer) > 0 && all(abs(beer$rate_s338 - 0.50) < 1e-12),
+     'Canadian beer 2203.00.00 (annex_2) -> 0.50 (removed-from-232-scope still pays)')
+
+# §232 full-exclusion mask (tier-scoped)
 mask232 <- ca %>% filter(coalesce(statutory_rate_232, 0) > 0 |
-                           !is.na(s232_annex) |
+                           s232_annex %in% ANNEX_IN_SCOPE |
                            coalesce(heading_program, FALSE))
 must(all(mask232$rate_s338 == 0),
      sprintf('§232-scope exclusion: 0 on all %d in-scope Canada rows', nrow(mask232)))
+a2 <- ca %>% filter(s232_annex == 'annex_2', coalesce(statutory_rate_232, 0) == 0,
+                    !coalesce(heading_program, FALSE), hts8 %in% covered$hts8,
+                    !hts8 %in% gn6_overlap)
+must(nrow(a2) == 0 || all(a2$rate_s338 > 0),
+     sprintf('annex_2 covered rows all PAY (%d rows)', nrow(a2)))
 # 4413.00.00 (densified wood, alcohol list) is NOT in the §232 wood-program
 # product lists (9903.76 covers 4403/4406/4407 logs+lumber and furniture), so
 # note 51(c)(4) does NOT exclude it — it pays the full 0.50. (Verified against
@@ -76,7 +91,8 @@ must(nrow(w44) > 0 && all(abs(w44$rate_s338 - 0.50) < 1e-12),
 # GN6 utilization scaling: overlap rows in (0, 0.50], measured ones strictly < .50
 gn6_rows <- ca %>% filter(hts8 %in% gn6_overlap,
                           coalesce(statutory_rate_232, 0) == 0,
-                          is.na(s232_annex), !coalesce(heading_program, FALSE))
+                          !s232_annex %in% ANNEX_IN_SCOPE,
+                          !coalesce(heading_program, FALSE))
 util <- read_csv(here('resources', 's122_aircraft_utilization.csv'),
                  col_types = cols(hts10 = col_character(),
                                   exempt_share = col_double(),
