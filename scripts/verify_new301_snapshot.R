@@ -1,16 +1,26 @@
 #!/usr/bin/env Rscript
-# Spot-check the new_301 Brazil §301 on the actual computed snapshots (pre-gather).
-# Turn-on revision = bnd_2026-07-24 (both §301s live); a pre-turn-on revision should
-# carry NEITHER scenario column (dropped when all-zero => baseline-safe).
+# Spot-check the new_301 scenario on computed snapshots (pre-gather).
+# HISTORY: written when new_301 carried BOTH June-2026 §301 actions. Since the
+# Brazil final action (FR Doc 2026-14542) the Brazil layer is BASELINE law —
+# rate_s301br is RATE_SCHEMA proper (present in every snapshot, all-zero before
+# 2026-07-22) and is verified by scripts/verify_s301_brazil_snapshot.R. What is
+# scenario-specific here is the FORCED-LABOR layer (rate_s301fl, turn-on
+# 2026-07-24, still drop-when-all-zero) and its additive stack on the inherited
+# baseline Brazil 25%.
 suppressPackageStartupMessages(library(tidyverse))
-TS <- 'data/timeseries/new_301'
+args <- commandArgs(trailingOnly = TRUE)
+TS <- if (length(args) >= 1) args[1] else 'data/timeseries/new_301'
 BR <- '3510'
 
-cat('================ PRE-turn-on: snapshot_bnd_2026-06-08 ================\n')
-pre <- readRDS(file.path(TS, 'snapshot_bnd_2026-06-08.rds'))
-cat('rate_s301br present? ', 'rate_s301br' %in% names(pre),
-    ' | rate_s301fl present? ', 'rate_s301fl' %in% names(pre),
-    '   (both should be FALSE — dormant/dropped)\n', sep = '')
+cat('================ PRE-turn-on ================\n')
+pre_path <- file.path(TS, 'snapshot_bnd_2026-07-22.rds')
+if (file.exists(pre_path)) {
+  pre <- readRDS(pre_path)
+  cat('bnd_2026-07-22: rate_s301fl present? ', 'rate_s301fl' %in% names(pre),
+      ' (should be FALSE — FL dormant/dropped pre-07-24)\n',
+      'rate_s301br present? ', 'rate_s301br' %in% names(pre),
+      ' (should be TRUE — baseline column, live from 07-22)\n', sep = '')
+} else cat('  SKIP: ', pre_path, ' not found\n', sep = '')
 
 cat('\n================ TURN-ON: snapshot_bnd_2026-07-24 ================\n')
 s <- readRDS(file.path(TS, 'snapshot_bnd_2026-07-24.rds'))
@@ -22,7 +32,7 @@ cat('columns present: rate_s301br=', 'rate_s301br' %in% names(s),
 br <- s %>% filter(country == BR)
 cat('\nBrazil (3510) rows: ', nrow(br), '\n', sep = '')
 
-# 1. Brazil §301 rate distribution
+# 1. Brazil §301 rate distribution (baseline layer, inherited by the scenario)
 cat('\n-- rate_s301br distribution on Brazil rows --\n')
 print(br %>% count(rate_s301br) %>% arrange(desc(n)))
 
@@ -31,6 +41,8 @@ cat('\n-- rate_s301fl distribution on Brazil rows (expect 0.125 where in scope) 
 print(br %>% count(rate_s301fl) %>% arrange(desc(n)))
 
 # 3. §232 carve-out: Brazil rows with rate_232 > 0 must have rate_s301br == 0
+#    (necessary condition; the full statutory-membership mask is asserted by
+#    scripts/verify_s301_brazil_snapshot.R)
 viol <- br %>% filter(rate_232 > 0 & rate_s301br > 0)
 cat('\n-- §232 carve-out check: Brazil rows with rate_232>0 AND rate_s301br>0 = ',
     nrow(viol), ' (must be 0) --\n', sep = '')
