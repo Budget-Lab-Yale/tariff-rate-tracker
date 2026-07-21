@@ -262,7 +262,9 @@ message('\n--- counterfactual overlays ---')
 expected_disables <- list(
   no_ieepa = c('ieepa_reciprocal', 'ieepa_fentanyl'),
   no_ieepa_recip = 'ieepa_reciprocal',
-  no_301 = 'section_301',
+  # no_301 covers ALL §301 instruments: legacy China + the 2026-07-22 Brazil
+  # baseline authority (which would otherwise leak into "remove Section 301").
+  no_301 = c('section_301', 'section_301_brazil'),
   no_232 = 'section_232',
   no_s122 = 'section_122',
   # section_338 (2026-08-19 Canada +50%) and section_301_brazil (2026-07-22

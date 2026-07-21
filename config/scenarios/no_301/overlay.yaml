@@ -1,4 +1,6 @@
-# Counterfactual: remove Section 301. Zeroes rate_301 (legacy-additive column),
-# matching the legacy `no_301` scenario. rate_301_cs (content-split) is all-zero
-# at baseline; add section_301_content_split here if that ever changes.
-disabled_authorities: [section_301]
+# Counterfactual: remove Section 301. Zeroes rate_301 (legacy-additive column,
+# China) AND rate_s301br (Brazil §301, BASELINE since the 2026-07-20 final
+# action, FR 2026-14542 — without it the Brazil 25% leaks in from 2026-07-22).
+# rate_301_cs (content-split) is all-zero at baseline; add
+# section_301_content_split here if that ever changes.
+disabled_authorities: [section_301, section_301_brazil]

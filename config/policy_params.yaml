@@ -917,7 +917,19 @@ section_301_brazil:
   effective_date: '2026-07-22'
   rate: 0.25
   country: '3510'                                    # Brazil census code
+  # Note 50(a)(ii)+(iii): unconditional exclusions (875 hts8) — fully exempt.
   exempt_products: 'resources/s301_brazil_exempt_products.csv'
+  # Note 50(a)(iv)/(v): USE-conditional lists — exempt only for GN6 civil-
+  # aircraft use (546 hts8) / pharmaceutical applications (705 hts8). Modeled
+  # as utilization shares: covered lines pay rate * (1 - share). The shares
+  # back out of GTA's published effective rates for the final action (2.5%
+  # aircraft, 12.5% pharma; globaltradealert.org/blog/brazil-section-301-
+  # final-action) — flat placeholders, not measured utilization. Candidate
+  # refinement: the §338 GN6 machinery has measured HTS10 aircraft shares.
+  aircraft_products: 'resources/s301_brazil_aircraft_products.csv'
+  aircraft_exempt_share: 0.90
+  pharma_products: 'resources/s301_brazil_pharma_products.csv'
+  pharma_exempt_share: 0.50
 
 # --- Series time horizon ---
 # End date for timeseries valid_until on the final revision.

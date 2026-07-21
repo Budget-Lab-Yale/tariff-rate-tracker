@@ -1204,13 +1204,18 @@ apply_section301_brazil <- function(rates, specs, products, countries) {
   #     Stacks ADDITIVELY (note 50(a): in addition to every other ch-99 duty,
   #     incl. the scenario forced-labor §301 — neither notice carves out the
   #     other) via stacking class 'additive'; usmca 'none' (Brazil isn't USMCA).
-  #     Two in-scope reductions:
-  #       * the note-50(a)(ii)-(v) exclusion lists (2,126 hts8 in
-  #         resources/s301_brazil_exempt_products.csv): flat subheadings +
-  #         "particular articles" + civil-aircraft-use + pharma-use lists. The
-  #         aircraft/pharma lists are USE-conditional in law; the hts8-grained
-  #         model takes them as flat exemptions (the FL-annex granularity
-  #         limit, documented in scripts/build_s301_brazil_annex.R).
+  #     Three in-scope reductions:
+  #       * the note-50(a)(ii)+(iii) UNCONDITIONAL exclusions (875 hts8,
+  #         resources/s301_brazil_exempt_products.csv: flat subheadings +
+  #         "particular articles") — fully exempt.
+  #       * the note-50(a)(iv)/(v) USE-CONDITIONAL lists (546 aircraft-use +
+  #         705 pharma-use hts8, own resource files): exempt only for GN6
+  #         civil-aircraft use / pharmaceutical applications, so covered lines
+  #         pay rate * (1 - utilization share) (shares in policy_params back
+  #         out of GTA's published effective rates: 2.5% aircraft, 12.5%
+  #         pharma). Flat exemption would un-do the final action's deliberate
+  #         narrowing (364 pharma lines were unconditional in the June
+  #         proposal) and contradict the §338 GN6 share-scaling precedent.
   #       * §232 FULL per-article exclusion (note 50(a)(vi) / heading
   #         9903.05.07): any article in §232 SCOPE — statutory_rate_232 > 0,
   #         an IN-SCOPE s232_annex tier (annex_1a/1b/1c/3; annex_2 = removed
@@ -1238,7 +1243,12 @@ apply_section301_brazil <- function(rates, specs, products, countries) {
   }
   rates$rate_s301br <- 0
   if (length(br_by_country) > 0) {
-    br_exempt_hts8 <- br_spec$programs[[1]]$exempt_products$hts8 %||% character(0)
+    br_ex <- br_spec$programs[[1]]$exempt_products %||% list()
+    br_exempt_hts8   <- br_ex$hts8 %||% character(0)
+    br_aircraft_hts8 <- br_ex$aircraft_hts8 %||% character(0)
+    br_aircraft_share <- as.numeric(br_ex$aircraft_share %||% 0)
+    br_pharma_hts8   <- br_ex$pharma_hts8 %||% character(0)
+    br_pharma_share  <- as.numeric(br_ex$pharma_share %||% 0)
     br_scope <- intersect(names(br_by_country), countries)
 
     # §232 scope mask over EXISTING rows (note 50(a)(vi)); same mask as
@@ -1285,9 +1295,27 @@ apply_section301_brazil <- function(rates, specs, products, countries) {
                                blanket_rate = unname(as.numeric(br_by_country[br_scope])))
     rates <- add_blanket_pairs(rates, products, br_non_exempt_hts10, br_country_rates,
                                'rate_s301br', 'Section 301 Brazil')
+
+    # USE-conditional (a)(iv)/(v) scaling, AFTER seeding so seeded pairs are
+    # covered too. rate_s301br is nonzero only on Brazil rows, so the factor
+    # multiplies through without a country guard. Precedence unconditional >
+    # aircraft > pharma is moot in practice — the parser asserts the three
+    # lists disjoint — but case_when keeps it explicit.
+    if (length(br_aircraft_hts8) > 0 || length(br_pharma_hts8) > 0) {
+      br_hts8 <- substr(rates$hts10, 1, 8)
+      br_cond_factor <- case_when(
+        br_hts8 %in% br_aircraft_hts8 ~ 1 - br_aircraft_share,
+        br_hts8 %in% br_pharma_hts8   ~ 1 - br_pharma_share,
+        TRUE ~ 1)
+      rates$rate_s301br <- rates$rate_s301br * br_cond_factor
+    }
     message('  Section 301 Brazil: 25% on ', sum(rates$rate_s301br > 0),
             ' product-country pairs across ', length(br_scope), ' economies (',
-            length(br_exempt_hts8), ' Annex HTS8 exempt, §232-scope excluded)')
+            length(br_exempt_hts8), ' unconditional HTS8 exempt; ',
+            length(br_aircraft_hts8), ' aircraft-use @ ',
+            round((1 - br_aircraft_share) * 100, 1), '% of rate; ',
+            length(br_pharma_hts8), ' pharma-use @ ',
+            round((1 - br_pharma_share) * 100, 1), '% of rate; §232-scope excluded)')
   }
 
   rates

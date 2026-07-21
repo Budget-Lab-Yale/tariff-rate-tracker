@@ -1,7 +1,9 @@
 # brazil_301 build — first vintage with the Brazil §301 FINAL ACTION as a
 # BASELINE authority (USTR Notice of Action, FR Doc 2026-14542, published
 # 2026-07-20; 25% on Brazil effective 2026-07-22, final exemption annex of
-# 2,126 hts8, full-article §232 carve-out; branch s338-ca):
+# 2,126 hts8 — 875 unconditional + 546 aircraft-use / 705 pharma-use lines
+# share-scaled to effective 2.5% / 12.5% — full-article §232 carve-out;
+# branch s338-ca):
 #   * new rate_s301br RATE_SCHEMA column (all-zero before 2026-07-22)
 #   * new bnd_2026-07-22 boundary mint (turn-on interval)
 #   * daily_by_authority gains mean_s301br / etr_s301br

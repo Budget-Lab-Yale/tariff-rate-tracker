@@ -61,7 +61,7 @@ A counterfactual overlay sets one key:
 
 ```yaml
 # config/scenarios/no_301/overlay.yaml
-disabled_authorities: [section_301]
+disabled_authorities: [section_301, section_301_brazil]
 ```
 
 Names come from the config's `authority_columns` map (section_232, section_301,
@@ -75,6 +75,10 @@ output is byte-identical.
 Carried-over limitation (same as the legacy engine): cross-authority effects
 computed in earlier steps (e.g. IEEPA floors measured against a 232-inclusive
 base) are not re-derived when the other authority is disabled.
+
+`no_301` removes ALL §301 instruments: the legacy China columns and the
+2026-07-22 Brazil baseline authority (which would otherwise leak in from its
+turn-on date).
 
 Baseline authorities that turn on mid-series must be listed explicitly in any
 "pre-2025 only" style counterfactual. `pre_2025` disables `section_338` (the

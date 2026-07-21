@@ -20,8 +20,13 @@ must <- function(cond, msg) {
   else { fails <<- fails + 1L; cat('  FAIL:', msg, '\n') }
 }
 
-ex <- read_csv(here('resources', 's301_brazil_exempt_products.csv'),
+read_list <- function(f) read_csv(here('resources', f),
                col_types = cols(hts8 = col_character(), .default = col_character()))
+ex  <- read_list('s301_brazil_exempt_products.csv')    # note 50(a)(ii)+(iii): fully exempt
+air <- read_list('s301_brazil_aircraft_products.csv')  # (a)(iv): pays 25% * (1-0.90) = 2.5%
+phr <- read_list('s301_brazil_pharma_products.csv')    # (a)(v):  pays 25% * (1-0.50) = 12.5%
+AIR_RATE <- 0.25 * (1 - 0.90)
+PHR_RATE <- 0.25 * (1 - 0.50)
 
 cat('================ PRE-turn-on: snapshot_bnd_2026-06-08 ================\n')
 pre_path <- file.path(TS, 'snapshot_bnd_2026-06-08.rds')
@@ -45,9 +50,18 @@ must(all(abs(br$rate_s301br[br$rate_s301br > 0] - 0.25) < 1e-9 |
      'positive rate_s301br = 0.25 (or ch98 value-basis scaled below)')
 must(all(br$rate_s301br <= 0.25 + 1e-12), 'rate_s301br never exceeds 0.25')
 
-# Exemption annex (note 50(a)(ii)-(v)): exempt hts8 pay zero.
+# Unconditional exemptions (note 50(a)(ii)+(iii)): exempt hts8 pay zero.
 must(all(br$rate_s301br[br$hts8 %in% ex$hts8] == 0),
-     'rate_s301br = 0 on every final-annex-exempt hts8')
+     'rate_s301br = 0 on every unconditional-exempt hts8')
+# Use-conditional lists (note 50(a)(iv)/(v)): scaled by (1 - utilization share),
+# so covered lines pay 2.5% / 12.5% (or less: §232 mask -> 0, ch98 value-basis
+# scales below the statutory level).
+air_r <- br$rate_s301br[br$hts8 %in% air$hts8]
+must(all(abs(air_r - AIR_RATE) < 1e-9 | air_r < AIR_RATE) && any(air_r > 0),
+     'aircraft-use lines pay at most 2.5% (share-scaled), some charged')
+phr_r <- br$rate_s301br[br$hts8 %in% phr$hts8]
+must(all(abs(phr_r - PHR_RATE) < 1e-9 | phr_r < PHR_RATE) && any(phr_r > 0),
+     'pharma-use lines pay at most 12.5% (share-scaled), some charged')
 # Spot the two headline diffs vs the June annex:
 must(all(br$rate_s301br[br$hts8 == '72011000'] == 0),
      'pig iron 7201.10.00 exempt (final-annex addition)')

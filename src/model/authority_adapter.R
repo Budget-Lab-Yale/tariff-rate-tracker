@@ -466,7 +466,8 @@ build_s301_additive_tier <- function(ch99_data, effective_date, pp) {
 # absent. BASELINE authority (signed law) since the FINAL ACTION, USTR FR Doc
 # 2026-14542 (published 2026-07-20, effective 2026-07-22): a 25% additional duty
 # on ALL goods of Brazil (census 3510) via heading 9903.05.01 / U.S. note 50,
-# EXCEPT the note-50(a)(ii)-(v) exclusion lists (hts8; 2,126 lines). The block
+# EXCEPT the note-50(a)(ii)-(v) exclusion lists (hts8; 875 unconditional fully
+# exempt + 546 aircraft-use / 705 pharma-use scaled by utilization shares). The block
 # lives in baseline config/policy_params.yaml — no HTS archive carries the
 # 9903.05.0x headings yet, so it is params+side-data fed (the §338 pattern).
 # stacking 'additive' (note 50(a): in addition to every other ch-99 duty, incl.
@@ -503,8 +504,23 @@ build_s301_additive_tier <- function(ch99_data, effective_date, pp) {
       country_scope = list(include = scope),
       rate = rate_layer))
   )
-  # exempt-list loader is generic (reads cfg$exempt_products); reused from the FL builder.
-  spec$programs[[1]]$exempt_products <- list(hts8 = .resolve_s301fl_exempt(cfg, effective_date))
+  # exempt-list loader is generic (reads cfg$exempt_products); reused from the FL
+  # builder for all three note-50 lists. hts8 = the UNCONDITIONAL (a)(ii)+(iii)
+  # exclusions; aircraft/pharma are the USE-conditional (a)(iv)/(v) lists, which
+  # the calculator scales by (1 - share) instead of exempting flat (shares back
+  # out of GTA's published effective rates — see policy_params.yaml).
+  load_list <- function(key) {
+    path <- cfg[[key]]
+    if (is.null(path) || !nzchar(as.character(path))) return(character(0))
+    .resolve_s301fl_exempt(list(exempt_products = path), effective_date)
+  }
+  clamp01 <- function(x) pmin(pmax(as.numeric(x %||% 0), 0), 1)
+  spec$programs[[1]]$exempt_products <- list(
+    hts8           = .resolve_s301fl_exempt(cfg, effective_date),
+    aircraft_hts8  = load_list('aircraft_products'),
+    aircraft_share = clamp01(cfg$aircraft_exempt_share),
+    pharma_hts8    = load_list('pharma_products'),
+    pharma_share   = clamp01(cfg$pharma_exempt_share))
   spec
 }
 

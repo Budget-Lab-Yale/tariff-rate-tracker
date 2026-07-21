@@ -804,7 +804,7 @@ auth_rows <- daily_authority %>%
   mutate(date = as.Date(date)) %>%
   filter(date %in% focus_dates) %>%
   select(date, revision,
-         etr_232, etr_301, etr_ieepa, etr_fentanyl,
+         etr_232, etr_301, etr_s301br, etr_ieepa, etr_fentanyl,
          etr_s122, etr_s338, etr_section_201, etr_other)
 
 if (nrow(auth_rows) == 0) {
@@ -814,7 +814,7 @@ if (nrow(auth_rows) == 0) {
       slice_min(dist, n = 1)
     auth_rows <- bind_rows(auth_rows, nearest %>%
       select(date, revision,
-             etr_232, etr_301, etr_ieepa, etr_fentanyl,
+             etr_232, etr_301, etr_s301br, etr_ieepa, etr_fentanyl,
              etr_s122, etr_s338, etr_section_201, etr_other))
   }
 }
@@ -830,13 +830,13 @@ auth_display <- auth_rows %>%
     `Section 338` = paste0(round(etr_s338 * 100, 2), '%'),
     `S301 Brazil` = paste0(round(etr_s301br * 100, 2), '%'),
     `Section 201` = paste0(round(etr_section_201 * 100, 2), '%'),
-    Total = paste0(round((etr_232 + etr_301 + etr_ieepa + etr_fentanyl +
+    Total = paste0(round((etr_232 + etr_301 + etr_s301br + etr_ieepa + etr_fentanyl +
                           etr_s122 + etr_s338 + etr_section_201 + etr_other) * 100, 2), '%')
   ) %>%
   select(Date, `Section 232`, `Section 301`, `IEEPA Reciprocal`,
          `IEEPA Fentanyl`, `Section 122`, `Section 338`, `S301 Brazil`, `Section 201`, Total)
 
-kable(auth_display, align = 'lrrrrrrrr',
+kable(auth_display, align = 'lrrrrrrrrr',
       caption = 'Tracker ETR decomposition by tariff authority (import-weighted)')
 ```
 
