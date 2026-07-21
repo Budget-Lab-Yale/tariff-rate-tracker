@@ -480,8 +480,8 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   # (mutual_exclusion) stacking only; the tpc_additive view re-derives weighted_etr
   # too, so it stays self-consistent without scaling.
   auth_net_cols <- c('net_232', 'net_301', 'net_301_cs', 'net_s301br',
-                     'net_ieepa', 'net_fentanyl', 'net_s122', 'net_s338',
-                     'net_section_201', 'net_other')
+                     'net_s301fl', 'net_ieepa', 'net_fentanyl', 'net_s122',
+                     'net_s338', 'net_section_201', 'net_other')
   scale_net_to_effective <- function(net_df, eff_additional) {
     if (!identical(stacking_method, 'mutual_exclusion')) return(net_df)
     cols <- intersect(auth_net_cols, names(net_df))
@@ -508,6 +508,9 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     if (!'net_s338' %in% names(net_data)) net_data$net_s338 <- 0
     # net_s301br likewise (baseline since the 2026-07-20 Brazil final action).
     if (!'net_s301br' %in% names(net_data)) net_data$net_s301br <- 0
+    # net_s301fl is the forced-labor §301 (scenario-only: new_301 / forced_labor).
+    # Zero in baseline; guarded like net_301_cs / net_s338 for the tpc_additive path.
+    if (!'net_s301fl' %in% names(net_data)) net_data$net_s301fl <- 0
     # Reduce to the effective additional (same authoritative basis as weighted_etr).
     # prepare_interval_data_effective preserves rev_ts row order, so total_additional
     # aligns positionally with net_data.
@@ -522,7 +525,11 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
       mean_232 = mean(net_data$net_232),
       # The Brazil §301 (net_s301br) is reported as its OWN column, not folded
       # under mean_301 — it is a distinct baseline authority (FR 2026-14542).
-      mean_301 = mean(net_data$net_301 + net_data$net_301_cs),
+      # Forced-labor §301 (net_s301fl, scenario-only) is a §301 flavor and is
+      # reported UNDER Section 301 — folded into mean_301 exactly like the
+      # content-split net_301_cs, NOT given its own bucket. (Brazil §301 stays
+      # separate as mean_s301br: a distinct baseline authority, FR 2026-14542.)
+      mean_301 = mean(net_data$net_301 + net_data$net_301_cs + net_data$net_s301fl),
       mean_s301br = mean(net_data$net_s301br),
       mean_ieepa = mean(net_data$net_ieepa),
       mean_fentanyl = mean(net_data$net_fentanyl),
@@ -541,11 +548,12 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
         if (!'net_301_cs' %in% names(wt_net)) wt_net$net_301_cs <- 0
         if (!'net_s338' %in% names(wt_net)) wt_net$net_s338 <- 0
         if (!'net_s301br' %in% names(wt_net)) wt_net$net_s301br <- 0
+        if (!'net_s301fl' %in% names(wt_net)) wt_net$net_s301fl <- 0
         eff_wt <- prepare_interval_data_effective(rev_ts_w, sub_start, policy_params,
                                                   stacking_method)
         wt_net <- scale_net_to_effective(wt_net, eff_wt$total_additional)
         row$etr_232 <- sum(wt_net$net_232 * wt_net$imports) / wctx$total_imports
-        row$etr_301 <- sum((wt_net$net_301 + wt_net$net_301_cs) * wt_net$imports) / wctx$total_imports
+        row$etr_301 <- sum((wt_net$net_301 + wt_net$net_301_cs + wt_net$net_s301fl) * wt_net$imports) / wctx$total_imports
         row$etr_s301br <- sum(wt_net$net_s301br * wt_net$imports) / wctx$total_imports
         row$etr_ieepa <- sum(wt_net$net_ieepa * wt_net$imports) / wctx$total_imports
         row$etr_fentanyl <- sum(wt_net$net_fentanyl * wt_net$imports) / wctx$total_imports
@@ -1168,7 +1176,7 @@ build_daily_workbook_readme <- function() {
     c('date', 'Calendar date'),
     c('revision', 'HTS revision identifier'),
     c('mean_232', 'Mean net Section 232 contribution (steel, aluminum, autos, copper, derivatives)'),
-    c('mean_301', 'Mean net Section 301 contribution (China only)'),
+    c('mean_301', 'Mean net Section 301 contribution (China §301 + content-split + forced-labor §301 when active)'),
     c('mean_s301br', 'Mean net Section 301 Brazil contribution (25% on Brazil, effective 2026-07-22)'),
     c('mean_ieepa', 'Mean net IEEPA reciprocal contribution (mutual exclusion with 232)'),
     c('mean_fentanyl', 'Mean net IEEPA fentanyl contribution (CA, MX, CN)'),
@@ -1177,7 +1185,7 @@ build_daily_workbook_readme <- function() {
     c('mean_section_201', 'Mean net Section 201 contribution (safeguard duties, very small)'),
     c('mean_other', 'Mean net other tariff contribution'),
     c('etr_232', 'Import-weighted ETR contribution from Section 232'),
-    c('etr_301', 'Import-weighted ETR contribution from Section 301'),
+    c('etr_301', 'Import-weighted ETR contribution from Section 301 (incl. forced-labor §301 when active)'),
     c('etr_s301br', 'Import-weighted ETR contribution from Section 301 Brazil'),
     c('etr_ieepa', 'Import-weighted ETR contribution from IEEPA reciprocal'),
     c('etr_fentanyl', 'Import-weighted ETR contribution from IEEPA fentanyl'),
@@ -1386,7 +1394,15 @@ daily_part_path <- function(snapshot_dir, revision) {
 # v4 adds the Section 301 Brazil decomposition (mean_s301br / etr_s301br, FR
 # 2026-14542 baseline promotion) and folds etr_s301br into the etr_base
 # residual — same mixed-gather hazard as v3, so v3 parts are rejected.
-DAILY_PART_SCHEMA_VERSION <- 4L
+# v5 folds forced-labor §301 (net_s301fl, scenario-only: new_301 / forced_labor)
+# into Section 301 (mean_301 / etr_301), the same way net_301_cs is folded — it
+# is a §301 flavor, not its own bucket. v4 omitted net_s301fl from the authority
+# decomposition entirely, so the whole forced-labor contribution leaked into
+# etr_base (and scale_net_to_effective's denominator omitted it, inflating the
+# other authorities); rejecting v4 forces a rebuild. NB: reported under §301 so
+# the by-authority buckets reconcile to weighted_etr without a new column that a
+# downstream consumer's fixed authority map would silently drop.
+DAILY_PART_SCHEMA_VERSION <- 5L
 
 write_daily_part_for_snapshot <- function(snapshot, revision, valid_from, valid_until,
                                           output_dir, imports = NULL,
