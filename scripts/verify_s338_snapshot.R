@@ -64,9 +64,14 @@ mask232 <- ca %>% filter(coalesce(statutory_rate_232, 0) > 0 |
                            coalesce(heading_program, FALSE))
 must(all(mask232$rate_s338 == 0),
      sprintf('§232-scope exclusion: 0 on all %d in-scope Canada rows', nrow(mask232)))
-w44 <- ca %>% filter(hts8 == '44130000')   # alcohol-list wood article
-must(nrow(w44) == 0 || all(w44$rate_s338 == 0),
-     '4413.00.00 (wood §232) -> 0 despite being on the alcohol list')
+# 4413.00.00 (densified wood, alcohol list) is NOT in the §232 wood-program
+# product lists (9903.76 covers 4403/4406/4407 logs+lumber and furniture), so
+# note 51(c)(4) does NOT exclude it — it pays the full 0.50. (Verified against
+# the bnd_2026-08-19 probe snapshot 2026-07-20: heading_program FALSE.)
+w44 <- ca %>% filter(hts8 == '44130000', !coalesce(heading_program, FALSE),
+                     is.na(s232_annex), coalesce(statutory_rate_232, 0) == 0)
+must(nrow(w44) > 0 && all(abs(w44$rate_s338 - 0.50) < 1e-12),
+     '4413.00.00 (outside the 9903.76 wood lists) pays the full 0.50')
 
 # GN6 utilization scaling: overlap rows in (0, 0.50], measured ones strictly < .50
 gn6_rows <- ca %>% filter(hts8 %in% gn6_overlap,
