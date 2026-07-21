@@ -858,7 +858,7 @@ section_122:
   rate: 0.10                    # 10% non-discriminatory rate (from 9903.03.01)
   exempt_products: 'resources/s122_exempt_products.csv'
 
-# --- Section 338 (Trade Act of 1930 §338, Canada) ---
+# --- Section 338 (Tariff Act of 1930 §338, Canada) ---
 # Three proclamations signed 2026-07-20 (effective 2026-08-19): +50% ad-valorem
 # additional duty on products of Canada over three positive HTS-8 lists, via new
 # ch99 headings under U.S. note 51 (alcohol 9903.03.12, dairy 9903.03.13,

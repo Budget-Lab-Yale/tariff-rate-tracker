@@ -53,7 +53,7 @@ expect_error <- function(expr, pattern = NULL) {
 ALTERNATIVES <- c('dutyfree_nonzero', 'metal_flat', 'subdivision_r_mid',
                   'usmca_2024', 'usmca_annual', 'usmca_dec2025', 'usmca_monthly')
 COUNTERFACTUALS <- c('no_232', 'no_301', 'no_ieepa', 'no_ieepa_recip',
-                     'no_s122', 'pre_2025')
+                     'no_s122', 'no_s338', 'pre_2025')
 
 # =============================================================================
 # 1. Registry
@@ -110,11 +110,11 @@ run_test("'rebuild' is an alias for 'alternatives'", {
   stopifnot(setequal(resolve_alternatives_selector('rebuild'), ALTERNATIVES))
 })
 
-run_test("'counterfactuals' expands to the 6 counterfactuals", {
+run_test("'counterfactuals' expands to the 7 counterfactuals", {
   stopifnot(setequal(resolve_alternatives_selector('counterfactuals'), COUNTERFACTUALS))
 })
 
-run_test("'all' is alternatives + counterfactuals (13)", {
+run_test("'all' is alternatives + counterfactuals (14)", {
   got <- resolve_alternatives_selector('all')
   stopifnot(setequal(got, c(ALTERNATIVES, COUNTERFACTUALS)))
 })

@@ -36,7 +36,7 @@ The registry (`src/model/scenario_registry.R`) reads the folders:
 | kind | meaning | how it runs |
 |---|---|---|
 | `alternative` | methodology/calibration variant (USMCA share modes, `metal_flat`, `dutyfree_nonzero`, `subdivision_r_mid`) | `--alternatives` on the main build → `alt_runner()` → `output/scenarios/<name>/` |
-| `counterfactual` | policy what-if (`no_301`, `no_232`, `no_ieepa`, `no_ieepa_recip`, `no_s122`, `pre_2025`) | same runner |
+| `counterfactual` | policy what-if (`no_301`, `no_232`, `no_ieepa`, `no_ieepa_recip`, `no_s122`, `no_s338`, `pre_2025`) | same runner |
 | `scenario` | full named series (`forced_labor`, `new_301`) | main build under `TARIFF_SCENARIO=<name>` / `TARIFF_SERIES=<name>` — persisted snapshots, quality reports |
 | `baseline` | `actual` — documentation stub | never run |
 

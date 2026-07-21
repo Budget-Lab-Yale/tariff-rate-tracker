@@ -40,7 +40,7 @@
 #   kind=alternative:    usmca_annual, usmca_monthly, usmca_2024, usmca_dec2025,
 #                        metal_flat, dutyfree_nonzero, subdivision_r_mid
 #   kind=counterfactual: no_ieepa, no_ieepa_recip, no_301, no_232, no_s122,
-#                        pre_2025
+#                        no_s338, pre_2025
 #   kind=scenario (forced_labor, new_301) build as full series via
 #   TARIFF_SCENARIO=<name>, not through --alternatives.
 #
