@@ -450,6 +450,7 @@ authority_columns:
   ieepa_fentanyl:   rate_ieepa_fent
   section_122:      rate_s122
   section_338:      rate_s338
+  section_301_brazil: rate_s301br
   other:            rate_other
 
 # --- Section 301 content-split classification (A2) ---
@@ -888,6 +889,36 @@ section_338:
   products_file: 'resources/s338_products.csv'
   gn6_exempt_products: 'resources/s338_gn6_exempt_products.csv'
 
+# --- Section 301 Brazil (FINAL ACTION — signed law, baseline) -----------------
+# USTR Notice of Action, FR Doc 2026-14542 (published 2026-07-20, effective
+# 2026-07-22): 25% additional ad-valorem duty on ALL products of Brazil via new
+# heading 9903.05.01 / U.S. note 50, EXCEPT the note-50(a)(ii)-(v) product lists
+# (2,126 hts8 in resources/s301_brazil_exempt_products.csv — flat + civil-
+# aircraft-use + pharma-use lists; regenerate with scripts/
+# build_s301_brazil_annex.R). Supersedes the June-4 proposed annex (1,698 hts8)
+# this repo previously carried as the new_301 SCENARIO: +429 exemptions added,
+# only dissolving pulp 4702.00.00 removed, and the effective date moved up from
+# the assumed 2026-07-24 to 2026-07-22.
+# Stacks ADDITIVELY on everything (note 50(a): "shall also be subject to any
+# additional duty provided for in this subchapter or in subchapter IV") — incl.
+# the scenario forced-labor §301, should an overlay activate it.
+# §232 interaction (note 50(a)(vi) / heading 9903.05.07) is a FULL per-article
+# exclusion over the enumerated §232 programs (steel/aluminum/copper +
+# derivatives, PV/LT + parts, MHD + parts, wood, semiconductors; patented
+# pharma added by Annex I Part B effective 2026-07-31) — implemented as the
+# same per-row scope mask as section_338 above (statutory_rate_232 > 0 |
+# in-scope s232_annex tier | heading_program), NOT content_split. The June
+# scenario's content-split treatment is retired with it.
+# NOT modeled: the one-week in-transit window (9903.05.02), donations /
+# informational materials (9903.05.08-.09), and the use-conditionality of the
+# aircraft/pharma lists (hts8-grained model -> flat exemptions; same
+# granularity limit as the FL annex).
+section_301_brazil:
+  effective_date: '2026-07-22'
+  rate: 0.25
+  country: '3510'                                    # Brazil census code
+  exempt_products: 'resources/s301_brazil_exempt_products.csv'
+
 # --- Series time horizon ---
 # End date for timeseries valid_until on the final revision.
 # Controls how far forward daily series, ETR queries, and exports extend.
@@ -935,7 +966,10 @@ series_horizon:
 # 2026-08-19 is the §338 Canada turn-on (three proclamations of 2026-07-20):
 # config-driven (section_338 above), no Ch99 offset in any archive; the adapter's
 # date-gate re-resolves it as-of that date, so an empty-ops mint materializes it.
-boundary_overrides: ['2026-06-08', '2026-07-24', '2026-08-19', '2026-09-29']
+# 2026-07-22 is the Brazil §301 turn-on (FR Doc 2026-14542, section_301_brazil
+# above): config-driven, no Ch99 offset (no archive carries 9903.05.0x yet); the
+# adapter's date-gate re-resolves it as-of that date — same pattern as §338.
+boundary_overrides: ['2026-06-08', '2026-07-22', '2026-07-24', '2026-08-19', '2026-09-29']
 
 # --- Validation thresholds ---
 validation_thresholds:

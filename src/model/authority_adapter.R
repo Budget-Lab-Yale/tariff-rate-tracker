@@ -463,16 +463,21 @@ build_s301_additive_tier <- function(ch99_data, effective_date, pp) {
 }
 
 # Build the section_301_brazil authority_spec, or NULL if the config block is
-# absent (baseline). USTR FR Doc 2026-11158: a 25% additional duty on ALL goods of
-# Brazil (census 3510) EXCEPT an Annex exclusion list (hts8). Built ONLY when the
-# merged config carries a `section_301_brazil` block (config/scenarios/new_301/).
-# content_split + usmca 'none' (Brazil isn't USMCA): stacks ADDITIVELY with the
-# forced-labor §301 (both §301 actions apply — §301 is statutorily "in addition to";
-# neither FR notice carves out the other). The content_split class implements the
-# notice's hard §232 carve-out via nonmetal_share (see src/model/stacking.R): §232 goods
-# — metals AND autos/MHD (nonmetal_share=0 fallback) — receive zero Brazil §301.
-# DATE-GATED to >= effective_date exactly like the forced-labor builder, so it is
-# hollow in baseline / pre-turn-on revisions and every synthetic pre-date mint.
+# absent. BASELINE authority (signed law) since the FINAL ACTION, USTR FR Doc
+# 2026-14542 (published 2026-07-20, effective 2026-07-22): a 25% additional duty
+# on ALL goods of Brazil (census 3510) via heading 9903.05.01 / U.S. note 50,
+# EXCEPT the note-50(a)(ii)-(v) exclusion lists (hts8; 2,126 lines). The block
+# lives in baseline config/policy_params.yaml — no HTS archive carries the
+# 9903.05.0x headings yet, so it is params+side-data fed (the §338 pattern).
+# stacking 'additive' (note 50(a): in addition to every other ch-99 duty, incl.
+# the scenario forced-labor §301 — neither notice carves out the other). The
+# note-50(a)(vi) §232 interaction is a FULL per-article exclusion implemented as
+# a calc-side SCOPE MASK in apply_section301_brazil (06_calculate_rates.R) — the
+# s338 note-51(c) pattern, NOT content_split, which was the June-4 PROPOSED
+# annex's coding and would leak the 25% onto §232 goods' non-metal fraction.
+# usmca 'none' (Brazil isn't USMCA). DATE-GATED to >= effective_date exactly
+# like the §338 builder: hollow in every pre-07-22 revision and synthetic mint,
+# live on the bnd_2026-07-22 mint and every later revision.
 .build_section_301_brazil <- function(pp, countries, effective_date) {
   cfg <- pp$section_301_brazil
   if (is.null(cfg)) return(NULL)
@@ -489,7 +494,7 @@ build_s301_additive_tier <- function(ch99_data, effective_date, pp) {
   scope <- if (length(rate_layer$by_country)) names(rate_layer$by_country) else character(0)
   spec <- authority_spec(
     authority = 'section_301_brazil',
-    stacking  = list(class = 'content_split', exceptions = list()),
+    stacking  = list(class = 'additive', exceptions = list()),
     usmca_treatment = 'none',
     active = list(from = eff, until = NA),
     programs = list(authority_program(
@@ -975,11 +980,12 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
   # Date-gated, content_split + USMCA-eligible. See .build_section_301_forced_labor.
   section_301_forced_labor <- .build_section_301_forced_labor(pp, countries, effective_date)
 
-  # --- section_301_brazil — Brazil-only 25% §301 (SCENARIO) ------------------
-  # NULL in baseline (the config block ships only in config/scenarios/new_301/),
-  # so the authority — and its rate_s301br column — never materialize there.
-  # Date-gated, content_split + usmca 'none'; stacks additively with the FL §301.
-  # See .build_section_301_brazil.
+  # --- section_301_brazil — Brazil-only 25% §301 (BASELINE) ------------------
+  # Signed law since the final action (FR Doc 2026-14542, effective 2026-07-22):
+  # the config block ships in baseline config/policy_params.yaml, so the
+  # authority (and its rate_s301br column, a RATE_SCHEMA member) exists in every
+  # build. Date-gated, additive + usmca 'none'; the §232 full-article exclusion
+  # is a calc-side scope mask. See .build_section_301_brazil.
   section_301_brazil <- .build_section_301_brazil(pp, countries, effective_date)
 
   # --- section_338 — Canada +50% over positive lists (BASELINE) ---------------

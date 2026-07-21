@@ -292,12 +292,14 @@ validate_revision_against_tpc <- function(revision_rates, tpc_path, tpc_date, ce
   # Our rates: use total_additional as the rate change from zero baseline.
   # rate_s338 (Section 338 Canada, live from 2026-08-19) is folded into
   # total_additional and needs its own attribution column below; guard for
-  # pre-s338 frames that predate the RATE_SCHEMA addition.
+  # pre-s338 frames that predate the RATE_SCHEMA addition. rate_s301br (Brazil
+  # §301 25%, live from 2026-07-22, FR 2026-14542) is the same case.
   if (!'rate_s338' %in% names(revision_rates)) revision_rates$rate_s338 <- 0
+  if (!'rate_s301br' %in% names(revision_rates)) revision_rates$rate_s301br <- 0
   our_rates <- revision_rates %>%
     select(hts10, country, total_additional,
-           rate_232, rate_301, rate_ieepa_recip, rate_ieepa_fent, rate_s122,
-           rate_s338, rate_other)
+           rate_232, rate_301, rate_s301br, rate_ieepa_recip, rate_ieepa_fent,
+           rate_s122, rate_s338, rate_other)
 
   our_rates <- our_rates %>% filter(!country %in% tpc_excluded)
   tpc_date_data <- tpc_date_data %>% filter(!country %in% tpc_excluded)
@@ -333,13 +335,15 @@ validate_revision_against_tpc <- function(revision_rates, tpc_path, tpc_date, ce
     mutate(
       gap_from_301 = rate_301 > 0 & tpc_rate_change > total_additional,
       gap_from_ieepa = rate_ieepa_recip > 0,
-      gap_from_s338 = rate_s338 > 0
+      gap_from_s338 = rate_s338 > 0,
+      gap_from_s301br = rate_s301br > 0
     ) %>%
     summarise(
       n_mismatches = n(),
       n_with_301 = sum(gap_from_301),
       n_with_ieepa = sum(gap_from_ieepa),
       n_with_s338 = sum(gap_from_s338),
+      n_with_s301br = sum(gap_from_s301br),
       mean_gap = round(mean(abs_diff) * 100, 2)
     )
 

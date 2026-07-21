@@ -7,4 +7,7 @@
 # in every build and zeroed only via this kill-switch), so a "pre-2025 only"
 # counterfactual MUST list it — otherwise the +50% Canada duty leaks in from its
 # 2026-08-19 turn-on. Any future baseline authority must be added here too.
-disabled_authorities: [ieepa_reciprocal, ieepa_fentanyl, section_122, section_338]
+# section_301_brazil is the same case (baseline since the 2026-07-20 final
+# action, FR 2026-14542): without it the Brazil 25% leaks in from 2026-07-22.
+disabled_authorities: [ieepa_reciprocal, ieepa_fentanyl, section_122, section_338,
+                       section_301_brazil]

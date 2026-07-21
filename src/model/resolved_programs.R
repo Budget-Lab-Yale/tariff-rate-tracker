@@ -74,7 +74,7 @@ build_resolved_programs <- function(df, policy = default_stacking_policy()) {
   rate_cols <- names(policy)
 
   # Guards mirror apply_stacking_rules()'s top-of-function so both paths agree.
-  df <- ensure_cols(df, list(rate_s122 = 0, rate_s338 = 0, rate_section_201 = 0, metal_share = 1),
+  df <- ensure_cols(df, list(rate_s122 = 0, rate_s301br = 0, rate_s338 = 0, rate_section_201 = 0, metal_share = 1),
                     fill_na = TRUE)
   if (!'deriv_type' %in% names(df)) df$deriv_type <- NA_character_
   # Plank 5c: every policy rate_col must exist before the pivot (mirrors the wide path's

@@ -104,9 +104,9 @@ prepare_interval_data_effective <- function(rev_data, sub_start, policy_params,
   }
   if (is.null(policy_params)) return(rev_data)
   zeroed <- apply_expiry_zeroing(rev_data, sub_start, policy_params)
-  comp <- intersect(c('rate_232', 'rate_301', 'rate_301_cs', 'rate_ieepa_recip',
-                      'rate_ieepa_fent', 'rate_s122', 'rate_s338',
-                      'rate_section_201', 'rate_other'),
+  comp <- intersect(c('rate_232', 'rate_301', 'rate_301_cs', 'rate_s301br',
+                      'rate_ieepa_recip', 'rate_ieepa_fent', 'rate_s122',
+                      'rate_s338', 'rate_section_201', 'rate_other'),
                     names(rev_data))
   changed <- rep(FALSE, nrow(rev_data))
   for (cc in comp) changed <- changed | (abs(zeroed[[cc]] - rev_data[[cc]]) > 1e-12)
@@ -479,9 +479,9 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   # mixed-basis residual that goes negative on FTA/USMCA duty-free goods. Canonical
   # (mutual_exclusion) stacking only; the tpc_additive view re-derives weighted_etr
   # too, so it stays self-consistent without scaling.
-  auth_net_cols <- c('net_232', 'net_301', 'net_301_cs', 'net_ieepa',
-                     'net_fentanyl', 'net_s122', 'net_s338', 'net_section_201',
-                     'net_other')
+  auth_net_cols <- c('net_232', 'net_301', 'net_301_cs', 'net_s301br',
+                     'net_ieepa', 'net_fentanyl', 'net_s122', 'net_s338',
+                     'net_section_201', 'net_other')
   scale_net_to_effective <- function(net_df, eff_additional) {
     if (!identical(stacking_method, 'mutual_exclusion')) return(net_df)
     cols <- intersect(auth_net_cols, names(net_df))
@@ -506,6 +506,8 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     # net_s338 is guarded the same way (the tpc_additive path of older snapshots
     # may omit it; the canonical policy path always carries it).
     if (!'net_s338' %in% names(net_data)) net_data$net_s338 <- 0
+    # net_s301br likewise (baseline since the 2026-07-20 Brazil final action).
+    if (!'net_s301br' %in% names(net_data)) net_data$net_s301br <- 0
     # Reduce to the effective additional (same authoritative basis as weighted_etr).
     # prepare_interval_data_effective preserves rev_ts row order, so total_additional
     # aligns positionally with net_data.
@@ -518,7 +520,10 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
       valid_from = valid_from,
       valid_until = valid_until,
       mean_232 = mean(net_data$net_232),
+      # The Brazil §301 (net_s301br) is reported as its OWN column, not folded
+      # under mean_301 — it is a distinct baseline authority (FR 2026-14542).
       mean_301 = mean(net_data$net_301 + net_data$net_301_cs),
+      mean_s301br = mean(net_data$net_s301br),
       mean_ieepa = mean(net_data$net_ieepa),
       mean_fentanyl = mean(net_data$net_fentanyl),
       mean_s122 = mean(net_data$net_s122),
@@ -535,11 +540,13 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
                                                       stacking_method = stacking_method)
         if (!'net_301_cs' %in% names(wt_net)) wt_net$net_301_cs <- 0
         if (!'net_s338' %in% names(wt_net)) wt_net$net_s338 <- 0
+        if (!'net_s301br' %in% names(wt_net)) wt_net$net_s301br <- 0
         eff_wt <- prepare_interval_data_effective(rev_ts_w, sub_start, policy_params,
                                                   stacking_method)
         wt_net <- scale_net_to_effective(wt_net, eff_wt$total_additional)
         row$etr_232 <- sum(wt_net$net_232 * wt_net$imports) / wctx$total_imports
         row$etr_301 <- sum((wt_net$net_301 + wt_net$net_301_cs) * wt_net$imports) / wctx$total_imports
+        row$etr_s301br <- sum(wt_net$net_s301br * wt_net$imports) / wctx$total_imports
         row$etr_ieepa <- sum(wt_net$net_ieepa * wt_net$imports) / wctx$total_imports
         row$etr_fentanyl <- sum(wt_net$net_fentanyl * wt_net$imports) / wctx$total_imports
         row$etr_s122 <- sum(wt_net$net_s122 * wt_net$imports) / wctx$total_imports
@@ -547,7 +554,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
         row$etr_section_201 <- sum(wt_net$net_section_201 * wt_net$imports) / wctx$total_imports
         row$etr_other <- sum(wt_net$net_other * wt_net$imports) / wctx$total_imports
       } else {
-        row$etr_232 <- row$etr_301 <- row$etr_ieepa <- row$etr_fentanyl <- 0
+        row$etr_232 <- row$etr_301 <- row$etr_s301br <- row$etr_ieepa <- row$etr_fentanyl <- 0
         row$etr_s122 <- row$etr_s338 <- row$etr_section_201 <- row$etr_other <- 0
       }
     }
@@ -750,8 +757,9 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     agg_by_authority <- agg_by_authority %>%
       left_join(overall_etr, by = c('revision', 'valid_from', 'valid_until')) %>%
       mutate(
-        etr_base = weighted_etr - (etr_232 + etr_301 + etr_ieepa + etr_fentanyl +
-                                    etr_s122 + etr_s338 + etr_section_201 + etr_other)
+        etr_base = weighted_etr - (etr_232 + etr_301 + etr_s301br + etr_ieepa +
+                                    etr_fentanyl + etr_s122 + etr_s338 +
+                                    etr_section_201 + etr_other)
       ) %>%
       select(-weighted_etr)
   }
@@ -960,7 +968,8 @@ export_daily_slice <- function(ts, date_range, countries = NULL, products = NULL
 
   # Select output columns
   default_columns <- c('date', 'hts10', 'country', 'base_rate',
-                        'rate_232', 'rate_301', 'rate_ieepa_recip', 'rate_ieepa_fent',
+                        'rate_232', 'rate_301', 'rate_s301br',
+                        'rate_ieepa_recip', 'rate_ieepa_fent',
                         'rate_s122', 'rate_s338', 'rate_section_201', 'rate_other',
                         'total_additional', 'total_rate', 'revision')
   out_cols <- if (!is.null(columns)) columns else default_columns
@@ -1160,6 +1169,7 @@ build_daily_workbook_readme <- function() {
     c('revision', 'HTS revision identifier'),
     c('mean_232', 'Mean net Section 232 contribution (steel, aluminum, autos, copper, derivatives)'),
     c('mean_301', 'Mean net Section 301 contribution (China only)'),
+    c('mean_s301br', 'Mean net Section 301 Brazil contribution (25% on Brazil, effective 2026-07-22)'),
     c('mean_ieepa', 'Mean net IEEPA reciprocal contribution (mutual exclusion with 232)'),
     c('mean_fentanyl', 'Mean net IEEPA fentanyl contribution (CA, MX, CN)'),
     c('mean_s122', 'Mean net Section 122 contribution (post-IEEPA invalidation, 150-day limit)'),
@@ -1168,6 +1178,7 @@ build_daily_workbook_readme <- function() {
     c('mean_other', 'Mean net other tariff contribution'),
     c('etr_232', 'Import-weighted ETR contribution from Section 232'),
     c('etr_301', 'Import-weighted ETR contribution from Section 301'),
+    c('etr_s301br', 'Import-weighted ETR contribution from Section 301 Brazil'),
     c('etr_ieepa', 'Import-weighted ETR contribution from IEEPA reciprocal'),
     c('etr_fentanyl', 'Import-weighted ETR contribution from IEEPA fentanyl'),
     c('etr_s122', 'Import-weighted ETR contribution from Section 122'),
@@ -1176,7 +1187,7 @@ build_daily_workbook_readme <- function() {
     c('etr_other', 'Import-weighted ETR contribution from other authorities'),
     c('etr_base', 'Import-weighted base rate contribution (residual: weighted_etr minus all authority ETRs)'),
     c('', ''),
-    c('Note: etr_base + etr_232 + etr_301 + etr_ieepa + etr_fentanyl + etr_s122 + etr_s338 + etr_section_201 + etr_other = weighted_etr (from daily_overall)', ''),
+    c('Note: etr_base + etr_232 + etr_301 + etr_s301br + etr_ieepa + etr_fentanyl + etr_s122 + etr_s338 + etr_section_201 + etr_other = weighted_etr (from daily_overall)', ''),
     c('', ''),
 
     # --- Notes ---
@@ -1372,7 +1383,10 @@ daily_part_path <- function(snapshot_dir, revision) {
 # folds etr_s338 into the etr_base residual; v2 parts lack those columns and
 # carry a stale etr_base, so a mixed gather would produce NA s338 columns and a
 # broken etr_base identity — rejecting v2 forces a rebuild.
-DAILY_PART_SCHEMA_VERSION <- 3L
+# v4 adds the Section 301 Brazil decomposition (mean_s301br / etr_s301br, FR
+# 2026-14542 baseline promotion) and folds etr_s301br into the etr_base
+# residual — same mixed-gather hazard as v3, so v3 parts are rejected.
+DAILY_PART_SCHEMA_VERSION <- 4L
 
 write_daily_part_for_snapshot <- function(snapshot, revision, valid_from, valid_until,
                                           output_dir, imports = NULL,

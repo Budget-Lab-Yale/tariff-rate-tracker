@@ -1,0 +1,32 @@
+# brazil_301 build — first vintage with the Brazil §301 FINAL ACTION as a
+# BASELINE authority (USTR Notice of Action, FR Doc 2026-14542, published
+# 2026-07-20; 25% on Brazil effective 2026-07-22, final exemption annex of
+# 2,126 hts8, full-article §232 carve-out; branch s338-ca):
+#   * new rate_s301br RATE_SCHEMA column (all-zero before 2026-07-22)
+#   * new bnd_2026-07-22 boundary mint (turn-on interval)
+#   * daily_by_authority gains mean_s301br / etr_s301br
+#   * new_301 scenario is now forced-labor-ONLY (Brazil inherited from baseline)
+#   * NEW no_s338 counterfactual: current law minus the §338 Canada action
+#
+# Three series for review: actual, new_301 (FL §301 on top of Brazil-inclusive
+# baseline), no_s338 (baseline minus §338; keeps Brazil).
+#
+# Builds a fresh vintage and VERIFIES it, but does NOT move `latest`: spot-check
+# with scripts/verify_s301_brazil_snapshot.R (+ verify_s338_snapshot.R), review
+# vs the prior vintage, then repoint deliberately with
+#   Rscript scripts/publish_vintage.R --latest-only <vintage>
+#
+#   bash scripts/submit_build_array.sh --config config/build/brazil_301.yaml
+
+model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker
+policy_params_path: config/policy_params.yaml
+
+scenarios:
+  - new_301
+  - no_s338
+
+use_hts_dates: false
+weight_mode: required
+update_latest: false        # review the brazil_301 vintage before repointing latest
+allow_partial: false
+verify: true                # finalize runs scripts/verify_build.R against the vintage

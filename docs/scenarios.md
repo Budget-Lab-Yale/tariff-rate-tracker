@@ -66,7 +66,7 @@ disabled_authorities: [section_301]
 
 Names come from the config's `authority_columns` map (section_232, section_301,
 section_301_content_split, ieepa_reciprocal, ieepa_fentanyl, section_122,
-section_338, other). `calculate_rates_for_revision()` zeroes the mapped rate columns just
+section_338, section_301_brazil, other). `calculate_rates_for_revision()` zeroes the mapped rate columns just
 before stacking (step 7g → `apply_authority_disables()` in
 `src/model/rate_schema.R`), so totals and contribution shares recompute on what
 remains. Unknown names fail loud; the key is absent in baseline, so baseline
@@ -78,9 +78,10 @@ base) are not re-derived when the other authority is disabled.
 
 Baseline authorities that turn on mid-series must be listed explicitly in any
 "pre-2025 only" style counterfactual. `pre_2025` disables `section_338` (the
-2026-08-19 Canada +50% duty) alongside IEEPA/§122; without that line the duty
-would leak into the counterfactual from its turn-on date. Any future baseline
-authority added to `policy_params.yaml` must be added to `pre_2025`'s
+2026-08-19 Canada +50% duty) and `section_301_brazil` (the 2026-07-22 Brazil
+25% duty, FR 2026-14542) alongside IEEPA/§122; without those lines the duties
+would leak into the counterfactual from their turn-on dates. Any future
+baseline authority added to `policy_params.yaml` must be added to `pre_2025`'s
 `disabled_authorities` too.
 
 ## Authoring a new scenario
