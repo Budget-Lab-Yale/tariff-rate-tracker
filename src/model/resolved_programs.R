@@ -48,6 +48,7 @@ RESOLVED_AUTHORITIES <- tibble::tribble(
   'rate_301_cs',      'section_301_cs',    's301cs',
   'rate_s301fl',      'section_301_forced_labor', 's301fl',
   'rate_s301br',      'section_301_brazil', 's301br',
+  'rate_s338',        'section_338',       's338',
   'rate_s122',        'section_122',       's122',
   'rate_section_201', 'section_201',       's201',
   'rate_other',       'other',             'other'
@@ -73,7 +74,7 @@ build_resolved_programs <- function(df, policy = default_stacking_policy()) {
   rate_cols <- names(policy)
 
   # Guards mirror apply_stacking_rules()'s top-of-function so both paths agree.
-  df <- ensure_cols(df, list(rate_s122 = 0, rate_section_201 = 0, metal_share = 1),
+  df <- ensure_cols(df, list(rate_s122 = 0, rate_s301br = 0, rate_s338 = 0, rate_section_201 = 0, metal_share = 1),
                     fill_na = TRUE)
   if (!'deriv_type' %in% names(df)) df$deriv_type <- NA_character_
   # Plank 5c: every policy rate_col must exist before the pivot (mirrors the wide path's

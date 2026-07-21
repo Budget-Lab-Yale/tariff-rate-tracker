@@ -1,0 +1,56 @@
+                                             Annex II
+A. Effective with respect to goods entered for consumption, or withdrawn from warehouse for
+   consumption, on or after 12:01 a.m. eastern time on August 19, 2026, subchapter III of
+   chapter 99 of the Harmonized Tariff Schedule of the United States (HTSUS) is modified as
+   follows:
+
+   1.   Subdivision (a) of U.S. note 51 is modified by:
+
+        a.     deleting “heading 9903.03.12 imposes” and inserting “headings
+               9903.03.12−9903.03.13 impose” in lieu thereof; and
+
+        b.     deleting “imposed by this heading” in each place it appears and inserting
+               “imposed by these headings” in lieu thereof;
+
+   2.   Subdivision (b) is modified by:
+
+        a.     deleting “in the heading” and inserting “in these headings” in lieu thereof; and
+
+        b.     inserting new subdivision (b)(2) to U.S. note 51:
+
+“2.    Heading 9903.03.13 applies to articles classifiable in the following provisions of the tariff
+schedule:
+        0402.10.05            0402.10.10             0402.10.50             0402.21.02
+        0402.21.05            0402.21.25             0402.21.27             0402.21.30
+        0402.21.50            0402.21.73             0402.21.75             0402.21.90
+        0402.91.03            0402.91.06             0402.99.68             0404.10.05
+        0404.10.08            0404.10.11             0404.10.15             0404.10.20
+        0404.10.48            0404.10.50             0404.10.90             0404.90.10
+        0404.90.28            0404.90.30             0404.90.50             0404.90.70
+        0506.90.00            1210.20.00             1301.90.91             1702.11.00
+        1702.19.00            1702.30.28             1702.40.28             1702.60.28
+        1702.90.35            1702.90.58             1702.90.68             1703.10.30
+        1703.10.50            1703.90.30             1703.90.50             1901.20.35
+        2202.91.00            3301.24.00             3501.10.10             3501.10.50
+        3501.90.20            3501.90.60             3502.20.00             3504.00.50”
+
+   3.   Subdivision (c) of U.S. note 51 is modified by deleting “heading 9903.03.12 shall” and
+        inserting “headings 9903.03.12−9903.03.13 shall” in lieu thereof;
+
+   4.   Subdivision (d) of U.S. note 51 is modified by deleting “heading 9903.03.12 shall” and
+        inserting “headings 9903.03.12−9903.03.13 shall” in lieu thereof;
+
+   5.   The following new heading is inserted in numerical sequence, with the material in each
+        new heading inserted in the columns of the HTSUS labeled “Heading/Subheading”,
+   “Article Description”, “Rates of Duty 1-General”, “Rates of Duty 1-Special” and “Rates
+   of Duty 2”, respectively:
+
+Heading /      Article Description                                Rates of Duty
+Subheading                                                        1                    2
+                                                 General            Special
+“9903.03.13    Articles the product of           The duty          The duty        No
+               Canada as provided in             provided in       provided in the change”
+               subdivision (b)(2) of             the applicable    applicable
+               U.S. note 51 to this              subheading +      subheading +
+               subchapter ....................   50%               50%
+

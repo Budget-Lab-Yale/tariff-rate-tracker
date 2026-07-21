@@ -72,6 +72,10 @@ check_schema <- function(ts) {
 compute_revision_quality <- function(ts) {
   # base_rate_type exposure flag may be absent on pre-2026-07 timeseries.
   if (!'base_rate_type' %in% names(ts)) ts$base_rate_type <- NA_character_
+  # rate_s338 may be absent on pre-2026-07-20 panels (added to RATE_SCHEMA then).
+  if (!'rate_s338' %in% names(ts)) ts$rate_s338 <- 0
+  # rate_s301br likewise (baseline since the 2026-07-20 Brazil §301 final action).
+  if (!'rate_s301br' %in% names(ts)) ts$rate_s301br <- 0
   ts %>%
     group_by(revision, effective_date) %>%
     summarise(
@@ -87,6 +91,13 @@ compute_revision_quality <- function(ts) {
       pct_ieepa_recip = round(mean(rate_ieepa_recip > 0) * 100, 1),
       pct_ieepa_fent = round(mean(rate_ieepa_fent > 0) * 100, 1),
       pct_s122 = round(mean(rate_s122 > 0) * 100, 1),
+      # Canada-only, positive-list coverage (~0.02% of pairs) vanishes at the
+      # 1-decimal rounding the broad authorities use; keep 4 decimals so the
+      # authority-timeline gate can distinguish it from 0.
+      pct_s338 = round(mean(rate_s338 > 0) * 100, 4),
+      # Brazil-only coverage (~0.4% of pairs) also kept at 4 decimals so the
+      # authority-timeline gate can distinguish it from 0.
+      pct_s301br = round(mean(rate_s301br > 0) * 100, 4),
       pct_usmca = round(mean(usmca_eligible, na.rm = TRUE) * 100, 1),
       # Unweighted exposure flag: share of pairs whose base MFN rate is a
       # specific/compound duty the model treats as 0 (no AVE conversion).
@@ -231,7 +242,7 @@ check_authority_timeline <- function(rev_quality) {
   authority_map <- c(
     s232 = 'pct_232', s301 = 'pct_301',
     ieepa_recip = 'pct_ieepa_recip', ieepa_fent = 'pct_ieepa_fent',
-    s122 = 'pct_s122'
+    s122 = 'pct_s122', s338 = 'pct_s338', s301br = 'pct_s301br'
   )
 
   all_revisions <- rev_quality$revision

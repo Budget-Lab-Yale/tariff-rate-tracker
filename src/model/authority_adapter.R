@@ -463,16 +463,22 @@ build_s301_additive_tier <- function(ch99_data, effective_date, pp) {
 }
 
 # Build the section_301_brazil authority_spec, or NULL if the config block is
-# absent (baseline). USTR FR Doc 2026-11158: a 25% additional duty on ALL goods of
-# Brazil (census 3510) EXCEPT an Annex exclusion list (hts8). Built ONLY when the
-# merged config carries a `section_301_brazil` block (config/scenarios/new_301/).
-# content_split + usmca 'none' (Brazil isn't USMCA): stacks ADDITIVELY with the
-# forced-labor §301 (both §301 actions apply — §301 is statutorily "in addition to";
-# neither FR notice carves out the other). The content_split class implements the
-# notice's hard §232 carve-out via nonmetal_share (see src/model/stacking.R): §232 goods
-# — metals AND autos/MHD (nonmetal_share=0 fallback) — receive zero Brazil §301.
-# DATE-GATED to >= effective_date exactly like the forced-labor builder, so it is
-# hollow in baseline / pre-turn-on revisions and every synthetic pre-date mint.
+# absent. BASELINE authority (signed law) since the FINAL ACTION, USTR FR Doc
+# 2026-14542 (published 2026-07-20, effective 2026-07-22): a 25% additional duty
+# on ALL goods of Brazil (census 3510) via heading 9903.05.01 / U.S. note 50,
+# EXCEPT the note-50(a)(ii)-(v) exclusion lists (hts8; 875 unconditional fully
+# exempt + 546 aircraft-use / 705 pharma-use scaled by utilization shares). The block
+# lives in baseline config/policy_params.yaml — no HTS archive carries the
+# 9903.05.0x headings yet, so it is params+side-data fed (the §338 pattern).
+# stacking 'additive' (note 50(a): in addition to every other ch-99 duty, incl.
+# the scenario forced-labor §301 — neither notice carves out the other). The
+# note-50(a)(vi) §232 interaction is a FULL per-article exclusion implemented as
+# a calc-side SCOPE MASK in apply_section301_brazil (06_calculate_rates.R) — the
+# s338 note-51(c) pattern, NOT content_split, which was the June-4 PROPOSED
+# annex's coding and would leak the 25% onto §232 goods' non-metal fraction.
+# usmca 'none' (Brazil isn't USMCA). DATE-GATED to >= effective_date exactly
+# like the §338 builder: hollow in every pre-07-22 revision and synthetic mint,
+# live on the bnd_2026-07-22 mint and every later revision.
 .build_section_301_brazil <- function(pp, countries, effective_date) {
   cfg <- pp$section_301_brazil
   if (is.null(cfg)) return(NULL)
@@ -489,7 +495,7 @@ build_s301_additive_tier <- function(ch99_data, effective_date, pp) {
   scope <- if (length(rate_layer$by_country)) names(rate_layer$by_country) else character(0)
   spec <- authority_spec(
     authority = 'section_301_brazil',
-    stacking  = list(class = 'content_split', exceptions = list()),
+    stacking  = list(class = 'additive', exceptions = list()),
     usmca_treatment = 'none',
     active = list(from = eff, until = NA),
     programs = list(authority_program(
@@ -498,8 +504,88 @@ build_s301_additive_tier <- function(ch99_data, effective_date, pp) {
       country_scope = list(include = scope),
       rate = rate_layer))
   )
-  # exempt-list loader is generic (reads cfg$exempt_products); reused from the FL builder.
-  spec$programs[[1]]$exempt_products <- list(hts8 = .resolve_s301fl_exempt(cfg, effective_date))
+  # exempt-list loader is generic (reads cfg$exempt_products); reused from the FL
+  # builder for all three note-50 lists. hts8 = the UNCONDITIONAL (a)(ii)+(iii)
+  # exclusions; aircraft/pharma are the USE-conditional (a)(iv)/(v) lists, which
+  # the calculator scales by (1 - share) instead of exempting flat (shares back
+  # out of GTA's published effective rates — see policy_params.yaml).
+  load_list <- function(key) {
+    path <- cfg[[key]]
+    if (is.null(path) || !nzchar(as.character(path))) return(character(0))
+    .resolve_s301fl_exempt(list(exempt_products = path), effective_date)
+  }
+  clamp01 <- function(x) pmin(pmax(as.numeric(x %||% 0), 0), 1)
+  spec$programs[[1]]$exempt_products <- list(
+    hts8           = .resolve_s301fl_exempt(cfg, effective_date),
+    aircraft_hts8  = load_list('aircraft_products'),
+    aircraft_share = clamp01(cfg$aircraft_exempt_share),
+    pharma_hts8    = load_list('pharma_products'),
+    pharma_share   = clamp01(cfg$pharma_exempt_share))
+  spec
+}
+
+# ---- section 338 (Canada) — BASELINE authority, hand-fed from params ---------
+# Three Section 338 proclamations (signed 2026-07-20, effective 2026-08-19):
+# +50% ad-valorem on products of Canada over the three positive HTS-8 lists in
+# resources/s338_products.csv (alcohol/dairy/motor_vehicles ->
+# 9903.03.12/.13/.14, U.S. note 51; sources data/s338/). This is SIGNED LAW, so
+# the block lives in baseline config/policy_params.yaml — but no HTS archive
+# carries the 9903.03.1x headings yet, so the authority is params+side-data fed
+# (the pharma/Brazil pattern), independent of the ch99 parse; reconcile when a
+# real revision lands. stacking 'additive' (note 51(a): in addition to every
+# other duty; the note 51(c) §232 interaction is a FULL per-article exclusion
+# implemented as a calc-side SCOPE MASK in apply_section338 — NOT content_split,
+# which would leak s338 onto the non-metal fraction) + usmca 'none' (the duty
+# applies regardless of USMCA origin). DATE-GATED to >= effective_date exactly
+# like the §301 builders: hollow in every pre-08-19 revision and synthetic mint,
+# live on the bnd_2026-08-19 mint and every later revision.
+
+# GN6 civil-aircraft list (note 51(d) / heading 9903.03.16), hts8 vector. The
+# exemption is USE-conditional (GN6-certified entries only), so the calc scales
+# covered∩GN6 lines by measured utilization instead of exempting full-line.
+# Fail loud on a missing file: silently returning empty would over-apply s338
+# on the aircraft-overlap codes.
+.resolve_s338_gn6 <- function(cfg) {
+  path <- here(cfg$gn6_exempt_products %||% 'resources/s338_gn6_exempt_products.csv')
+  if (!file.exists(path)) {
+    stop('section_338: GN6 exempt list not found at ', path,
+         ' — run scripts/build_s338_annex.R')
+  }
+  ex <- read_csv_cached(path, col_types = readr::cols(hts8 = readr::col_character()))
+  unique(as.character(ex$hts8))
+}
+
+.build_section_338 <- function(pp, countries, effective_date) {
+  cfg <- pp$section_338
+  if (is.null(cfg)) return(NULL)
+  eff <- if (!is.null(cfg$effective_date)) as.Date(cfg$effective_date) else as.Date(NA)
+  active_now <- is.na(eff) || as.Date(effective_date) >= eff
+  rate_layer <- list()
+  if (active_now) {
+    rate <- as.numeric(cfg$rate %||% 0.50)
+    ctry <- as.character(cfg$country %||% '1220')        # Canada census code
+    bc <- stats::setNames(rep(rate, length(ctry)), ctry)
+    bc <- bc[intersect(names(bc), as.character(countries))]  # only economies the model knows
+    if (length(bc) > 0) rate_layer$by_country <- bc
+  }
+  scope <- if (length(rate_layer$by_country)) names(rate_layer$by_country) else character(0)
+  spec <- authority_spec(
+    authority = 'section_338',
+    stacking  = list(class = 'additive', exceptions = list()),
+    usmca_treatment = 'none',
+    active = list(from = eff, until = NA),
+    programs = list(authority_program(
+      id = 's338',
+      product_scope = list(list_file = cfg$products_file %||% 'resources/s338_products.csv'),
+      country_scope = list(include = scope),
+      rate = rate_layer))
+  )
+  # GN6 note-51(d) set + the measured per-HTS10 GN6 utilization shares (same
+  # measurement the §122 (aa)(iv) scaling uses). The ->0 unmeasured fallback
+  # (vs §122's ->1) is applied CALC-SIDE in apply_section338.
+  spec$programs[[1]]$exempt_products <- list(
+    gn6_hts8        = .resolve_s338_gn6(cfg),
+    gn6_utilization = .resolve_s122_gn6_utilization())
   spec
 }
 
@@ -910,12 +996,20 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
   # Date-gated, content_split + USMCA-eligible. See .build_section_301_forced_labor.
   section_301_forced_labor <- .build_section_301_forced_labor(pp, countries, effective_date)
 
-  # --- section_301_brazil — Brazil-only 25% §301 (SCENARIO) ------------------
-  # NULL in baseline (the config block ships only in config/scenarios/new_301/),
-  # so the authority — and its rate_s301br column — never materialize there.
-  # Date-gated, content_split + usmca 'none'; stacks additively with the FL §301.
-  # See .build_section_301_brazil.
+  # --- section_301_brazil — Brazil-only 25% §301 (BASELINE) ------------------
+  # Signed law since the final action (FR Doc 2026-14542, effective 2026-07-22):
+  # the config block ships in baseline config/policy_params.yaml, so the
+  # authority (and its rate_s301br column, a RATE_SCHEMA member) exists in every
+  # build. Date-gated, additive + usmca 'none'; the §232 full-article exclusion
+  # is a calc-side scope mask. See .build_section_301_brazil.
   section_301_brazil <- .build_section_301_brazil(pp, countries, effective_date)
+
+  # --- section_338 — Canada +50% over positive lists (BASELINE) ---------------
+  # Signed law: the config block ships in baseline config/policy_params.yaml, so
+  # the authority (and its rate_s338 column, a RATE_SCHEMA member) exists in
+  # every build. Date-gated to 2026-08-19, additive, usmca 'none'; §232 full
+  # exclusion + GN6 scaling are calc-side. See .build_section_338.
+  section_338 <- .build_section_338(pp, countries, effective_date)
 
   spec_list <- list(section_232, section_301, ieepa_reciprocal, ieepa_fentanyl,
                     section_122, section_201, mfn, other)
@@ -924,6 +1018,9 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
   }
   if (!is.null(section_301_brazil)) {
     spec_list <- c(spec_list, list(section_301_brazil))
+  }
+  if (!is.null(section_338)) {
+    spec_list <- c(spec_list, list(section_338))
   }
   specs <- do.call(authority_spec_set, spec_list)
 

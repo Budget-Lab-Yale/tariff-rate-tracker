@@ -36,7 +36,7 @@ The registry (`src/model/scenario_registry.R`) reads the folders:
 | kind | meaning | how it runs |
 |---|---|---|
 | `alternative` | methodology/calibration variant (USMCA share modes, `metal_flat`, `dutyfree_nonzero`, `subdivision_r_mid`) | `--alternatives` on the main build → `alt_runner()` → `output/scenarios/<name>/` |
-| `counterfactual` | policy what-if (`no_301`, `no_232`, `no_ieepa`, `no_ieepa_recip`, `no_s122`, `pre_2025`) | same runner |
+| `counterfactual` | policy what-if (`no_301`, `no_232`, `no_ieepa`, `no_ieepa_recip`, `no_s122`, `no_s338`, `pre_2025`) | same runner |
 | `scenario` | full named series (`forced_labor`, `new_301`) | main build under `TARIFF_SCENARIO=<name>` / `TARIFF_SERIES=<name>` — persisted snapshots, quality reports |
 | `baseline` | `actual` — documentation stub | never run |
 
@@ -61,12 +61,12 @@ A counterfactual overlay sets one key:
 
 ```yaml
 # config/scenarios/no_301/overlay.yaml
-disabled_authorities: [section_301]
+disabled_authorities: [section_301, section_301_brazil]
 ```
 
 Names come from the config's `authority_columns` map (section_232, section_301,
 section_301_content_split, ieepa_reciprocal, ieepa_fentanyl, section_122,
-other). `calculate_rates_for_revision()` zeroes the mapped rate columns just
+section_338, section_301_brazil, other). `calculate_rates_for_revision()` zeroes the mapped rate columns just
 before stacking (step 7g → `apply_authority_disables()` in
 `src/model/rate_schema.R`), so totals and contribution shares recompute on what
 remains. Unknown names fail loud; the key is absent in baseline, so baseline
@@ -75,6 +75,18 @@ output is byte-identical.
 Carried-over limitation (same as the legacy engine): cross-authority effects
 computed in earlier steps (e.g. IEEPA floors measured against a 232-inclusive
 base) are not re-derived when the other authority is disabled.
+
+`no_301` removes ALL §301 instruments: the legacy China columns and the
+2026-07-22 Brazil baseline authority (which would otherwise leak in from its
+turn-on date).
+
+Baseline authorities that turn on mid-series must be listed explicitly in any
+"pre-2025 only" style counterfactual. `pre_2025` disables `section_338` (the
+2026-08-19 Canada +50% duty) and `section_301_brazil` (the 2026-07-22 Brazil
+25% duty, FR 2026-14542) alongside IEEPA/§122; without those lines the duties
+would leak into the counterfactual from their turn-on dates. Any future
+baseline authority added to `policy_params.yaml` must be added to `pre_2025`'s
+`disabled_authorities` too.
 
 ## Authoring a new scenario
 
