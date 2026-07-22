@@ -1,6 +1,4 @@
-# Counterfactual: only pre-2025 tariffs (232 + legacy 301). Matches the legacy
-# `pre_2025` definition exactly: IEEPA (both) and s122 removed, Section 232 and
-# 301 KEPT — including their 2025-26 expansions (50% metals, annexes, new
-# headings). "Pre-2025 authorities", not "pre-2025 rates"; documented limitation
-# carried over from the legacy engine.
+# Counterfactual: keep Section 232 and legacy Section 301, while removing IEEPA
+# and Section 122 inputs before calculation. This remains "pre-2025 authorities,"
+# not historical pre-2025 rates: later Section 232/301 expansions are retained.
 disabled_authorities: [ieepa_reciprocal, ieepa_fentanyl, section_122]

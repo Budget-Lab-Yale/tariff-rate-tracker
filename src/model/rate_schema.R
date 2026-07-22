@@ -105,55 +105,6 @@ default_base_cols <- function(df) {
 }
 
 
-#' Zero the rate columns of disabled authorities (scenario kill-switch)
-#'
-#' Drives the counterfactual scenarios (config/scenarios/no_301 etc.): the
-#' overlay sets `disabled_authorities:` (names from the config's
-#' `authority_columns` map) and calculate_rates_for_revision() calls this just
-#' BEFORE stacking (step 8), so totals and contribution shares recompute
-#' consistently on the remaining authorities. Successor to the Phase-7-deleted
-#' post-build `disable:` engine (apply_scenarios.R) — same column-zeroing
-#' semantics, but applied inside the calc per revision instead of patching the
-#' finished panel.
-#'
-#' Caveats (same as the legacy engine, documented not fixed): cross-authority
-#' interactions computed in EARLIER steps are not re-derived — e.g. disabling
-#' section_232 does not re-run the IEEPA floor recomputation. Statutory_*
-#' columns are left untouched (they describe the law, not the counterfactual).
-#'
-#' @param rates Rates tibble (any tibble carrying the mapped columns)
-#' @param disabled Character vector of authority names (or NULL/empty = no-op)
-#' @param authority_columns Named vector: authority name -> rate column
-#'   (policy_params$AUTHORITY_COLUMNS)
-#' @return Rates tibble with the mapped columns zeroed
-apply_authority_disables <- function(rates, disabled, authority_columns) {
-  disabled <- as.character(unlist(disabled %||% character(0)))
-  if (length(disabled) == 0) return(rates)
-
-  invalid <- setdiff(disabled, names(authority_columns))
-  if (length(invalid) > 0) {
-    stop('apply_authority_disables: unknown authority name(s): ',
-         paste(invalid, collapse = ', '),
-         '. Valid (config authority_columns): ',
-         paste(names(authority_columns), collapse = ', '))
-  }
-
-  cols <- unname(authority_columns[disabled])
-  absent <- setdiff(cols, names(rates))
-  if (length(absent) > 0) {
-    stop('apply_authority_disables: mapped column(s) missing from rates: ',
-         paste(absent, collapse = ', '))
-  }
-  for (col in cols) {
-    rates[[col]] <- 0
-  }
-  message('  Disabled authorities (scenario): ',
-          paste(disabled, collapse = ', '),
-          ' [zeroed: ', paste(cols, collapse = ', '), ']')
-  rates
-}
-
-
 #' Build rev_intervals from revision_dates.csv, restricted to a set of revisions
 #'
 #' Extracts the standard (revision, valid_from, valid_until) interval encoding

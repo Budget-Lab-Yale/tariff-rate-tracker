@@ -218,6 +218,10 @@ the empty scenario." Request them on the main entrypoint with `--alternatives`;
 outputs land in `output/scenarios/<name>/`. See [docs/scenarios.md](scenarios.md)
 for the authoring guide.
 
+Baseline and scenario runs both call the same `build_revision_snapshot()` unit.
+Counterfactual authority removals change parsed inputs before calculation; they
+do not erase columns from a finished baseline result.
+
 ```bash
 Rscript src/pipeline/00_build_timeseries.R --alternatives all               # every alternative + counterfactual
 Rscript src/pipeline/00_build_timeseries.R --alternatives no_301,metal_flat # by name

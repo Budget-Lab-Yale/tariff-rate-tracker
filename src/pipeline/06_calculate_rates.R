@@ -151,6 +151,11 @@ calculate_rates_fast <- function(products, ch99_data, countries,
       tibble(ch99_code = character(), country = character())
     }
   })
+  if (nrow(ch99_for_map) == 0) {
+    # map_dfr(integer(0), ...) returns a zero-column tibble. Preserve the join
+    # contract for counterfactuals that remove every referenced authority.
+    applicable_pairs <- tibble(ch99_code = character(), country = character())
+  }
 
   message('  Applicability pairs: ', nrow(applicable_pairs),
           ' (from ', nrow(ch99_for_map), ' ch99 entries x ', length(country_vec), ' countries)')
@@ -162,12 +167,14 @@ calculate_rates_fast <- function(products, ch99_data, countries,
   message('  After country filtering: ', nrow(full_expansion))
 
   # Aggregate by product x country x authority (take max within authority)
-  by_authority <- full_expansion %>%
-    group_by(hts10, country, authority) %>%
-    summarise(
-      rate = max(rate),
-      .groups = 'drop'
-    )
+  by_authority <- if (nrow(full_expansion) == 0) {
+    tibble(hts10 = character(), country = character(),
+           authority = character(), rate = numeric())
+  } else {
+    full_expansion %>%
+      group_by(hts10, country, authority) %>%
+      summarise(rate = max(rate), .groups = 'drop')
+  }
 
   # Pivot to wide format
   rates_wide <- by_authority %>%
@@ -1648,6 +1655,7 @@ calculate_rates_for_revision <- function(
   # filter_active_ch99(effective_date) gate, so no re-extraction is needed here.
 
   pp <- policy_params %||% load_policy_params()
+  assert_counterfactual_inputs_applied(pp)
   cc <- get_country_constants(pp)
   CTY_CHINA  <- cc$CTY_CHINA
   CTY_CANADA <- cc$CTY_CANADA
@@ -2176,6 +2184,21 @@ calculate_rates_for_revision <- function(
   # rates no product is a content-scaled 232 vehicle, so the empty set is the
   # correct value — not just a crash guard.
   usmca_vehicle_products <- character(0)
+  steel_products <- character(0)
+  aluminum_products <- character(0)
+  auto_products <- character(0)
+  copper_products <- character(0)
+  wood_products <- character(0)
+  mhd_products <- character(0)
+  semi_products <- character(0)
+  pharma_products <- character(0)
+  metal_program_products <- character(0)
+  s232_country_codes <- character(0)
+  heading_gates <- list()
+  heading_product_rate <- tibble(
+    hts10 = character(), heading_232_rate = numeric(),
+    heading_usmca_exempt = logical()
+  )
 
   if (s232_rates$has_232) {
     # --- Identify covered products by prefix matching ---
@@ -3491,6 +3514,13 @@ calculate_rates_for_revision <- function(
   # nor the binary S/S+ fallback fires). The data_loader for mode='none' returns
   # an empty tibble; the short-circuit here is what actually implements the
   # scenario semantics.
+  # Dense-grid expansion may have supplied the schema default already; replace
+  # it with the authoritative HTS-derived value below instead of creating
+  # usmca_eligible.x/.y on the join.
+  rates$usmca_eligible <- NULL
+  if (!'s232_usmca_eligible' %in% names(rates)) {
+    rates$s232_usmca_eligible <- FALSE
+  }
   usmca_mode <- pp$USMCA_SHARES$mode %||% 'h2_average'
   ann1c_usmca_target <- if (!is.null(annex_cfg)) {
     annex_cfg$annexes$annex_1c$usmca_steel$target_total %||% 0.15
@@ -3811,16 +3841,6 @@ calculate_rates_for_revision <- function(
   if ('statutory_rate_s301br' %in% names(rates)) {
     rates$statutory_rate_s301br <- coalesce(rates$statutory_rate_s301br, 0)
   }
-
-  # 7g. Authority kill-switch (counterfactual scenarios). `disabled_authorities`
-  # in the merged config (set ONLY by scenario overlays, e.g.
-  # config/scenarios/no_301/overlay.yaml — absent in baseline => no-op,
-  # byte-identical) zeroes the listed authorities' rate columns here, before
-  # stacking, so totals and contribution shares recompute consistently on what
-  # remains. Names validate against the config authority_columns map; unknown
-  # names fail loud. See apply_authority_disables() in rate_schema.R.
-  rates <- apply_authority_disables(rates, pp$disabled_authorities,
-                                    pp$AUTHORITY_COLUMNS)
 
   # 8. Re-apply stacking rules with updated IEEPA and 232 rates. Phase 3b: when
   # enabled (TARIFF_RESOLVED_STACKING), route through the resolved-program long

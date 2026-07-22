@@ -405,6 +405,7 @@ alt_runner <- function(alt_specs, alt_workers = 1L, log_dir = NULL,
     source(here('src', 'pipeline', '06_calculate_rates.R'))
     source(here('src', 'model', 'authority_spec.R'))
     source(here('src', 'model', 'authority_adapter.R'))
+    source(here('src', 'pipeline', 'revision_snapshot.R'))
     source(here('src', 'pipeline', '09_daily_series.R'))
   }
 

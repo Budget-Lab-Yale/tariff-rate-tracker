@@ -125,6 +125,18 @@ if (!parallel_backend_available()) {
 }
 
 cat('\nALL SMOKE-TEST ASSERTIONS PASSED\n')
+
+# The production alternative builder must delegate revision work to the exact
+# same unit as baseline builds. Pin that architecture so parsing/calculation
+# cannot quietly be copied back into the scenario loop.
+source(here('src', 'core', 'helpers.R'))
+source(here('src', 'pipeline', '09_daily_series.R'))
+alt_body <- paste(deparse(body(build_alternative_timeseries)), collapse = '\n')
+stopifnot(grepl('build_revision_snapshot', alt_body, fixed = TRUE))
+stopifnot(!grepl('parse_chapter99(json_path)', alt_body, fixed = TRUE))
+stopifnot(!grepl('calculate_rates_for_revision(', alt_body, fixed = TRUE))
+cat('  ok: baseline and alternatives share build_revision_snapshot()\n')
+
 cat('\nNote: end-to-end output equivalence between serial and\n')
 cat('--parallel --alt-workers 2 requires real HTS snapshots and is\n')
 cat('exercised by scripts/submit_alt_equivalence.sh, not this script.\n')

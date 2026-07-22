@@ -38,6 +38,7 @@ src/
   05_parse_policy_params.R   Extracts IEEPA / fentanyl / §232 / USMCA params from the JSON.
   06_calculate_rates.R       Core engine: calculate_rates_for_revision() — the stacked rate panel.
   07_validate_tpc.R          Optional TPC benchmark comparison (no-op without TPC data).
+  revision_snapshot.R        Shared per-revision build unit used by baseline and scenarios.
   09_daily_series.R          Daily aggregates + weighted ETR + alternative-series runner.
 ```
 
@@ -48,6 +49,7 @@ src/
   authority_adapter.R  build_authority_specs(): parser outputs -> uniform spec set.
   stacking.R           Mutual-exclusion stacking rules + authority decomposition.
   rate_schema.R        Canonical rate_* columns, schema enforcement, authority classifier.
+  scenario_inputs.R    Removes disabled-authority inputs before scenario calculation.
   policy_params.R      YAML config loader, country constants, scenario overlay deep-merge.
   data_loaders.R       Resource-file loaders (232 derivatives/annex, USMCA, metal, fentanyl).
   revisions.R          Revision-id parsing, JSON path resolution, archive/release naming.
@@ -115,6 +117,9 @@ HTS JSON archives
   03_parse_chapter99  -->  ch99_data
   04_parse_products   -->  products
   05_parse_policy_params --> ieepa_rates, fentanyl_rates, s232_rates, usmca
+       |
+       v
+  revision_snapshot   -->  one shared baseline/scenario build route
        |
        v
   authority_adapter   -->  authority_spec_set  (uniform per-authority specs)

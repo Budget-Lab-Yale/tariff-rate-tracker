@@ -3,7 +3,7 @@
 # build_revision.R — build ONE revision's snapshot (the array-parallel unit)
 # =============================================================================
 #
-# Wraps build_revision_snapshot() (src/pipeline/00_build_timeseries.R) with the same
+# Wraps build_revision_snapshot() (src/pipeline/revision_snapshot.R) with the same
 # setup build_full_timeseries() does, for exactly one revision. Writes only
 # that revision's scoped artifacts (snapshot_<rev>.rds + ch99_/products_ caches
 # + validation_<rev>.rds). It also writes the revision-local daily aggregate part
@@ -21,7 +21,7 @@ suppressPackageStartupMessages({
 })
 
 # Sourcing 00 pulls in the full pipeline chain (logging/helpers/parallel/01-07)
-# and defines build_revision_snapshot(). revisions.R + policy_params.R hold the
+# including the shared build_revision_snapshot(). revisions.R + policy_params.R hold the
 # setup helpers (load_revision_dates / load_policy_params / load_local_paths);
 # source explicitly so we don't depend on transitive sourcing.
 suppressMessages({

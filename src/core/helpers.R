@@ -16,6 +16,7 @@ source(here('src', 'model', 'stacking.R'))
 source(here('src', 'model', 'resolved_programs.R'))  # Phase 3b: resolved-program table (needs stacking.R)
 source(here('src', 'model', 'timeline.R'))           # Phase 3c: unified schedule-boundary splitter
 source(here('src', 'model', 'rate_schema.R'))
+source(here('src', 'model', 'scenario_inputs.R'))
 source(here('src', 'model', 'data_loaders.R'))
 source(here('src', 'io', 'output_paths.R'))   # Phase 5: output layout (actual/ + scenarios/)
 source(here('src', 'model', 'scenario_registry.R'))  # alternatives unification: config/scenarios registry

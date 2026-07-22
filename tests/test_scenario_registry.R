@@ -9,7 +9,7 @@
 #      the same effective policy_params as the historical pp_override closure
 #      in build_rebuild_alt_registry() (delete that function + section 3 here
 #      once the cluster golden diff passes; see todo.md Phase 4 Step 5)
-#   4. apply_authority_disables() — the counterfactual kill-switch
+#   4. apply_counterfactual_inputs() — pre-calculation authority removal
 #   5. Counterfactual overlays — disabled_authorities round-trips through
 #      load_policy_params(scenario = ...) and validates against authority_columns
 #
@@ -196,62 +196,69 @@ run_test('parity: registry covers every legacy variant (none orphaned)', {
 })
 
 # =============================================================================
-# 4. apply_authority_disables()
+# 4. Counterfactuals change parsed inputs before calculation
 # =============================================================================
-message('\n--- apply_authority_disables() ---')
+message('\n--- apply_counterfactual_inputs() ---')
 
-auth_cols <- pp_base$AUTHORITY_COLUMNS
-
-fixture <- tibble(
-  hts10 = c('0101210010', '8471500100'),
-  country = c('5700', '1220'),
-  rate_232 = c(0.25, 0.50),
-  rate_301 = c(0.25, 0),
-  rate_301_cs = c(0, 0),
-  rate_ieepa_recip = c(0.10, 0.10),
-  rate_ieepa_fent = c(0.20, 0),
-  rate_s122 = c(0.10, 0.10),
-  rate_other = c(0, 0)
+ch99_fixture <- tibble(
+  ch99_code = c('9903.80.01', '9903.88.15', '9903.03.01',
+                '9903.02.09', '9903.01.20', '9903.10.01'),
+  authority = c('section_232', 'section_301', 'section_122',
+                'ieepa_reciprocal', 'other', 'other'),
+  rate = c(.25, .25, .10, .10, .20, .05)
 )
+ieepa_fixture <- tibble(ch99_code = '9903.02.09', rate = .10)
+attr(ieepa_fixture, 'universal_baseline') <- .10
+fentanyl_fixture <- tibble(ch99_code = '9903.01.20', rate = .20)
 
 run_test('empty / NULL disabled is a no-op (baseline invariant)', {
-  stopifnot(
-    identical(apply_authority_disables(fixture, NULL, auth_cols), fixture),
-    identical(apply_authority_disables(fixture, character(0), auth_cols), fixture)
+  out <- apply_counterfactual_inputs(
+    ch99_fixture, ieepa_fixture, fentanyl_fixture, pp_base
   )
+  stopifnot(identical(out$ch99_data, ch99_fixture))
+  stopifnot(identical(out$ieepa_rates, ieepa_fixture))
+  stopifnot(identical(out$fentanyl_rates, fentanyl_fixture))
+  stopifnot(length(out$policy_params$SCENARIO_DISABLED_AUTHORITIES_APPLIED) == 0)
 })
 
-run_test('single authority zeroes exactly its column', {
-  out <- apply_authority_disables(fixture, 'section_301', auth_cols)
-  stopifnot(
-    all(out$rate_301 == 0),
-    identical(out$rate_232, fixture$rate_232),
-    identical(out$rate_ieepa_recip, fixture$rate_ieepa_recip),
-    identical(out$rate_s122, fixture$rate_s122)
+run_test('no_232 removes §232 inputs but leaves IEEPA and §301 intact', {
+  pp <- pp_base; pp$disabled_authorities <- 'section_232'
+  out <- apply_counterfactual_inputs(
+    ch99_fixture, ieepa_fixture, fentanyl_fixture, pp
   )
+  stopifnot(!'9903.80.01' %in% out$ch99_data$ch99_code)
+  stopifnot(all(c('9903.88.15', '9903.02.09') %in% out$ch99_data$ch99_code))
+  stopifnot(identical(out$ieepa_rates, ieepa_fixture))
+  stopifnot(is.null(out$policy_params$S232_ANNEXES))
+  stopifnot(identical(out$policy_params$section_232_headings, list()))
 })
 
-run_test('multi-authority (pre_2025 set) zeroes all three columns', {
-  out <- apply_authority_disables(
-    fixture, c('ieepa_reciprocal', 'ieepa_fentanyl', 'section_122'), auth_cols)
-  stopifnot(
-    all(out$rate_ieepa_recip == 0),
-    all(out$rate_ieepa_fent == 0),
-    all(out$rate_s122 == 0),
-    identical(out$rate_232, fixture$rate_232),
-    identical(out$rate_301, fixture$rate_301)
+run_test('no_ieepa removes both extracted inputs and their Ch99 rows', {
+  pp <- pp_base
+  pp$disabled_authorities <- c('ieepa_reciprocal', 'ieepa_fentanyl')
+  out <- apply_counterfactual_inputs(
+    ch99_fixture, ieepa_fixture, fentanyl_fixture, pp
   )
+  stopifnot(nrow(out$ieepa_rates) == 0, nrow(out$fentanyl_rates) == 0)
+  stopifnot(!any(c('9903.02.09', '9903.01.20') %in% out$ch99_data$ch99_code))
+  stopifnot('9903.80.01' %in% out$ch99_data$ch99_code)
 })
 
 run_test('unknown authority name fails loud', {
-  expect_error(apply_authority_disables(fixture, 'section_999', auth_cols),
-               'unknown authority')
+  pp <- pp_base; pp$disabled_authorities <- 'section_999'
+  expect_error(
+    apply_counterfactual_inputs(ch99_fixture, ieepa_fixture, fentanyl_fixture, pp),
+    'unsupported authority'
+  )
 })
 
-run_test('mapped column missing from rates fails loud', {
-  expect_error(
-    apply_authority_disables(fixture %>% select(-rate_s122), 'section_122', auth_cols),
-    'missing from rates')
+run_test('calculator guard rejects a counterfactual that bypasses input removal', {
+  pp <- pp_base; pp$disabled_authorities <- 'section_301'
+  expect_error(assert_counterfactual_inputs_applied(pp), 'before calculation')
+  out <- apply_counterfactual_inputs(
+    ch99_fixture, ieepa_fixture, fentanyl_fixture, pp
+  )
+  stopifnot(isTRUE(assert_counterfactual_inputs_applied(out$policy_params)))
 })
 
 # =============================================================================
@@ -279,7 +286,7 @@ for (nm in names(expected_disables)) {
   })
 }
 
-run_test('baseline has no disabled_authorities (kill-switch is overlay-only)', {
+run_test('baseline has no disabled_authorities (input removal is scenario-only)', {
   stopifnot(is.null(pp_base$disabled_authorities))
 })
 

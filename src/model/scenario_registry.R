@@ -17,7 +17,7 @@
 #                   metal content, ...). Run by the alternatives runner
 #                   (run_alternative_series -> alt_runner): full per-revision
 #                   recalc, daily aggregates to output/scenarios/<name>/.
-#   counterfactual  policy what-if expressed via the authority kill-switch
+#   counterfactual  policy what-if expressed by removing authority inputs
 #                   (disabled_authorities) or other overlay keys. Same runner.
 #   scenario        a full named series (forced_labor, new_301) built with the
 #                   main build under TARIFF_SCENARIO/TARIFF_SERIES — persisted

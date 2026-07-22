@@ -119,51 +119,50 @@
 <div class="shell">
   <header>
     <div class="eyebrow">Maintainability &amp; policy-risk review</div>
-    <h1>Make the model smaller by giving it one way to mean each thing.</h1>
-    <p class="dek">A structural audit of the Tariff Rate Tracker, focused on reducing code volume without turning the model into an opaque configuration language—and on shrinking the surface area where a plausible-looking output can be wrong.</p>
-    <p class="meta">Review date: 21 July 2026 · Revision: <span class="mono">54b0fb9</span> (<span class="mono">master</span>) · Scope: production R model, scenarios, timeline, aggregation, and tests</p>
+    <h1>Make the model easier to trust by giving each rule one home.</h1>
+    <p class="dek">A plain-language review of where the Tariff Rate Tracker is hard to maintain, why that creates policy risk, and how to simplify it without hiding important choices in settings files.</p>
+    <p class="meta">Review date: 21 July 2026 · Review base: <span class="mono">54b0fb9</span> · Implementation branch: <span class="mono">cleanup</span></p>
   </header>
 
   <nav aria-label="Report sections">
-    <a href="#verdict">Verdict</a>
-    <a href="#shape">Code shape</a>
+    <a href="#verdict">Bottom line</a>
+    <a href="#shape">Scale</a>
     <a href="#recommendations">Recommendations</a>
-    <a href="#roadmap">Migration order</a>
-    <a href="#tests">Safety evidence</a>
+    <a href="#roadmap">Order of work</a>
+    <a href="#tests">What was tested</a>
     <a href="#quick-wins">Quick wins</a>
   </nav>
 
   <section id="verdict">
     <h2>Bottom line</h2>
     <div class="callout">
-      <strong>I did not find evidence that the current baseline is broadly broken.</strong> The core smoke suites completed with 202 passing assertions and no failures. But the codebase has a high structural risk: the same policy fact is often represented in several places, and the same output can be reached through distinct baseline, scenario, point-query, daily, and publishing paths. That creates opportunities for a change to land in one representation while silently missing another.
+      <strong>I found no sign that the baseline results are broadly wrong.</strong> The main tests passed. The larger concern is future error: one policy fact can appear in several parts of the model, and several different routes can produce a public result. A change can therefore be correct in one place but quietly missing in another.
     </div>
     <div class="callout good">
-      <strong>Implementation update, 21 July 2026.</strong> Recommendations 5 and 6 have begun: CI now discovers all 35 test entry points, hidden module dependencies and stale expectations were repaired, and the country/GTAP/HS daily rollups now share one aggregation kernel and one prepared interval context. The complete discovered suite passes; files containing internally skipped artifact checks are marked separately by the runner.
+      <strong>Work already completed.</strong> The project now finds every test file automatically. The daily summaries for countries and product groups use the same shared calculation instead of three copied versions. A new small saved example also checks that a baseline result and a “no §232” result are written correctly.
     </div>
-    <p>The model’s complexity is not mainly “too many tariff rules.” It is <em>representation multiplicity</em>: bespoke parser objects, an adapter, partially normalized specs, a residual §232 blob, a wide rate panel, a default-off long panel, repeated rate-column registries, synthetic boundary snapshots, and a downstream expiry mutation. Each layer is locally understandable; their coexistence is what makes the whole difficult to reason about.</p>
-    <div class="callout risk">
-      <strong>The sharpest current example is scenario disabling.</strong> <a href="../src/model/rate_schema.R"><span class="mono">apply_authority_disables()</span></a> zeroes authority columns late in the calculation. Its own documentation notes that earlier cross-authority interactions are not re-derived—for example, disabling §232 does not recompute earlier IEEPA floor logic. A “no §232” result can therefore be a late-edited baseline, not the result of calculating a world with no §232. This should be made impossible by construction.
+    <p>The main problem is not the number of tariff programs. The problem is that the model often describes the same program more than once: first when reading source material, again when preparing calculation inputs, again in the main calculator, and sometimes again for scenarios or daily reports. Each copy is understandable on its own. Keeping the copies in agreement is the dangerous part.</p>
+    <div class="callout good">
+      <strong>The clearest scenario risk has now been fixed.</strong> A scenario such as “no §232” now removes that program before calculation and rebuilds the result. Normal and scenario runs also use the same builder, so earlier interactions with other programs are recalculated instead of being left behind.
     </div>
   </section>
 
   <section id="shape">
-    <h2>What the codebase looks like</h2>
+    <h2>The scale of the maintenance problem</h2>
     <div class="grid">
-      <div class="stat"><span class="big">21,529</span><span class="label">lines of production R across 33 files</span></div>
-      <div class="stat"><span class="big">12,974</span><span class="label">non-comment, non-blank source lines</span></div>
-      <div class="stat"><span class="big">314</span><span class="label">top-level functions</span></div>
-      <div class="stat"><span class="big">2,321</span><span class="label">lines in the largest single function</span></div>
+      <div class="stat"><span class="big">21,504</span><span class="label">lines of production R</span></div>
+      <div class="stat"><span class="big">34</span><span class="label">production R files</span></div>
+      <div class="stat"><span class="big">41%</span><span class="label">of the code in four pipeline files</span></div>
+      <div class="stat"><span class="big">2,321</span><span class="label">lines in the largest calculation function</span></div>
     </div>
-    <p>The four largest pipeline files contain 8,894 lines—41% of all production R. The concentration is a symptom, but the more useful fact is that the authority abstraction cluster alone (<span class="mono">06_calculate_rates</span>, <span class="mono">authority_adapter</span>, <span class="mono">authority_spec</span>, <span class="mono">stacking</span>, and <span class="mono">resolved_programs</span>) is 5,910 lines and still contains overlapping representations.</p>
+    <p>Large files are not automatically bad. Here, however, the largest files also contain several overlapping ways to describe, calculate, and report tariff rules. That makes reviews slow and makes it harder to know whether a change reached every public output.</p>
 
-    <div class="barrow"><div><a href="../src/pipeline/06_calculate_rates.R">06_calculate_rates.R</a></div><div class="bartrack"><div class="bar" style="width:100%"></div></div><div>3,939</div></div>
-    <div class="barrow"><div><a href="../src/pipeline/09_daily_series.R">09_daily_series.R</a></div><div class="bartrack"><div class="bar" style="width:56.4%"></div></div><div>2,220</div></div>
-    <div class="barrow"><div><a href="../src/pipeline/05_parse_policy_params.R">05_parse_policy_params.R</a></div><div class="bartrack"><div class="bar" style="width:35.8%"></div></div><div>1,412</div></div>
-    <div class="barrow"><div><a href="../src/pipeline/00_build_timeseries.R">00_build_timeseries.R</a></div><div class="bartrack"><div class="bar" style="width:33.6%"></div></div><div>1,323</div></div>
-    <div class="barrow"><div><a href="../src/model/authority_adapter.R">authority_adapter.R</a></div><div class="bartrack"><div class="bar" style="width:23.8%"></div></div><div>938</div></div>
+    <div class="barrow"><div>Main rate calculator</div><div class="bartrack"><div class="bar" style="width:100%"></div></div><div>3,939</div></div>
+    <div class="barrow"><div>Daily reporting</div><div class="bartrack"><div class="bar" style="width:55.9%"></div></div><div>2,203</div></div>
+    <div class="barrow"><div>Policy preparation</div><div class="bartrack"><div class="bar" style="width:35.8%"></div></div><div>1,412</div></div>
+    <div class="barrow"><div>Historical-series builder</div><div class="bartrack"><div class="bar" style="width:33.6%"></div></div><div>1,323</div></div>
 
-    <p class="small">Line counts include comments because comments are part of the maintenance burden here: <span class="mono">06_calculate_rates.R</span> contains 1,222 comment lines, many describing migration phases and parity constraints that are no longer obvious from the executable structure.</p>
+    <p class="small">These counts include comments because long explanations of old migrations also take time to understand and keep current.</p>
   </section>
 
   <section id="recommendations">
@@ -172,89 +171,53 @@
     <article class="finding" id="r1">
       <div class="finding-head">
         <div class="rank">1</div>
-        <div><h3>Finish the authority abstraction—or remove it. Do not keep the halfway state.</h3><div class="subtitle">Compile policy facts into one executable program representation, then let the calculator consume only that representation.</div></div>
-        <div class="tags"><span class="tag high">Risk reduction: very high</span><span class="tag large">Net deletion: 2.5–4k lines</span><span class="tag medium">Effort: high</span></div>
+        <div><h3>Give every tariff program one official description.</h3><div class="subtitle">Do not keep both the old and new descriptions alive indefinitely.</div></div>
+        <div class="tags"><span class="tag high">Risk reduction: very high</span><span class="tag large">Possible deletion: 2.5–4k lines</span><span class="tag medium">Effort: high</span></div>
       </div>
       <div class="finding-body">
-        <div class="columns">
-          <div>
-            <h3>Why this is the largest simplification</h3>
-            <p><a href="../src/model/authority_spec.R">AuthoritySpec</a> promises one uniform authority shape, but <a href="../src/model/authority_adapter.R">the adapter</a> still parks the 21-field §232 parser object at <code>programs[[1]]$rate$resolved</code>. The calculator immediately reconstructs <code>s232_rates</code> from it, while some rates, deals, gates, annex maps, exemptions, and stacking classes are also copied into normalized fields.</p>
-            <p>That means a reviewer must know which field is authoritative for each sub-rule. The adapter’s comments repeatedly describe “de-blob” migration planks; the production architecture should not permanently expose migration state as domain architecture.</p>
-          </div>
-          <div class="evidence">
-            <strong>Concrete evidence</strong>
-            <ul>
-              <li><span class="mono">build_authority_specs()</span> is about 421 lines.</li>
-              <li><span class="mono">calculate_rates_for_revision()</span> is about 2,321 lines.</li>
-              <li>§232 is read both through normalized program fields and through <span class="mono">s232_rates_from_specs()</span>.</li>
-              <li><a href="../src/model/resolved_programs.R">resolved_programs.R</a> adds a second, default-off representation that expands to roughly seven times the panel rows.</li>
-              <li><a href="../src/model/stacking.R">stacking.R</a> still carries a hand-maintained skeleton mapping rate columns back to spec authorities.</li>
-            </ul>
-          </div>
-        </div>
-        <h3>The target design</h3>
+        <p>The model is partway through a redesign. A newer, common format describes tariff programs, but important §232 details still live in an older bundle of data. Some information is copied into the new format while some remains in the old one. The main calculator reads both.</p>
+        <p>This forces a reviewer to remember which version controls each detail. It also means a future correction might update only one version.</p>
         <div class="flow">
-          <div class="box"><strong>Parse legal facts</strong><br><span class="small">HTS entries, resource tables, rates, dates</span></div><div class="arrow">→</div>
-          <div class="box"><strong>Compile programs</strong><br><span class="small">scope + rate semantics + adjustments + precedence</span></div><div class="arrow">→</div>
-          <div class="box"><strong>Apply programs</strong><br><span class="small">one generic executor, then one stack and schema pass</span></div>
+          <div class="box"><strong>Read the legal facts</strong><br><span class="small">products, countries, rates, dates</span></div><div class="arrow">→</div>
+          <div class="box"><strong>Create one policy description</strong><br><span class="small">including exceptions and interactions</span></div><div class="arrow">→</div>
+          <div class="box"><strong>Calculate once</strong><br><span class="small">then validate and publish</span></div>
         </div>
-        <p class="target"><strong>Keep policy logic in code.</strong> This is not a recommendation to create a giant YAML DSL. Use small typed R constructors for <code>scope</code>, <code>rate</code>, <code>floor</code>, <code>exemption</code>, <code>utilization</code>, and <code>stacking</code>. Let specialized resolvers—especially the §232 annex classifier—produce those objects. Once compiled, no calculator function should read raw parser blobs or <code>policy_params</code> directly.</p>
-        <p><strong>Deletion condition:</strong> when all live consumers use the compiled form, delete <code>rate$resolved</code>, <code>s232_rates_from_specs()</code>, the default-off resolved panel, duplicate stacking registries, and authority-specific “read it a second way” branches. If the team cannot fund that migration, the safer short-term choice is to roll AuthoritySpec back to a thin documented facade instead of maintaining two partial engines.</p>
+        <p class="target"><strong>Recommendation:</strong> finish moving every live tariff program into the common format, then delete the older routes. Keep the actual policy logic in R code so it remains reviewable; do not replace it with a large, hard-to-audit settings language.</p>
+        <p>If the group cannot fund the full move, simplify the new layer and clearly document it as a wrapper. A smaller honest design is safer than two half-complete calculation systems.</p>
       </div>
     </article>
 
     <article class="finding" id="r2">
       <div class="finding-head">
         <div class="rank">2</div>
-        <div><h3>Allocate the product-country panel once; have authorities emit sparse patches.</h3><div class="subtitle">Replace repeated “update existing rows, add missing pairs, fill every other authority with zero” code.</div></div>
-        <div class="tags"><span class="tag high">Risk reduction: high</span><span class="tag large">Net deletion: 0.8–1.5k lines</span><span class="tag medium">Effort: medium-high</span></div>
+        <div><h3>Build the product-by-country table once.</h3><div class="subtitle">Each tariff program should add only the rates and labels that it changes.</div></div>
+        <div class="tags"><span class="tag high">Risk reduction: high</span><span class="tag large">Possible deletion: 0.8–1.5k lines</span><span class="tag medium">Effort: medium-high</span></div>
       </div>
       <div class="finding-body">
-        <div class="columns">
-          <div>
-            <p>The calculator begins with only footnote-linked rows, then each blanket authority mutates existing rows and manufactures missing rows. §122, §201, §301, IEEPA, fentanyl, and §232 all contain variations on this shape. Finally, <code>ensure_dense_grid()</code> allocates every remaining MFN-only pair anyway.</p>
-            <p>The repetition is not harmless. Every new authority must know the current list of all other <code>rate_*</code> columns and their safe defaults. Scenario-only columns require special NA lifecycle comments and late deletion. This is why rate-column lists recur throughout schema, stacking, daily aggregation, validation, and calculator code.</p>
-          </div>
-          <div class="evidence">
-            <strong>Examples</strong>
-            <ul>
-              <li><code>add_blanket_pairs()</code> and <code>ensure_dense_grid()</code></li>
-              <li>Manual zero-filled row creation near §122 GN6, §301, IEEPA, and §232</li>
-              <li><code>SAFE_NA_COLUMNS</code> in the 180-line densification helper</li>
-              <li>Repeated lists such as <code>rate_232, rate_301, rate_301_cs, …</code></li>
-            </ul>
-          </div>
-        </div>
-        <h3>A memory-safe replacement</h3>
+        <p>Several programs separately add missing product-country rows, update rows that already exist, and fill unrelated tariff columns with zero. At the end, the model builds the complete table anyway.</p>
+        <p>This repetition makes every new program responsible for knowing the shape and default values of every older program. That is unnecessary coupling and an easy source of missing or stale columns.</p>
         <ol>
-          <li>Create the eventual dense pair table once, with a stable integer <code>pair_id</code>, base-rate columns, and canonical defaults. The model already reaches roughly 4.7 million rows per revision, so this does not enlarge the final object.</li>
-          <li>Each compiled authority returns only non-zero or metadata-bearing patches: <code>pair_id, authority_id, statutory_rate, effective_rate, tags</code>.</li>
-          <li>Apply patches by reference to wide output columns, or reduce patches to one wide block once. Do <em>not</em> retain a ten-authority long table for every pair; the existing prototype documents the 7× row penalty.</li>
-          <li>Stack once, validate once, and write once.</li>
+          <li>Create the complete product-country list once.</li>
+          <li>Give each row a stable identifier.</li>
+          <li>Let each tariff program return only the rows it changes.</li>
+          <li>Combine the changes once, check the totals once, and publish once.</li>
         </ol>
-        <p class="target">This pattern centralizes defaults and pair creation while preserving the wide output contract and current performance strategy. A new authority supplies one patch producer and one registry entry; it no longer constructs rows containing zeros for every authority that already exists.</p>
+        <p class="target">This keeps the current output shape and should not require more memory than the finished table already uses. It removes repeated row-building code and gives defaults one clear home.</p>
       </div>
     </article>
 
     <article class="finding" id="r3">
       <div class="finding-head">
         <div class="rank">3</div>
-        <div><h3>Make “state at date D” the only temporal operation.</h3><div class="subtitle">Use one event calendar and synthetic snapshots; retire downstream policy mutation.</div></div>
-        <div class="tags"><span class="tag high">Risk reduction: very high</span><span class="tag large">Net deletion: 0.3–0.7k lines</span><span class="tag medium">Effort: medium</span></div>
+        <div><h3>Use one calendar for every policy change.</h3><div class="subtitle">A date should have one answer everywhere in the model.</div></div>
+        <div class="tags"><span class="tag high">Risk reduction: very high</span><span class="tag large">Possible deletion: 0.3–0.7k lines</span><span class="tag medium">Effort: medium</span></div>
       </div>
       <div class="finding-body">
-        <p>The timeline is much better documented than most of the model, but it still has two state-change mechanisms:</p>
-        <ul>
-          <li><a href="../src/model/timeline.R"><code>discover_boundaries()</code></a> and <a href="../src/pipeline/00_build_timeseries.R"><code>build_boundary_mints()</code></a> recompute synthetic snapshots for most mid-revision changes.</li>
-          <li><a href="../src/core/helpers.R"><code>apply_expiry_zeroing()</code></a> mutates Swiss reciprocal rates downstream for daily aggregation and point queries. The daily pipeline must split intervals, zero a column, and re-stack.</li>
-        </ul>
-        <p>The stated reason is revealing: a recompute after the Swiss framework expiry would restore an underlying pre-floor surcharge, but the snapshot does not store that underlying component, so downstream code conservatively forces the result to zero. The temporal exception is compensating for a missing policy-state representation.</p>
-        <h3>Recommended change</h3>
-        <p>Store the reciprocal layers needed to resolve the post-expiry state—e.g. underlying surcharge, framework floor, and their validity windows—in the compiled program state. Then every boundary, including Swiss expiry, can mint a snapshot by invoking the same <code>calculate_at(date)</code> operation. Point queries simply select the interval; daily aggregation simply broadcasts it.</p>
+        <p>Most mid-period policy changes cause the model to calculate a new dated snapshot. One Swiss expiration is handled differently: later reporting code edits the rate after the main calculation. The exception exists because the saved result does not retain enough information to rebuild the correct post-expiration rate.</p>
+        <p class="target"><strong>Recommendation:</strong> save the underlying rate, the temporary floor, and their active dates. Then calculate every start or expiration date through the same route.</p>
         <div class="columns">
-          <div class="evidence"><strong>Delete or collapse</strong><br><code>collect_expiry_adjustments()</code>, <code>expiry_boundaries()</code>, <code>apply_expiry_zeroing()</code>, <code>apply_post_interval_adjustments_point()</code>, expiry-specific branches in daily expansion, and the “mint versus zeroing” mutual-exclusion protocol.</div>
-          <div class="evidence"><strong>Gain</strong><br>The published snapshot panel, point query API, daily outputs, and downstream tariff model all read the same state. There is no class of policy change visible only to daily reports but absent from published snapshots.</div>
+          <div class="evidence"><strong>What goes away</strong><br>Special expiration edits in daily reports and point-in-time queries.</div>
+          <div class="evidence"><strong>What improves</strong><br>Published snapshots, daily reports, and one-date lookups all use the same policy state.</div>
         </div>
       </div>
     </article>
@@ -262,135 +225,117 @@
     <article class="finding" id="r4">
       <div class="finding-head">
         <div class="rank">4</div>
-        <div><h3>Make scenarios inputs, never edits to resolved rates.</h3><div class="subtitle">One revision builder for baseline and scenarios; scenario composition for shared definitions.</div></div>
-        <div class="tags"><span class="tag high">Risk reduction: very high</span><span class="tag large">Net deletion: 0.3–0.6k lines</span><span class="tag medium">Effort: medium</span></div>
+        <div><h3>Recalculate scenarios from changed policy inputs.</h3><div class="subtitle">Never create a scenario by editing finished rates.</div></div>
+        <div class="tags"><span class="tag high">Risk reduction: very high</span><span class="tag large">Less repeated code</span><span class="tag safe">Status: completed</span></div>
       </div>
       <div class="finding-body">
-        <p>There are currently two classes of scenario:</p>
-        <ol>
-          <li>Overlays that genuinely change inputs before resolution, such as USMCA utilization or metal-content assumptions.</li>
-          <li><code>disabled_authorities</code>, applied near the end of the calculator by zeroing output columns.</li>
-        </ol>
-        <p>The second class must disappear. “No §232” should remove §232 programs before pair resolution, so floors, exemptions, stacking, statutory shadows, and USMCA interactions naturally recompute. A scenario should be equivalent to baseline plus a different set of compiled policy programs—not baseline output plus a patch.</p>
-        <p>Also route every scenario revision through <a href="../src/pipeline/00_build_timeseries.R"><code>build_revision_snapshot()</code></a>. <a href="../src/pipeline/09_daily_series.R"><code>build_alternative_timeseries()</code></a> currently repeats JSON loading, parsing, extraction, spec building, calculation, error handling, snapshot naming, and interval assembly. It even mutates an obsolete <code>.pp</code> value in the calculator’s environment despite the calculator now receiving <code>policy_params</code> explicitly.</p>
-        <p class="target"><strong>Config composition should remove copied facts, not add a language.</strong> Let <code>new_301</code> include the <code>forced_labor</code> overlay plus a Brazil program. Give list fields explicit merge semantics, especially boundary dates. Today both overlays repeat a 60-country roster and must re-list baseline boundary overrides because deep merge replaces lists wholesale; the comments correctly warn that omitting one can shift policy timing.</p>
+        <p>Previously, some scenarios calculated the baseline and then erased one tariff program’s final rate. That could leave behind effects the program had on other rules.</p>
+        <p class="target"><strong>Status:</strong> completed in the current cleanup. A “no §232” scenario now removes §232 at the start and runs the normal calculation again. Normal and scenario runs use the same builder.</p>
+        <p>Exemptions, floors, trade preferences, and interactions with other programs can now adjust naturally. The calculator also stops with an error if a future scenario accidentally tries to skip this safer route.</p>
       </div>
     </article>
 
     <article class="finding" id="r5">
       <div class="finding-head">
         <div class="rank">5</div>
-        <div><h3>Turn <code>src/</code> into an actual module boundary and discover every test automatically.</h3><div class="subtitle">Eliminate hidden source-order dependencies and the false confidence of orphaned tests.</div></div>
-        <div class="tags"><span class="tag high">Risk reduction: high</span><span class="tag large">Net deletion: 0.3–0.7k lines</span><span class="tag medium">Effort: medium</span></div>
+        <div><h3>Make dependencies clear and run every test.</h3><div class="subtitle">A test that CI never runs provides false comfort.</div></div>
+        <div class="tags"><span class="tag high">Risk reduction: high</span><span class="tag large">Possible deletion: 0.3–0.7k lines</span><span class="tag medium">Effort: medium</span></div>
       </div>
       <div class="finding-body">
-        <p><a href="../src/core/helpers.R"><code>helpers.R</code></a> sources nine modules and acts as a global symbol injector. Some files claim to be directly sourceable but call helpers they do not import. Other files use <code>exists()</code>, conditional <code>source()</code>, and environment mutation to compensate for uncertain load order.</p>
-        <div class="callout risk">
-          In a targeted run of 12 standalone test files, 5 failed. Four failures were hidden dependencies—<code>read_csv_cached()</code> or <code>ensure_cols()</code> did not exist when a documented module was sourced directly. A fifth test asserted that the §122 expiry must not mint, contradicting the current timeline implementation and the passing mint-equivalence test. These are not numerical failures, but they show that tests outside the hand-picked CI list can rot unnoticed.
-        </div>
-        <p class="target"><strong>Status:</strong> the runner and immediate dependency repairs are implemented. All 35 discovered test files pass. Packaging <code>src/</code> as a true namespace and adding a committed artifact fixture remain future work.</p>
-        <h3>Recommended shape</h3>
-        <ul>
-          <li>Create a lightweight internal R package (it need not be published): <code>R/</code>, <code>DESCRIPTION</code>, <code>NAMESPACE</code>, and explicit imports. Keep CLI files in <code>scripts/</code> as thin wrappers.</li>
-          <li>Move top-level executable code behind <code>main()</code>; never make function availability depend on source order.</li>
-          <li>Adopt one test runner that discovers every <code>test-*.R</code>, or maintain one explicit manifest checked against the filesystem. Mark artifact-required suites explicitly and make “skipped because snapshots are missing” visible as a separate CI status.</li>
-          <li>Make direct module tests source the package namespace, not a bespoke subset of files.</li>
-        </ul>
-        <p>This change pays for itself during the larger refactor: it lets code move without preserving accidental globals, and it turns “what depends on this?” from a repository-wide grep into a namespace error.</p>
+        <p>Before this cleanup, several files worked only when other files happened to be loaded first. The regular CI job also ran only a hand-picked subset of tests. A broader test run found stale assumptions and missing dependencies that the normal checks had missed.</p>
+        <p class="target"><strong>Status:</strong> the immediate problem is fixed. CI discovers every test file, runs each separately, and clearly reports checks skipped because needed source material is absent. A small saved example now protects the shared baseline and scenario builder too.</p>
+        <p><strong>Next step:</strong> give the model a formal internal package structure. Each file should state what it needs, and loading order should never decide whether a function exists.</p>
       </div>
     </article>
 
     <article class="finding" id="r6">
       <div class="finding-head">
         <div class="rank">6</div>
-        <div><h3>Replace four daily rollups with one aggregation kernel.</h3><div class="subtitle">Overall, country, GTAP, and HS-category outputs are variations of the same operation.</div></div>
-        <div class="tags"><span class="tag medium">Risk reduction: medium</span><span class="tag large">Net deletion: 0.3–0.6k lines</span><span class="tag medium">Effort: medium</span></div>
+        <div><h3>Use one method for daily summaries.</h3><div class="subtitle">Country and product-group reports repeat the same arithmetic.</div></div>
+        <div class="tags"><span class="tag medium">Risk reduction: medium</span><span class="tag large">Less repeated code</span><span class="tag safe">Status: completed</span></div>
       </div>
       <div class="finding-body">
-        <p><a href="../src/pipeline/09_daily_series.R"><code>build_daily_aggregates()</code></a> is about 575 lines and defines nested functions for overall, country, GTAP category, HS category, and authority decomposition. The country/category/HS functions repeat the same unweighted summaries, weighted numerator, denominator join, interval metadata, and empty-data behavior. Several paths also call <code>prepare_interval_data_effective()</code> repeatedly for the same interval.</p>
-        <p>Build one interval context once—effective panel, weighted panel, denominators, and classification columns—then pass dimension specifications to a single <code>aggregate_dimension(context, keys, denominator)</code>. Keep authority decomposition as the one specialized reducer because its measures differ materially.</p>
-        <p class="target">This is a relatively safe, parity-friendly project to do before the calculator rewrite. It reduces code and compute, and it gives streaming, monolithic, baseline, and scenario aggregation a single kernel to test.</p>
-        <p class="target"><strong>Status:</strong> implemented as shared grouped unweighted and weighted kernels. Effective and raw panels are now prepared once per interval segment and reused by every rollup; authority decomposition remains specialized.</p>
+        <p>The daily reporting file had separate but nearly identical calculations for countries and two kinds of product groups. It also prepared the same interval data several times.</p>
+        <p class="target"><strong>Status:</strong> completed in the current cleanup. The data is now prepared once for each period, and the three grouped reports use the same summary method. The special breakdown by tariff program remains separate because it answers a different question.</p>
+        <p>This reduces the chance that one report quietly uses a different denominator or missing-data rule from the others. The full daily-report test suite passes.</p>
       </div>
     </article>
   </section>
 
   <section id="roadmap">
-    <h2>Migration order that keeps the numbers defensible</h2>
+    <h2>A reasonable order of work</h2>
     <div class="grid">
-      <div class="phase"><div class="num">Phase 0</div><h3>Seal the safety boundary</h3><p>Make every test discoverable; repair the five standalone failures; add a small committed artifact fixture; require scenario invariants and snapshot/daily agreement.</p></div>
-      <div class="phase"><div class="num">Phase 1</div><h3>Unify execution paths</h3><p>One revision builder, one interval builder, one aggregation kernel. Delete obsolete environment mutation and the legacy scenario registry after parity.</p></div>
-      <div class="phase"><div class="num">Phase 2</div><h3>Normalize pair construction</h3><p>Allocate the dense panel once and introduce sparse authority patches behind the existing output schema.</p></div>
-      <div class="phase"><div class="num">Phase 3</div><h3>Compile programs authority by authority</h3><p>Migrate §122 and §201 first, then §301/IEEPA, then §232 last. At each step, remove the corresponding blob reads immediately.</p></div>
-      <div class="phase"><div class="num">Phase 4</div><h3>Collapse time</h3><p>Represent underlying Swiss state, mint every boundary, and remove all downstream expiry mutation.</p></div>
-      <div class="phase"><div class="num">Phase 5</div><h3>Delete the scaffolding</h3><p>Remove the default-off long engine, duplicate registries, adapter migration comments, retired flags, and parity shims. Re-measure the codebase.</p></div>
+      <div class="phase"><div class="num">Step 1 — done</div><h3>Strengthen the safety net</h3><p>All tests are discoverable, and a small saved example checks baseline and no-§232 results.</p></div>
+      <div class="phase"><div class="num">Step 2 — done</div><h3>Use one route for normal and scenario builds</h3><p>Normal and scenario runs now share one builder, with no late edits to finished rates.</p></div>
+      <div class="phase"><div class="num">Step 3</div><h3>Build the main table once</h3><p>Have each tariff program supply only its own changes.</p></div>
+      <div class="phase"><div class="num">Step 4</div><h3>Finish the common policy format</h3><p>Move simpler programs first. Move §232 last because it contains the most exceptions.</p></div>
+      <div class="phase"><div class="num">Step 5</div><h3>Unify the calendar</h3><p>Store enough information to calculate every start and expiration date through the same route.</p></div>
+      <div class="phase"><div class="num">Step 6</div><h3>Delete the old routes</h3><p>Once comparison tests pass, remove the retired calculation paths and outdated migration comments.</p></div>
     </div>
 
-    <h3 style="margin-top:24px">Suggested parity contract for every phase</h3>
+    <h3 style="margin-top:24px">What must be checked after each step</h3>
     <table>
-      <thead><tr><th>Layer</th><th>Required comparison</th><th>Why</th></tr></thead>
+      <thead><tr><th>Check</th><th>Simple standard</th><th>Reason</th></tr></thead>
       <tbody>
-        <tr><td>Per-revision panel</td><td>Exact keys/schema; numeric tolerance for every rate and total; explicit diff allowlist</td><td>Prevents a clean aggregate from hiding offsetting cell errors.</td></tr>
-        <tr><td>Interval geometry</td><td>Same boundaries, no gaps/overlaps, same owning archive and horizon</td><td>Timing errors can be larger than rate errors and are easy to miss in averages.</td></tr>
-        <tr><td>Published snapshots</td><td>Round-trip equality with the panel used to build daily outputs</td><td>Guards against a correct internal series but stale/missing public partitions.</td></tr>
-        <tr><td>Scenarios</td><td>Recompute-vs-disable oracle for each authority; no late output mutation</td><td>Proves the scenario means a different policy world, not an edited result.</td></tr>
-        <tr><td>Headline aggregates</td><td>Weighted and unweighted ETRs, authority sums, matched-import denominators</td><td>Protects public figures and catches denominator drift.</td></tr>
-        <tr><td>Legal invariants</td><td>Small hand-computed fixtures for high-risk country/product/date cases</td><td>A golden file proves consistency with itself, not correctness of the legal interpretation.</td></tr>
+        <tr><td>Individual rates</td><td>Every product-country-date result matches, apart from an approved and explained change.</td><td>A correct average can hide offsetting mistakes.</td></tr>
+        <tr><td>Dates</td><td>No missing days, overlaps, or shifted start and end dates.</td><td>A timing mistake can be larger than a rate mistake.</td></tr>
+        <tr><td>Published files</td><td>Saved snapshots match the data used for daily reports.</td><td>Prevents correct internal results from producing stale public files.</td></tr>
+        <tr><td>Scenarios</td><td>Each scenario is freshly calculated from changed inputs.</td><td>Proves it represents a different policy world.</td></tr>
+        <tr><td>Headline numbers</td><td>Weighted and unweighted rates and their denominators match.</td><td>Protects the figures most likely to be quoted publicly.</td></tr>
+        <tr><td>Legal examples</td><td>Hand-check a small set of high-risk countries, products, and dates.</td><td>Matching old code alone does not prove the legal reading is right.</td></tr>
       </tbody>
     </table>
   </section>
 
   <section id="tests">
-    <h2>What was verified during this review</h2>
+    <h2>What was tested</h2>
     <table>
-      <thead><tr><th>Check</th><th>Result</th><th>Qualification</th></tr></thead>
+      <thead><tr><th>Check</th><th>Result</th><th>Limit</th></tr></thead>
       <tbody>
-        <tr><td>Parse every production R file</td><td class="check">33 / 33 passed</td><td>Syntax only.</td></tr>
-        <tr><td>Rate-calculation suite</td><td class="check">88 passed, 22 skipped</td><td>Skipped checks require locally built revision artifacts.</td></tr>
-        <tr><td>Daily-series suite</td><td class="check">81 passed, 1 skipped</td><td>Artifact-dependent section was not requested.</td></tr>
-        <tr><td>Weight-resolution suite</td><td class="check">16 passed</td><td>Pure/local fixtures.</td></tr>
-        <tr><td>Annex-parser suite</td><td class="check">17 passed, 8 skipped</td><td>Skipped PDF integration because the local rev_5 source PDF was absent.</td></tr>
-        <tr><td>Selected standalone module tests</td><td class="check">12 passed</td><td>Hidden dependencies and stale expectations repaired.</td></tr>
-        <tr><td>All automatically discovered test files</td><td class="check">35 passed, 0 failed</td><td>Artifact-dependent checks inside passing files are reported separately as <code>PASS*</code>.</td></tr>
-        <tr><td>Full production build and artifact parity</td><td class="warn">Not run</td><td>The repository documentation requires Slurm/high memory; local interactive sessions are capped at 5 GB.</td></tr>
+        <tr><td>All automatically discovered test files</td><td class="check">36 passed, 0 failed</td><td>Six files contained one or more clearly reported skipped checks.</td></tr>
+        <tr><td>Daily reporting</td><td class="check">81 passed, 1 skipped</td><td>The skipped check needed saved build data.</td></tr>
+        <tr><td>Main rate calculation</td><td class="check">88 passed, 22 skipped</td><td>The skipped checks needed saved revision outputs.</td></tr>
+        <tr><td>Policy-source PDF reading</td><td class="check">17 passed, 8 skipped</td><td>The local §232 source PDF was unavailable.</td></tr>
+        <tr><td>R and HTML syntax</td><td class="check">Passed</td><td>This confirms valid files, not correct policy meaning.</td></tr>
+        <tr><td>Full production rebuild</td><td class="warn">Not run</td><td>It requires the project’s high-memory computing workflow.</td></tr>
       </tbody>
     </table>
-    <p>The passing smoke suites are meaningful, particularly the fail-loud NA-total guard added after a prior annex bug. The key limitation is that 31 assertions skipped because production snapshots or source PDFs were absent. Those skipped cases include high-risk real-artifact checks, so “CI green” is not the same as “all legal invariants exercised.”</p>
+    <p>The green test result is meaningful, but it is not a full legal audit. Checks that need large saved outputs or source PDFs must still run in the production environment before a major release.</p>
   </section>
 
   <section id="quick-wins">
-    <h2>Small deletions to take while doing the structural work</h2>
-    <p>These are worthwhile, but none substitutes for the recommendations above.</p>
+    <h2>Smaller cleanup opportunities</h2>
+    <p>These are useful supporting tasks, but they do not replace the six structural changes above.</p>
     <table>
-      <thead><tr><th>Candidate</th><th>Action</th><th>Guard</th></tr></thead>
+      <thead><tr><th>Opportunity</th><th>Action</th><th>Safety check</th></tr></thead>
       <tbody>
-        <tr><td><code>build_rebuild_alt_registry()</code> (~92 lines)</td><td>Delete after the overlay-parity test is converted to fixture data.</td><td>Scenario registry test plus one golden alternative build.</td></tr>
-        <tr><td>Calculator <code>.pp</code> environment swap in <code>build_alternative_timeseries()</code></td><td>Delete now or when routing through <code>build_revision_snapshot()</code>; the calculator receives policy params explicitly.</td><td>Alternative-runner equivalence.</td></tr>
-        <tr><td><code>resolved_programs.R</code> and <code>TARIFF_RESOLVED_STACKING</code></td><td>Delete once the sparse-patch executor lands; do not maintain a second default-off stacker.</td><td>Wide-stack unit tests and full panel parity.</td></tr>
-        <tr><td>Repeated rate-column vectors</td><td>Generate schema, defaults, authority mapping, and decomposition names from one registry.</td><td>Schema snapshot and unknown-column failure tests.</td></tr>
-        <tr><td>Conditional <code>exists()</code>/<code>source()</code> guards</td><td>Delete as package/module boundaries become explicit.</td><td>Direct module tests and package load check.</td></tr>
-        <tr><td>Warnings in synthetic rate tests</td><td>Remove empty-group <code>max(rate)</code> warnings and deprecated multi-row <code>summarise()</code>.</td><td>Treat warnings as errors in pure fixture tests.</td></tr>
-        <tr><td>Scenario comments duplicating policy rosters and boundaries</td><td>Use overlay composition and additive set-merge semantics.</td><td>Resolved-config snapshot per scenario.</td></tr>
+        <tr><td>Old alternative-scenario list builder</td><td>Delete it after its comparison test uses a small saved example.</td><td>One baseline and one alternative build must still match.</td></tr>
+        <tr><td>Obsolete scenario environment setting</td><td>Remove it when all scenarios use the normal revision builder.</td><td>Scenario-equivalence test.</td></tr>
+        <tr><td>Second, normally disabled stacking system</td><td>Delete it after the one-table design is working.</td><td>Full rate-by-rate comparison.</td></tr>
+        <tr><td>Repeated lists of rate columns</td><td>Define the list once and reuse it.</td><td>Output-column and unknown-column checks.</td></tr>
+        <tr><td>Files that load differently depending on order</td><td>Give them explicit dependencies.</td><td>Load every part independently.</td></tr>
+        <tr><td>Warnings in small synthetic tests</td><td>Fix them and treat future warnings as failures.</td><td>All fixture tests remain green.</td></tr>
+        <tr><td>Copied country lists and dates in scenarios</td><td>Store shared facts once and compose scenarios from them.</td><td>Compare the fully resolved settings for every scenario.</td></tr>
       </tbody>
     </table>
   </section>
 
   <section>
-    <h2>A practical stopping rule</h2>
-    <p>The refactor is done when a maintainer can answer these questions from one place each:</p>
+    <h2>How to know the cleanup is finished</h2>
+    <p>A maintainer should be able to answer each of these questions from one place:</p>
     <ul>
-      <li>What products, countries, dates, and rates define an authority?</li>
-      <li>How does that authority interact with MFN, §232, preferences, and other authorities?</li>
-      <li>What exact state is in force on a date?</li>
-      <li>How does a scenario change those inputs?</li>
-      <li>Which calculation produced the published panel and every derived aggregate?</li>
+      <li>Which products, countries, dates, and rates define a tariff program?</li>
+      <li>How does that program interact with other tariffs and trade preferences?</li>
+      <li>What policy was active on a given date?</li>
+      <li>What input did a scenario change?</li>
+      <li>Which calculation produced a published number?</li>
     </ul>
-    <p>Today, several of those answers require tracing the adapter, calculator, config, resource loaders, stacking registry, timeline, and daily layer together. The goal is not merely fewer files. It is one executable chain of custody from legal fact to published cell.</p>
+    <p>The goal is not merely fewer files. It is a clear, reviewable path from a legal fact to every published number.</p>
   </section>
 
   <footer class="footnote">
-    <p><strong>Method.</strong> Repository-wide inventory and static dependency search; deep reading of the build orchestrator, parsers, AuthoritySpec/adapter, rate calculator, stacking engines, timeline, daily aggregation, scenario registry/configuration, output schema, architecture notes, and relevant historical reviews; syntax parsing; and targeted local tests. Estimates are directional net line reductions, not commitments. They assume parity shims are deleted after migration rather than retained indefinitely.</p>
-    <p><strong>Important scope note.</strong> This is a structural simplification review, not a fresh legal audit of every tariff proclamation or a full production-data rebuild. It identifies where the software architecture makes legal and numerical mistakes more likely and how to shrink that surface.</p>
+    <p><strong>How this review was done.</strong> I inventoried the repository, traced the main baseline and scenario calculations, reviewed the calendar and reporting paths, read prior architecture notes, checked file syntax, and ran the available tests. Estimates of possible code deletion are rough planning ranges, not promises.</p>
+    <p><strong>Scope.</strong> This is a software-structure review, not a new legal review of every tariff action and not a full production-data rebuild. It identifies places where the software makes legal or numerical mistakes easier to introduce or harder to detect.</p>
   </footer>
 </div>
 </body>

@@ -55,7 +55,7 @@ are not cheap column patches anymore — consistency over speed), dispatched
 through `alt_runner()` with one fresh subprocess per variant when
 `--parallel --alt-workers N` is set.
 
-## Counterfactuals: the authority kill-switch
+## Counterfactuals: remove an authority before calculation
 
 A counterfactual overlay sets one key:
 
@@ -64,17 +64,19 @@ A counterfactual overlay sets one key:
 disabled_authorities: [section_301]
 ```
 
-Names come from the config's `authority_columns` map (section_232, section_301,
-section_301_content_split, ieepa_reciprocal, ieepa_fentanyl, section_122,
-other). `calculate_rates_for_revision()` zeroes the mapped rate columns just
-before stacking (step 7g → `apply_authority_disables()` in
-`src/model/rate_schema.R`), so totals and contribution shares recompute on what
-remains. Unknown names fail loud; the key is absent in baseline, so baseline
-output is byte-identical.
+Supported names are section_232, section_301, section_301_content_split,
+ieepa_reciprocal, ieepa_fentanyl, section_122, and other. The shared revision
+builder calls `apply_counterfactual_inputs()` after parsing the source data and
+before building authority specs or calculating rates. It removes the disabled
+authority's Chapter 99 rows and any authority-specific extracted inputs, then
+runs the normal calculator. Cross-authority effects, exemptions, floors,
+stacking, totals, and contribution shares are therefore recalculated for the
+counterfactual world rather than edited after the fact.
 
-Carried-over limitation (same as the legacy engine): cross-authority effects
-computed in earlier steps (e.g. IEEPA floors measured against a 232-inclusive
-base) are not re-derived when the other authority is disabled.
+Unknown names fail loud. A direct calculator call with a counterfactual config
+also fails unless this input step has run, preventing accidental use of the old
+late-column-edit behavior. The key is absent in baseline, so baseline inputs are
+unchanged.
 
 ## Authoring a new scenario
 
@@ -95,7 +97,9 @@ base) are not re-derived when the other authority is disabled.
 The seven historical rebuild alternatives were migrated from hand-coded
 `pp_override` closures (`build_rebuild_alt_registry()`, now deprecated) to
 overlays; `tests/test_scenario_registry.R` pins closure-vs-overlay parity.
-The six counterfactuals orphaned by the Phase-7 deletion were resurrected as
-`disabled_authorities` overlays with their legacy semantics. Remaining gate
-before deleting the deprecated closure registry: a cluster run reproducing
+The six counterfactuals orphaned by the Phase-7 deletion now use
+`disabled_authorities` overlays with pre-calculation input removal. Baseline and
+all scenarios use the same `build_revision_snapshot()` unit. A small committed
+HTS fixture checks the saved baseline and no-§232 outputs. Remaining gate before
+deleting the deprecated closure registry: a cluster run reproducing
 `output/alternative/*.csv` (todo.md, alternatives-unification Step 5).

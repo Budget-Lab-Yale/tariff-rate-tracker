@@ -1824,14 +1824,11 @@ aggregate_snapshots_per_revision <- function(snapshot_dir, rev_intervals,
 }
 
 
-#' Build alternative timeseries with modified policy params (rebuild variant)
+#' Build an alternative timeseries through the shared revision builder.
 #'
-#' Re-runs the full rate calculation loop (all revisions) with a modified
-#' policy_params list, then builds daily aggregates. This is slow — only
-#' called when --with-alternatives is passed.
-#'
-#' Temporarily overrides the module-level .pp in 06_calculate_rates.R's
-#' environment, then restores it.
+#' Re-runs every revision with modified policy inputs, using the same
+#' build_revision_snapshot() function as the baseline, then builds daily
+#' aggregates. This is slow and runs only for requested alternatives.
 #'
 #' @param pp_override Modified policy_params list
 #' @param variant_name Character variant name
@@ -1865,12 +1862,11 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
     source(here('src', 'model', 'authority_spec.R'))
     source(here('src', 'model', 'authority_adapter.R'))
   }
+  if (!exists('build_revision_snapshot', mode = 'function')) {
+    source(here('src', 'pipeline', 'revision_snapshot.R'))
+  }
 
-  # Save original .pp and swap in override
-  calc_env <- environment(calculate_rates_for_revision)
-  original_pp <- calc_env$.pp
-  calc_env$.pp <- pp_override
-  on.exit(calc_env$.pp <- original_pp, add = TRUE)
+  pp_effective <- policy_params %||% pp_override
 
   # Load revision dates and country codes
   rev_dates <- load_revision_dates(revision_dates_path)
@@ -1901,34 +1897,18 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
     eff_date <- rev_info$effective_date
 
     tryCatch({
-      json_path <- resolve_json_path(rev_id, archive_dir)
-      hts_raw <- fromJSON(json_path, simplifyDataFrame = FALSE)
-      ch99_data <- parse_chapter99(json_path)
-      products <- parse_products(json_path)
-      ieepa_rates <- extract_ieepa_rates(hts_raw, country_lookup, effective_date = eff_date)
-      fentanyl_rates <- extract_ieepa_fentanyl_rates(hts_raw, country_lookup, effective_date = eff_date)
-      s232_rates <- extract_section232_rates(filter_active_ch99(ch99_data, as.Date(eff_date)),
-                                             effective_date = eff_date, policy_params = pp_override)
-      usmca <- extract_usmca_eligibility(hts_raw)
-
-      # Phase 6f: AuthoritySpec path always on (specs = authoritative input).
-      specs <- build_authority_specs(
-        products, ch99_data, ieepa_rates, usmca,
-        countries, rev_id, eff_date,
-        s232_rates = s232_rates, fentanyl_rates = fentanyl_rates,
-        policy_params = policy_params %||% pp_override
+      build_revision_snapshot(
+        rev_id = rev_id,
+        eff_date = eff_date,
+        tpc_date = NA,
+        archive_dir = archive_dir,
+        output_dir = tmp_dir,
+        country_lookup = country_lookup,
+        countries = countries,
+        census_codes = census_codes,
+        pp_build = pp_effective
       )
-
-      rates <- calculate_rates_for_revision(
-        products, ch99_data, usmca,
-        countries, rev_id, eff_date,
-        specs = specs,
-        policy_params = policy_params %||% pp_override
-      )
-      saveRDS(rates, file.path(tmp_dir, paste0('snapshot_', rev_id, '.rds')))
       n_saved <- n_saved + 1L
-      rm(rates, hts_raw, ch99_data, products, ieepa_rates,
-         fentanyl_rates, s232_rates, usmca, specs)
       gc()
     }, error = function(e) {
       message('    SKIP ', rev_id, ': ', conditionMessage(e))
