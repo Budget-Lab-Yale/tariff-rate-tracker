@@ -1,0 +1,9 @@
+# Counterfactual: remove the Section 338 Canada +50% duty (the three
+# proclamations signed 2026-07-20, effective 2026-08-19). §338 is a BASELINE
+# authority (config/policy_params.yaml -> section_338), so the actual series
+# carries it from the turn-on date; this overlay removes the §338 inputs
+# (Ch99 headings 9903.03.12-.16 + the config block) before calculation,
+# giving the "without today's announced provisions" world holding every other
+# authority fixed. Diff actual vs no_s338 to isolate the marginal effect of
+# the §338 announcement.
+disabled_authorities: [section_338]

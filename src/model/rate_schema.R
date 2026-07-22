@@ -11,8 +11,9 @@ library(tidyverse)
 #' Canonical column vector for rate output
 RATE_SCHEMA <- c(
   'hts10', 'country', 'base_rate', 'statutory_base_rate',
-  'rate_232', 'rate_301', 'rate_301_cs', 'rate_ieepa_recip', 'rate_ieepa_fent',
-  'rate_s122', 'rate_section_201', 'rate_other',
+  'rate_232', 'rate_301', 'rate_301_cs', 'rate_s301br',
+  'rate_ieepa_recip', 'rate_ieepa_fent',
+  'rate_s122', 'rate_s338', 'rate_section_201', 'rate_other',
   'metal_share', 'heading_program',
   'total_additional', 'total_rate',
   'usmca_eligible', 'revision', 'effective_date',
@@ -21,8 +22,8 @@ RATE_SCHEMA <- c(
 
 # Per-authority columns carried by the one canonical product-country table.
 AUTHORITY_RATE_COLUMNS <- c(
-  'rate_232', 'rate_301', 'rate_301_cs', 'rate_ieepa_recip',
-  'rate_ieepa_fent', 'rate_s122', 'rate_section_201', 'rate_other'
+  'rate_232', 'rate_301', 'rate_301_cs', 'rate_s301br', 'rate_ieepa_recip',
+  'rate_ieepa_fent', 'rate_s122', 'rate_s338', 'rate_section_201', 'rate_other'
 )
 
 #' Ensure a rates data frame conforms to the canonical schema
@@ -37,7 +38,9 @@ enforce_rate_schema <- function(df) {
   defaults <- list(
     hts10 = NA_character_, country = NA_character_,
     base_rate = 0, statutory_base_rate = 0, rate_232 = 0, rate_301 = 0, rate_301_cs = 0,
-    rate_ieepa_recip = 0, rate_ieepa_fent = 0, rate_s122 = 0, rate_section_201 = 0, rate_other = 0,
+    rate_s301br = 0,
+    rate_ieepa_recip = 0, rate_ieepa_fent = 0, rate_s122 = 0, rate_s338 = 0,
+    rate_section_201 = 0, rate_other = 0,
     metal_share = 1.0, heading_program = FALSE,
     total_additional = 0, total_rate = 0,
     usmca_eligible = FALSE, revision = NA_character_,
@@ -76,7 +79,8 @@ enforce_rate_schema <- function(df) {
   # NB: total_additional/total_rate are deliberately NOT in this list — they are
   # guarded above (a NA total is a bug, not a fill-to-0 case).
   rate_cols <- c('base_rate', 'statutory_base_rate', 'rate_232', 'rate_301', 'rate_301_cs',
-                 'rate_ieepa_recip', 'rate_ieepa_fent', 'rate_s122', 'rate_section_201', 'rate_other')
+                 'rate_s301br', 'rate_ieepa_recip', 'rate_ieepa_fent', 'rate_s122',
+                 'rate_s338', 'rate_section_201', 'rate_other')
   # Every rate_cols entry is in RATE_SCHEMA and the loop above guarantees each
   # RATE_SCHEMA column exists, so all are present here — no membership guard needed.
   for (col in rate_cols) {
@@ -279,6 +283,19 @@ classify_authority <- function(ch99_code) {
   if (length(parts) < 2) return('unknown')
 
   middle <- as.integer(parts[2])
+
+  # Section 338 Canada (proclamations of 2026-07-20): charging headings
+  # 9903.03.12-.14 plus the companion §232 / civil-aircraft exception headings
+  # .15-.16. Match on the heading SEGMENTS (parts[2]==3 & parts[3] in 12:16),
+  # not the 8-digit string, BEFORE the broader 9903.03.xx Section 122 bucket:
+  # a future HTS archive that prints these with a statistical suffix (e.g.
+  # 9903.03.12.10) must still route here, otherwise it falls through to
+  # section_122 and the +50% rides rate_s122. The params-fed apply_section338()
+  # stays the single rate source regardless.
+  third <- if (length(parts) >= 3) suppressWarnings(as.integer(parts[3])) else NA_integer_
+  if (isTRUE(middle == 3 && !is.na(third) && third %in% 12:16)) {
+    return('section_338')
+  }
 
   # Section 122: 9903.03.xx (Phase 3, post-SCOTUS blanket)
   if (middle == 3) {

@@ -1,0 +1,16 @@
+# Merge-check build — validate the origin/master -> theseus merge.
+# Builds actual + the two §301 scenarios into a fresh vintage WITHOUT repointing
+# `latest`, so the existing interface vintages stay as the comparison baseline.
+#   bash scripts/submit_build_array.sh --config config/build/merge_check.yaml
+
+model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker
+policy_params_path: config/policy_params.yaml
+
+scenarios:
+  - forced_labor
+  - new_301
+
+use_hts_dates: false
+weight_mode: required
+update_latest: false        # comparison run — do NOT move `latest`
+allow_partial: false

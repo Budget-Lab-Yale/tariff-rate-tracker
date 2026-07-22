@@ -367,6 +367,15 @@ export_statutory_rates <- function(snapshot, policy_params, output_dir, ch99_dat
   # Build the full CSV from snapshot (all columns at once to avoid row-order issues)
   # base_rate_type exposure flag: present on 2026-07+ snapshots; NA otherwise.
   if (!'base_rate_type' %in% names(snapshot)) snapshot$base_rate_type <- NA_character_
+  # Section 338 Canada (rate_s338 / statutory_rate_s338): a RATE_SCHEMA column on
+  # 2026-07-20+ snapshots. Fill 0 defensively rather than adding it to `required`
+  # so re-exporting a pre-s338 vintage still works (same treatment as
+  # base_rate_type above). The +50% Canada layer MUST reach the lossless export.
+  if (!'statutory_rate_s338' %in% names(snapshot)) snapshot$statutory_rate_s338 <- 0
+  # Section 301 Brazil (rate_s301br / statutory_rate_s301br): same treatment —
+  # baseline RATE_SCHEMA column since the 2026-07-20 final action (FR
+  # 2026-14542); the Brazil 25% layer must reach the lossless export too.
+  if (!'statutory_rate_s301br' %in% names(snapshot)) snapshot$statutory_rate_s301br <- 0
   csv <- snapshot %>%
     transmute(
       hts10,
@@ -376,7 +385,9 @@ export_statutory_rates <- function(snapshot, policy_params, output_dir, ch99_dat
       ieepa_reciprocal = rate_ieepa_recip,
       ieepa_fentanyl   = statutory_rate_ieepa_fent,
       s301             = statutory_rate_301,
+      s301br           = statutory_rate_s301br,
       s122             = statutory_rate_s122,
+      s338             = statutory_rate_s338,
       s201             = statutory_rate_section_201,
       other            = statutory_rate_other
     ) %>%
@@ -461,7 +472,7 @@ export_statutory_rates <- function(snapshot, policy_params, output_dir, ch99_dat
   # ---------------------------------------------------------------------------
 
   rate_cols <- c(s232_cols, 'ieepa_reciprocal', 'ieepa_fentanyl',
-                 's301', 's122', 's201', 'other', 'mfn_rate')
+                 's301', 's301br', 's122', 's338', 's201', 'other', 'mfn_rate')
   csv <- csv %>%
     filter(if_any(all_of(rate_cols), ~ . > 0))
 

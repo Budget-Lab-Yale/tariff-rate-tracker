@@ -7,6 +7,7 @@
 
 SCENARIO_INPUT_AUTHORITIES <- c(
   'section_232', 'section_301', 'section_301_content_split',
+  'section_301_brazil', 'section_338',
   'ieepa_reciprocal', 'ieepa_fentanyl', 'section_122', 'other'
 )
 
@@ -50,7 +51,8 @@ apply_counterfactual_inputs <- function(ch99_data, ieepa_rates = NULL,
 
   drop_authorities <- intersect(
     disabled,
-    c('section_232', 'section_301', 'ieepa_reciprocal', 'section_122', 'other')
+    c('section_232', 'section_301', 'ieepa_reciprocal', 'section_122',
+      'section_338', 'other')
   )
   drop_codes <- character(0)
   if ('ieepa_reciprocal' %in% disabled && !is.null(ieepa_rates) &&
@@ -93,6 +95,17 @@ apply_counterfactual_inputs <- function(ch99_data, ieepa_rates = NULL,
   }
   if ('section_301_content_split' %in% disabled) {
     policy_params$section_301_content_split_codes <- character(0)
+  }
+  if ('section_338' %in% disabled) {
+    # §338 charging/exception headings (9903.03.12-.16) are removed from
+    # ch99_data via classify_authority above; the authority itself is built
+    # from this config block, so remove it too.
+    policy_params$section_338 <- NULL
+  }
+  if ('section_301_brazil' %in% disabled) {
+    # Purely config-driven (no Ch99 offset in any archive) — the adapter
+    # builds the authority only when this block is present.
+    policy_params$section_301_brazil <- NULL
   }
 
   policy_params$SCENARIO_DISABLED_AUTHORITIES_APPLIED <- disabled

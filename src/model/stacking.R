@@ -175,10 +175,20 @@ default_stacking_policy <- function(cty_china = '5700') {
     # baseline, so it contributes 0 here regardless of position (0 + x == x is
     # bit-exact for doubles) — FP-safe, like rate_301_cs above.
     rate_s301fl      = list(net = 'net_s301fl',      class = 'content_split'),
-    # Section 301 Brazil (scenario authority): content_split like the FL §301
-    # (displaced by 232). All-zero / absent in baseline, so it contributes 0 here
-    # regardless of position (0 + x == x is bit-exact for doubles) — FP-safe.
-    rate_s301br      = list(net = 'net_s301br',      class = 'content_split'),
+    # Section 301 Brazil (BASELINE, live from 2026-07-22 — final action FR Doc
+    # 2026-14542): additive — note 50(a) stacks it on every other duty. The
+    # note-50(a)(vi) §232 interaction is a FULL per-article exclusion applied as
+    # a SCOPE MASK in apply_section301_brazil (the column is already 0 on every
+    # §232-scope row), NOT a content_split displacement here (that was the
+    # June-4 PROPOSED coding, retired with the final action). All-zero before
+    # the turn-on, so position is FP-safe.
+    rate_s301br      = list(net = 'net_s301br',      class = 'additive'),
+    # Section 338 Canada (BASELINE, live from 2026-08-19): additive — note 51(a)
+    # stacks it on every other duty. The note 51(c) §232 interaction is a FULL
+    # per-article exclusion applied as a SCOPE MASK in apply_section338 (the
+    # column is already 0 on every §232-scope row), NOT a content_split
+    # displacement here. All-zero before the turn-on, so position is FP-safe.
+    rate_s338        = list(net = 'net_s338',        class = 'additive'),
     rate_s122        = list(net = 'net_s122',        class = 'content_split'),
     rate_section_201 = list(net = 'net_section_201', class = 'additive'),
     rate_other       = list(net = 'net_other',       class = 'additive')
@@ -221,7 +231,8 @@ stacking_policy_from_specs <- function(specs, cty_china = '5700') {
     list(col = 'rate_301',         net = 'net_301',         auth = 'section_301',      dflt = 'additive',      dflt_add = character(0)),
     list(col = 'rate_301_cs',      net = 'net_301_cs',      auth = NA_character_,      dflt = 'content_split', dflt_add = character(0)),
     list(col = 'rate_s301fl',      net = 'net_s301fl',      auth = 'section_301_forced_labor', dflt = 'content_split', dflt_add = character(0)),
-    list(col = 'rate_s301br',      net = 'net_s301br',      auth = 'section_301_brazil', dflt = 'content_split', dflt_add = character(0)),
+    list(col = 'rate_s301br',      net = 'net_s301br',      auth = 'section_301_brazil', dflt = 'additive',      dflt_add = character(0)),
+    list(col = 'rate_s338',        net = 'net_s338',        auth = 'section_338',      dflt = 'additive',      dflt_add = character(0)),
     list(col = 'rate_s122',        net = 'net_s122',        auth = 'section_122',      dflt = 'content_split', dflt_add = character(0)),
     list(col = 'rate_section_201', net = 'net_section_201', auth = 'section_201',      dflt = 'additive',      dflt_add = character(0)),
     list(col = 'rate_other',       net = 'net_other',       auth = 'other',            dflt = 'additive',      dflt_add = character(0))
@@ -283,7 +294,7 @@ compute_stacking_contributions <- function(df, policy) {
 apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutual_exclusion',
                                  stacking_policy = NULL) {
   # Ensure optional columns exist and have no NAs
-  df <- ensure_cols(df, list(rate_s122 = 0, rate_section_201 = 0, metal_share = 1.0),
+  df <- ensure_cols(df, list(rate_s122 = 0, rate_s301br = 0, rate_s338 = 0, rate_section_201 = 0, metal_share = 1.0),
                     fill_na = TRUE)
 
   # TPC additive: all authorities stack with no mutual exclusion.
@@ -300,15 +311,15 @@ apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutu
     # making the additive total asymmetric with the mutual_exclusion branch. Coalesce
     # any absent column to 0 (matching compute_stacking_contributions' guard).
     rate_cols <- c('rate_232', 'rate_ieepa_recip', 'rate_ieepa_fent', 'rate_301',
-                   'rate_301_cs', 'rate_s301fl', 'rate_s301br', 'rate_s122',
-                   'rate_section_201', 'rate_other')
+                   'rate_301_cs', 'rate_s301fl', 'rate_s301br', 'rate_s338',
+                   'rate_s122', 'rate_section_201', 'rate_other')
     for (rc in rate_cols) if (!rc %in% names(df)) df[[rc]] <- 0
     return(
       df %>%
         mutate(
           total_additional = rate_232 + rate_ieepa_recip + rate_ieepa_fent +
-            rate_301 + rate_301_cs + rate_s301fl + rate_s301br + rate_s122 +
-            rate_section_201 + rate_other,
+            rate_301 + rate_301_cs + rate_s301fl + rate_s301br + rate_s338 +
+            rate_s122 + rate_section_201 + rate_other,
           total_rate = base_rate + total_additional
         )
     )
@@ -348,8 +359,9 @@ compute_net_authority_contributions <- function(df, cty_china = '5700',
                                                 stacking_policy = NULL) {
   # Ensure optional columns exist (backwards compat with old snapshots). Insert-only,
   # no de-NA — preserving this path's historical behavior (fill_na defaults FALSE).
-  df <- ensure_cols(df, list(rate_s122 = 0, rate_section_201 = 0,
-                             rate_other = 0, metal_share = 1.0))
+  df <- ensure_cols(df, list(rate_s122 = 0, rate_s301br = 0, rate_s338 = 0,
+                             rate_section_201 = 0, rate_other = 0,
+                             metal_share = 1.0))
 
   # TPC additive: all authorities contribute their full rate (no mutual exclusion)
   if (stacking_method == 'tpc_additive') {
@@ -360,6 +372,8 @@ compute_net_authority_contributions <- function(df, cty_china = '5700',
           net_ieepa = rate_ieepa_recip,
           net_fentanyl = rate_ieepa_fent,
           net_301 = rate_301,
+          net_s301br = rate_s301br,
+          net_s338 = rate_s338,
           net_s122 = rate_s122,
           net_section_201 = rate_section_201,
           net_other = rate_other

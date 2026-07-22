@@ -37,7 +37,7 @@
 #   kind=alternative:    usmca_annual, usmca_monthly, usmca_2024, usmca_dec2025,
 #                        metal_flat, dutyfree_nonzero, subdivision_r_mid
 #   kind=counterfactual: no_ieepa, no_ieepa_recip, no_301, no_232, no_s122,
-#                        pre_2025
+#                        no_s338, pre_2025
 #   kind=scenario (forced_labor, new_301) build as full series via
 #   TARIFF_SCENARIO=<name>, not through --alternatives.
 #
@@ -862,6 +862,22 @@ if (sys.nframe() == 0) {
 
   # Parse CLI args
   args <- commandArgs(trailingOnly = TRUE)
+
+  # Legacy spellings kept as deprecation aliases — the blog pipeline's wrappers
+  # still pass them (scripts/README.md). Rewrite in place, warn once.
+  if ('--with-alternatives' %in% args) {
+    warning('--with-alternatives is deprecated; use --alternatives alternatives',
+            call. = FALSE, immediate. = TRUE)
+    args <- c(setdiff(args, '--with-alternatives'), '--alternatives', 'alternatives')
+  }
+  ra <- which(args == '--rebuild-alts')
+  if (length(ra)) {
+    warning('--rebuild-alts is deprecated; use --alternatives <names>',
+            call. = FALSE, immediate. = TRUE)
+    val <- if (ra[1] < length(args)) args[ra[1] + 1] else
+      stop('--rebuild-alts requires a value', call. = FALSE)
+    args <- c(args[-c(ra[1], ra[1] + 1)], '--alternatives', val)
+  }
 
   # Fail loud on unrecognized flags. A removed flag that is silently ignored
   # rots invisibly in wrapper scripts: --publish-internal was dropped from this

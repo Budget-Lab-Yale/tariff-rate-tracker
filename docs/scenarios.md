@@ -32,8 +32,8 @@ The registry (`src/model/scenario_registry.R`) reads the folders:
 | kind | meaning | how it runs |
 |---|---|---|
 | `alternative` | methodology/calibration variant (USMCA share modes, `metal_flat`, `dutyfree_nonzero`, `subdivision_r_mid`) | `--alternatives` on the main build → `alt_runner()` → `output/scenarios/<name>/` |
-| `counterfactual` | policy what-if (`no_301`, `no_232`, `no_ieepa`, `no_ieepa_recip`, `no_s122`, `pre_2025`) | same runner |
-| `scenario` | full named series (`forced_labor`, `new_301`) | main build under `TARIFF_SCENARIO=<name>` — persisted snapshots, quality reports |
+| `counterfactual` | policy what-if (`no_301`, `no_232`, `no_ieepa`, `no_ieepa_recip`, `no_s122`, `no_s338`, `pre_2025`) | same runner |
+| `scenario` | full named series (`forced_labor`, `new_301`) | main build under `TARIFF_SCENARIO=<name>` / `TARIFF_SERIES=<name>` — persisted snapshots, quality reports |
 | `baseline` | `actual` — documentation stub | never run |
 
 ## Running alternatives
@@ -55,22 +55,36 @@ A counterfactual overlay sets one key:
 
 ```yaml
 # config/scenarios/no_301/overlay.yaml
-disabled_authorities: [section_301]
+disabled_authorities: [section_301, section_301_brazil]
 ```
 
 Supported names are section_232, section_301, section_301_content_split,
-ieepa_reciprocal, ieepa_fentanyl, section_122, and other. The shared revision
-builder calls `apply_counterfactual_inputs()` after parsing the source data and
-before building authority specs or calculating rates. It removes the disabled
-authority's Chapter 99 rows and any authority-specific extracted inputs, then
-runs the normal calculator. Cross-authority effects, exemptions, floors,
-stacking, totals, and contribution shares are therefore recalculated for the
+section_301_brazil, section_338, ieepa_reciprocal, ieepa_fentanyl, section_122,
+and other. The shared revision builder calls `apply_counterfactual_inputs()`
+after parsing the source data and before building authority specs or
+calculating rates. It removes the disabled authority's Chapter 99 rows, any
+authority-specific extracted inputs, and config-only authority blocks
+(section_338, section_301_brazil, the §232 annex/heading programs), then runs
+the normal calculator. Cross-authority effects, exemptions, floors, stacking,
+totals, and contribution shares are therefore recalculated for the
 counterfactual world rather than edited after the fact.
 
 Unknown names fail loud. A direct calculator call with a counterfactual config
 also fails unless this input step has run, preventing accidental use of the old
 late-column-edit behavior. The key is absent in baseline, so baseline inputs are
 unchanged.
+
+`no_301` removes ALL §301 instruments: the legacy China columns and the
+2026-07-22 Brazil baseline authority (which would otherwise leak in from its
+turn-on date).
+
+Baseline authorities that turn on mid-series must be listed explicitly in any
+"pre-2025 only" style counterfactual. `pre_2025` disables `section_338` (the
+2026-08-19 Canada +50% duty) and `section_301_brazil` (the 2026-07-22 Brazil
+25% duty, FR 2026-14542) alongside IEEPA/§122; without those lines the duties
+would leak into the counterfactual from their turn-on dates. Any future
+baseline authority added to `policy_params.yaml` must be added to `pre_2025`'s
+`disabled_authorities` too.
 
 ## Authoring a new scenario
 

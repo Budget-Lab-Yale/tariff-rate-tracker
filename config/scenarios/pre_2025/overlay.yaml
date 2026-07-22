@@ -1,4 +1,13 @@
-# Counterfactual: keep Section 232 and legacy Section 301, while removing IEEPA
-# and Section 122 inputs before calculation. This remains "pre-2025 authorities,"
-# not historical pre-2025 rates: later Section 232/301 expansions are retained.
-disabled_authorities: [ieepa_reciprocal, ieepa_fentanyl, section_122]
+# Counterfactual: only pre-2025 tariffs (232 + legacy 301), removing the other
+# authorities' INPUTS before calculation (input-removal engine). Matches the
+# legacy `pre_2025` definition: IEEPA (both), s122, the 2026 §338 Canada duty,
+# and Brazil §301 removed; Section 232 and 301 KEPT — including their 2025-26
+# expansions (50% metals, annexes, new headings). "Pre-2025 authorities", not
+# "pre-2025 rates"; documented limitation carried over from the legacy engine.
+# NOTE: section_338 and section_301_brazil are BASELINE authorities (live in
+# policy_params.yaml, applied in every build), so a "pre-2025 only"
+# counterfactual MUST list them — otherwise the +50% Canada duty (2026-08-19)
+# and the Brazil 25% (2026-07-22) leak in. Any future baseline authority must
+# be added here too.
+disabled_authorities: [ieepa_reciprocal, ieepa_fentanyl, section_122, section_338,
+                       section_301_brazil]
