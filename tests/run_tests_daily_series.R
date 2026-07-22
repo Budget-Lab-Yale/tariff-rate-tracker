@@ -37,6 +37,16 @@ source(here('src', 'pipeline', '09_daily_series.R'))
                         policy_params = pp)
 }
 
+.derivative_specs <- function(steel_rate = 0, aluminum_rate = 0,
+                              steel_enabled = FALSE, aluminum_enabled = FALSE) {
+  list(section_232 = list(programs = list(
+    list(id = 'steel_derivatives', rate = list(default = steel_rate),
+         active = list(enabled = steel_enabled)),
+    list(id = 'aluminum_derivatives', rate = list(default = aluminum_rate),
+         active = list(enabled = aluminum_enabled))
+  )))
+}
+
 run_artifact_tests <- '--with-artifacts' %in% commandArgs(trailingOnly = TRUE)
 
 pass_count <- 0
@@ -1335,23 +1345,15 @@ run_test('flat 100 derivative keeps full 232 rate through derivative scaling and
     hts10 = c('8407901000', '7208100000'),
     base_rate = c(0, 0)
   )
-  ch99_data <- tibble(ch99_code = '9903.81.91')
-  s232_rates <- list(
-    has_232 = TRUE,
-    aluminum_derivative_exempt = character(0),
-    aluminum_derivative_rate = 0,
-    steel_derivative_exempt = character(0),
-    steel_derivative_rate = 0.50
-  )
   pp_flat <- load_policy_params()
   pp_flat$metal_content$method <- 'flat'
   pp_flat$metal_content$flat_share <- 1.0
 
+  specs <- .derivative_specs(steel_rate = 0.50, steel_enabled = TRUE)
   scaled <- apply_232_derivatives(
     rates,
     products,
-    ch99_data,
-    s232_rates,
+    specs,
     countries = '4280',
     heading_products = character(0),
     policy_params = pp_flat,
@@ -1392,22 +1394,14 @@ run_test('BEA-unmatched derivative falls back to aggregate share, not zero', {
     total_rate = 0
   )
   products <- tibble(hts10 = '8483905020', base_rate = 0)
-  ch99_data <- tibble(ch99_code = '9903.85.08')
-  s232_rates <- list(
-    has_232 = TRUE,
-    aluminum_derivative_exempt = character(0),
-    aluminum_derivative_rate = 0.25,
-    steel_derivative_exempt = character(0),
-    steel_derivative_rate = 0.50
-  )
   pp_bea <- load_policy_params()
   pp_bea$metal_content$method <- 'bea'
 
+  specs <- .derivative_specs(aluminum_rate = 0.25, aluminum_enabled = TRUE)
   scaled <- apply_232_derivatives(
     rates,
     products,
-    ch99_data,
-    s232_rates,
+    specs,
     countries = '5880',
     heading_products = character(0),
     policy_params = pp_bea,

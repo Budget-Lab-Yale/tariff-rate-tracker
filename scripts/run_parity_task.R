@@ -19,9 +19,16 @@ get_arg <- function(flag, default = NULL) {
 
 manifest_path <- get_arg('--manifest')
 task_index    <- suppressWarnings(as.integer(get_arg('--index')))
-results_dir   <- get_arg('--results-dir', file.path('output', 'parity_results'))
+results_dir   <- get_arg('--results-dir')
+ignore_cols   <- {
+  raw <- get_arg('--ignore-columns', '')
+  # Slurm's --export uses commas as variable separators, so orchestrators may
+  # pass the list with either commas (direct CLI) or colons (environment form).
+  if (!nzchar(raw)) character() else strsplit(raw, '[:,]', perl = TRUE)[[1]]
+}
 
 if (is.null(manifest_path)) stop('--manifest <path> is required', call. = FALSE)
+if (is.null(results_dir)) stop('--results-dir <external-work-dir> is required', call. = FALSE)
 if (is.na(task_index) || task_index < 0) stop('--index <0-based task index> is required', call. = FALSE)
 
 manifest <- readr::read_tsv(manifest_path, show_col_types = FALSE, progress = FALSE)
@@ -32,7 +39,8 @@ if (row_idx < 1L || row_idx > nrow(manifest)) {
 
 task <- manifest[row_idx, ]
 result <- tryCatch(
-  compare_parity_files(task$candidate_path[[1]], task$reference_path[[1]], task$kind[[1]], label = task$label[[1]]),
+  compare_parity_files(task$candidate_path[[1]], task$reference_path[[1]], task$kind[[1]],
+                       label = task$label[[1]], ignore_cols = ignore_cols),
   error = function(e) list(
     label = task$label[[1]], pass = FALSE, n_violations = NA_integer_,
     n_rows_common = NA_integer_, violations = NULL, error = conditionMessage(e)
@@ -57,8 +65,21 @@ out <- tibble(
   pass = isTRUE(result$pass),
   n_violations = if (is.null(result$n_violations)) NA_integer_ else as.integer(result$n_violations),
   n_rows_common = if (is.null(result$n_rows_common)) NA_integer_ else as.integer(result$n_rows_common),
-  error = if (is.null(result$error)) '' else as.character(result$error)
+  error = if (is.null(result$error)) '' else as.character(result$error),
+  # Audit trail: a pass with value-ignored columns must be distinguishable
+  # from a clean pass in the result file itself, not just the launch env.
+  ignored_cols = paste(ignore_cols, collapse = ',')
 )
 write_tsv(out, file.path(results_dir, sprintf('task_%04d.tsv', task_index)))
+if (!isTRUE(result$pass) && !is.null(result$violation_summary) &&
+    nrow(result$violation_summary) > 0L) {
+  write_tsv(result$violation_summary,
+            file.path(results_dir, sprintf('violations_%04d.tsv', task_index)))
+}
+if (!isTRUE(result$pass) && !is.null(result$violations) &&
+    nrow(result$violations) > 0L) {
+  write_tsv(result$violations,
+            file.path(results_dir, sprintf('violation_details_%04d.tsv', task_index)))
+}
 
 quit(status = if (isTRUE(result$pass)) 0 else 1)

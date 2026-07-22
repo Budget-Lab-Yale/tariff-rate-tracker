@@ -120,13 +120,11 @@ Useful variants:
 Rscript src/pipeline/00_build_timeseries.R
 Rscript src/pipeline/00_build_timeseries.R --full
 Rscript src/pipeline/00_build_timeseries.R --build-only
-Rscript src/pipeline/00_build_timeseries.R --with-alternatives
-Rscript src/pipeline/00_build_timeseries.R --with-alternatives --rebuild-alts metal_flat,usmca_2024
+Rscript src/pipeline/00_build_timeseries.R --alternatives alternatives
+Rscript src/pipeline/00_build_timeseries.R --alternatives metal_flat,usmca_2024
 Rscript src/pipeline/00_build_timeseries.R --full --use-hts-dates
 Rscript src/pipeline/00_build_timeseries.R --full --refresh-usmca
 ```
-
-The `--rebuild-alts` flag subsets the slow rebuild alternatives (each is roughly comparable to a full daily-series build). Available scenario names: `usmca_annual`, `usmca_monthly`, `usmca_2024`, `usmca_dec2025`, `metal_flat`, `dutyfree_nonzero`, `subdivision_r_mid`. Pass a comma-separated list. Omit the flag to run all of them (default). Has no effect without `--with-alternatives` or `--alternatives-only`.
 
 The `--refresh-usmca` flag re-downloads USMCA utilization shares from the USITC DataWeb API before building. This updates the monthly and annual share CSVs in `resources/` with the latest available data. Requires a DataWeb API token in `.env` (see `tools/download_usmca_dataweb.R` for setup). The flag is optional — without it, the build uses the committed share files.
 
@@ -227,9 +225,6 @@ Rscript src/pipeline/00_build_timeseries.R --alternatives all               # ev
 Rscript src/pipeline/00_build_timeseries.R --alternatives no_301,metal_flat # by name
 Rscript src/pipeline/00_build_timeseries.R --alternatives counterfactuals   # all kind=counterfactual
 ```
-
-Legacy spellings `--with-alternatives` and `--rebuild-alts <list>` still work
-(the blog pipeline passes them), but new scripts should use `--alternatives`.
 
 ## Comparison workflows
 

@@ -1,0 +1,13 @@
+# Temporary exact-A/B reference build for the 2026-07-21 cleanup review.
+# Output stays on the model_data interface and cannot repoint production latest.
+model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker/.validation/item4-pre-cleanup
+policy_params_path: config/policy_params.yaml
+
+scenarios:
+  - new_301
+
+use_hts_dates: false
+weight_mode: required
+update_latest: false
+allow_partial: false
+verify: true

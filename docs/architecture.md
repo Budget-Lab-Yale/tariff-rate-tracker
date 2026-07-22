@@ -55,7 +55,6 @@ src/
   revisions.R          Revision-id parsing, JSON path resolution, archive/release naming.
   scenario_registry.R  Registry of config/scenarios/<name>/ (alternatives + counterfactuals).
   timeline.R           Schedule-boundary splitter.  STATUS: PARTIALLY WIRED (see note below).
-  resolved_programs.R  Long-form resolved-program table.  STATUS: PROTOTYPE, default-off.
 ```
 
 ## I/O and output
@@ -70,7 +69,7 @@ src/
 ## Core / infrastructure
 
 ```
-  helpers.R            Facade: sources policy_params, revisions, stacking, resolved_programs,
+  helpers.R            Facade: sources policy_params, revisions, stacking,
                        timeline, rate_schema, data_loaders, output_paths, scenario_registry,
                        and defines low-level HTS/rate utilities. Sourcing it grants the full set.
   logging.R            init_logging() + log_info/warn/error.
@@ -143,7 +142,6 @@ that only need a slice can source a module directly:
 - `policy_params.R`, `stacking.R`, `rate_schema.R`, `output_paths.R`,
   `scenario_registry.R`, `timeline.R` — no internal dependencies.
 - `revisions.R`, `data_loaders.R` — depend on `policy_params.R`.
-- `resolved_programs.R` — depends on `stacking.R`.
 - `authority_adapter.R` — depends on `authority_spec.R` and `policy_params.R`.
 
 ## Coexisting mechanisms (known complexity)
@@ -166,10 +164,11 @@ Reviewers will notice two places worth understanding:
    `test_mint_equals_zeroing.R` guard enforces that mutual exclusion, and
    `test_boundary_discovery.R` / `test_timeline_realdata.R` pin the geometry.
 
-2. **Stacking representation.** Production uses the fast wide
-   `apply_stacking_rules()` (`stacking.R`). `resolved_programs.R` is a
-   bit-identical long-form alternative, default-off behind
-   `use_resolved_stacking()`, kept for the scenario-mutation model.
+2. **Rate-table identity (settled).** `build_rate_grid()` creates the complete
+   product × country table once at the start of calculation. Every authority
+   mutates columns on that table, and the calculator asserts the natural key and
+   row count before return. There are no per-program row builders or alternate
+   stacking representations.
 
 ## How to add a new tariff authority
 
@@ -178,8 +177,8 @@ Reviewers will notice two places worth understanding:
    rates + country applicability.
 2. **Adapt** (`authority_adapter.R`): map the new rates into an `AuthoritySpec`.
 3. **Calculate** (`06_calculate_rates.R`): add a numbered step in
-   `calculate_rates_for_revision()` that applies the rate and adds new
-   product-country pairs (`add_blanket_pairs()`, `relationship = 'many-to-one'`).
+   `calculate_rates_for_revision()` that mutates the authority column on the
+   existing canonical product-country table. Policy programs must not add rows.
 4. **Stack** (`stacking.R`): if it interacts with mutual-exclusion rules, update
    `apply_stacking_rules()` and `compute_net_authority_contributions()`.
 5. **Schema** (`rate_schema.R`): add any new `rate_*` column to `RATE_SCHEMA`

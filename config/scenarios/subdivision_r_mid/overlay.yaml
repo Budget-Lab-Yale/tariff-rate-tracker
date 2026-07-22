@@ -2,9 +2,8 @@
 # the auto-parts certification + FTA-exempt blend (Note 33(r)). 0.5/0.5: half of
 # EU/JP/KR subdiv-r imports filed under 9903.94.45/.55/.65 (15% floor), half of
 # KR subdiv-r imports FTA-qualifying under KORUS (rate_232 = 0).
-# See docs/s232/subdivision_r_calibration.md. Migrated from
-# build_rebuild_alt_registry(); fta_exempt_shares deep-merges so other countries'
-# baseline shares are preserved.
+# See docs/s232/subdivision_r_calibration.md. fta_exempt_shares deep-merges so
+# other countries' baseline shares are preserved.
 auto_parts_subdivision_r:
   certified_share: 0.5
   fta_exempt_shares:

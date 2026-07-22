@@ -17,10 +17,7 @@
 #   Rscript src/pipeline/00_build_timeseries.R --alternatives all   # Also run every registered alternative + counterfactual
 #   Rscript src/pipeline/00_build_timeseries.R --alternatives no_301,metal_flat  # Run specific scenarios by name
 #   Rscript src/pipeline/00_build_timeseries.R --alternatives counterfactuals    # Run all kind=counterfactual scenarios
-#   Rscript src/pipeline/00_build_timeseries.R --alternatives-only  # Run only alternatives (requires existing timeseries)
-#   Legacy spellings (still supported, map to the registry):
-#   Rscript src/pipeline/00_build_timeseries.R --with-alternatives  # == --alternatives alternatives
-#   Rscript src/pipeline/00_build_timeseries.R --rebuild-alts metal_flat,usmca_2024  # == --alternatives metal_flat,usmca_2024
+#   Rscript src/pipeline/00_build_timeseries.R --alternatives counterfactuals --alternatives-only
 #   Rscript src/pipeline/00_build_timeseries.R --refresh-usmca     # Re-download USMCA shares from DataWeb API
 #   (output is written to the model-data interface automatically by the gather —
 #    config: model_data_root; no --publish step. See scripts/build_gather.R.)
@@ -870,11 +867,11 @@ if (sys.nframe() == 0) {
   # rots invisibly in wrapper scripts: --publish-internal was dropped from this
   # CLI but stale wrappers kept passing it, running builds that silently never
   # published. Value-taking flags consume the following token.
-  KNOWN_FLAGS <- c('--full', '--build-only', '--core-only', '--with-alternatives',
+  KNOWN_FLAGS <- c('--full', '--build-only', '--core-only',
                    '--alternatives-only', '--refresh-usmca', '--publish-git',
                    '--allow-partial', '--use-hts-dates', '--unweighted',
                    '--skip-release-check', '--parallel')
-  VALUE_FLAGS <- c('--start-from', '--rebuild-alts', '--workers', '--alt-workers',
+  VALUE_FLAGS <- c('--start-from', '--workers', '--alt-workers',
                    '--backend', '--alternatives')
   i <- 1L
   while (i <= length(args)) {
@@ -895,7 +892,6 @@ if (sys.nframe() == 0) {
   full_rebuild <- '--full' %in% args
   build_only <- '--build-only' %in% args
   core_only <- '--core-only' %in% args
-  with_alternatives <- '--with-alternatives' %in% args
   alternatives_only <- '--alternatives-only' %in% args
   refresh_usmca <- '--refresh-usmca' %in% args
   do_publish_git      <- '--publish-git' %in% args
@@ -904,28 +900,16 @@ if (sys.nframe() == 0) {
   unweighted <- '--unweighted' %in% args
   skip_release_check <- '--skip-release-check' %in% args
   start_from <- NULL
-  rebuild_alts <- NULL
   alternatives_arg <- NULL
   for (i in seq_along(args)) {
     if (args[i] == '--start-from' && i < length(args)) start_from <- args[i + 1]
-    if (args[i] == '--rebuild-alts' && i < length(args))
-      rebuild_alts <- strsplit(args[i + 1], ',')[[1]]
     if (args[i] == '--alternatives' && i < length(args))
       alternatives_arg <- args[i + 1]
   }
 
-  # --alternatives <names|all|alternatives|counterfactuals> is the canonical
-  # selector (config/scenarios registry; see src/model/scenario_registry.R). The
-  # legacy pair still works — --with-alternatives == --alternatives alternatives,
-  # --rebuild-alts <list> == --alternatives <list> — so existing wrappers
-  # (incl. the blog pipeline) are unaffected. Nudge toward the new flag.
-  if (is.null(alternatives_arg) && (with_alternatives || !is.null(rebuild_alts))) {
-    message('NOTE: --with-alternatives / --rebuild-alts are legacy spellings; ',
-            'prefer --alternatives <names|all|alternatives|counterfactuals>.')
-  }
-  if (!is.null(alternatives_arg) && (with_alternatives || !is.null(rebuild_alts))) {
-    stop('Pass either --alternatives or the legacy --with-alternatives/',
-         '--rebuild-alts pair, not both.')
+  if (alternatives_only && is.null(alternatives_arg)) {
+    stop('--alternatives-only requires --alternatives ',
+         '<names|all|alternatives|counterfactuals>.')
   }
 
   # --unweighted overrides config to opt into an unweighted run for this invocation.
@@ -947,7 +931,6 @@ if (sys.nframe() == 0) {
     full = full_rebuild,
     build_only = build_only,
     core_only = core_only,
-    with_alternatives = with_alternatives,
     alternatives_only = alternatives_only,
     alternatives = alternatives_arg,
     refresh_usmca = refresh_usmca,
@@ -981,8 +964,6 @@ if (sys.nframe() == 0) {
     source(here('src', 'pipeline', '09_daily_series.R'))
     source(here('src', 'io', 'build_import_weights.R'))
 
-    pp <- load_policy_params(use_policy_dates = use_policy_dates)
-
     # Pre-flight: auto-build weights if missing (alternatives need them).
     if (!unweighted) {
       tryCatch(
@@ -996,10 +977,8 @@ if (sys.nframe() == 0) {
     imports <- load_import_weights(weight_mode = cli_weight_mode)
 
     capture_messages({
-      run_alternative_series(imports = imports, policy_params = pp,
-                              rebuild = TRUE,
-                              rebuild_alts = rebuild_alts,
-                              alternatives = alternatives_arg,
+      run_alternative_series(alternatives = alternatives_arg,
+                              imports = imports,
                               alt_workers = parallel_cfg$alt_workers,
                               use_policy_dates = use_policy_dates)
     })
@@ -1170,20 +1149,19 @@ if (sys.nframe() == 0) {
         error = function(e) message('Quality report failed: ', conditionMessage(e))
       )
 
-      # --- Step F: Alternative daily series ---
-      # Post-build alternatives always run; rebuild alternatives only with --with-alternatives.
+      # --- Step F: Requested alternative daily series ---
       # Release the full timeseries — alternatives iterate per-revision snapshots
       # and holding ts alongside them was the source of prior OOMs.
       rm(ts)
       gc()
-      tryCatch({
-        run_alternative_series(imports = imports, policy_params = pp,
-                                rebuild = with_alternatives,
-                                rebuild_alts = rebuild_alts,
-                                alternatives = alternatives_arg,
-                                alt_workers = parallel_cfg$alt_workers,
-                                use_policy_dates = use_policy_dates)
-      }, error = function(e) message('Alternative series failed: ', conditionMessage(e)))
+      if (!is.null(alternatives_arg)) {
+        tryCatch({
+          run_alternative_series(alternatives = alternatives_arg,
+                                  imports = imports,
+                                  alt_workers = parallel_cfg$alt_workers,
+                                  use_policy_dates = use_policy_dates)
+        }, error = function(e) message('Alternative series failed: ', conditionMessage(e)))
+      }
     }
 
     }) # end capture_messages

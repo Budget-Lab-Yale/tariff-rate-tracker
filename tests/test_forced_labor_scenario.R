@@ -76,7 +76,7 @@ ok(identical(spec_on$usmca_treatment, 'eligible'), 'usmca_treatment = eligible')
 bc_on <- spec_on$programs[[1]]$rate$by_country
 ok(!is.null(bc_on) && length(bc_on) == 86, 'on-date: by_country populated (86)')
 bc_off <- .rate_get(spec_off$programs[[1]]$rate, 'by_country')
-ok(.rate_is_hollow(bc_off) || length(bc_off) == 0, 'pre-turn-on date: by_country empty (date-gate)')
+ok(is.null(bc_off) || length(bc_off) == 0, 'pre-turn-on date: by_country empty (date-gate)')
 ex <- spec_on$programs[[1]]$exempt_products$hts8
 ok(length(ex) > 1000, paste0('Annex A loaded (', length(ex), ' hts8)'))
 ok(validate_spec_set(do.call(authority_spec_set, list(spec_on))) %||% TRUE, 'spec validates')

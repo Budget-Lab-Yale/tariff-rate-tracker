@@ -157,7 +157,7 @@ All in `config/policy_params.yaml` under `auto_parts_subdivision_r`.
 - **CBP entry-summary line counts**: would directly answer the certified_share question, but CBP doesn't publish at 9903-line granularity. Probably FOIA.
 - **Industry estimates**: MEMA (Motor & Equipment Manufacturers Association), Auto Care Association, SAFE (Securing America's Future Energy), or AAPC (American Automotive Policy Council) likely have aggregate certification data. SAFE's `docs/s232/s232_metals_update_note.pdf` is the existing reference for the April 2026 annex modeling.
 - **CBP CSMS bulletins**: typically operational guidance, not aggregate stats. Worth checking for any utilization reports.
-- **Sensitivity-range defaults**: for first-pass analysis, set `certified_share = 0.5` and `fta_exempt_shares.KR = 0.5` and run as an alternative scenario to bracket the impact (see `config/scenarios.yaml`).
+- **Sensitivity-range defaults**: for first-pass analysis, set `certified_share = 0.5` and `fta_exempt_shares.KR = 0.5` and run the `subdivision_r_mid` alternative to bracket the impact.
 
 ---
 
@@ -202,7 +202,7 @@ A drop from 25% to 20% on these 22 8708 HTS10s × 27 EU countries.
 
 ## 7. Alternative scenario: `subdivision_r_mid`
 
-Added to the `--with-alternatives` rebuild block in `src/pipeline/09_daily_series.R` (after the `dutyfree_nonzero` scenario). Sets:
+Registered as the `subdivision_r_mid` config overlay. It sets:
 
 ```r
 pp_subdiv_r$auto_parts_subdivision_r$certified_share <- 0.5
@@ -211,11 +211,12 @@ pp_subdiv_r$auto_parts_subdivision_r$fta_exempt_shares$KR <- 0.5
 
 EU and JP `fta_exempt_shares` remain at 0 (EU has no carve-out, JP utilization signal near zero). The scenario is a sensitivity bracket — not a calibrated estimate. Rebuild output lands in `output/alternative/*subdivision_r_mid*.csv`.
 
-This is a *rebuild* alternative (re-runs `calculate_rates_for_revision()` with overridden policy_params), not a post-build patch. Triggered by `Rscript src/pipeline/00_build_timeseries.R --with-alternatives` or the equivalent invocation in `09_daily_series.R`.
+This alternative re-runs the normal calculator with the overlay applied. Run it
+with `Rscript src/pipeline/00_build_timeseries.R --alternatives subdivision_r_mid`.
 
 ## 8. Future work
 
 - **Calibrate parameters** from one of the sources in §4.1.
-- **Bracket the impact** by running `--with-alternatives` and comparing `subdivision_r_mid` against the main timeseries.
+- **Bracket the impact** by running `--alternatives subdivision_r_mid` and comparing it against the main timeseries.
 - **Generalize FTA exemption beyond subdivision (r)**: scope whether KORUS / EO 14345 should also exempt from the metals annex when the importer doesn't claim subdivision (r) certification. Currently flagged as open in `tariff_tracker_investigated_issues.md`.
 - **Expand subdivision (r) eligible set**: the April 2026 annex CSV is static at rev_6. As future revisions add more ch87 prefixes to annex_1b, rerun `build_subdivision_r_products.R` to refresh the eligible list.

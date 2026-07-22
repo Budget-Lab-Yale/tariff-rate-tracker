@@ -13,7 +13,7 @@
 #   build_daily_aggregates(ts, date_range, imports, policy_params) - daily ETRs
 #   expand_to_daily(ts, date_range, countries, products) - on-demand expansion
 #   run_daily_series(ts, imports, policy_params) - full pipeline wrapper
-#   run_alternative_series(imports, pp, rebuild) - alternative daily series
+#   run_alternative_series(alternatives, imports) - alternative daily series
 #   build_alternative_timeseries(pp_override, variant, imports) - rebuild variant
 #
 # Usage:
@@ -1841,7 +1841,6 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
                                           archive_dir = here('data', 'hts_archives'),
                                           revision_dates_path = here('config', 'revision_dates.csv'),
                                           census_codes_path = here('resources', 'census_codes.csv'),
-                                          policy_params = NULL,
                                           snapshot_out_dir = NULL,
                                           allow_partial = FALSE) {
 
@@ -1865,8 +1864,6 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
   if (!exists('build_revision_snapshot', mode = 'function')) {
     source(here('src', 'pipeline', 'revision_snapshot.R'))
   }
-
-  pp_effective <- policy_params %||% pp_override
 
   # Load revision dates and country codes
   rev_dates <- load_revision_dates(revision_dates_path)
@@ -1906,7 +1903,7 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
         country_lookup = country_lookup,
         countries = countries,
         census_codes = census_codes,
-        pp_build = pp_effective
+        pp_build = pp_override
       )
       n_saved <- n_saved + 1L
       gc()
@@ -1971,114 +1968,30 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
 }
 
 
-#' Build the rebuild-alternatives registry — DEPRECATED
-#'
-#' Superseded by the declarative config/scenarios registry
-#' (src/model/scenario_registry.R + per-scenario overlay.yaml); no production caller
-#' remains. Kept ONLY so tests/test_scenario_registry.R can assert that each
-#' migrated overlay produces the same policy_params as the historical closure.
-#' DELETE this function (and that test's parity section) once the cluster
-#' golden-diff gate confirms the migrated alternatives reproduce
-#' output/alternative/*.csv (alternatives-unification Step 5, todo.md).
-#'
-#' @param pp Base policy_params (typically load_policy_params())
-#' @return List of spec records: list(variant, pp_override)
-build_rebuild_alt_registry <- function(pp) {
-  list(
-    # USMCA 2025 annual average (time-invariant counterfactual)
-    list(variant = 'usmca_annual', pp_override = local({
-      x <- pp
-      x$USMCA_SHARES$year <- 2025
-      x$USMCA_SHARES$mode <- 'annual'
-      x
-    })),
-    # USMCA raw monthly shares (time-varying; tracks effective_date month,
-    # falls back to most recent available monthly file when newer files
-    # haven't been published yet).
-    list(variant = 'usmca_monthly', pp_override = local({
-      x <- pp
-      x$USMCA_SHARES$mode <- 'monthly'
-      x$USMCA_SHARES$year <- NULL
-      x
-    })),
-    # USMCA 2024 shares (pre-tariff steady-state)
-    list(variant = 'usmca_2024', pp_override = local({
-      x <- pp
-      x$USMCA_SHARES$year <- 2024
-      x$USMCA_SHARES$mode <- 'annual'
-      x
-    })),
-    # USMCA fixed latest month (Dec 2025 — post-behavioral-shift equilibrium)
-    list(variant = 'usmca_dec2025', pp_override = local({
-      x <- pp
-      x$USMCA_SHARES$mode <- 'fixed_month'
-      x$USMCA_SHARES$year <- 2025
-      x$USMCA_SHARES$month <- 12
-      x
-    })),
-    # Flat 100% metal content (upper bound: all derivative value is metal)
-    list(variant = 'metal_flat', pp_override = local({
-      x <- pp
-      x$metal_content$method <- 'flat'
-      x$metal_content$flat_share <- 1.0
-      x
-    })),
-    # Nonzero duty-free treatment (sensitivity: exclude 0% MFN from IEEPA)
-    list(variant = 'dutyfree_nonzero', pp_override = local({
-      x <- pp
-      x$ieepa_duty_free_treatment <- 'nonzero_base_only'
-      x
-    })),
-    # Subdivision (r) calibration mid-point — sensitivity scenario for the
-    # auto-parts certification + FTA-exempt fix. 0.5 / 0.5 mid-point: half of
-    # EU/JP/KR subdiv-r imports filed under 9903.94.45/.55/.65 (15% floor),
-    # half of KR subdiv-r imports FTA-qualifying under KORUS (rate_232 = 0).
-    # See docs/s232/subdivision_r_calibration.md.
-    list(variant = 'subdivision_r_mid', pp_override = local({
-      x <- pp
-      x$auto_parts_subdivision_r$certified_share <- 0.5
-      x$auto_parts_subdivision_r$fta_exempt_shares$KR <- 0.5
-      x
-    }))
-  )
-}
-
-
 #' Run all alternative daily series
 #'
-#' Alternatives unification (todo.md Phase 4): every runnable variant is a
-#' named folder under config/scenarios/<name>/ (kind: alternative or
+#' Every runnable variant is a named folder under config/scenarios/<name>/
+#' (kind: alternative or
 #' counterfactual; see src/model/scenario_registry.R). Each requested name becomes
 #' one alt_runner() spec whose pp_override is load_policy_params(scenario =
 #' name) — the same overlay merge the main build applies under TARIFF_SCENARIO
 #' — and runs a full per-revision recalc + daily aggregation to
 #' output/scenarios/<name>/.
 #'
-#' Selection: `alternatives` is the canonical selector ('all', 'alternatives',
+#' Selection: `alternatives` is the selector ('all', 'alternatives',
 #' 'counterfactuals', or a comma-list of names; see
-#' resolve_alternatives_selector()). The legacy rebuild/rebuild_alts arguments
-#' (--with-alternatives / --rebuild-alts) map onto it — rebuild = TRUE alone
-#' means the 'alternatives' kind, matching the historical 7-variant set — so
-#' existing wrappers (incl. the blog pipeline) keep working unchanged. Unknown
-#' names now FAIL LOUD (Phase-0 policy) instead of being silently dropped.
+#' resolve_alternatives_selector()). Unknown names fail loud.
 #'
 #' When alt_workers > 1, variants are dispatched concurrently via alt_runner()
 #' in src/core/parallel.R. Default alt_workers = 1 preserves serial behavior.
 #'
+#' @param alternatives Scenario selector from --alternatives
 #' @param imports Import weights tibble (or NULL)
-#' @param policy_params Baseline policy params (kept for API compatibility;
-#'   per-variant params load from the registry)
-#' @param rebuild Legacy flag (--with-alternatives); TRUE = kind 'alternative'
-#' @param rebuild_alts Legacy character vector (--rebuild-alts) of names
-#' @param alternatives Canonical selector (--alternatives); overrides legacy
 #' @param alt_workers Concurrent workers for alternatives (>= 1)
 #' @param use_policy_dates Date mode passed into each variant's
 #'   load_policy_params(); MUST match the main build
 #' @return Invisible NULL
-run_alternative_series <- function(imports = NULL, policy_params = NULL,
-                                    rebuild = FALSE,
-                                    rebuild_alts = NULL,
-                                    alternatives = NULL,
+run_alternative_series <- function(alternatives, imports = NULL,
                                     alt_workers = 1L,
                                     use_policy_dates = TRUE) {
 
@@ -2086,21 +1999,11 @@ run_alternative_series <- function(imports = NULL, policy_params = NULL,
   message('ALTERNATIVE DAILY SERIES')
   message(strrep('=', 70))
 
-  # --- Resolve which scenarios to run ---
-  if (is.null(alternatives) && rebuild) {
-    alternatives <- if (!is.null(rebuild_alts)) {
-      paste(rebuild_alts, collapse = ',')
-    } else {
-      'alternatives'
-    }
-  }
   alt_names <- resolve_alternatives_selector(alternatives)
 
   if (length(alt_names) == 0L) {
-    message('No alternatives requested (pass --alternatives <names|all|',
-            'alternatives|counterfactuals>).')
-    message(strrep('=', 70), '\n')
-    return(invisible(NULL))
+    stop('run_alternative_series: alternatives must select at least one ',
+         'registered alternative or counterfactual')
   }
 
   if (is.null(imports)) imports <- load_import_weights()

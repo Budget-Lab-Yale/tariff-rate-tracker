@@ -45,6 +45,27 @@ check(r$pass, 'identical tables pass')
 check(r$n_violations == 0, 'zero violations on identical')
 check(r$n_rows_common == 3, 'all rows common')
 
+cat('\n--- row-order independence ---\n')
+actual <- reference[c(3, 1, 2), ]
+r <- compare_parity(actual, reference, key, 'reordered_generic')
+check(r$pass, 'generic natural keys align reordered rows')
+snapshot_reference <- reference[c('hts10', 'country', 'rate_232')]
+snapshot_actual <- snapshot_reference[c(2, 3, 1), ]
+r <- compare_parity(snapshot_actual, snapshot_reference,
+                    c('hts10', 'country'), 'reordered_snapshot')
+check(r$pass, 'compact snapshot keys align reordered rows')
+meta_reference <- snapshot_reference
+meta_reference$metadata_only <- 'old-grid'
+actual <- meta_reference
+actual$metadata_only <- 'new-grid'
+r <- compare_parity(actual, meta_reference, c('hts10', 'country'),
+                    'approved_metadata_drift', ignore_cols = 'metadata_only')
+check(r$pass, 'explicitly ignored metadata VALUES are outside the economic gate')
+actual$metadata_only <- NULL
+r <- compare_parity(actual, meta_reference, c('hts10', 'country'),
+                    'ignored_column_dropped', ignore_cols = 'metadata_only')
+check(!r$pass, 'dropping an ignored column entirely is still schema drift')
+
 cat('\n--- within tolerance (rate: abs 1e-9; etr: rel 1e-7) ---\n')
 actual <- reference
 actual$rate_232[1]     <- reference$rate_232[1] + 5e-10        # rate: within abs 1e-9

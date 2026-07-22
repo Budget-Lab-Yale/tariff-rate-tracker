@@ -77,8 +77,7 @@ golden were never touched, so it's a quick daily regen.
 
 - `tests/test_forced_labor_scenario.R` — 31/31 (deep-merge, overlay load, two-tier
   by_country, date-gate, stacking-policy invariant).
-- `test_policy_from_specs`, `test_resolved_programs` (updated 8→9 authorities),
-  `test_stacking`, `test_scenario_ops` — green.
+- `test_policy_from_specs` (updated 8→9 authorities) and `test_stacking` — green.
 - All 60 economies map to the correct census codes (verified individually).
 
 ## Caveats / open items

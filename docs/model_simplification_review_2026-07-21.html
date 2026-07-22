@@ -145,6 +145,12 @@
     <div class="callout good">
       <strong>The clearest scenario risk has now been fixed.</strong> A scenario such as “no §232” now removes that program before calculation and rebuilds the result. Normal and scenario runs also use the same builder, so earlier interactions with other programs are recalculated instead of being left behind.
     </div>
+    <div class="callout">
+      <strong>Current three-item priority order.</strong> (1) Run a full production parity checkpoint for the cleanup already completed. (2) Build the product-by-country table once and remove every program-specific row-building route. (3) Finish the common policy format, moving simpler authorities first and §232 last. Calendar and package-structure work are outside this work period.
+    </div>
+    <div class="callout good">
+      <strong>Validation update.</strong> All three requested code changes are implemented and externally validated through <code>model_data</code>. The production checkpoint matched 112 of 112 artifacts exactly. The one-table build passed its 11-check verifier and its economic parity gate matched 112 of 112 artifacts. Its canonical grid intentionally normalizes seven previously sparse zero/NA fields: <code>base_rate_type</code>, <code>steel_share</code>, <code>aluminum_share</code>, <code>copper_share</code>, <code>other_metal_share</code>, <code>is_copper_heading</code>, and <code>statutory_rate_232</code>. The common policy format passed all 35 discovered test files, its 11-check verifier, and a full 112-of-112 parity gate against the sealed one-table vintage.
+    </div>
   </section>
 
   <section id="shape">
@@ -183,6 +189,7 @@
           <div class="box"><strong>Calculate once</strong><br><span class="small">then validate and publish</span></div>
         </div>
         <p class="target"><strong>Recommendation:</strong> finish moving every live tariff program into the common format, then delete the older routes. Keep the actual policy logic in R code so it remains reviewable; do not replace it with a large, hard-to-audit settings language.</p>
+        <p class="target"><strong>Status:</strong> implemented. Sentinel rate strings and the residual §232 payload are gone. §201, both §301 stacking flavors, metal derivatives, country deals, and every named §232 heading now reach the calculator as explicit programs. Validation rejects the deleted representation.</p>
         <p>If the group cannot fund the full move, simplify the new layer and clearly document it as a wrapper. A smaller honest design is safer than two half-complete calculation systems.</p>
       </div>
     </article>
@@ -203,6 +210,7 @@
           <li>Combine the changes once, check the totals once, and publish once.</li>
         </ol>
         <p class="target">This keeps the current output shape and should not require more memory than the finished table already uses. It removes repeated row-building code and gives defaults one clear home.</p>
+        <p class="target"><strong>Status:</strong> implemented. The Cartesian product is created once by <code>build_rate_grid()</code>. Program-specific row builders, densifiers, and the alternate resolved-program table/stacker were deleted; the final row-count and natural-key invariants are mandatory.</p>
       </div>
     </article>
 
@@ -263,14 +271,11 @@
   </section>
 
   <section id="roadmap">
-    <h2>A reasonable order of work</h2>
+    <h2>Current priority order and overnight status</h2>
     <div class="grid">
-      <div class="phase"><div class="num">Step 1 — done</div><h3>Strengthen the safety net</h3><p>All tests are discoverable, and a small saved example checks baseline and no-§232 results.</p></div>
-      <div class="phase"><div class="num">Step 2 — done</div><h3>Use one route for normal and scenario builds</h3><p>Normal and scenario runs now share one builder, with no late edits to finished rates.</p></div>
-      <div class="phase"><div class="num">Step 3</div><h3>Build the main table once</h3><p>Have each tariff program supply only its own changes.</p></div>
-      <div class="phase"><div class="num">Step 4</div><h3>Finish the common policy format</h3><p>Move simpler programs first. Move §232 last because it contains the most exceptions.</p></div>
-      <div class="phase"><div class="num">Step 5</div><h3>Unify the calendar</h3><p>Store enough information to calculate every start and expiration date through the same route.</p></div>
-      <div class="phase"><div class="num">Step 6</div><h3>Delete the old routes</h3><p>Once comparison tests pass, remove the retired calculation paths and outdated migration comments.</p></div>
+      <div class="phase"><div class="num">Priority 1 — complete</div><h3>Production parity checkpoint</h3><p>Actual and <code>new_301</code>: 112/112 external model-data artifacts matched exactly, including all snapshots and daily outputs.</p></div>
+      <div class="phase"><div class="num">Priority 2 — complete</div><h3>Build the main table once</h3><p>One canonical product-country grid now exists. The external build verifier passed 11/11 and economic parity passed 112/112 artifacts for actual and <code>new_301</code>. Seven sparse metadata/default representations were intentionally normalized by the canonical grid; tariff rates, totals, dates, keys, and daily outputs remain gated.</p></div>
+      <div class="phase"><div class="num">Priority 3 — complete</div><h3>Finish the common policy format</h3><p>All old sentinel/blob routes are deleted. The complete regression suite, external 11-check verifier, and full actual/<code>new_301</code> parity all pass: 112/112 artifacts.</p></div>
     </div>
 
     <h3 style="margin-top:24px">What must be checked after each step</h3>
@@ -292,12 +297,13 @@
     <table>
       <thead><tr><th>Check</th><th>Result</th><th>Limit</th></tr></thead>
       <tbody>
-        <tr><td>All automatically discovered test files</td><td class="check">36 passed, 0 failed</td><td>Six files contained one or more clearly reported skipped checks.</td></tr>
+        <tr><td>All automatically discovered test files</td><td class="check">35 passed, 0 failed</td><td>Six files contained one or more clearly reported skipped checks; one vestigial test file was deleted with its retired subsystem.</td></tr>
         <tr><td>Daily reporting</td><td class="check">81 passed, 1 skipped</td><td>The skipped check needed saved build data.</td></tr>
-        <tr><td>Main rate calculation</td><td class="check">88 passed, 22 skipped</td><td>The skipped checks needed saved revision outputs.</td></tr>
+        <tr><td>Main rate calculation</td><td class="check">90 passed, 22 skipped</td><td>The skipped checks needed saved revision outputs.</td></tr>
         <tr><td>Policy-source PDF reading</td><td class="check">17 passed, 8 skipped</td><td>The local §232 source PDF was unavailable.</td></tr>
         <tr><td>R and HTML syntax</td><td class="check">Passed</td><td>This confirms valid files, not correct policy meaning.</td></tr>
-        <tr><td>Full production rebuild</td><td class="warn">Not run</td><td>It requires the project’s high-memory computing workflow.</td></tr>
+        <tr><td>Prior-cleanup production parity</td><td class="check">112 of 112 exact</td><td>External <code>model_data</code>, actual plus <code>new_301</code>.</td></tr>
+        <tr><td>One-table production build</td><td class="check">11/11 verifier; 112/112 economic-parity artifacts</td><td>External <code>model_data</code> gate; seven documented sparse metadata/default normalizations are intentional.</td></tr>
       </tbody>
     </table>
     <p>The green test result is meaningful, but it is not a full legal audit. Checks that need large saved outputs or source PDFs must still run in the production environment before a major release.</p>
@@ -309,9 +315,7 @@
     <table>
       <thead><tr><th>Opportunity</th><th>Action</th><th>Safety check</th></tr></thead>
       <tbody>
-        <tr><td>Old alternative-scenario list builder</td><td>Delete it after its comparison test uses a small saved example.</td><td>One baseline and one alternative build must still match.</td></tr>
-        <tr><td>Obsolete scenario environment setting</td><td>Remove it when all scenarios use the normal revision builder.</td><td>Scenario-equivalence test.</td></tr>
-        <tr><td>Second, normally disabled stacking system</td><td>Delete it after the one-table design is working.</td><td>Full rate-by-rate comparison.</td></tr>
+        <tr><td>Second, normally disabled stacking system</td><td class="check">Deleted with the resolved-program table.</td><td>Focused, full, and external Item 3 parity gates pass.</td></tr>
         <tr><td>Repeated lists of rate columns</td><td>Define the list once and reuse it.</td><td>Output-column and unknown-column checks.</td></tr>
         <tr><td>Files that load differently depending on order</td><td>Give them explicit dependencies.</td><td>Load every part independently.</td></tr>
         <tr><td>Warnings in small synthetic tests</td><td>Fix them and treat future warnings as failures.</td><td>All fixture tests remain green.</td></tr>

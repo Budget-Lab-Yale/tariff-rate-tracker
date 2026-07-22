@@ -13,7 +13,6 @@ source(here('src', 'core', 'csv_cache.R'))
 source(here('src', 'model', 'policy_params.R'))
 source(here('src', 'model', 'revisions.R'))
 source(here('src', 'model', 'stacking.R'))
-source(here('src', 'model', 'resolved_programs.R'))  # Phase 3b: resolved-program table (needs stacking.R)
 source(here('src', 'model', 'timeline.R'))           # Phase 3c: unified schedule-boundary splitter
 source(here('src', 'model', 'rate_schema.R'))
 source(here('src', 'model', 'scenario_inputs.R'))

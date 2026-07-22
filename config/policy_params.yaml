@@ -119,8 +119,6 @@ section_232_headings:
     usmca_exempt: true
   copper:
     products_file: 'resources/s232_copper_products.csv'  # Authoritative: US Note 36(b), 80 HTS8 prefixes
-    prefixes: ['7406', '7407', '7408', '7409', '7410', '7411', '7412', '7413',
-               '7415', '7418', '7419', '8544']  # Fallback if products_file missing
     default_rate: 0.50    # 9903.78.01: 50% upon value of copper content (June 2025 proclamation)
     usmca_exempt: false
   softwood:
@@ -171,7 +169,6 @@ section_232_headings:
   semiconductors:
     products_file: 'resources/s232_semi_products.csv'
     qualifying_shares_file: 'resources/semi_qualifying_shares.csv'
-    prefixes: ['847150', '847180', '847330']  # fallback
     default_rate: 0.25
     usmca_exempt: false
     end_use_exemption_share: 0.0   # uncalibrated, see todo.md Phase 5
@@ -187,7 +184,6 @@ section_232_headings:
   # explicit full-value entry per docs/archive/counterfactual_generality_ground_truth.md).
   pharmaceuticals:
     products_file: 'resources/s232_pharma_products.csv'
-    prefixes: ['30']  # fallback only if the Annex I resource is unavailable
     # Tariff-ETRs current-law treatment (2026-04-06 scenario, Sept. 29 layer):
     # a tiny default rate activates the heading; target_total below supplies the
     # effective 100%/15% floors, while the UK uses an MFN + 10% surcharge.
@@ -440,16 +436,6 @@ swiss_framework:
   expiry_date: '2026-03-31'
   finalized: false
   countries: ['4419', '4411']   # Switzerland, Liechtenstein
-
-# --- Authority name to rate column mapping ---
-authority_columns:
-  section_232:      rate_232
-  section_301:      rate_301
-  section_301_content_split: rate_301_cs
-  ieepa_reciprocal: rate_ieepa_recip
-  ieepa_fentanyl:   rate_ieepa_fent
-  section_122:      rate_s122
-  other:            rate_other
 
 # --- Section 301 content-split classification (A2) ---
 # Ch99 codes listed here ride rate_301_cs (content_split: yields to a 232 like the

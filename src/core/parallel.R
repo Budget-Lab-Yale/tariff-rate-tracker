@@ -293,12 +293,9 @@ parallel_backend_available <- function() {
 #'   variant        character — variant name (e.g., 'usmca_annual')
 #'   pp_override    list — full policy_params with the variant's overrides
 #'                  applied; passed to build_alternative_timeseries()
-#'   operations     list|NULL — optional AuthoritySpec scenario ops (Phase 6e),
-#'                  applied to the per-revision specs before the calc; NULL = baseline
 #'
 #' The runner:
-#'   - When alt_workers <= 1, runs sequentially with the same tryCatch
-#'     wrapping as the historical run_alternative_series().
+#'   - When alt_workers <= 1, runs sequentially.
 #'   - When alt_workers > 1 and the backend is available, sets up
 #'     future::plan(multisession, workers = alt_workers) and dispatches
 #'     each spec to a worker process. Each worker sources the pipeline,
@@ -421,8 +418,7 @@ alt_runner <- function(alt_specs, alt_workers = 1L, log_dir = NULL,
     .with_alt_log(log_path, {
       build_alternative_timeseries(
         spec$pp_override, variant,
-        imports = imports,
-        policy_params = spec$pp_override
+        imports = imports
       )
     })
     list(variant = variant, status = 'ok', error = NULL)

@@ -47,8 +47,8 @@ library(here)
 load_policy_params <- function(yaml_path = NULL,
                                use_policy_dates = TRUE,
                                scenario = NULL) {
-  # TARIFF_POLICY_PARAMS overrides the config path (mirrors TARIFF_TS_DIR /
-  # TARIFF_SCENARIO_OPS) so a fixture can build against a config variant — e.g.
+  # TARIFF_POLICY_PARAMS overrides the config path so a fixture can build
+  # against a config variant — e.g.
   # a populated section_301_content_split_codes — without editing the tracked
   # file. Unset (the production/gate path) => the canonical config => byte-identical.
   if (is.null(yaml_path)) {
@@ -99,9 +99,6 @@ load_policy_params <- function(yaml_path = NULL,
 
   # Section 232 chapters as flat vector
   params$SECTION_232_CHAPTERS <- unlist(params$section_232_chapters)
-
-  # Authority columns as named vector
-  params$AUTHORITY_COLUMNS <- unlist(params$authority_columns)
 
   # Section 301 rates as tibble
   if (!is.null(params$section_301_rates)) {

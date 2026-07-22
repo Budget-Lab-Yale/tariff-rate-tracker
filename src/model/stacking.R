@@ -1,8 +1,7 @@
 # =============================================================================
 # Stacking Rules — mutual-exclusion tariff stacking and authority decomposition
 # =============================================================================
-# Split from helpers.R. Sourced by helpers.R for backward compatibility.
-# Direct consumers can source this file alone.
+# Sourced by helpers.R and directly by focused consumers.
 
 library(tidyverse)
 
@@ -12,7 +11,7 @@ library(tidyverse)
 #' Ensure optional columns exist, optionally replacing NAs.
 #'
 #' This belongs to the stacking layer: its only production consumers are the
-#' wide stacker, net decomposition, and resolved-program stacker. Defining it
+#' wide stacker and net decomposition. Defining it
 #' here keeps stacking.R directly sourceable instead of depending on a helper
 #' that helpers.R used to define only *after* sourcing this module.
 ensure_cols <- function(df, defaults, fill_na = FALSE) {

@@ -6,23 +6,9 @@
 # parsers (03/04/05) already produce and re-packages them into a uniform
 # `authority_spec_set` (see docs/authority_spec.md, src/model/authority_spec.R).
 #
-# CONTRACT — rate payloads are spec-native, parity-safe by construction:
-#   * Authorities are progressively DE-BLOBBED into structured compositional rate
-#     layers (the calc reads them via resolve_rate / dedicated readers): section_122
-#     (Plank 3, rate$default), section_232 statutory layers + annex (Plank 4a/4c),
-#     ieepa_reciprocal (Plank 4b/S1: by_country + by_country_type/_eo_* +
-#     default_unlisted_rate/_exclude), ieepa_fentanyl (Plank 4b/S2: by_country +
-#     carveouts). Only `section_232` still carries a RESIDUAL blob in its first
-#     program's `rate$resolved` slot — the decision-8 gate inputs + derivative
-#     blends — read back via s232_rates_from_specs().
-#   * The calculator, handed a spec set, reads those structured layers and runs its
-#     body — so flag-on output stays byte-identical to flag-off. The Phase-1
-#     out-of-band `raw_*` attrs are gone.
-#   * The other normalized fields are a scaffold the calculator reads selectively:
-#     `country_scope` for 301/201 (Phase 2e); `active.until` for IEEPA invalidation
-#     (Phase 2d); `heading_gates` precomputed for 232 (Phase 2c).
-#   * `mfn` / `other` are constructed but inert (no resolved payload; their data
-#     still flows through the calculator's internal footnote-seeding / extraction).
+# CONTRACT — every authority reaches the calculator through structured programs.
+# Parsers may remain authority-specific, but their outputs are fully consumed here;
+# no raw payload, sentinel rate, or calculator-side reconstruction is supported.
 #
 # Source order: this file depends on src/model/authority_spec.R (constructors,
 # validation, `%||%`) being sourced first, and on get_country_constants() from
@@ -31,28 +17,7 @@
 
 source(here::here('src', 'core', 'csv_cache.R'))
 
-# ---- read the rate payload back out of the normalized programs (Phase 6b) ----
-#
-# The thin cut relocates each parser object VERBATIM from its out-of-band
-# `raw_*` attr into the owning program's `rate$resolved` slot (a normal spec
-# field the ops engine can mutate). Reconstruction is therefore the identity —
-# the calc gets back the exact same R object — so the body stays byte-identical.
-# (Full per-program normalization — e.g. splitting the 21-field s232 list across
-# its 7 programs — is deferred to Phase 8; not needed for the ops capability.)
-# 232's payload is authority-wide, parked on programs[[1]] until that split.
-.spec_resolved_rate <- function(spec) {
-  if (is.null(spec) || !length(spec$programs)) return(NULL)
-  spec$programs[[1]]$rate$resolved
-}
-# Plank 4b/S3: ieepa_rates_from_specs / fentanyl_rates_from_specs removed — IEEPA
-# reciprocal (S1) + fentanyl (S2) are de-blobbed, so there is no rate$resolved blob
-# to read and no caller remains. Only section_232 still carries a residual blob.
-s232_rates_from_specs     <- function(specs) .spec_resolved_rate(specs[['section_232']])
-# (section_122 was de-blobbed in Plank 3 — its rate lives in the compositional
-#  rate$default layer now, read by the calc via resolve_rate(), so it no longer
-#  needs a resolved-blob accessor here.)
-
-# ---- Section 301: resolve the additive rate tier into the spec (Plank 1) ----
+# ---- Section 301: resolve both blanket tiers into programs ------------------
 #
 # The Section 301 ADDITIVE rate (hts8 -> rate) was recomputed inside the
 # calculator (06_calculate_rates.R ~2354-2399). Plank 1 moves that resolution
@@ -63,39 +28,42 @@ s232_rates_from_specs     <- function(specs) .spec_resolved_rate(specs[['section
 #   2. drop suspended provisions, then
 #   3. MAX(s301_rate) per hts8 across the active ADDITIVE codes (supersession:
 #      Biden 9903.91.xx >= Trump 9903.88.xx, so MAX picks the superseding rate).
-# The content-split flavor (rate_301_cs) is left in the calculator for now — it is
-# DORMANT in baseline (section_301_content_split_codes empty), so parity is
-# unaffected; relocating it cleanly wants a second program/column and is deferred.
-# Returns a named numeric (names = hts8) or NULL when no active additive codes.
-build_s301_additive_tier <- function(ch99_data, effective_date, pp) {
+# Returns named numeric vectors (names = hts8); an inactive flavor is numeric(0).
+build_s301_tiers <- function(ch99_data, effective_date, pp) {
   rate_lookup <- pp$SECTION_301_RATES
-  if (is.null(rate_lookup) || !nrow(rate_lookup)) return(NULL)
+  if (is.null(rate_lookup) || !nrow(rate_lookup))
+    return(list(additive = numeric(0), content_split = numeric(0)))
   s301_path <- here('resources', 's301_product_lists.csv')
-  if (!file.exists(s301_path)) return(NULL)
+  if (!file.exists(s301_path))
+    stop('Section 301 product list not found: ', s301_path)
   s301_products <- read_csv_cached(s301_path, col_types = readr::cols(
     hts8 = readr::col_character(), list = readr::col_character(),
     ch99_code = readr::col_character()))
   ch99_active <- filter_active_ch99(ch99_data, as.Date(effective_date))
   matched <- ch99_active[ch99_active$ch99_code %in% rate_lookup$ch99_pattern, , drop = FALSE]
-  if (!nrow(matched)) return(NULL)
+  if (!nrow(matched)) return(list(additive = numeric(0), content_split = numeric(0)))
   descr <- matched$description %||% rep('', nrow(matched))
   active_codes <- unique(matched$ch99_code[!grepl('provision suspended', descr, ignore.case = TRUE)])
   cs_cfg    <- as.character(pp$section_301_content_split_codes %||% character(0))
-  add_codes <- setdiff(active_codes, cs_cfg)
-  if (!length(add_codes)) return(NULL)
-  lk <- s301_products |>
-    dplyr::filter(ch99_code %in% add_codes) |>
-    dplyr::inner_join(rate_lookup, by = c('ch99_code' = 'ch99_pattern')) |>
-    dplyr::group_by(hts8) |>
-    dplyr::summarise(rate = max(s301_rate), .groups = 'drop')
-  if (!nrow(lk)) return(NULL)
-  stats::setNames(lk$rate, lk$hts8)
+  collapse <- function(codes) {
+    if (!length(codes)) return(numeric(0))
+    lk <- s301_products |>
+      dplyr::filter(ch99_code %in% codes) |>
+      dplyr::inner_join(rate_lookup, by = c('ch99_code' = 'ch99_pattern')) |>
+      dplyr::group_by(hts8) |>
+      dplyr::summarise(rate = max(s301_rate), .groups = 'drop')
+    stats::setNames(lk$rate, lk$hts8)
+  }
+  list(
+    additive = collapse(setdiff(active_codes, cs_cfg)),
+    content_split = collapse(intersect(active_codes, cs_cfg))
+  )
 }
 
 # ---- Section 232 blanket per-country overlay (Plank 4a / S2 blanket slice) ----
 #
 # Build the merged per-country rate overlay for a §232 METAL program (steel/aluminum)
-# as a `by_country` layer, draining the residual blob's exempt lists + HTS country
+# as a `by_country` layer, consuming the parser's exempt lists + HTS country
 # overrides + (config) S232_COUNTRY_EXEMPTIONS into one structured map. Reproduces the
 # calculator's imperative country_232 build (06_calculate_rates.R: the exempt mutate +
 # the two override loops + the config-exemption loop) in EXACT application order, baked
@@ -304,8 +272,10 @@ build_s301_additive_tier <- function(ch99_data, effective_date, pp) {
 # calc-loaded policy input). Only the SETS move; the MASKING stays calc-side
 # (it needs the product grid). Each helper reproduces the calc's old load +
 # date-gate VERBATIM, so the relocation is bit-exact (oracle-tested). Baked onto
-# the program as `$exempt_products` (a plain attached field, like §232's residual
-# `rate$resolved` blob — invisible to validate_authority_spec, no schema change):
+# the program as `$exempt_products` (a plain attached field outside the rate
+# payload — validate_authority_spec doesn't inspect it, no schema change; the
+# old `rate$resolved` blob this once resembled is deleted and now REJECTED by
+# validate_rate):
 #   ieepa_reciprocal$programs[[1]]$exempt_products = {universal, country_eo, floor}
 #   section_122$programs[[1]]$exempt_products       = {hts8}
 # The fentanyl Ch98 subset rides along — the calc derives it as universal[ch==98].
@@ -435,7 +405,7 @@ build_s301_additive_tier <- function(ch99_data, effective_date, pp) {
 # is absent (baseline). content_split + USMCA-eligible (stacks like ieepa_reciprocal /
 # §122). DATE-GATED: by_country (and country scope) are populated only when the
 # revision's effective_date >= the action's effective_date, so the authority is
-# hollow before the turn-on AND in every synthetic mint stamped before it. Because
+# empty before the turn-on AND in every synthetic mint stamped before it. Because
 # the gate is by DATE (not a scenario op), every synthetic revision stamped on/after
 # the turn-on (the bnd_<date> mint + any later empty-ops boundary mint) carries it.
 .build_section_301_forced_labor <- function(pp, countries, effective_date) {
@@ -474,7 +444,7 @@ build_s301_additive_tier <- function(ch99_data, effective_date, pp) {
 # notice's hard §232 carve-out via nonmetal_share (see src/model/stacking.R): §232 goods
 # — metals AND autos/MHD (nonmetal_share=0 fallback) — receive zero Brazil §301.
 # DATE-GATED to >= effective_date exactly like the forced-labor builder, so it is
-# hollow in baseline / pre-turn-on revisions and every synthetic pre-date mint.
+# empty in baseline / pre-turn-on revisions and every synthetic pre-date mint.
 .build_section_301_brazil <- function(pp, countries, effective_date) {
   cfg <- pp$section_301_brazil
   if (is.null(cfg)) return(NULL)
@@ -535,15 +505,19 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
   ieepa_until <- pp$IEEPA_INVALIDATION_DATE
 
   # --- section_232 — the genuinely multi-program authority ------------------
-  # Per-program rates are de-blobbed into each program's rate$default (Plank 4a);
-  # the residual 21-field list (exempt lists, deals, overrides, derivatives, flags,
-  # has_232) lives on programs[[1]]$rate$resolved until the later stages drain it.
   metal_prog <- function(id, type) authority_program(
     id = id, country_scope = list(include = 'all', exclude = list()),
     stacking = list(class = 'primary_metal'), metal = list(type = type, content = 'full'))
   full_prog <- function(id) authority_program(
     id = id, country_scope = list(include = 'all', exclude = list()),
     stacking = list(class = 'primary_full'), metal = list(type = 'none'))
+  derivative_prog <- function(id, type) authority_program(
+    id = id,
+    product_scope = list(list_file = 'resources/s232_derivative_products.csv'),
+    country_scope = list(include = 'all', exclude = list()),
+    stacking = list(class = 'primary_metal'),
+    metal = list(type = type, content = 'partial'),
+    active = list(enabled = FALSE))
   section_232 <- authority_spec(
     authority = 'section_232',
     stacking  = list(class = 'primary_metal', exceptions = list()),
@@ -552,33 +526,22 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
     programs = list(
       metal_prog('steel',    'steel'),
       metal_prog('aluminum', 'aluminum'),
-      metal_prog('copper',   'copper'),
-      full_prog('autos'),
-      full_prog('mhd'),
-      full_prog('wood'),
-      full_prog('semiconductors'),
+      derivative_prog('steel_derivatives', 'steel'),
+      derivative_prog('aluminum_derivatives', 'aluminum'),
+      metal_prog('copper_source',   'copper'),
+      full_prog('autos_source'),
+      full_prog('mhd_source'),
+      full_prog('wood_source'),
+      full_prog('semiconductors_source'),
       # Plank 4a / S1b: pharmaceuticals is a register-then-activate dormant program
-      # (pharma_rate = 0 in baseline → gate FALSE → byte-identical). It existed only
-      # as a logical set_rate name (scenario_ops::S232_RATE_FIELD) over the blob;
-      # giving it a real program makes the heading-name→program-id read uniform and
-      # lets a scenario set_rate(section_232, 'pharmaceuticals', x) land on the spec.
-      full_prog('pharmaceuticals')
+      # (pharma_rate = 0 in baseline → gate FALSE → byte-identical). Giving it a
+      # real program makes the heading-name→program-id read uniform.
+      full_prog('pharmaceuticals_source')
     )
   )
-  # Park the (still-blobbed) 21-field s232 list on programs[[1]]$rate$resolved.
-  # Plank 4a de-blobs it stage by stage into structured layers; the residual blob
-  # shrinks as each stage lands. Read via s232_rates_from_specs().
-  section_232$programs[[1]]$rate$resolved <- s232_rates
+  section_232$active$enabled <- isTRUE(s232_rates$has_232)
   if (!is.null(s232_rates)) {
-    # Plank 4a / S1a+S1b: de-blob every program's BASE rate into its compositional
-    # rate$default (rate_type='surcharge' — additive). The calc reads these via
-    # resolve_rate() — the blanket metals/autos in the country_232 build (S1a) and
-    # the heading programs (copper/mhd/wood/semi/pharma) through compute_heading_gates
-    # / resolve_heading_rate (S1b). Setting default to the scalar VERBATIM (incl. 0 —
-    # a real, non-hollow value) keeps every read byte-identical to the old
-    # `s232_rates$<field>` read. The non-rate fields (exempt lists, country overrides,
-    # deals, derivatives, auto_has_deals/auto_has_parts, wood_furniture_rate, has_232)
-    # stay on the resolved blob until S2/S3.
+    # Normalize every parsed rate into an explicit program layer.
     .s232_set_default <- function(spec, prog_id, value) {
       pos <- which(vapply(spec$programs,
                           function(p) identical(p$id, prog_id), logical(1)))
@@ -588,18 +551,29 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
     }
     section_232 <- .s232_set_default(section_232, 'steel',          s232_rates$steel_rate    %||% 0)
     section_232 <- .s232_set_default(section_232, 'aluminum',       s232_rates$aluminum_rate %||% 0)
-    section_232 <- .s232_set_default(section_232, 'autos',          s232_rates$auto_rate     %||% 0)
-    section_232 <- .s232_set_default(section_232, 'copper',         s232_rates$copper_rate   %||% 0)
-    section_232 <- .s232_set_default(section_232, 'mhd',            s232_rates$mhd_rate      %||% 0)
-    section_232 <- .s232_set_default(section_232, 'wood',           s232_rates$wood_rate     %||% 0)
-    section_232 <- .s232_set_default(section_232, 'semiconductors', s232_rates$semi_rate     %||% 0)
-    section_232 <- .s232_set_default(section_232, 'pharmaceuticals',s232_rates$pharma_rate   %||% 0)
-    # Plank 4a / S2 (blanket slice): drain the steel/aluminum exempt lists + HTS country
-    # overrides + config exemptions into each metal program's compositional rate$by_country
-    # overlay (merged in calc application order, baked per-revision). The calc reads the
-    # per-country metal rate via resolve_rate(product=NULL, country) (s232_blanket_metal_rate),
-    # falling back to the imperative blob build for the specs-less callers. auto_exempt is
-    # left on the blob (auto_rate never sets rate_232 — autos flow through the heading path).
+    section_232 <- .s232_set_default(section_232, 'autos_source',          s232_rates$auto_rate     %||% 0)
+    section_232 <- .s232_set_default(section_232, 'copper_source',         s232_rates$copper_rate   %||% 0)
+    section_232 <- .s232_set_default(section_232, 'mhd_source',            s232_rates$mhd_rate      %||% 0)
+    section_232 <- .s232_set_default(section_232, 'wood_source',           s232_rates$wood_rate     %||% 0)
+    section_232 <- .s232_set_default(section_232, 'semiconductors_source', s232_rates$semi_rate     %||% 0)
+    section_232 <- .s232_set_default(section_232, 'pharmaceuticals_source',s232_rates$pharma_rate   %||% 0)
+    section_232 <- .s232_set_default(section_232, 'steel_derivatives',
+                                     s232_rates$steel_derivative_rate %||% 0)
+    section_232 <- .s232_set_default(section_232, 'aluminum_derivatives',
+                                     s232_rates$aluminum_derivative_rate %||% 0)
+    .s232_set_enabled <- function(spec, prog_id, enabled) {
+      pos <- which(vapply(spec$programs, function(p) identical(p$id, prog_id), logical(1)))
+      spec$programs[[pos]]$active$enabled <- isTRUE(enabled)
+      spec
+    }
+    active_ch99_codes <- filter_active_ch99(ch99_data, as.Date(effective_date))$ch99_code
+    section_232 <- .s232_set_enabled(
+      section_232, 'steel_derivatives',
+      any(active_ch99_codes %in% c('9903.81.89', '9903.81.90', '9903.81.91', '9903.81.93')))
+    section_232 <- .s232_set_enabled(
+      section_232, 'aluminum_derivatives',
+      any(active_ch99_codes %in% c('9903.85.04', '9903.85.07', '9903.85.08')))
+    # Resolve steel/aluminum exemptions and country overrides into by_country.
     .s232_set_by_country <- function(spec, prog_id, bc) {
       if (is.null(bc)) return(spec)
       pos <- which(vapply(spec$programs, function(p) identical(p$id, prog_id), logical(1)))
@@ -612,19 +586,26 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
     section_232 <- .s232_set_by_country(section_232, 'aluminum',
       .s232_blanket_by_country(s232_rates, pp, countries, effective_date,
                                'aluminum_exempt', 'aluminum_country_overrides', 'aluminum'))
-    # Plank 4a / S2 (deals slice): de-blob the auto + wood country-deal tibbles into the
-    # autos / wood programs. Surcharge deals -> rate$overrides (scope-form), floor deals ->
-    # rate$floors; ISO/EU census-expanded here (cc). The calc reads them via s232_deal_records()
-    # (spec-first, blob-fallback) and keeps the floor/surcharge math (decision 8). auto_has_deals
-    # / wood_furniture_rate / derivatives stay on the residual blob (has_232 gate; S3/decision-8).
+    .derivative_country_rates <- function(exempt) {
+      hit <- vapply(countries, function(cty) is_232_exempt(cty, exempt), logical(1))
+      if (!any(hit)) return(NULL)
+      stats::setNames(rep(0, sum(hit)), as.character(countries[hit]))
+    }
+    section_232 <- .s232_set_by_country(
+      section_232, 'steel_derivatives',
+      .derivative_country_rates(s232_rates$steel_derivative_exempt))
+    section_232 <- .s232_set_by_country(
+      section_232, 'aluminum_derivatives',
+      .derivative_country_rates(s232_rates$aluminum_derivative_exempt))
+    # Normalize auto and wood country deals into rate overrides/floors.
     .s232_set_deals <- function(spec, prog_id, layers) {
       pos <- which(vapply(spec$programs, function(p) identical(p$id, prog_id), logical(1)))
       if (length(layers$overrides)) spec$programs[[pos]]$rate$overrides <- layers$overrides
       if (length(layers$floors))    spec$programs[[pos]]$rate$floors    <- layers$floors
       spec
     }
-    section_232 <- .s232_set_deals(section_232, 'autos', .s232_deal_layers(s232_rates$auto_deal_rates, cc))
-    section_232 <- .s232_set_deals(section_232, 'wood',  .s232_deal_layers(s232_rates$wood_deal_rates, cc))
+    section_232 <- .s232_set_deals(section_232, 'autos_source', .s232_deal_layers(s232_rates$auto_deal_rates, cc))
+    section_232 <- .s232_set_deals(section_232, 'wood_source',  .s232_deal_layers(s232_rates$wood_deal_rates, cc))
 
     # ---- Plank 4c (Slice 2a): §232 ANNEX regime de-blob -> spec --------------
     # De-blob the annex per-product FACTS into the spec so the calculator READS
@@ -738,20 +719,72 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
       }
 
       section_232$annex <- list(
+        config            = annex_cfg,
         tier              = setNames(tier[keept], hts[keept]),
         flat_rate         = setNames(as.numeric(flat_rate[keepf]), hts[keepf]),
         floor_rate        = as.numeric(annex_cfg$annexes$annex_3$floor_rate),
         country_overrides = .ovs)
     }
 
-    # Phase 2c/6c: precompute the heading-program activation gates. Since S1b
-    # compute_heading_gates reads the program rates off the spec (rate$default via
-    # s232_spec_rate) + the non-rate flags off the resolved blob, so pass both. At
-    # build time the defaults equal the blob scalars, so the baseline cache is
-    # unchanged; a scenario set_rate mutates the default and drops this cache so it
-    # recomputes from the spec.
-    attr(section_232, 'heading_gates') <-
-      compute_heading_gates(list(section_232 = section_232), s232_rates)
+    # Heading activation is revision-resolved policy data, not calculator state.
+    heading_gates <- compute_heading_gates(list(section_232 = section_232), s232_rates)
+    # Fail closed: a heading configured in policy_params.yaml but absent from
+    # compute_heading_gates()'s registry would otherwise be built with
+    # enabled = FALSE forever and silently publish zero rates for that program.
+    unregistered <- setdiff(names(pp$section_232_headings), names(heading_gates))
+    if (length(unregistered) > 0) {
+      stop('Section 232 heading(s) ', paste(unregistered, collapse = ', '),
+           ' are in policy_params$section_232_headings but have no activation gate ',
+           'registered in compute_heading_gates() (06_calculate_rates.R). Add a gate ',
+           'entry or remove the config key; an unregistered heading would be built ',
+           'disabled and silently publish zero rates.')
+    }
+    heading_program <- c(
+      autos_passenger = 'autos_source', autos_light_trucks = 'autos_source',
+      copper = 'copper_source', softwood = 'wood_source',
+      mhd_vehicles = 'mhd_source', mhd_parts = 'mhd_source',
+      semiconductors = 'semiconductors_source',
+      pharmaceuticals = 'pharmaceuticals_source')
+    product_fields <- c('products_file', 'prefixes_file', 'prefixes')
+    for (nm in names(pp$section_232_headings)) {
+      cfg <- pp$section_232_headings[[nm]]
+      parsed <- if (nm %in% names(heading_program))
+        s232_spec_rate(list(section_232 = section_232), heading_program[[nm]]) else 0
+      rate <- if (is.finite(parsed) && parsed > 0) parsed else cfg$default_rate
+      if (isTRUE(heading_gates[[nm]]) &&
+          (is.null(rate) || !is.numeric(rate) || length(rate) != 1L ||
+           !is.finite(rate) || rate < 0))
+        stop('Section 232 heading ', nm, ' has no valid resolved rate')
+      product_scope <- cfg[intersect(product_fields, names(cfg))]
+      settings <- cfg[setdiff(names(cfg), c(product_fields, 'default_rate'))]
+      settings$is_heading <- TRUE
+      section_232$programs[[length(section_232$programs) + 1L]] <- authority_program(
+        id = nm,
+        product_scope = product_scope,
+        country_scope = list(include = 'all'),
+        rate = list(default = rate %||% 0, rate_type = 'surcharge'),
+        metal = list(type = 'none'),
+        active = list(enabled = isTRUE(heading_gates[[nm]])),
+        stacking = list(class = 'primary_full'),
+        settings = settings)
+    }
+  }
+  if (is.null(s232_rates)) {
+    product_fields <- c('products_file', 'prefixes_file', 'prefixes')
+    for (nm in names(pp$section_232_headings)) {
+      cfg <- pp$section_232_headings[[nm]]
+      settings <- cfg[setdiff(names(cfg), c(product_fields, 'default_rate'))]
+      settings$is_heading <- TRUE
+      section_232$programs[[length(section_232$programs) + 1L]] <- authority_program(
+        id = nm,
+        product_scope = cfg[intersect(product_fields, names(cfg))],
+        country_scope = list(include = 'all'),
+        rate = list(default = 0, rate_type = 'surcharge'),
+        metal = list(type = 'none'),
+        active = list(enabled = FALSE),
+        stacking = list(class = 'primary_full'),
+        settings = settings)
+    }
   }
 
   # --- ieepa_reciprocal — blanket, country-level ----------------------------
@@ -820,25 +853,38 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
       rate = fent_rate))
   )
 
-  # --- section_301 — China gate as data (no raw embed; footnote-seeded) -----
+  # --- section_301 — two explicit stacking programs -------------------------
+  s301_tiers <- build_s301_tiers(ch99_data, effective_date, pp)
+  s301_rate <- if (length(s301_tiers$additive))
+    list(by_product_tier = s301_tiers$additive) else list()
+  s301_cs_rate <- if (length(s301_tiers$content_split))
+    list(by_product_tier = s301_tiers$content_split) else list()
   section_301 <- authority_spec(
     authority = 'section_301',
     stacking  = list(class = 'additive', exceptions = list()),
     usmca_treatment = 'none',
     active = list(from = NA, until = NA),
-    programs = list(authority_program(
-      id = 's301',
-      product_scope = list(list_file = 'resources/s301_product_lists.csv'),
-      country_scope = list(include = CTY_CHINA %||% '5700'),
-      rate = list(by_product_tier = 'from_list')))
+    programs = list(
+      authority_program(
+        id = 's301',
+        product_scope = list(list_file = 'resources/s301_product_lists.csv'),
+        country_scope = list(include = CTY_CHINA %||% '5700'),
+        rate = s301_rate,
+        stacking = list(class = 'additive')),
+      authority_program(
+        id = 's301_content_split',
+        product_scope = list(list_file = 'resources/s301_product_lists.csv'),
+        country_scope = list(include = CTY_CHINA %||% '5700'),
+        rate = s301_cs_rate,
+        stacking = list(class = 'content_split'))
+    )
   )
-  # Plank 1: resolve the additive 301 tier (hts8 -> rate) into by_product_tier so
-  # the calculator reads it instead of recomputing. NULL (no active codes this
-  # revision) leaves the hollow 'from_list' sentinel -> calc skips 301 as before.
-  section_301$programs[[1]]$rate$by_product_tier <-
-    build_s301_additive_tier(ch99_data, effective_date, pp) %||% 'from_list'
 
   # --- section_201 — solar, Canada-exempt -----------------------------------
+  s201_extracted <- extract_section_201_rates(
+    filter_active_ch99(ch99_data, as.Date(effective_date)), policy_params = pp)
+  s201_rate <- if (isTRUE(s201_extracted$has_s201))
+    list(default = s201_extracted$solar_rate, rate_type = 'surcharge') else list()
   section_201 <- authority_spec(
     authority = 'section_201',
     stacking  = list(class = 'additive', exceptions = list()),
@@ -848,7 +894,8 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
       id = 's201',
       product_scope = list(list_file = 'resources/s201_solar_products.csv'),
       country_scope = list(include = 'all',
-                           exclude = (CTY_CANADA %||% character(0)))))
+                           exclude = (CTY_CANADA %||% character(0))),
+      rate = s201_rate))
   )
 
   # --- section_122 — non-discriminatory blanket -----------------------------
@@ -865,7 +912,7 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
   # rate$default layer (de-blobbed — no more rate$resolved). Extracted from the
   # SAME date-gated ch99 the calc uses (filter_active_ch99 at 06:766). The calc
   # READS it via resolve_rate() and gates on value > 0, so an absent program
-  # (has_s122 = FALSE) leaves the rate hollow and the gate stays OFF — exactly
+  # (has_s122 = FALSE) leaves the rate empty and the gate stays OFF — exactly
   # the old has_s122 ≡ rate>0 behavior. rate_type = 'surcharge': an additive duty.
   s122_extracted <- extract_section122_rates(
     filter_active_ch99(ch99_data, as.Date(effective_date)))
@@ -885,7 +932,7 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
     gn6_hts8        = s122_ex$gn6_hts8,
     gn6_utilization = .resolve_s122_gn6_utilization())
 
-  # --- mfn (base layer) + other (catch-all) — inert in Phase 1 --------------
+  # --- mfn (base layer) + other (catch-all) ----------------------------------
   mfn <- authority_spec(
     authority = 'mfn',
     stacking  = list(class = 'additive', exceptions = list()),  # base layer; placeholder
@@ -893,8 +940,7 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
     active = list(from = NA, until = NA),
     programs = list(authority_program(
       id = 'mfn', product_scope = list(include = 'all'),
-      country_scope = list(include = 'all'),
-      rate = list(default = 'from_products_base_rate')))
+      country_scope = list(include = 'all')))
   )
   other <- authority_spec(
     authority = 'other',

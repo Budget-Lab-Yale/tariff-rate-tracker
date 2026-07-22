@@ -75,6 +75,43 @@ make_hts_item <- function(htsno, description = '', general = '',
 
 
 # =============================================================================
+# Test 0: canonical product-country grid
+# =============================================================================
+
+message('\n--- Test 0: build_rate_grid ---')
+
+run_test('builds one complete grid and seeds sparse rates', {
+  products <- tibble(
+    hts10 = c('0101000000', '0202000000'),
+    base_rate = c(0.05, NA_real_),
+    base_rate_type = c('ad_valorem', NA_character_)
+  )
+  seed <- tibble(hts10 = '0101000000', country = '5700', rate_301 = 0.25)
+  grid <- build_rate_grid(products, c('5700', '1220'), seed)
+  stopifnot(nrow(grid) == 4)
+  stopifnot(!anyDuplicated(grid[c('hts10', 'country')]))
+  stopifnot(grid$rate_301[grid$hts10 == '0101000000' & grid$country == '5700'] == 0.25)
+  stopifnot(all(grid$rate_232 == 0))
+  stopifnot(grid$base_rate[grid$hts10 == '0202000000' & grid$country == '1220'] == 0)
+  stopifnot(grid$base_rate_type[grid$hts10 == '0202000000' & grid$country == '1220'] == 'free')
+})
+
+run_test('rejects duplicate product identity', {
+  products <- tibble(hts10 = c('0101000000', '0101000000'), base_rate = 0)
+  err <- tryCatch({ build_rate_grid(products, '5700'); NULL }, error = identity)
+  stopifnot(inherits(err, 'error'))
+})
+
+run_test('rejects seed rates keyed outside the grid', {
+  products <- tibble(hts10 = '0101000000', base_rate = 0.05)
+  seed <- tibble(hts10 = c('0101000000', '9999999999'), country = '5700', rate_301 = 0.25)
+  err <- tryCatch({ build_rate_grid(products, '5700', seed); NULL }, error = identity)
+  stopifnot(inherits(err, 'error'))
+  stopifnot(grepl('outside the product x country grid', conditionMessage(err)))
+})
+
+
+# =============================================================================
 # Test 1: extract_ieepa_rates()
 # =============================================================================
 

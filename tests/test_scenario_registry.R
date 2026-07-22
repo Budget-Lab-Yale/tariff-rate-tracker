@@ -5,13 +5,9 @@
 # Covers:
 #   1. list_scenarios() — registry completeness, kinds, meta validation
 #   2. resolve_alternatives_selector() — selector expansion + fail-loud
-#   3. Migration parity — each config/scenarios/<name>/overlay.yaml produces
-#      the same effective policy_params as the historical pp_override closure
-#      in build_rebuild_alt_registry() (delete that function + section 3 here
-#      once the cluster golden diff passes; see todo.md Phase 4 Step 5)
-#   4. apply_counterfactual_inputs() — pre-calculation authority removal
-#   5. Counterfactual overlays — disabled_authorities round-trips through
-#      load_policy_params(scenario = ...) and validates against authority_columns
+#   3. apply_counterfactual_inputs() — pre-calculation authority removal
+#   4. Counterfactual overlays — disabled_authorities round-trips through
+#      load_policy_params(scenario = ...)
 #
 # Usage:
 #   Rscript tests/test_scenario_registry.R
@@ -24,7 +20,6 @@ suppressPackageStartupMessages({
   library(yaml)
 })
 source(here('src', 'core', 'helpers.R'))
-source(here('src', 'pipeline', '09_daily_series.R'))
 
 pass_count <- 0
 fail_count <- 0
@@ -106,10 +101,6 @@ run_test("'alternatives' expands to exactly the historical 7-variant set", {
   stopifnot(setequal(resolve_alternatives_selector('alternatives'), ALTERNATIVES))
 })
 
-run_test("'rebuild' is an alias for 'alternatives'", {
-  stopifnot(setequal(resolve_alternatives_selector('rebuild'), ALTERNATIVES))
-})
-
 run_test("'counterfactuals' expands to the 6 counterfactuals", {
   stopifnot(setequal(resolve_alternatives_selector('counterfactuals'), COUNTERFACTUALS))
 })
@@ -124,11 +115,8 @@ run_test('comma-list selects by name, deduplicated', {
   stopifnot(setequal(got, c('metal_flat', 'usmca_2024')))
 })
 
-run_test('NULL / none resolve to empty', {
-  stopifnot(
-    length(resolve_alternatives_selector(NULL)) == 0,
-    length(resolve_alternatives_selector('none')) == 0
-  )
+run_test('NULL resolves to empty', {
+  stopifnot(length(resolve_alternatives_selector(NULL)) == 0)
 })
 
 run_test('unknown name fails loud', {
@@ -139,64 +127,11 @@ run_test('kind=scenario names are rejected with the TARIFF_SCENARIO pointer', {
   expect_error(resolve_alternatives_selector('forced_labor'), 'TARIFF_SCENARIO')
 })
 
-# =============================================================================
-# 3. Migration parity: overlay-built pp == historical closure pp
-# =============================================================================
-message('\n--- migration parity (overlay vs build_rebuild_alt_registry) ---')
-
 pp_base <- load_policy_params()
-legacy <- build_rebuild_alt_registry(pp_base)
-legacy_by_name <- setNames(legacy, vapply(legacy, `[[`, character(1), 'variant'))
-
-# Raw config keys the overlays legitimately rewrite but the legacy closures
-# left at baseline (closures edited the unpacked convenience fields instead).
-# Effective behavior flows through the unpacked fields, compared separately.
-RAW_KEYS_REWRITTEN <- c('usmca_shares')
-
 strip_keys <- function(pp, keys) { pp[setdiff(names(pp), keys)] }
 
-# Compare two lists field-by-field over the union of their names. Treats an
-# ABSENT field and a present-but-NULL field as equal (both read as NULL via $
-# and %||%, which is how every consumer accesses them), and integer/double
-# scalars of equal value as equal (yaml parses `year: 2025` as 2025L where the
-# legacy closures assigned the double 2025; consumers paste/derive from it, and
-# the integer is the safer typing for the loader's sprintf('%d', ...)).
-fields_equivalent <- function(a, b) {
-  for (f in union(names(a), names(b))) {
-    av <- a[[f]]; bv <- b[[f]]
-    same <- identical(av, bv) ||
-      (is.numeric(av) && is.numeric(bv) &&
-         identical(as.numeric(av), as.numeric(bv)))
-    if (!same) {
-      stop('field mismatch: ', f,
-           ' (legacy: ', paste(deparse(av), collapse = ' '),
-           ' vs overlay: ', paste(deparse(bv), collapse = ' '), ')')
-    }
-  }
-  invisible(TRUE)
-}
-
-for (variant in names(legacy_by_name)) {
-  run_test(paste0('parity: ', variant), {
-    pp_old <- legacy_by_name[[variant]]$pp_override
-    pp_new <- load_policy_params(scenario = variant)
-
-    # Effective USMCA settings must match field-by-field
-    fields_equivalent(pp_old$USMCA_SHARES, pp_new$USMCA_SHARES)
-
-    # Everything else must be identical apart from the rewritten raw keys
-    rest_old <- strip_keys(pp_old, c(RAW_KEYS_REWRITTEN, 'USMCA_SHARES'))
-    rest_new <- strip_keys(pp_new, c(RAW_KEYS_REWRITTEN, 'USMCA_SHARES'))
-    stopifnot('non-USMCA params differ' = identical(rest_old, rest_new))
-  })
-}
-
-run_test('parity: registry covers every legacy variant (none orphaned)', {
-  stopifnot(setequal(names(legacy_by_name), ALTERNATIVES))
-})
-
 # =============================================================================
-# 4. Counterfactuals change parsed inputs before calculation
+# 3. Counterfactuals change parsed inputs before calculation
 # =============================================================================
 message('\n--- apply_counterfactual_inputs() ---')
 
@@ -262,7 +197,7 @@ run_test('calculator guard rejects a counterfactual that bypasses input removal'
 })
 
 # =============================================================================
-# 5. Counterfactual overlays round-trip through load_policy_params()
+# 4. Counterfactual overlays round-trip through load_policy_params()
 # =============================================================================
 message('\n--- counterfactual overlays ---')
 
@@ -276,12 +211,12 @@ expected_disables <- list(
 )
 
 for (nm in names(expected_disables)) {
-  run_test(paste0('overlay ', nm, ': disabled_authorities matches the legacy definition'), {
+  run_test(paste0('overlay ', nm, ': disabled_authorities matches its definition'), {
     pp <- load_policy_params(scenario = nm)
     got <- unlist(pp$disabled_authorities)
     stopifnot(
       setequal(got, expected_disables[[nm]]),
-      all(got %in% names(pp$AUTHORITY_COLUMNS))
+      all(got %in% SCENARIO_INPUT_AUTHORITIES)
     )
   })
 }
@@ -296,7 +231,7 @@ run_test('counterfactual pp differs from baseline ONLY in disabled_authorities',
 })
 
 # =============================================================================
-# 6. sgept_exemptions scenario (2026-06-10): SGEPT-calibrated §232 annex knobs
+# 5. sgept_exemptions scenario (2026-06-10): SGEPT-calibrated §232 annex knobs
 # =============================================================================
 message('\n--- sgept_exemptions overlay ---')
 

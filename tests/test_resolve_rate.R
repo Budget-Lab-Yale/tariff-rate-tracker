@@ -90,22 +90,6 @@ check(resolve_rate(alias, 'P', '9999')$value == 0.10,
       'default_unlisted (alias of default_unlisted_rate) resolves')
 
 # ---------------------------------------------------------------------------
-cat('--- resolve_rate: hollow sentinels are treated as ABSENT ---\n')
-
-# This is the live ieepa_reciprocal shape: structured names filled with sentinel
-# strings, real data in $resolved. Must resolve to nothing so parity holds.
-hollow_ieepa <- list(by_country = 'from_raw', default_unlisted_rate = 'from_raw',
-                     resolved = list(some = 'tibble-blob'))
-check(resolve_rate(hollow_ieepa, '01', '5700')$matched == 'none',
-      'hollow ieepa rate (from_raw) resolves to none')
-hollow_301 <- list(by_product_tier = 'from_list')
-check(resolve_rate(hollow_301, '01', '5700')$matched == 'none',
-      'hollow 301 rate (from_list) resolves to none')
-hollow_mfn <- list(default = 'from_products_base_rate')
-check(resolve_rate(hollow_mfn, '01', '5700')$matched == 'none',
-      'hollow mfn rate (from_products_base_rate) resolves to none')
-
-# ---------------------------------------------------------------------------
 cat('--- resolve_rate: rate_type + floor_base in the descriptor ---\n')
 
 check(resolve_rate(list(default = 0.1))$rate_type == 'surcharge',
@@ -156,18 +140,10 @@ check(apply_rate_semantics(rr$value, rr$rate_type, base = 0.025) == 0.125,
       'resolve->apply: 15% deal floor vs 2.5% original base -> 12.5% additional')
 
 # ---------------------------------------------------------------------------
-cat('--- validate_rate: accept the live (hollow) shapes ---\n')
+cat('--- validate_rate: structured shapes ---\n')
 
 check(isTRUE(validate_rate(list(), 'x/y')), 'empty rate validates')
 check(isTRUE(validate_rate(NULL, 'x/y')), 'NULL rate validates')
-check(isTRUE(validate_rate(list(by_country = 'from_raw',
-                                default_unlisted_rate = 'from_raw',
-                                resolved = list(a = 1)), 'ieepa/reciprocal')),
-      'live hollow ieepa rate validates (sentinels + resolved blob skipped)')
-check(isTRUE(validate_rate(list(by_product_tier = 'from_list'), 's301/s301')),
-      'live hollow 301 rate validates')
-check(isTRUE(validate_rate(list(default = 'from_products_base_rate'), 'mfn/mfn')),
-      'live hollow mfn rate validates')
 check(isTRUE(validate_rate(full, 'test/full')), 'fully-populated real rate validates')
 
 # product_overrides_file (a path string) is allowed and not numeric-checked
@@ -196,6 +172,10 @@ expect_error(validate_rate(list(rate_type = 'bogus'), 'a/b'),
              'invalid rate_type rejected')
 expect_error(validate_rate(list(wat = 1), 'a/b'),
              'unknown rate field rejected (catches typos)')
+expect_error(validate_rate(list(resolved = list(a = 1)), 'a/b'),
+             'legacy resolved payload rejected')
+expect_error(validate_rate(list(default = 'from_raw'), 'a/b'),
+             'legacy sentinel rate rejected')
 expect_error(validate_rate(list(default = 'oops'), 'a/b'),
              'non-sentinel string in a numeric field rejected')
 expect_error(validate_rate(list(default = c(0.1, 0.2)), 'a/b'),

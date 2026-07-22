@@ -1,6 +1,5 @@
 # Alternative: flat 100% metal content for 232 derivatives — upper-bound stress
 # test (all derivative value treated as metal; NOT 50%, see the blog-repo gotcha).
-# Migrated from build_rebuild_alt_registry().
 metal_content:
   method: 'flat'
   flat_share: 1.0

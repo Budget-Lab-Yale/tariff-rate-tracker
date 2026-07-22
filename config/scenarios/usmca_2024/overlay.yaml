@@ -1,5 +1,4 @@
 # Alternative: USMCA 2024 annual utilization shares (pre-tariff steady state).
-# Migrated from build_rebuild_alt_registry().
 usmca_shares:
   mode: 'annual'
   year: 2024

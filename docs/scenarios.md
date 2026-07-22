@@ -1,11 +1,7 @@
 # Scenarios, alternatives, and counterfactuals
 
-> **History.** Two prior mechanisms are gone: the legacy post-build patch engine
-> (`config/scenarios.yaml` + `apply_scenarios.R`, deleted in Phase 7) and the
-> AuthoritySpec verb/operations API (`src/scenario_ops.R`,
-> `TARIFF_SCENARIO_OPS`, deleted in `54cc662` — it never had a production
-> caller). The live mechanism is the **config overlay model**, unified
-> 2026-06-10 under one registry. "Baseline = the empty scenario."
+The config overlay model is the sole scenario mechanism. "Baseline = the empty
+scenario."
 
 ## The model
 
@@ -37,7 +33,7 @@ The registry (`src/model/scenario_registry.R`) reads the folders:
 |---|---|---|
 | `alternative` | methodology/calibration variant (USMCA share modes, `metal_flat`, `dutyfree_nonzero`, `subdivision_r_mid`) | `--alternatives` on the main build → `alt_runner()` → `output/scenarios/<name>/` |
 | `counterfactual` | policy what-if (`no_301`, `no_232`, `no_ieepa`, `no_ieepa_recip`, `no_s122`, `pre_2025`) | same runner |
-| `scenario` | full named series (`forced_labor`, `new_301`) | main build under `TARIFF_SCENARIO=<name>` / `TARIFF_SERIES=<name>` — persisted snapshots, quality reports |
+| `scenario` | full named series (`forced_labor`, `new_301`) | main build under `TARIFF_SCENARIO=<name>` — persisted snapshots, quality reports |
 | `baseline` | `actual` — documentation stub | never run |
 
 ## Running alternatives
@@ -48,9 +44,7 @@ Rscript src/pipeline/00_build_timeseries.R --alternatives no_301,metal_flat
 Rscript src/pipeline/00_build_timeseries.R --alternatives counterfactuals --alternatives-only
 ```
 
-Legacy spellings still work (`--with-alternatives` == `--alternatives
-alternatives`; `--rebuild-alts <list>` == `--alternatives <list>`). Unknown
-names fail loud. Each variant is a full per-revision recalc (counterfactuals
+Unknown names fail loud. Each variant is a full per-revision recalc (counterfactuals
 are not cheap column patches anymore — consistency over speed), dispatched
 through `alt_runner()` with one fresh subprocess per variant when
 `--parallel --alt-workers N` is set.
@@ -92,14 +86,5 @@ unchanged.
    `TARIFF_SCENARIO=<name>`; for sensitivity/counterfactual daily series, use
    `--alternatives <name>`.
 
-## Migration status (2026-06-10)
-
-The seven historical rebuild alternatives were migrated from hand-coded
-`pp_override` closures (`build_rebuild_alt_registry()`, now deprecated) to
-overlays; `tests/test_scenario_registry.R` pins closure-vs-overlay parity.
-The six counterfactuals orphaned by the Phase-7 deletion now use
-`disabled_authorities` overlays with pre-calculation input removal. Baseline and
-all scenarios use the same `build_revision_snapshot()` unit. A small committed
-HTS fixture checks the saved baseline and no-§232 outputs. Remaining gate before
-deleting the deprecated closure registry: a cluster run reproducing
-`output/alternative/*.csv` (todo.md, alternatives-unification Step 5).
+Baseline and all scenarios use the same `build_revision_snapshot()` unit. A
+small committed HTS fixture checks the saved baseline and no-§232 outputs.

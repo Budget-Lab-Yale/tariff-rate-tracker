@@ -2,8 +2,7 @@
 # Scenario registry — one declarative home for every non-baseline series
 # =============================================================================
 #
-# Alternatives-unification Phase 4 (todo.md). Every non-baseline series is a
-# folder under config/scenarios/<name>/ with:
+# Every non-baseline series is a folder under config/scenarios/<name>/ with:
 #
 #   meta.yaml      kind: alternative | counterfactual | scenario | baseline
 #                  description: one line
@@ -20,7 +19,7 @@
 #   counterfactual  policy what-if expressed by removing authority inputs
 #                   (disabled_authorities) or other overlay keys. Same runner.
 #   scenario        a full named series (forced_labor, new_301) built with the
-#                   main build under TARIFF_SCENARIO/TARIFF_SERIES — persisted
+#                   main build under TARIFF_SCENARIO — persisted
 #                   snapshots, quality reports, publishable. NOT dispatched by
 #                   the alternatives runner.
 #   baseline        config/scenarios/actual — documentation stub, never run.
@@ -31,7 +30,7 @@
 #'
 #' Reads config/scenarios/*/meta.yaml. A folder without meta.yaml is an error
 #' (fail loud — an unregistered scenario is invisible to the runner and would
-#' rot), EXCEPT 'actual' which is grandfathered as kind = baseline.
+#' rot).
 #'
 #' @param scenarios_dir Root directory (default config/scenarios)
 #' @return Tibble: name, kind, description, publish, has_overlay
@@ -49,18 +48,11 @@ list_scenarios <- function(scenarios_dir = here('config', 'scenarios')) {
     meta_path <- file.path(d, 'meta.yaml')
     overlay_path <- file.path(d, 'overlay.yaml')
     if (!file.exists(meta_path)) {
-      if (identical(name, 'actual')) {
-        meta <- list(kind = 'baseline',
-                     description = 'The observed-policy baseline (empty overlay)',
-                     publish = FALSE)
-      } else {
-        stop('Scenario "', name, '" has no meta.yaml. Every folder under ',
-             'config/scenarios/ must declare kind/description/publish — see ',
-             'src/model/scenario_registry.R header.')
-      }
-    } else {
-      meta <- yaml::read_yaml(meta_path)
+      stop('Scenario "', name, '" has no meta.yaml. Every folder under ',
+           'config/scenarios/ must declare kind/description/publish — see ',
+           'src/model/scenario_registry.R header.')
     }
+    meta <- yaml::read_yaml(meta_path)
     kind <- meta$kind %||% NA_character_
     valid_kinds <- c('alternative', 'counterfactual', 'scenario', 'baseline')
     if (!kind %in% valid_kinds) {
@@ -84,11 +76,10 @@ list_scenarios <- function(scenarios_dir = here('config', 'scenarios')) {
 #'
 #' Selectors:
 #'   'all'             every alternative + counterfactual
-#'   'rebuild' /
-#'   'alternatives'    kind == alternative (the historical --with-alternatives set)
+#'   'alternatives'    kind == alternative
 #'   'counterfactuals' kind == counterfactual
 #'   comma-list        explicit names (validated; kind must be runnable)
-#'   'none' / NULL     empty
+#'   NULL              empty
 #'
 #' Named 'scenario'-kind series (forced_labor, new_301) are NOT runnable here —
 #' they build as full series via TARIFF_SCENARIO. Requesting one by name errors
@@ -102,7 +93,7 @@ resolve_alternatives_selector <- function(selector, registry = NULL) {
   parts <- unlist(strsplit(as.character(selector), ',', fixed = TRUE))
   parts <- trimws(parts)
   parts <- parts[nzchar(parts)]
-  if (length(parts) == 0 || identical(parts, 'none')) return(character(0))
+  if (length(parts) == 0) return(character(0))
 
   if (is.null(registry)) registry <- list_scenarios()
   runnable <- registry %>% filter(kind %in% c('alternative', 'counterfactual'))
@@ -110,7 +101,6 @@ resolve_alternatives_selector <- function(selector, registry = NULL) {
   expand_one <- function(p) {
     switch(p,
       all              = runnable$name,
-      rebuild          = ,
       alternatives     = registry$name[registry$kind == 'alternative'],
       counterfactuals  = registry$name[registry$kind == 'counterfactual'],
       p
@@ -139,10 +129,7 @@ resolve_alternatives_selector <- function(selector, registry = NULL) {
 #'
 #' For each name, the pp_override is load_policy_params(scenario = name, ...):
 #' the overlay deep-merge plus all convenience-field unpacking, so a spec is
-#' EXACTLY the pp the main build would see under TARIFF_SCENARIO=<name>. This
-#' replaces the hand-coded pp_override closures of build_rebuild_alt_registry()
-#' (kept only for the migration parity test; delete after the cluster golden
-#' diff passes).
+#' EXACTLY the pp the main build would see under TARIFF_SCENARIO=<name>.
 #'
 #' @param names Character vector of scenario names (from resolve_alternatives_selector)
 #' @param use_policy_dates Passed through to load_policy_params(); MUST match

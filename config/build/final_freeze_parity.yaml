@@ -1,0 +1,12 @@
+# Final freeze validation build for the 2026-07-21 cleanup (committed tree).
+# Gated against the sealed item3 vintage (2026-07-22-00) with NO ignored
+# columns; the manifest now also includes daily_by_hs.
+model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker/.validation/final-freeze
+policy_params_path: config/policy_params.yaml
+scenarios:
+  - new_301
+use_hts_dates: false
+weight_mode: required
+update_latest: false
+allow_partial: false
+verify: true
