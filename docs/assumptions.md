@@ -205,7 +205,11 @@ Phase classification determines stacking behavior — country_eo rates stack add
 
 **Source:** Federal Register (90 FR 59281) and Executive Order 14346. The conditional expiry logic and finalization flag are implementation assumptions for handling a potentially lapsing agreement — not encoded in HTS JSON.
 
-**Implementation:** `config/policy_params.yaml` (`swiss_framework` block), `src/pipeline/06_calculate_rates.R`.
+**Implementation:** `config/policy_params.yaml` (`swiss_framework` block),
+`src/model/authority_adapter.R`, `src/pipeline/06_calculate_rates.R`, and
+`src/model/timeline.R`. Snapshots retain the underlying reciprocal rate, floor,
+and framework dates. A `bnd_2026-04-01` snapshot owns the first post-expiry day;
+daily reports and point queries read that snapshot without editing its rates.
 
 ---
 

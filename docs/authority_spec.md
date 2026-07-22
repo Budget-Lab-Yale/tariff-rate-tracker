@@ -113,23 +113,13 @@ layered on the tip of the baseline panel and recomputed forward from its
 `effective_from` (dates before are reused baseline, untouched).
 
 **The tip is itself a time path, not a flat rate.** Current law as of any date
-already encodes scheduled future changes — but they reach the timeline through
-**two different mechanisms today**, which the new engine must unify:
-
-- **Expiries** (s122 sunset, Swiss-framework expiry 2026-03-31) are split into
-  sub-intervals *after* the panel is built, by `collect_expiry_adjustments` /
-  `get_expiry_split_points` (defined in `src/core/helpers.R:391,469`; invoked from
-  `09_daily_series.R`).
-- **Activation offsets** (`effective_date_offset`) are handled *earlier and
-  differently* — `filter_active_ch99` (defined in `src/model/rate_schema.R:220`, called
-  at `06:719`) gates them per revision at calc time. The expiry splitter does
-  **not** create a sub-interval at a mid-interval Ch99 activation offset.
-
-So the baseline path *is* multi-interval, but it is **not** one unified splitter
-today (an overstatement to avoid). A scenario must therefore *compose* with this
-scheduled path, and the synthetic-revision timeline must **explicitly collect every
-schedule boundary** into one splitter (see implementation requirements below). This
-keeps baseline and counterfactual symmetric: all downstream derivations work unchanged.
+already encodes scheduled future changes. `collect_schedule_boundaries()` gathers
+starts, first-dead-day expiries, activation offsets, and scenario dates; the build
+mints each non-revision boundary before downstream artifacts are derived. Swiss
+framework snapshots also retain the underlying rate, temporary floor, and active
+dates, so expiry is a normal calculator recompute rather than a report-side edit.
+This keeps baseline and counterfactual symmetric: every consumer reads the same
+interval-encoded panel.
 
 ### Where the scenario injects: the parameter layer (not JSON, not the panel)
 
@@ -646,13 +636,11 @@ Three things the schema implies but the current code does not yet support:
 
 3. **A unified timeline splitter.** The synthetic-revision builder must collect **all**
    schedule boundaries into one splitter — `active.from` / `active.until`, scenario
-   `effective_from`, the horizon, and **every `effective_date`-keyed gate**, not just the two
-   post-panel expiries (s122/Swiss) in `collect_expiry_adjustments`. The calculator-internal
+   `effective_from`, the horizon, and **every `effective_date`-keyed gate**. The calculator-internal
    gates are easy to miss because they are not "expiries": annex activation (`06:1906`),
    annex_3 sunset (`06:2096`), IEEPA invalidation (`06:754`), and Ch99 `effective_date_offset`
-   activations (`filter_active_ch99`). Today these reach the timeline through two separate
-   mechanisms (`filter_active_ch99` + `get_expiry_split_points`) that do **not** cover
-   mid-interval Ch99 activations; the unified splitter replaces both.
+   activations (`filter_active_ch99`). The unified boundary collector and minted
+   snapshots now own these transitions; downstream consumers do not split or edit them.
 
 ## Migration plan (incremental, not a rewrite)
 

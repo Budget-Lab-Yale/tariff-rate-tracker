@@ -680,10 +680,10 @@ build_full_timeseries <- function(
   # After the real-revision snapshots + their ch99_<rev>.rds caches exist, discover
   # every schedule boundary that falls strictly inside a real interval and that the
   # calc re-resolves on recompute (Ch99 offsets / IEEPA invalidation / §232
-  # country-exemption expiries), and mint one `bnd_<date>` snapshot per boundary.
+  # country-exemption expiries / policy sunsets), and mint one `bnd_<date>`
+  # snapshot per boundary.
   # assemble_timeseries derives the new interval from rev_dates ordering. Empty
-  # discovery => no-op. NOTE: these are NOT fed to the 09 expiry splitter — the
-  # mint already creates the interval; feeding it would duplicate the owner.
+  # discovery => no-op. Daily reporting reads the minted intervals directly.
   boundaries <- discover_boundaries(rev_dates, output_dir, pp_build,
                                     overrides = pp_build$BOUNDARY_OVERRIDES,
                                     horizon = pp_build$SERIES_HORIZON_END)

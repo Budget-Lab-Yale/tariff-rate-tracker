@@ -38,8 +38,9 @@ library(jsonlite)
 
 #' Shared per-revision preamble for the compute_agg_* helpers.
 #'
-#' Clips an already-filtered revision slice to its active sub-interval
-#' (expiry zeroing), then applies stacking. The stacking policy is NOT uniform
+#' Prepares an already-filtered revision slice, then applies stacking. Policy
+#' changes are already represented by minted snapshot intervals. The stacking
+#' policy is NOT uniform
 #' across the aggregates, so it is selected explicitly — a single shared rule
 #' here would silently change behavior:
 #'   "conditional" — stack only if rate_s122/rate_ieepa_recip present (overall)
@@ -49,8 +50,8 @@ library(jsonlite)
 #'                   (authority)
 #'
 #' @param rev_data Revision slice (already filtered, and joined where needed)
-#' @param sub_start Sub-interval start passed to apply_expiry_zeroing
-#' @param policy_params Policy params list
+#' @param sub_start Deprecated compatibility argument; ignored.
+#' @param policy_params Deprecated compatibility argument; ignored.
 #' @param stacking_method Stacking method passed through to apply_stacking_rules
 #' @param stacking One of "always", "conditional", "none"
 #' @return rev_data after expiry zeroing and (mode-dependent) stacking
@@ -58,7 +59,6 @@ prepare_interval_data <- function(rev_data, sub_start, policy_params,
                                   stacking_method,
                                   stacking = c('always', 'conditional', 'none')) {
   stacking <- match.arg(stacking)
-  rev_data <- apply_expiry_zeroing(rev_data, sub_start, policy_params)
   if (stacking == 'always' ||
       (stacking == 'conditional' &&
        any(c('rate_s122', 'rate_ieepa_recip') %in% names(rev_data)))) {
@@ -77,13 +77,8 @@ prepare_interval_data <- function(rev_data, sub_start, policy_params,
 #' on goods that actually enter duty-free — overstating the rate. So rate
 #' aggregation must use the STORED total_rate, NOT a re-derivation.
 #'
-#' The ONE exception is a LIVE mid-interval expiry zeroing (the Swiss framework for
-#' CH/LI after its expiry — s122 moved to boundary minting, so only Swiss remains):
-#' there the stored total_rate is stale, so re-derive ONLY the rows the expiry
-#' actually changes, leaving every other row on its authoritative stored rate.
-#'
-#' @return rev_data with stored total_rate/total_additional, except expiry-affected
-#'   rows re-derived. NB: the authority decomposition uses prepare_interval_data +
+#' @return rev_data with stored total_rate/total_additional. NB: the authority
+#'   decomposition uses prepare_interval_data +
 #'   compute_net_authority_contributions for the per-authority split, then scales
 #'   those contributions to this stored total_additional (see compute_agg_authority)
 #'   so its parts stay on the same effective basis as weighted_etr — otherwise the
@@ -101,20 +96,6 @@ prepare_interval_data_effective <- function(rev_data, sub_start, policy_params,
   if (!identical(stacking_method, 'mutual_exclusion')) {
     return(prepare_interval_data(rev_data, sub_start, policy_params, stacking_method,
                                  stacking = 'always'))
-  }
-  if (is.null(policy_params)) return(rev_data)
-  zeroed <- apply_expiry_zeroing(rev_data, sub_start, policy_params)
-  comp <- intersect(c('rate_232', 'rate_301', 'rate_301_cs', 'rate_s301br',
-                      'rate_ieepa_recip', 'rate_ieepa_fent', 'rate_s122',
-                      'rate_s338', 'rate_section_201', 'rate_other'),
-                    names(rev_data))
-  changed <- rep(FALSE, nrow(rev_data))
-  for (cc in comp) changed <- changed | (abs(zeroed[[cc]] - rev_data[[cc]]) > 1e-12)
-  if (any(changed)) {
-    rr <- apply_stacking_rules(zeroed[changed, , drop = FALSE],
-                               stacking_method = stacking_method)
-    rev_data$total_rate[changed] <- rr$total_rate
-    rev_data$total_additional[changed] <- rr$total_additional
   }
   rev_data
 }
@@ -441,9 +422,6 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   # China code for net authority decomposition
   CTY_CHINA <- if (!is.null(policy_params)) policy_params$CTY_CHINA %||% '5700' else '5700'
 
-  # --- Policy expiry split points (Section 122, Swiss framework, etc.) ---
-  # Uses shared helpers from helpers.R to detect all finalized=false overrides
-
   # Helpers consume already-prepared interval data. The revision loop prepares
   # the effective panel once per segment, then every rollup shares it.
   compute_agg_overall <- function(rev_data, wt_data, wctx,
@@ -598,24 +576,8 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     return(row)
   }
 
-  # --- Per-revision aggregates (with generic expiry splitting) ---
-  # Phase 3c: the unified splitter (src/model/timeline.R) owns interval splitting, fed the
-  # EXPIRY boundaries (SECTION_122 / SWISS) — the schedule boundaries that fall
-  # strictly INSIDE a revision interval on the baseline grid (intervals are
-  # gapless/exclusive, valid_until = next_rev - 1, so every revision-dated policy
-  # event sits on an edge, not inside). This is the sole interval splitter here —
-  # the old get_expiry_split_points path was retired in Phase 1b after its splits
-  # were verified identical on the REAL grid (tests/test_timeline_realdata.R).
-  #
-  # collect_schedule_boundaries() is the comprehensive collector (invalidation +
-  # expiries + spec active windows). It is NOT fed here because the real-data test
-  # surfaced that IEEPA invalidation (policy_params) precedes its revision row
-  # (2026_rev_4) by 4 days, i.e. it lands mid-interval in 2026_rev_3 — feeding it
-  # would add a split AND, to be correct, needs invalidation zeroing wired. That is
-  # a behavior/model change (and a modeling question: 02-20 vs 02-24), deliberately
-  # OUT of this parity refactor and flagged for a follow-up. The collector is
-  # validated and ready for that fix + for scenario effective_from dates.
-  exp_bounds <- expiry_boundaries(policy_params)
+  # --- Per-revision aggregates ---
+  # Every mid-revision policy change is already a minted snapshot interval.
 
   add_aggregate_dimensions <- function(df) {
     df <- df %>% mutate(category_code = classify_hs10(hts10))
@@ -679,13 +641,8 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
       }
     }
 
-    starts_inner <- timeline_split_points(valid_from, valid_until, exp_bounds)
-    if (length(starts_inner) == 0) {
-      starts <- valid_from; ends <- valid_until
-    } else {
-      starts <- c(valid_from, starts_inner)
-      ends   <- c(starts_inner - 1, valid_until)
-    }
+    starts <- valid_from
+    ends <- valid_until
     for (k in seq_along(starts)) {
       s <- starts[k]; e <- ends[k]
       seg_i <- seg_i + 1L
@@ -756,14 +713,6 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
       select(-weighted_etr)
   }
 
-  # Log any expiry splits that occurred
-  if (!is.null(policy_params)) {
-    adjustments <- collect_expiry_adjustments(policy_params)
-    for (adj in adjustments) {
-      message('  ', adj$label, ' expiry split at ', adj$expiry_date)
-    }
-  }
-
   # --- Expand revision-level aggregates to daily ---
   # Iterate over revision intervals and replicate to each day (no fuzzyjoin needed)
 
@@ -823,8 +772,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
 #' @param date_range Length-2 Date vector (start, end)
 #' @param countries Character vector of country codes to include
 #' @param products Character vector of HTS10 codes to include
-#' @param policy_params Optional policy params list. If supplied, applies the
-#'   same post-interval expiry adjustments used by export_daily_slice().
+#' @param policy_params Deprecated compatibility argument; ignored.
 #' @return Tibble with one row per date x product x country
 expand_to_daily <- function(ts, date_range, countries, products, policy_params = NULL) {
   date_range <- as.Date(date_range)
@@ -871,7 +819,7 @@ expand_to_daily <- function(ts, date_range, countries, products, policy_params =
 #'
 #' Extracts product-country-date level data from the interval-encoded timeseries
 #' for a specified date range, with optional country/product filters.
-#' Applies post-interval adjustments (Section 122 expiry, Swiss framework expiry).
+#' Policy changes are already represented by minted snapshot intervals.
 #'
 #' Safety: requires either explicit filters OR full_export = TRUE to prevent
 #' accidental full expansion (~4.5M rows/revision x 730 days).
@@ -880,7 +828,7 @@ expand_to_daily <- function(ts, date_range, countries, products, policy_params =
 #' @param date_range Length-2 Date vector (start, end)
 #' @param countries Optional character vector of country codes
 #' @param products Optional character vector of HTS10 codes (or prefixes)
-#' @param policy_params Policy params list (for post-interval adjustments)
+#' @param policy_params Deprecated compatibility argument; ignored.
 #' @param output_path Output file path (.csv or .parquet). NULL = return only.
 #' @param full_export Set TRUE to export without filters (safety override)
 #' @param columns Optional character vector of columns to include in output.
@@ -920,43 +868,12 @@ export_daily_slice <- function(ts, date_range, countries = NULL, products = NULL
   subset <- subset %>%
     filter(valid_until >= date_range[1], valid_from <= date_range[2])
 
-  # Collect expiry split points across the full date range
-  split_dates <- if (!is.null(policy_params)) {
-    adjustments <- collect_expiry_adjustments(policy_params)
-    exp_dates <- map(adjustments, ~ as.Date(.$expiry_date))
-    exp_dates <- exp_dates[exp_dates >= date_range[1] & exp_dates <= date_range[2]]
-    sort(unique(as.Date(unlist(exp_dates), origin = '1970-01-01')))
-  } else {
-    as.Date(character())
-  }
-
-  # Expand intervals to daily, applying expiry adjustments per sub-interval
+  # Expand the already authoritative snapshot intervals to daily rows.
   calendar <- tibble(date = seq(date_range[1], date_range[2], by = 'day'))
 
   expanded <- subset %>%
     cross_join(calendar) %>%
     filter(date >= valid_from, date <= valid_until)
-
-  # Apply post-interval adjustments (bulk by date partitions)
-  if (length(split_dates) > 0 && nrow(expanded) > 0) {
-    # Partition rows and apply zeroing to rows past each expiry
-    for (adj in collect_expiry_adjustments(policy_params)) {
-      exp <- as.Date(adj$expiry_date)
-      if (adj$column %in% names(expanded)) {
-        if (!is.null(adj$countries)) {
-          expanded <- expanded %>%
-            mutate(!!adj$column := if_else(
-              date > exp & country %in% adj$countries, 0, .data[[adj$column]]))
-        } else {
-          expanded <- expanded %>%
-            mutate(!!adj$column := if_else(date > exp, 0, .data[[adj$column]]))
-        }
-      }
-    }
-    # Recompute totals (pass cty_china from policy_params for correct stacking)
-    cty_china <- if (!is.null(policy_params)) policy_params$CTY_CHINA %||% '5700' else '5700'
-    expanded <- apply_stacking_rules(expanded, cty_china = cty_china)
-  }
 
   # Select output columns
   default_columns <- c('date', 'hts10', 'country', 'base_rate',

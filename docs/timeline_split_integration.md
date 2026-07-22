@@ -85,41 +85,32 @@ if calibrated):
    split within an hts8 cannot be represented. Same hts8-granularity limitation as the
    tracker's other 301 lists.
 
-Edge-coincident boundaries correctly produce **no mint** (they sit on a real revision's
-date): 2025-04-09 (Phase-1 country rates = `rev_8`), 2025-05-03 (auto parts = `rev_11`),
-2026-04-06 (§232 annex = `2026_rev_5`), 2026-04-01/2026-07-24 (Swiss/S122 expiries — see
-below).
+Edge-coincident boundaries correctly produce **no extra mint** (they sit on a real
+revision's date): 2025-04-09 (Phase-1 country rates = `rev_8`), 2025-05-03
+(auto parts = `rev_11`), and 2026-04-06 (§232 annex = `2026_rev_5`). The Swiss
+and S122 first-dead-day boundaries, 2026-04-01 and 2026-07-24, are minted because
+no real revision owns those dates.
 
-## Mutual-exclusion rule (R4/R8: recompute-vs-zeroing drift)
+## Calendar ownership rule
 
-A boundary is handled by **exactly one** mechanism:
+Every policy start or first-dead-day boundary is handled by **one mechanism**:
+the calculator mints a snapshot. S122 re-resolves to zero after its sunset. The
+Swiss framework re-resolves from the temporary floor to the underlying reciprocal
+rate, which is now retained in the snapshot together with the floor and its dates.
 
-- **mint** (this plank): boundaries the calc re-resolves on recompute — Ch99 offsets,
-  IEEPA invalidation, §232 country-exemption expiries.
-- **downstream zeroing** (`09_daily_series` + `helpers.R::apply_expiry_zeroing`): the
-  **SECTION_122 / SWISS expiries**. These are **NOT minted**; `discover_boundaries()`
-  subtracts `expiry_boundaries()` from the config set.
-
-Why expiries stay on zeroing (`tests/test_mint_equals_zeroing.R` proves it):
-- **S122** — mint ≡ zeroing (the calc gate `eff <= expiry_date` zeros `rate_s122` exactly
-  as the downstream zeroing does), so moving it would be a pure refactor with no gain.
-- **SWISS** — mint ≠ zeroing. `apply_expiry_zeroing` *forces* CH/LI `rate_ieepa_recip` to
-  0 (the pre-floor surcharge isn't stored in the snapshot). A recompute merely turns OFF
-  the floor override and **reverts to the underlying surcharge** — nonzero whenever IEEPA
-  is live. They diverge structurally; they coincide today only because IEEPA is invalidated
-  (02-20) before the Swiss expiry (03-31), a fragile regime accident.
-
-The 09 expiry splitter is therefore **left unchanged** (the plan's optional Stage-3 swap of
-`09:~326` is deliberately NOT done) — `tests/test_timeline_realdata.R` keeps the
-live-≡-legacy parity assertion green.
+There is no downstream expiry splitter or zeroing pass. Daily reports and point
+queries select the minted interval, so the published snapshot, a one-date lookup,
+and every daily aggregate use the same policy state. The boundary and transition
+invariants are covered by `tests/test_mint_equals_zeroing.R` and
+`tests/run_tests_daily_series.R`.
 
 ## Wiring
 
 `discover_boundaries()` + `build_boundary_mints()` run immediately **before**
 `build_scheduled_activations()` in both post-array sites:
-`build_full_timeseries()` (`src/pipeline/00_build_timeseries.R`) and `scripts/build_gather.R`. The
-mints are **not** fed to the 09 splitter (the mint already creates the interval; feeding it
-would duplicate the owner). `build_scheduled_activations()`'s tip selection was hardened to
+`build_full_timeseries()` (`src/pipeline/00_build_timeseries.R`) and
+`scripts/build_gather.R`. `09_daily_series.R` consumes the minted intervals directly.
+`build_scheduled_activations()`'s tip selection was hardened to
 pick the latest **real** revision (a `bnd_` row can now hold the latest `effective_date`).
 
 `config/policy_params.yaml` gains an empty `boundary_overrides: []` block (a curated
@@ -128,12 +119,11 @@ auto-discovered.
 
 ## Tests
 
-- `tests/test_boundary_discovery.R` — discovery emits exactly the three boundaries with the
-  right owners/sources, drops edges + expiries, owner-is-interior, idempotency. (26 ✓)
-- `tests/test_mint_equals_zeroing.R` — S122 mint≡zeroing, SWISS mint≠zeroing, expiries
-  excluded from the mint set. (9 ✓)
-- `tests/test_timeline_realdata.R` — kept the live-≡-legacy 09 splitter parity (42
-  intervals) + a discovery positive control (R1/R6). (4 ✓)
+- `tests/test_boundary_discovery.R` — discovery includes the Swiss first-dead-day
+  boundary with the correct owner and source.
+- `tests/test_mint_equals_zeroing.R` — the Swiss floor is live on its expiry date,
+  its underlying surcharge resumes on the next day, and both expiries mint.
+- `tests/test_timeline_realdata.R` — the live calendar emits the expected boundary set.
 - `tests/test_timeline_invariants.R` — absolute rate-state assertions on the built
   snapshots (skips until a build produces the `bnd_` snapshots): §232 exemption flip on
   03-12, IEEPA+fentanyl=0 on 02-20, the 02-20→02-24 both-zero window, S122 on 02-24, §301

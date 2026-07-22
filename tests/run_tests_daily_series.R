@@ -145,6 +145,30 @@ make_minted_s122_ts <- function(horizon_end = as.Date('2026-12-31')) {
   bind_rows(pre, post)
 }
 
+make_minted_swiss_ts <- function(horizon_end = as.Date('2026-12-31')) {
+  common <- tibble(
+    hts10 = '7208100000', country = '4419', base_rate = 0,
+    statutory_base_rate = 0, rate_232 = 0, rate_301 = 0,
+    rate_ieepa_fent = 0, rate_s122 = 0, rate_section_201 = 0, rate_other = 0,
+    swiss_underlying_rate_ieepa_recip = 0.31,
+    swiss_framework_floor_rate = 0.15,
+    swiss_framework_effective_date = as.Date('2025-11-14'),
+    swiss_framework_expiry_date = as.Date('2026-03-31'),
+    metal_share = 0, usmca_eligible = FALSE
+  )
+  pre <- common %>%
+    mutate(revision = 'swiss_floor', rate_ieepa_recip = 0.15,
+           effective_date = as.Date('2025-11-14'),
+           valid_from = as.Date('2025-11-14'), valid_until = as.Date('2026-03-31')) %>%
+    apply_stacking_rules()
+  post <- common %>%
+    mutate(revision = 'bnd_2026-04-01', rate_ieepa_recip = 0.31,
+           effective_date = as.Date('2026-04-01'),
+           valid_from = as.Date('2026-04-01'), valid_until = horizon_end) %>%
+    apply_stacking_rules()
+  bind_rows(pre, post)
+}
+
 
 # =============================================================================
 # Test 1: Final revision gets valid_until = horizon, not Sys.Date()
@@ -293,54 +317,10 @@ run_test('enforce_rate_schema fills missing rate_section_201 with 0', {
 
 
 # =============================================================================
-# Test 6: Expiry split points
+# Test 6: Calendar-owned expiries
 # =============================================================================
 
-message('\n--- Test 6: Generic expiry split points ---')
-
-run_test('split points detected for spanning interval — swiss only', {
-  pp <- make_test_policy_params()
-  splits <- timeline_split_points(
-    as.Date('2026-01-01'), as.Date('2026-12-31'), expiry_boundaries(pp))
-  # Swiss (expiry 2026-03-31 -> first-dead-day boundary 2026-04-01) still splits
-  # within an interval — it is NOT minted.
-  stopifnot(as.Date('2026-04-01') %in% splits)
-  # s122 (expiry 2026-07-23 -> 2026-07-24) is no longer a within-interval split:
-  # it moved to the mint mechanism (2026-06-25), so it leaves expiry_boundaries().
-  stopifnot(!(as.Date('2026-07-24') %in% splits))
-})
-
-run_test('no split points for interval before all expiries', {
-  pp <- make_test_policy_params()
-  splits <- timeline_split_points(
-    as.Date('2026-01-01'), as.Date('2026-03-01'), expiry_boundaries(pp))
-  stopifnot(length(splits) == 0)
-})
-
-run_test('apply_expiry_zeroing zeros swiss reciprocal after expiry, leaves s122', {
-  pp <- make_test_policy_params()
-  # A Swiss (CH) row carrying both a floored reciprocal rate and an s122 rate.
-  ch <- tibble(hts10 = '7208100000', country = '4419',
-               base_rate = 0, statutory_base_rate = 0,
-               rate_232 = 0, rate_301 = 0,
-               rate_ieepa_recip = 0.15, rate_ieepa_fent = 0,
-               rate_s122 = 0.10, rate_section_201 = 0, rate_other = 0,
-               metal_share = 0, usmca_eligible = FALSE,
-               revision = 'rev_b', effective_date = as.Date('2026-06-01'),
-               valid_from = as.Date('2026-06-01'),
-               valid_until = as.Date('2026-12-31')) %>%
-    apply_stacking_rules()
-  adjusted <- apply_expiry_zeroing(ch, as.Date('2026-04-01'), pp)
-  stopifnot(all(adjusted$rate_ieepa_recip == 0))   # swiss reciprocal zeroed past 2026-03-31
-  stopifnot(all(adjusted$rate_s122 == 0.10))        # s122 untouched (moved to minting)
-})
-
-
-# =============================================================================
-# Test 6b: Expiry boundary edge cases
-# =============================================================================
-
-message('\n--- Test 6b: Expiry boundary edge cases ---')
+message('\n--- Test 6: Calendar-owned expiries ---')
 
 run_test('s122 active on exact expiry date', {
   ts <- make_test_ts()
@@ -359,41 +339,25 @@ run_test('s122 zero on first day after expiry (from mint boundary)', {
 })
 
 run_test('swiss framework active on exact expiry date', {
-  ts <- make_test_ts()
+  ts <- make_minted_swiss_ts()
   pp <- make_test_policy_params()
-  # Swiss framework expires 2026-03-31. On expiry date it should still apply.
   on_expiry <- get_rates_at_date(ts, '2026-03-31', policy_params = pp)
-  swiss <- on_expiry %>% filter(country %in% pp$SWISS_FRAMEWORK$countries)
-  # Swiss countries should have IEEPA rate overridden (framework active)
-  # We just verify the function runs without error on boundary
-  stopifnot(nrow(on_expiry) > 0)
+  stopifnot(nrow(on_expiry) == 1, on_expiry$rate_ieepa_recip == 0.15)
 })
 
-run_test('swiss split lands on first-dead-day boundary; s122 does not split', {
+run_test('swiss underlying surcharge resumes from minted first-dead-day snapshot', {
+  ts <- make_minted_swiss_ts()
   pp <- make_test_policy_params()
-  # Swiss expiry 2026-03-31 -> first-dead-day boundary 2026-04-01 splits within (vf, vu].
-  swiss_splits <- timeline_split_points(
-    as.Date('2026-03-31'), as.Date('2026-04-15'), expiry_boundaries(pp))
-  stopifnot(as.Date('2026-04-01') %in% swiss_splits)
-  # s122 (minted, 2026-06-25) is not a split point even on an interval that straddles it.
-  s122_splits <- timeline_split_points(
-    as.Date('2026-07-23'), as.Date('2026-08-01'), expiry_boundaries(pp))
-  stopifnot(!(as.Date('2026-07-24') %in% s122_splits))
+  after <- get_rates_at_date(ts, '2026-04-01', policy_params = pp)
+  stopifnot(nrow(after) == 1, after$revision == 'bnd_2026-04-01')
+  stopifnot(after$rate_ieepa_recip == 0.31, after$total_additional == 0.31)
+  stopifnot(after$rate_ieepa_recip == after$swiss_underlying_rate_ieepa_recip)
 })
 
-run_test('split points empty when interval starts after all expiries', {
-  pp <- make_test_policy_params()
-  splits <- timeline_split_points(
-    as.Date('2026-08-01'), as.Date('2026-12-31'), expiry_boundaries(pp))
-  stopifnot(length(splits) == 0)
-})
-
-run_test('apply_expiry_zeroing keeps s122 on exact expiry date', {
-  ts <- make_test_ts() %>% filter(revision == 'rev_b') %>% head(4)
-  pp <- make_test_policy_params()
-  # On the expiry date itself, s122 should NOT be zeroed
-  adjusted <- apply_expiry_zeroing(ts, as.Date('2026-07-23'), pp)
-  stopifnot(any(adjusted$rate_s122 > 0))
+run_test('daily and point paths do not expose post-calculation expiry editors', {
+  stopifnot(!exists('collect_expiry_adjustments', mode = 'function'))
+  stopifnot(!exists('apply_expiry_zeroing', mode = 'function'))
+  stopifnot(!exists('apply_post_interval_adjustments_point', mode = 'function'))
 })
 
 

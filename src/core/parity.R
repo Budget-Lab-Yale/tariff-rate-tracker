@@ -120,7 +120,8 @@ classify_parity_column <- function(col) {
 #' @return list(label, pass, n_rows_actual, n_rows_reference, n_rows_common,
 #'              n_violations, violations = tibble)
 compare_parity <- function(actual, reference, key_cols, label = 'artifact',
-                           ignore_cols = character()) {
+                           ignore_cols = character(),
+                           allow_extra_cols = character()) {
   stopifnot(is.data.frame(actual), is.data.frame(reference))
   missing_a <- setdiff(key_cols, names(actual))
   missing_g <- setdiff(key_cols, names(reference))
@@ -174,11 +175,11 @@ compare_parity <- function(actual, reference, key_cols, label = 'artifact',
   }
 
   # ---- schema diff (value columns present in only one side) ----
-  # ignore_cols opts a column out of VALUE comparison only — a column that
-  # disappears or appears on one side is schema drift and always flagged.
+  # ignore_cols opts a column out of VALUE comparison only. Candidate-only
+  # columns remain schema drift unless a migration gate names them explicitly.
   val_cols_a <- setdiff(names(actual), key_cols)
   val_cols_g <- setdiff(names(reference), key_cols)
-  only_actual <- setdiff(val_cols_a, val_cols_g)
+  only_actual <- setdiff(setdiff(val_cols_a, val_cols_g), allow_extra_cols)
   only_reference <- setdiff(val_cols_g, val_cols_a)
   for (col in only_reference) add_v('schema_missing_column', col, NA_character_, NA, NA)
   for (col in only_actual) add_v('schema_extra_column', col, NA_character_, NA, NA)
@@ -381,7 +382,8 @@ read_parity_artifact <- function(path) {
 #' Compare two artifact files of a known kind. Keys are taken from
 #' PARITY_ARTIFACTS[[kind]] and intersected with present columns.
 compare_parity_files <- function(actual_path, reference_path, kind, label = NULL,
-                                 ignore_cols = character()) {
+                                 ignore_cols = character(),
+                                 allow_extra_cols = character()) {
   spec <- PARITY_ARTIFACTS[[kind]]
   if (is.null(spec)) stop('Unknown parity artifact kind: ', kind)
   actual <- read_parity_artifact(actual_path)
@@ -393,7 +395,8 @@ compare_parity_files <- function(actual_path, reference_path, kind, label = NULL
   }
   compare_parity(actual, reference, key_cols,
                  label = label %||% paste0(kind, ':', basename(actual_path)),
-                 ignore_cols = ignore_cols)
+                 ignore_cols = ignore_cols,
+                 allow_extra_cols = allow_extra_cols)
 }
 
 # Local null-coalesce so this module is standalone (helpers.R may not be sourced).

@@ -146,6 +146,8 @@ build_s301_tiers <- function(ch99_data, effective_date, pp) {
 # Returns (keyed by census code, the collapsed post-override LISTED countries):
 #   by_country          the merged per-country ieepa_country_rate (post floor-override)
 #   by_country_type     ieepa_type (surcharge|floor|passthrough, post-override)
+#   by_country_underlying / _type preserve the pre-framework country rate so
+#                      snapshots can expose what resumes after a temporary floor
 #   by_country_eo_rate  the country_eo phase contribution (0 where none)
 #   by_country_eo_ch99  the active country-EO ch99 code (NA where none)
 #   universal_baseline  the tibble's universal_baseline attribute (NULL if unset)
@@ -194,6 +196,11 @@ build_s301_tiers <- function(ch99_data, effective_date, pp) {
       .groups = 'drop'
     )
 
+  # Preserve the pre-framework state before applying the temporary floor. This is
+  # deliberately carried through the spec and onto the snapshot panel: a boundary
+  # recompute can then be audited against the exact rate that resumes at expiry.
+  country_ieepa_underlying <- country_ieepa
+
   # surcharge -> floor override for FLOOR_COUNTRIES, only when the surcharge rate
   # exceeds the floor. Swiss/LI are date-bounded to the framework window. VERBATIM.
   floor_country_codes <- pp$FLOOR_COUNTRIES
@@ -221,9 +228,14 @@ build_s301_tiers <- function(ch99_data, effective_date, pp) {
   }
 
   codes <- as.character(country_ieepa$census_code)
+  underlying_codes <- as.character(country_ieepa_underlying$census_code)
   list(
     by_country         = stats::setNames(as.numeric(country_ieepa$ieepa_country_rate), codes),
     by_country_type    = stats::setNames(as.character(country_ieepa$ieepa_type), codes),
+    by_country_underlying = stats::setNames(
+      as.numeric(country_ieepa_underlying$ieepa_country_rate), underlying_codes),
+    by_country_underlying_type = stats::setNames(
+      as.character(country_ieepa_underlying$ieepa_type), underlying_codes),
     by_country_eo_rate = stats::setNames(as.numeric(country_ieepa$country_eo_rate), codes),
     by_country_eo_ch99 = stats::setNames(as.character(country_ieepa$country_eo_ch99), codes),
     universal_baseline = attr(ieepa_rates, 'universal_baseline'),
@@ -884,6 +896,8 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
   if (!is.null(recip)) {
     recip_rate$by_country         <- recip$by_country
     recip_rate$by_country_type    <- recip$by_country_type
+    recip_rate$by_country_underlying <- recip$by_country_underlying
+    recip_rate$by_country_underlying_type <- recip$by_country_underlying_type
     recip_rate$by_country_eo_rate <- recip$by_country_eo_rate
     recip_rate$by_country_eo_ch99 <- recip$by_country_eo_ch99
     if (!is.null(recip$universal_baseline))

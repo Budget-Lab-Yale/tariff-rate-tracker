@@ -40,10 +40,12 @@ module load R/4.4.2-gfbf-2024a
 : "${PARITY_RESULTS_DIR:?PARITY_RESULTS_DIR must be exported by the orchestrator}"
 INDEX="${SLURM_ARRAY_TASK_ID:?this script must run as a Slurm array task}"
 IGNORE_COLUMNS="${PARITY_IGNORE_COLUMNS:-}"
+ALLOW_EXTRA_COLUMNS="${PARITY_ALLOW_EXTRA_COLUMNS:-}"
 
 echo "parity task: index=$INDEX manifest=$PARITY_MANIFEST results=$PARITY_RESULTS_DIR"
 Rscript scripts/run_parity_task.R \
   --manifest "$PARITY_MANIFEST" \
   --index "$INDEX" \
   --results-dir "$PARITY_RESULTS_DIR" \
-  --ignore-columns "$IGNORE_COLUMNS"
+  --ignore-columns "$IGNORE_COLUMNS" \
+  --allow-extra-columns "$ALLOW_EXTRA_COLUMNS"

@@ -25,6 +25,10 @@ candidate_root <- get_arg('--candidate')
 artifacts_arg  <- get_arg('--artifacts', 'snapshot,daily_overall,daily_by_authority,daily_by_country,daily_by_category')
 manifest_path  <- get_arg('--manifest')
 results_dir    <- get_arg('--results-dir')
+allow_extra_files <- {
+  raw <- get_arg('--allow-extra-files', '')
+  if (!nzchar(raw)) character() else strsplit(raw, ':', fixed = TRUE)[[1]]
+}
 
 if (is.null(reference_root)) stop('--reference <model_data vintage-or-series> is required', call. = FALSE)
 if (is.null(candidate_root)) stop('--candidate <model_data vintage-or-series> is required', call. = FALSE)
@@ -57,7 +61,7 @@ for (kind in kinds) {
   gfiles <- list_parity_artifacts(reference_root, kind)
   cfiles <- list_parity_artifacts(candidate_root, kind)
   only_g <- setdiff(names(gfiles), names(cfiles))
-  only_c <- setdiff(names(cfiles), names(gfiles))
+  only_c <- setdiff(setdiff(names(cfiles), names(gfiles)), allow_extra_files)
   if (length(only_g)) {
     overall_fail <- TRUE
     for (f in only_g) cat(sprintf('  [%s] MISSING from candidate: %s\n', kind, f))
@@ -92,10 +96,22 @@ failed_tasks <- sum(task_results$pass %in% FALSE, na.rm = TRUE) + length(missing
 cat('\n=== Summary ===\n')
 cat(sprintf('  artifact tasks: %d | passed: %d | failed: %d\n',
             expected_tasks, passed_tasks, failed_tasks))
-ignored <- unique(setdiff(task_results$ignored_cols %||% character(), ''))
+nonempty_result_values <- function(x) {
+  x <- x %||% character()
+  unique(x[!is.na(x) & nzchar(x)])
+}
+
+ignored <- nonempty_result_values(task_results$ignored_cols)
 if (length(ignored)) {
   cat('  NOTE: value comparison ignored column(s): ', paste(ignored, collapse = ' | '),
       ' — this is NOT a clean pass; the exclusions must be justified in the run notes.\n', sep = '')
+}
+allowed_cols <- nonempty_result_values(task_results$allowed_extra_cols)
+if (length(allowed_cols)) {
+  cat('  NOTE: allowed candidate-only column(s): ', paste(allowed_cols, collapse = ' | '), '\n', sep = '')
+}
+if (length(allow_extra_files)) {
+  cat('  NOTE: allowed candidate-only artifact(s): ', paste(allow_extra_files, collapse = ' | '), '\n', sep = '')
 }
 
 if (overall_fail || passed_tasks != expected_tasks) {

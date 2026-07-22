@@ -176,41 +176,30 @@ Setup: **rev_8 (2026-05-22)** archive encodes s122 active + pharma with offset
   `pharma.from=09-01`. Boundaries `{05-22, 07-24, 09-01}`. Evaluate `spec_8` as-of
   each → **three frames**, pharma on from 09-01, **all from one parse, no hole.** ✅
 
-### Three boundary mechanisms today (not unified) → one
+### Boundary mechanisms: unified
 
-| Edge kind | Drawn by today |
+| Edge kind | Drawn by |
 |---|---|
 | input change | real revision dates (build loop) |
-| expiry | `09` post-hoc splitter (`collect_expiry_adjustments`; s122/Swiss) |
-| future turn-on | hand-authored synthetic revision (`scheduled_activations`, `00`) |
-| mid-interval Ch99 offset | **nobody → silent hole** |
+| expiry | minted boundary snapshot (`discover_boundaries`, `00`) |
+| future turn-on | minted boundary snapshot / scheduled activation (`00`) |
+| mid-interval Ch99 offset | minted boundary snapshot (`discover_boundaries`, `00`) |
 
 The **unified splitter** = one function builds one sorted list of *every* edge
 (`revision dates ∪ active.from ∪ active.until ∪ expiries ∪ Ch99 offsets ∪ scenario
 effective_from`) and cuts at all of them. One list, one cutter, nothing missed.
 
-### Build state — mostly built, on a leash 🟡
+### Build state — live and unified
 
-`src/model/timeline.R` (115 lines, unit-tested) already implements it:
+`src/model/timeline.R` implements it:
 - `collect_schedule_boundaries()` — **comprehensive collector** (knows IEEPA
-  invalidation + s122/Swiss + spec `active.from/until`). Built + validated.
-- `timeline_split_points()` — the splitter. **Wired live at `09:330`.**
-- `expiry_boundaries()` — the **parity bridge** (legacy s122/Swiss only).
+  invalidation + s122/Swiss + spec `active.from/until`).
+- `discover_boundaries()` — assigns each non-revision edge to an owning archive.
+- `build_boundary_mints()` — recomputes that archive as of the boundary date.
 
-It is **fed only `expiry_boundaries()` today** (`09:326`), so it reproduces the
-legacy output exactly (parity-green). The comprehensive collector is **built but
-not fed**, on purpose — turning it on is a *behavior change* (adds frames), not
-parity-safe by construction. Remaining work, **per edge-type**:
-1. feed the comprehensive boundary set, AND
-2. wire the matching **state-change** at each new boundary (a cut on the right date
-   with the *wrong rate* is worse than no cut — e.g. IEEPA invalidation needs its
-   zeroing keyed to the boundary, not the revision date; `09:318-324`), AND
-3. validate the new frames **without a parity net** (output changes by design; some
-   carry open modeling questions, e.g. invalidation `02-20 vs 02-24`).
-
-> **Effort:** the engine is ~90% built and tested. What's left is *turning it on
-> one edge-type at a time*, gated on correctness/judgment (days per edge-type), not
-> construction. The scary part — building a new timeline engine — is done.
+Downstream daily and point-in-time paths do not split or mutate the calculated
+panel. The Swiss framework carries its underlying rate, floor, and dates in the
+snapshot, allowing its first-dead-day mint to restore the right state.
 
 ### Same disease as rate & stacking
 

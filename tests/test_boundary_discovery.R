@@ -13,12 +13,12 @@
 #   2025-09-01  owner rev_20       Ch99 rate-less heading expiry (+1)    [ch99 expiry]
 #   2025-11-14  owner rev_29       Swiss/Liechtenstein floor starts      [config]
 #   2026-02-20  owner 2026_rev_3   IEEPA invalidation (SCOTUS)           [config]
+#   2026-04-01  owner 2026_rev_4   Swiss/Liechtenstein floor expires     [config]
 #   2026-09-29  owner 2026_rev_10  pharma §232 turn-on override          [override]
 #   2026-11-10  owner 2026_rev_10  §301 cranes/chassis turn-on           [ch99]
 # Edge-coincident boundaries that must NOT mint: 2025-05-03 (auto parts = rev_11
 # edge), 2025-04-09 (Phase-1 country rates = rev_8 edge), 2026-04-06 (§232 annex =
-# 2026_rev_5 edge). S122 now mints on 2026-07-24; the Swiss expiry remains the
-# sole boundary owned by downstream zeroing.
+# 2026_rev_5 edge). S122 and Swiss expiries mint on their first dead days.
 #
 # Usage: Rscript tests/test_boundary_discovery.R
 # =============================================================================
@@ -76,11 +76,13 @@ check('2025-11-14' %in% emitted, '2025-11-14 (Swiss/Liechtenstein floor start) i
 check(identical(owner_of('2025-11-14'), 'rev_29'),
       '2025-11-14 owner resolves to rev_29')
 
-# --- Expiry ownership (mutual-exclusion rule) ---------------------------------
+# --- Expiry boundaries --------------------------------------------------------
 check('2026-07-24' %in% emitted,
       'S122 first-dead-day boundary (2026-07-24) is minted')
-check(!('2026-04-01' %in% emitted),
-      'Swiss expiry boundary (2026-04-01) is NOT minted (downstream zeroing owns it)')
+check('2026-04-01' %in% emitted,
+      'Swiss first-dead-day boundary (2026-04-01) is minted')
+check(identical(owner_of('2026-04-01'), '2026_rev_4'),
+      '2026-04-01 owner resolves to 2026_rev_4')
 
 # --- Edge-coincident config dates must NOT mint -------------------------------
 for (edge in c('2025-04-09', '2026-04-06')) {
@@ -105,7 +107,8 @@ if (have_ch99) {
   # On the production grid exactly these seven boundaries are mintable (incl. the
   # two Ch99 rate-less heading expiries 2025-06-01 / 2025-09-01).
   expected <- c('2025-03-12', '2025-06-01', '2025-09-01', '2025-11-14',
-                '2026-02-20', '2026-07-24', '2026-09-29', '2026-11-10')
+                '2026-02-20', '2026-04-01', '2026-07-24', '2026-09-29',
+                '2026-11-10')
   check(setequal(emitted, expected),
         paste0('exactly {', paste(expected, collapse = ', '), '} discovered on the live grid'))
   check(all(!is.na(b$owner_rev)),

@@ -455,115 +455,6 @@ remap_imports_via_concordance <- function(imports, snapshot_codes, concordance) 
 
 
 # =============================================================================
-# Post-Interval Policy Adjustments
-# =============================================================================
-
-#' Collect date-bounded policy overrides that require post-interval adjustment
-#'
-#' Returns a list of adjustments with expiry dates and the zeroing action to apply.
-#' Used by both point queries and interval-splitting aggregate paths.
-#'
-#' @param policy_params Policy params list from load_policy_params()
-#' @return List of lists, each with `expiry_date`, `column`, and `label`
-collect_expiry_adjustments <- function(policy_params) {
-  adjustments <- list()
-
-  # Section 122 expiry is NOT here anymore (2026-06-25). It moved from the
-  # daily-zeroing mechanism to the MINT mechanism: collect_schedule_boundaries()
-  # carries the s122 expiry boundary, expiry_boundaries() no longer subtracts it
-  # (this function is its only source), and policy_params boundary_overrides lists
-  # 2026-07-24 — so a bnd_2026-07-24 snapshot is minted and the calc's own s122
-  # gate (06: effective_date <= expiry_date) yields rate_s122 = 0 there. The daily
-  # series then reads that interval from the mint instead of zeroing it downstream,
-  # AND the published snapshot panel (what tariff-model reads) gains the boundary.
-  # Mint == zeroing for s122 (tests/test_mint_equals_zeroing.R), so daily output is
-  # unchanged. SWISS stays below: its recompute reverts to the pre-floor surcharge
-  # (not stored in the snapshot), so mint != zeroing — it must stay on zeroing.
-
-  # Swiss framework expiry (reverts floor override for CH/LI)
-  if (!is.null(policy_params$SWISS_FRAMEWORK) &&
-      !policy_params$SWISS_FRAMEWORK$finalized) {
-    adjustments <- c(adjustments, list(list(
-      expiry_date = as.Date(policy_params$SWISS_FRAMEWORK$expiry_date),
-      column = 'rate_ieepa_recip',
-      countries = policy_params$SWISS_FRAMEWORK$countries,
-      label = 'Swiss framework'
-    )))
-  }
-
-  return(adjustments)
-}
-
-
-#' Apply date-bounded policy expirations to a rate snapshot (point mode)
-#'
-#' Zeroes expired rate columns and recomputes totals via apply_stacking_rules().
-#' For Swiss framework, zeroes the floor IEEPA rate for CH/LI only (conservative:
-#' the pre-floor surcharge rate is not stored, so we revert to 0 rather than
-#' guessing the original rate).
-#'
-#' @param snapshot Rate snapshot tibble
-#' @param query_date Date for the point query
-#' @param policy_params Policy params list from load_policy_params()
-#' @return Adjusted snapshot with recomputed totals
-apply_post_interval_adjustments_point <- function(snapshot, query_date, policy_params) {
-  if (is.null(policy_params) || nrow(snapshot) == 0) return(snapshot)
-
-  adjustments <- collect_expiry_adjustments(policy_params)
-  needs_restacking <- FALSE
-
-  for (adj in adjustments) {
-    if (query_date > adj$expiry_date && adj$column %in% names(snapshot)) {
-      if (!is.null(adj$countries)) {
-        # Country-scoped adjustment (Swiss framework)
-        snapshot <- snapshot %>%
-          mutate(!!adj$column := if_else(country %in% adj$countries, 0, .data[[adj$column]]))
-      } else {
-        # Global adjustment (Section 122)
-        snapshot[[adj$column]] <- 0
-      }
-      needs_restacking <- TRUE
-    }
-  }
-
-  if (needs_restacking) {
-    cty_china <- policy_params$CTY_CHINA %||% '5700'
-    snapshot <- apply_stacking_rules(snapshot, cty_china = cty_china)
-  }
-
-  return(snapshot)
-}
-
-
-#' Apply expiry zeroing to a snapshot for a given sub-interval
-#'
-#' Given a sub-interval start date, zeros any columns whose expiry_date < sub_start.
-#'
-#' @param rev_data Revision data tibble
-#' @param sub_start Start date of the sub-interval
-#' @param policy_params Policy params list
-#' @return Adjusted rev_data
-apply_expiry_zeroing <- function(rev_data, sub_start, policy_params) {
-  if (is.null(policy_params)) return(rev_data)
-
-  adjustments <- collect_expiry_adjustments(policy_params)
-
-  for (adj in adjustments) {
-    if (sub_start > adj$expiry_date && adj$column %in% names(rev_data)) {
-      if (!is.null(adj$countries)) {
-        rev_data <- rev_data %>%
-          mutate(!!adj$column := if_else(country %in% adj$countries, 0, .data[[adj$column]]))
-      } else {
-        rev_data[[adj$column]] <- 0
-      }
-    }
-  }
-
-  return(rev_data)
-}
-
-
-# =============================================================================
 # Point-in-Time Rate Query
 # =============================================================================
 
@@ -573,22 +464,15 @@ apply_expiry_zeroing <- function(rev_data, sub_start, policy_params) {
 #' valid_from <= query_date <= valid_until. Returns one revision's
 #' worth of data (same shape as a single snapshot).
 #'
-#' Applies post-interval adjustments for any finalized=false policy overrides
-#' (Section 122, Swiss framework) past their expiry dates.
+#' Policy boundaries are already represented by minted snapshots, so this
+#' function only selects the interval active on the requested date.
 #'
 #' @param ts Timeseries tibble with valid_from/valid_until columns
 #' @param query_date Date (or character coercible to Date)
-#' @param policy_params Optional policy params list (from load_policy_params())
+#' @param policy_params Deprecated compatibility argument; ignored.
 #' @return Tibble — one snapshot for the active revision at query_date
 get_rates_at_date <- function(ts, query_date, policy_params = NULL) {
   query_date <- as.Date(query_date)
-
-  # Load default policy params if not provided — ensures post-interval
-
-  # adjustments (S122 expiry, Swiss framework) are applied consistently
-  if (is.null(policy_params)) {
-    policy_params <- tryCatch(load_policy_params(), error = function(e) NULL)
-  }
 
   stopifnot(
     'valid_from' %in% names(ts),
@@ -603,9 +487,6 @@ get_rates_at_date <- function(ts, query_date, policy_params = NULL) {
             '. Date range in timeseries: ',
             min(ts$valid_from), ' to ', max(ts$valid_until))
   }
-
-  # Apply all date-bounded policy expirations
-  snapshot <- apply_post_interval_adjustments_point(snapshot, query_date, policy_params)
 
   return(snapshot)
 }

@@ -144,25 +144,19 @@ that only need a slice can source a module directly:
 - `revisions.R`, `data_loaders.R` — depend on `policy_params.R`.
 - `authority_adapter.R` — depends on `authority_spec.R` and `policy_params.R`.
 
-## Coexisting mechanisms (known complexity)
+## Core mechanisms
 
 Reviewers will notice two places worth understanding:
 
-1. **Schedule-boundary splitting (settled).** `timeline.R` is the single
-   interval splitter on both sides: the build side mints synthetic boundary
-   snapshots via `discover_boundaries()` / `build_boundary_mints()` (called from
-   `00`), and the downstream daily series (`09_daily_series.R`) splits intervals
-   via `timeline_split_points()` fed `expiry_boundaries()`. The legacy
-   `get_expiry_split_points()` splitter has been **retired** (Phase 1b); its
-   last-live-day convention is subsumed by the canonical first-day-of-new-state
-   boundary (`E -> E+1`). What remains downstream is `apply_expiry_zeroing()`,
-   which is **not a splitter** — it zeros the `SECTION_122` / `SWISS` rate
-   columns past expiry, and stays downstream **by design**: the SWISS revert
-   forces CH/LI reciprocal to 0 (the pre-floor surcharge isn't stored in the
-   snapshot), which a recompute/mint would *not* reproduce. The two are kept
-   disjoint (`discover_boundaries()` subtracts `expiry_boundaries()`); the
-   `test_mint_equals_zeroing.R` guard enforces that mutual exclusion, and
-   `test_boundary_discovery.R` / `test_timeline_realdata.R` pin the geometry.
+1. **Schedule boundaries (settled).** `timeline.R` is the single source of
+   interval edges. The build mints synthetic snapshots through
+   `discover_boundaries()` / `build_boundary_mints()` (called from `00`), using
+   the canonical first-day-of-new-state convention (`E -> E+1` for expiries).
+   Daily series and point queries consume those intervals directly. The Swiss
+   snapshot fields preserve the underlying reciprocal rate, temporary floor,
+   and dates, so its expiry recomputes correctly without a downstream editor.
+   `test_mint_equals_zeroing.R`, `test_boundary_discovery.R`, and
+   `test_timeline_realdata.R` pin the transition and geometry.
 
 2. **Rate-table identity (settled).** `build_rate_grid()` creates the complete
    product × country table once at the start of calculation. Every authority

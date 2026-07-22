@@ -295,7 +295,8 @@ validate_rate <- function(rate, ctx) {
                # default_unlisted_exclude removes census codes from the
                # default_unlisted complement (decision 3; IEEPA CA/MX carve-out).
                # carveouts is the fentanyl product×country lower-rate layer.
-               'by_country_type', 'by_country_eo_rate', 'by_country_eo_ch99',
+               'by_country_type', 'by_country_underlying',
+               'by_country_underlying_type', 'by_country_eo_rate', 'by_country_eo_ch99',
                'default_unlisted_exclude', 'carveouts')
   unknown <- setdiff(names(rate), allowed)
   unknown <- unknown[nzchar(unknown)]
@@ -394,6 +395,15 @@ validate_rate <- function(rate, ctx) {
                    paste(IEEPA_TYPES, collapse = ', ')))
   }
   chk_named_num(.rate_get(rate, 'by_country_eo_rate'), 'by_country_eo_rate')
+  chk_named_num(.rate_get(rate, 'by_country_underlying'), 'by_country_underlying')
+  bcut <- .rate_get(rate, 'by_country_underlying_type')
+  if (!is.null(bcut)) {
+    if (!is.character(bcut) || is.null(names(bcut)) || any(!nzchar(names(bcut))))
+      stop(sprintf('[%s] rate$by_country_underlying_type must be a NAMED character (names = census codes)', ctx))
+    if (any(!bcut %in% IEEPA_TYPES))
+      stop(sprintf('[%s] rate$by_country_underlying_type values must be one of: %s', ctx,
+                   paste(IEEPA_TYPES, collapse = ', ')))
+  }
   beoc <- .rate_get(rate, 'by_country_eo_ch99')
   if (!is.null(beoc)) {
     if (!is.character(beoc) || is.null(names(beoc)) || any(!nzchar(names(beoc))))

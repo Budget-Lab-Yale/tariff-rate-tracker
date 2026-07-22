@@ -1390,6 +1390,14 @@ calculate_rates_for_revision <- function(
   ALUM_CHAPTERS  <- cc$ALUM_CHAPTERS
   ISO_TO_CENSUS  <- cc$ISO_TO_CENSUS
 
+  swiss_fw <- pp$SWISS_FRAMEWORK
+  swiss_countries <- as.character(swiss_fw$countries %||% character(0))
+  swiss_effective_date <- as.Date(swiss_fw$effective_date %||% NA)
+  swiss_expiry_date <- as.Date(swiss_fw$expiry_date %||% NA)
+  swiss_framework_active <- !is.null(swiss_fw) &&
+    as.Date(effective_date) >= swiss_effective_date &&
+    (isTRUE(swiss_fw$finalized) || as.Date(effective_date) <= swiss_expiry_date)
+
   # 1. Get footnote-based rates from calculate_rates_fast()
   #    This captures 232, 301, fentanyl, other — but NOT IEEPA reciprocal,
   #    which is a blanket tariff not referenced via product footnotes.
@@ -1397,6 +1405,20 @@ calculate_rates_for_revision <- function(
                                 stacking_method = stacking_method,
                                 iso_to_census = ISO_TO_CENSUS,
                                 cty_china = CTY_CHINA)
+
+  # Persist the Swiss framework inputs on the panel. The applied result remains
+  # rate_ieepa_recip; these fields make the temporary floor and the underlying
+  # surcharge auditable without reconstructing policy state downstream.
+  rates$swiss_underlying_rate_ieepa_recip <- 0
+  rates$swiss_framework_floor_rate <- 0
+  rates$swiss_framework_effective_date <- as.Date(NA)
+  rates$swiss_framework_expiry_date <- as.Date(NA)
+  swiss_rows <- rates$country %in% swiss_countries
+  if (any(swiss_rows)) {
+    rates$swiss_framework_floor_rate[swiss_rows] <- pp$FLOOR_RATE %||% 0
+    rates$swiss_framework_effective_date[swiss_rows] <- swiss_effective_date
+    rates$swiss_framework_expiry_date[swiss_rows] <- swiss_expiry_date
+  }
 
   # 1b. Check IEEPA invalidation (SCOTUS ruling in Learning Resources v. Trump)
   #     If this revision's effective_date is on or after the invalidation date,
@@ -1509,14 +1531,20 @@ calculate_rates_for_revision <- function(
     if (length(recip_by_country) > 0) {
       .recip_codes <- names(recip_by_country)
       .recip_type  <- .rate_get(recip_rate, 'by_country_type')
+      .recip_underlying <- .rate_get(recip_rate, 'by_country_underlying') %||%
+        recip_by_country
+      .recip_underlying_type <- .rate_get(recip_rate, 'by_country_underlying_type') %||%
+        .recip_type
       .recip_eor   <- .rate_get(recip_rate, 'by_country_eo_rate')
       .recip_eoc   <- .rate_get(recip_rate, 'by_country_eo_ch99')
       country_ieepa <- tibble(
         census_code = .recip_codes,
         ieepa_country_rate = unname(recip_by_country[.recip_codes]),
+        ieepa_country_rate_underlying = unname(.recip_underlying[.recip_codes]),
         country_eo_rate = unname(.recip_eor[.recip_codes]),
         country_eo_ch99 = unname(.recip_eoc[.recip_codes]),
         ieepa_type = unname(.recip_type[.recip_codes]),
+        ieepa_type_underlying = unname(.recip_underlying_type[.recip_codes]),
         is_universal_baseline_country = FALSE
       )
 
@@ -1557,9 +1585,11 @@ calculate_rates_for_revision <- function(
           baseline_entries <- tibble(
             census_code = unlisted_countries,
             ieepa_country_rate = universal_baseline,
+            ieepa_country_rate_underlying = universal_baseline,
             country_eo_rate = 0,
             country_eo_ch99 = NA_character_,
             ieepa_type = 'surcharge',
+            ieepa_type_underlying = 'surcharge',
             is_universal_baseline_country = TRUE
           )
           country_ieepa <- bind_rows(country_ieepa, baseline_entries)
@@ -1651,6 +1681,28 @@ calculate_rates_for_revision <- function(
             (ieepa_exempt_scope == 'baseline_only' &
              coalesce(is_universal_baseline_country, FALSE))
           ),
+          is_swiss_framework_country = country %in% swiss_countries,
+          # The product carve-outs are part of the temporary country framework.
+          # Outside its active window, Swiss/LI revert to the underlying surcharge.
+          floor_exempt = floor_exempt &
+            (!is_swiss_framework_country | swiss_framework_active),
+          swiss_underlying_ieepa_type = if_else(
+            is_swiss_framework_country, ieepa_type_underlying, NA_character_),
+          swiss_underlying_ieepa_country_rate = if_else(
+            is_swiss_framework_country, ieepa_country_rate_underlying, NA_real_),
+          swiss_underlying_rate_ieepa_recip = case_when(
+            !is_swiss_framework_country ~ 0,
+            duty_free_treatment == 'nonzero_base_only' & base_rate < 0.001 ~ 0,
+            is.na(ieepa_country_rate_underlying) ~ 0,
+            ieepa_type_underlying == 'surcharge' ~
+              if_else(exempt_active, 0, ieepa_country_rate_underlying - country_eo_rate) +
+              if_else(is_country_eo_exempt, 0, country_eo_rate),
+            ieepa_type_underlying == 'floor' & exempt_active ~ 0,
+            ieepa_type_underlying == 'floor' ~
+              apply_rate_semantics(ieepa_country_rate_underlying, 'floor_post_mfn', base_rate),
+            ieepa_type_underlying == 'passthrough' ~ 0,
+            TRUE ~ 0
+          ),
           rate_ieepa_recip = case_when(
             duty_free_treatment == 'nonzero_base_only' & base_rate < 0.001 ~ 0,
             floor_exempt ~ 0,
@@ -1664,9 +1716,11 @@ calculate_rates_for_revision <- function(
             TRUE ~ 0
           )
         ) %>%
-        select(-ieepa_country_rate, -country_eo_rate, -country_eo_ch99,
+        select(-ieepa_country_rate, -ieepa_country_rate_underlying,
+               -ieepa_type_underlying, -country_eo_rate, -country_eo_ch99,
                -is_universally_exempt, -is_country_eo_exempt, -floor_exempt,
-               -is_universal_baseline_country, -exempt_active)
+               -is_universal_baseline_country, -exempt_active,
+               -is_swiss_framework_country)
 
     } else {
       # No usable IEEPA entries (all missing rate or census_code)
@@ -2879,7 +2933,8 @@ calculate_rates_for_revision <- function(
   if (!is.null(ch98_vb)) {
     vb_cols <- intersect(
       c('rate_301', 'rate_301_cs', 'rate_s301fl', 'rate_s301br', 'rate_s338',
-        'rate_s122', 'rate_ieepa_recip', 'rate_ieepa_fent', 'rate_other'),
+        'rate_s122', 'rate_ieepa_recip', 'swiss_underlying_rate_ieepa_recip',
+        'rate_ieepa_fent', 'rate_other'),
       names(rates))
     n_vb <- 0L
     for (code in names(ch98_vb)) {
@@ -2968,6 +3023,21 @@ calculate_rates_for_revision <- function(
       }
     }
 
+    # Normally the Swiss underlying layer is a surcharge. Keep the stored field
+    # correct if a future source represents it as a floor against post-MFN base.
+    if ('swiss_underlying_ieepa_type' %in% names(rates)) {
+      swiss_underlying_floor <- rates$swiss_underlying_ieepa_type == 'floor' &
+        !is.na(rates$swiss_underlying_ieepa_country_rate) &
+        rates$base_rate < rates$statutory_base_rate
+      swiss_underlying_floor[is.na(swiss_underlying_floor)] <- FALSE
+      if (any(swiss_underlying_floor)) {
+        rates$swiss_underlying_rate_ieepa_recip[swiss_underlying_floor] <-
+          apply_rate_semantics(
+            rates$swiss_underlying_ieepa_country_rate[swiss_underlying_floor],
+            'floor_post_mfn', rates$base_rate[swiss_underlying_floor])
+      }
+    }
+
     # 6e. Recompute Annex III floor against post-MFN base_rate (same logic as 6d).
     if (!is.null(annex_cfg) && as.Date(effective_date) >= annex_cfg$effective_date &&
         's232_annex' %in% names(rates)) {
@@ -3024,6 +3094,8 @@ calculate_rates_for_revision <- function(
 
     # Drop transient ieepa_type column — not part of production output
     rates$ieepa_type <- NULL
+    rates$swiss_underlying_ieepa_type <- NULL
+    rates$swiss_underlying_ieepa_country_rate <- NULL
   }
 
   # Transient deal-floor tag (set in step 4c, consumed in 6f) — drop

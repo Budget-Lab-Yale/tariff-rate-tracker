@@ -2,20 +2,10 @@
 # timeline.R — unified schedule-boundary splitter (Phase 3c)
 # =============================================================================
 # STATUS: CANONICAL SPLITTER (both sides). This module is the single source of
-# interval splitting. The build side mints synthetic boundary snapshots via
+# interval boundaries. The build side mints synthetic boundary snapshots via
 # discover_boundaries() + build_boundary_mints() (src/pipeline/00_build_timeseries.R);
-# the downstream daily-series side (src/pipeline/09_daily_series.R) splits revision
-# intervals via timeline_split_points() fed expiry_boundaries(). The legacy
-# helpers.R get_expiry_split_points() splitter has been RETIRED (Phase 1b); its
-# behaviour is subsumed here under the canonical +1 boundary mapping below.
-#
-# NOT a splitter, and intentionally NOT migrated: helpers.R apply_expiry_zeroing()
-# still runs downstream in 09 to zero the SECTION_122 / SWISS rate columns past
-# their expiries. That is a deliberate, permanent division of labour — the
-# MUTUAL-EXCLUSION RULE below explains why the SWISS revert cannot be reproduced
-# by a recompute/mint. The two are kept disjoint (discover_boundaries SUBTRACTS
-# expiry_boundaries), and the boundary that the zeroing acts on is still emitted
-# by this module — so there is one splitter, not two.
+# downstream daily-series and point-query paths read those intervals directly.
+# No published rate is edited after the main calculation.
 #
 # WHY the +1 mapping exists. Historically two conventions described the same
 # state change, off by a day:
@@ -77,12 +67,14 @@ collect_schedule_boundaries <- function(policy_params = NULL, specs = NULL,
         !is.null(pp$SECTION_122$expiry_date)) {
       b <- c(b, boundary_from_expiry(pp$SECTION_122$expiry_date))
     }
-    if (!is.null(pp$SWISS_FRAMEWORK) && isFALSE(pp$SWISS_FRAMEWORK$finalized) &&
-        !is.null(pp$SWISS_FRAMEWORK$expiry_date)) {
+    if (!is.null(pp$SWISS_FRAMEWORK)) {
       if (!is.null(pp$SWISS_FRAMEWORK$effective_date)) {
         b <- c(b, as.Date(pp$SWISS_FRAMEWORK$effective_date))
       }
-      b <- c(b, boundary_from_expiry(pp$SWISS_FRAMEWORK$expiry_date))
+      if (isFALSE(pp$SWISS_FRAMEWORK$finalized) &&
+          !is.null(pp$SWISS_FRAMEWORK$expiry_date)) {
+        b <- c(b, boundary_from_expiry(pp$SWISS_FRAMEWORK$expiry_date))
+      }
     }
   }
   if (!is.null(specs)) {
@@ -116,19 +108,6 @@ timeline_split_points <- function(valid_from, valid_until, boundaries) {
   sort(unique(b[!is.na(b) & b > vf & b <= vu]))
 }
 
-#' The parity-preserving boundary set for the downstream splitter swap: the legacy
-#' expiry adjustments (SECTION_122 / SWISS) as canonical boundaries (last-live-day
-#' E -> first-dead-day E+1). Depends on collect_expiry_adjustments() (helpers.R) at
-#' call time. This is the bridge set; the mid-interval-activation fix adds the spec
-#' active windows / annex / Ch99 offsets on top (via collect_schedule_boundaries).
-expiry_boundaries <- function(policy_params) {
-  adj <- collect_expiry_adjustments(policy_params)
-  if (!length(adj)) return(as.Date(character()))
-  e <- as.Date(vapply(adj, function(a) as.character(as.Date(a$expiry_date)), character(1)))
-  sort(unique(boundary_from_expiry(e)))
-}
-
-
 # =============================================================================
 # Boundary discovery for synthetic mints (Pass-2 unified timeline / P2-1)
 # =============================================================================
@@ -141,24 +120,16 @@ expiry_boundaries <- function(policy_params) {
 # rev_dates ordering, so the rate switches on the legal effective date rather than
 # at the next real revision. See docs/timeline_split_integration.md.
 #
-# MUTUAL-EXCLUSION RULE (R4/R8: recompute-vs-zeroing drift). A boundary is handled
-# by EXACTLY ONE mechanism:
-#   - mint  (this module): boundaries the calc re-resolves on recompute — Ch99
+# Every boundary is handled by a mint in this module: boundaries the calculator
+# re-resolves on recompute — Ch99
 #     effective_date_offsets, IEEPA invalidation (06 `>= until` gate), §232
 #     country-exemption expiries (authority_adapter `rev_date < expiry` gate), and
-#     (since 2026-06-25) the SECTION_122 sunset. S122's calc gate (06 `effective_date
+#     the SECTION_122 and Swiss-framework sunsets. S122's calc gate (06 `effective_date
 #     <= expiry_date`) re-resolves rate_s122 = 0 on recompute, so a mint EQUALS the
 #     old downstream zeroing (tests/test_mint_equals_zeroing.R) — but unlike zeroing
-#     it reaches the published snapshot panel that tariff-model reads. So it moved
-#     to minting: collect_schedule_boundaries() carries it, expiry_boundaries() no
-#     longer lists it (so it is not subtracted below), and boundary_overrides anchors
-#     it explicitly.
-#   - downstream zeroing (09 + helpers.R apply_expiry_zeroing): the SWISS expiry
-#     ONLY. NOT minted: a Swiss recompute reverts CH/LI to the underlying pre-floor
-#     surcharge (not stored in the snapshot), whereas apply_expiry_zeroing drops it
-#     to 0 — they genuinely differ. discover_boundaries therefore SUBTRACTS
-#     expiry_boundaries() (now SWISS-only) from the config set. See
-#     tests/test_mint_equals_zeroing.R.
+#     it reaches the published snapshot panel that tariff-model reads. Swiss now
+#     follows the same route: the panel stores its underlying surcharge and the
+#     recompute removes the temporary floor on the first post-expiry day.
 
 #' Discover the mintable boundary set for a build.
 #'
@@ -252,13 +223,8 @@ discover_boundaries <- function(rev_dates, snapshot_dir = NULL, policy_params = 
     }
   }
 
-  # (b) Config boundaries the CALC re-resolves on recompute: collect_schedule_
-  #     boundaries() minus the SWISS expiry only (still handled downstream; see
-  #     mutual-exclusion note above). Today this leaves the IEEPA invalidation date,
-  #     the SECTION_122 sunset (now minted), and the Swiss effective date (+ any
-  #     spec active windows, none populated).
+  # (b) Config boundaries the calculator re-resolves on recompute.
   cfg <- collect_schedule_boundaries(policy_params = policy_params, specs = specs)
-  cfg <- setdiff(as.Date(cfg), expiry_boundaries(policy_params))
   for (d in cfg) add_rec(as.Date(d, origin = '1970-01-01'), owner_of(as.Date(d, origin = '1970-01-01')),
                          'config')
 

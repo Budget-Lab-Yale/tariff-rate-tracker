@@ -43,4 +43,5 @@ Rscript scripts/summarize_parity_results.R \
   --manifest "$PARITY_MANIFEST" \
   --results-dir "$PARITY_RESULTS_DIR" \
   --reference "$PARITY_REFERENCE" \
-  --candidate "$PARITY_CANDIDATE"
+  --candidate "$PARITY_CANDIDATE" \
+  --allow-extra-files "${PARITY_ALLOW_EXTRA_FILES:-}"

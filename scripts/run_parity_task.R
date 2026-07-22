@@ -26,6 +26,10 @@ ignore_cols   <- {
   # pass the list with either commas (direct CLI) or colons (environment form).
   if (!nzchar(raw)) character() else strsplit(raw, '[:,]', perl = TRUE)[[1]]
 }
+allow_extra_cols <- {
+  raw <- get_arg('--allow-extra-columns', '')
+  if (!nzchar(raw)) character() else strsplit(raw, '[:,]', perl = TRUE)[[1]]
+}
 
 if (is.null(manifest_path)) stop('--manifest <path> is required', call. = FALSE)
 if (is.null(results_dir)) stop('--results-dir <external-work-dir> is required', call. = FALSE)
@@ -40,7 +44,8 @@ if (row_idx < 1L || row_idx > nrow(manifest)) {
 task <- manifest[row_idx, ]
 result <- tryCatch(
   compare_parity_files(task$candidate_path[[1]], task$reference_path[[1]], task$kind[[1]],
-                       label = task$label[[1]], ignore_cols = ignore_cols),
+                       label = task$label[[1]], ignore_cols = ignore_cols,
+                       allow_extra_cols = allow_extra_cols),
   error = function(e) list(
     label = task$label[[1]], pass = FALSE, n_violations = NA_integer_,
     n_rows_common = NA_integer_, violations = NULL, error = conditionMessage(e)
@@ -68,7 +73,8 @@ out <- tibble(
   error = if (is.null(result$error)) '' else as.character(result$error),
   # Audit trail: a pass with value-ignored columns must be distinguishable
   # from a clean pass in the result file itself, not just the launch env.
-  ignored_cols = paste(ignore_cols, collapse = ',')
+  ignored_cols = paste(ignore_cols, collapse = ','),
+  allowed_extra_cols = paste(allow_extra_cols, collapse = ',')
 )
 write_tsv(out, file.path(results_dir, sprintf('task_%04d.tsv', task_index)))
 if (!isTRUE(result$pass) && !is.null(result$violation_summary) &&

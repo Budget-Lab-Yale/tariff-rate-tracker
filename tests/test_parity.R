@@ -123,6 +123,9 @@ actual <- reference; actual$new_col <- 1
 r <- compare_parity(actual, reference, key, 'schema_extra')
 check(any(r$violations$kind == 'schema_extra_column' & r$violations$column == 'new_col'),
       'reports extra column')
+r <- compare_parity(actual, reference, key, 'allowed_schema_extra',
+                    allow_extra_cols = 'new_col')
+check(r$pass, 'explicitly allowed candidate-only column passes a migration gate')
 actual <- reference; actual$rate_301 <- NULL
 r <- compare_parity(actual, reference, key, 'schema_missing')
 check(any(r$violations$kind == 'schema_missing_column' & r$violations$column == 'rate_301'),
