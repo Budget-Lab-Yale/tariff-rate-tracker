@@ -183,17 +183,19 @@ Reviewers will notice two places worth understanding:
 
 ## Test infrastructure
 
-Tests use `stopifnot()` assertions, synthetic fixtures, no external framework.
-The CI smoke job (`.github/workflows/ci.yml`) runs, after opting out of weighted
-outputs:
+Tests use `stopifnot()` assertions and synthetic fixtures. The CI smoke job
+(`.github/workflows/ci.yml`) discovers every test file and runs each in an
+isolated R process, after opting out of weighted outputs:
 
 ```bash
 Rscript src/preflight.R
-Rscript tests/run_tests_daily_series.R        # daily series, expiry, decomposition, schema, annex
-Rscript tests/run_tests_weights_resolution.R  # weight resolution
-Rscript tests/run_tests_annex_parser.R        # §232 annex parser
-Rscript tests/test_rate_calculation.R         # rate engine, extraction, stacking, invariants
+Rscript tests/run_all_tests.R
 ```
+
+Optional-package tests are reported as skipped with the missing package name;
+tests that pass while skipping artifact-dependent assertions are marked
+`PASS*` and listed in the summary. They are never silently omitted from
+discovery. Pass `--list` to print the exact discovered file set.
 
 Refactors that must not change numbers (e.g. the in-progress migrations above)
 are gated by the parity harness: `parity.R` + `scripts/submit_plank*` /

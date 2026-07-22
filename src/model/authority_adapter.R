@@ -29,6 +29,8 @@
 # src/pipeline/05_parse_policy_params.R for census-code scope population.
 # =============================================================================
 
+source(here::here('src', 'core', 'csv_cache.R'))
+
 # ---- read the rate payload back out of the normalized programs (Phase 6b) ----
 #
 # The thin cut relocates each parser object VERBATIM from its out-of-band

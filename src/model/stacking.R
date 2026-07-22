@@ -9,6 +9,23 @@ library(tidyverse)
 # Stacking Rules
 # =============================================================================
 
+#' Ensure optional columns exist, optionally replacing NAs.
+#'
+#' This belongs to the stacking layer: its only production consumers are the
+#' wide stacker, net decomposition, and resolved-program stacker. Defining it
+#' here keeps stacking.R directly sourceable instead of depending on a helper
+#' that helpers.R used to define only *after* sourcing this module.
+ensure_cols <- function(df, defaults, fill_na = FALSE) {
+  for (col in names(defaults)) {
+    if (!col %in% names(df)) {
+      df[[col]] <- defaults[[col]]
+    } else if (fill_na) {
+      df[[col]][is.na(df[[col]])] <- defaults[[col]]
+    }
+  }
+  df
+}
+
 #' Apply tariff stacking rules (vectorized)
 #'
 #' Implements mutual-exclusion stacking (aligned with Tariff-ETRs):

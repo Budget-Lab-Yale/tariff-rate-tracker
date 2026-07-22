@@ -17,8 +17,8 @@
 #   2026-11-10  owner 2026_rev_10  §301 cranes/chassis turn-on           [ch99]
 # Edge-coincident boundaries that must NOT mint: 2025-05-03 (auto parts = rev_11
 # edge), 2025-04-09 (Phase-1 country rates = rev_8 edge), 2026-04-06 (§232 annex =
-# 2026_rev_5 edge). Expiry boundaries that must NOT mint (downstream zeroing owns
-# them): 2026-07-24 (S122), 2026-04-01 (Swiss expiry).
+# 2026_rev_5 edge). S122 now mints on 2026-07-24; the Swiss expiry remains the
+# sole boundary owned by downstream zeroing.
 #
 # Usage: Rscript tests/test_boundary_discovery.R
 # =============================================================================
@@ -76,9 +76,9 @@ check('2025-11-14' %in% emitted, '2025-11-14 (Swiss/Liechtenstein floor start) i
 check(identical(owner_of('2025-11-14'), 'rev_29'),
       '2025-11-14 owner resolves to rev_29')
 
-# --- Expiry boundaries must NOT mint (mutual-exclusion rule) -------------------
-check(!('2026-07-24' %in% emitted),
-      'S122 expiry boundary (2026-07-24) is NOT minted (downstream zeroing owns it)')
+# --- Expiry ownership (mutual-exclusion rule) ---------------------------------
+check('2026-07-24' %in% emitted,
+      'S122 first-dead-day boundary (2026-07-24) is minted')
 check(!('2026-04-01' %in% emitted),
       'Swiss expiry boundary (2026-04-01) is NOT minted (downstream zeroing owns it)')
 
@@ -105,7 +105,7 @@ if (have_ch99) {
   # On the production grid exactly these seven boundaries are mintable (incl. the
   # two Ch99 rate-less heading expiries 2025-06-01 / 2025-09-01).
   expected <- c('2025-03-12', '2025-06-01', '2025-09-01', '2025-11-14',
-                '2026-02-20', '2026-09-29', '2026-11-10')
+                '2026-02-20', '2026-07-24', '2026-09-29', '2026-11-10')
   check(setequal(emitted, expected),
         paste0('exactly {', paste(expected, collapse = ', '), '} discovered on the live grid'))
   check(all(!is.na(b$owner_rev)),

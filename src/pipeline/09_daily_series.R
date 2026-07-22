@@ -218,6 +218,61 @@ classify_hs10 <- function(hs10) {
   code
 }
 
+#' Aggregate effective rates by one or more dimensions.
+#'
+#' Shared kernel for the country, GTAP-sector, and Budget-Lab-HS outputs. Those
+#' outputs differ only in their grouping columns, denominator table, and whether
+#' "products present" means rows (country) or distinct HTS10s (categories).
+#'
+#' @param data Effective interval panel.
+#' @param groups Character vector of grouping columns.
+#' @param n_products_total Product universe size for all-pairs means.
+#' @param present_mode Either "rows" or "distinct_products".
+#' @param include_pair_count Include n_pairs_present (category outputs).
+#' @return One unweighted aggregate row per group.
+aggregate_rate_groups <- function(data, groups, n_products_total,
+                                  present_mode = c('rows', 'distinct_products'),
+                                  include_pair_count = FALSE) {
+  present_mode <- match.arg(present_mode)
+  out <- data %>%
+    group_by(across(all_of(groups))) %>%
+    summarise(
+      mean_additional_exposed = mean(total_additional),
+      mean_total_exposed = mean(total_rate),
+      mean_additional_all_pairs = sum(total_additional) / n_products_total,
+      mean_total_all_pairs = sum(total_rate) / n_products_total,
+      n_products_present = if (present_mode == 'rows') n() else n_distinct(hts10),
+      n_pairs_present = n(),
+      .groups = 'drop'
+    )
+  if (!include_pair_count) out$n_pairs_present <- NULL
+  out
+}
+
+#' Add a weighted ETR to a grouped interval aggregate.
+#'
+#' @param weighted_data Effective panel joined to import weights.
+#' @param groups Character vector of grouping columns.
+#' @param denominators Per-group total-import denominator table.
+#' @param denominator_col Name of its numeric denominator column.
+#' @return Group keys plus weighted_etr.
+aggregate_weighted_groups <- function(weighted_data, groups, denominators,
+                                      denominator_col) {
+  weighted_data %>%
+    group_by(across(all_of(groups))) %>%
+    summarise(
+      tariffed_imports = sum(imports),
+      weighted_numerator = sum(total_rate * imports),
+      .groups = 'drop'
+    ) %>%
+    left_join(denominators, by = groups) %>%
+    mutate(
+      .denominator = coalesce(.data[[denominator_col]], tariffed_imports),
+      weighted_etr = weighted_numerator / .denominator
+    ) %>%
+    select(all_of(groups), weighted_etr)
+}
+
 #' Build daily aggregate statistics
 #'
 #' Since rates only change at revision boundaries, computes one aggregate per
@@ -287,7 +342,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   }
 
   # --- GTAP category crosswalk (HS10 → GTAP sector) ---
-  # Used by compute_agg_category to produce by_category aggregates. If the file
+  # Used by the grouped aggregation kernel to produce by_category aggregates. If the file
   # is missing the by-category aggregation is skipped silently — keeps the
   # aggregator backwards-compatible. Crosswalk schema: hs10, hs6_code,
   # gtap_code, description (note: 'hs10' here is the same 10-digit code the
@@ -309,7 +364,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     }
     # Note: ts/ts_weighted are NOT joined to gtap_xwalk upfront — at full
     # build size (~195M rows) the materialized join OOMs at the coalesce
-    # step. compute_agg_category does the join per revision instead.
+    # step. add_aggregate_dimensions() does the join per revision instead.
   }
 
   # --- Interval-local weight context ----------------------------------------
@@ -388,10 +443,10 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   # --- Policy expiry split points (Section 122, Swiss framework, etc.) ---
   # Uses shared helpers from helpers.R to detect all finalized=false overrides
 
-  # Helper: compute aggregates for one revision interval (or sub-interval)
-  compute_agg_overall <- function(rev_ts, rev_ts_w, wctx, revision, valid_from, valid_until, sub_start = valid_from) {
-    rev_data <- prepare_interval_data_effective(rev_ts,
-                                                sub_start, policy_params, stacking_method)
+  # Helpers consume already-prepared interval data. The revision loop prepares
+  # the effective panel once per segment, then every rollup shares it.
+  compute_agg_overall <- function(rev_data, wt_data, wctx,
+                                  revision, valid_from, valid_until) {
     n_products <- n_distinct(rev_data$hts10)
     n_countries <- n_distinct(rev_data$country)
     n_pairs <- nrow(rev_data)
@@ -411,8 +466,6 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
       n_all_pairs = n_all_pairs
     )
     if (has_weights) {
-      wt_data <- prepare_interval_data_effective(rev_ts_w,
-                                                 sub_start, policy_params, stacking_method)
       if (nrow(wt_data) > 0) {
         row$weighted_etr <- sum(wt_data$total_rate * wt_data$imports) / wctx$total_imports
         row$weighted_etr_additional <- sum(wt_data$total_additional * wt_data$imports) / wctx$total_imports
@@ -428,43 +481,28 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     return(row)
   }
 
-  compute_agg_country <- function(rev_ts, rev_ts_w, wctx, revision, valid_from, valid_until, sub_start = valid_from) {
-    rev_data <- prepare_interval_data_effective(rev_ts,
-                                                sub_start, policy_params, stacking_method)
+  compute_agg_grouped <- function(rev_data, wt_data, wctx,
+                                  revision, valid_from, valid_until,
+                                  groups, denominators, denominator_col,
+                                  present_mode = 'distinct_products',
+                                  include_pair_count = TRUE) {
     n_products_rev <- n_distinct(rev_data$hts10)
-    row <- rev_data %>%
-      group_by(country) %>%
-      summarise(
-        mean_additional_exposed = mean(total_additional),
-        mean_total_exposed = mean(total_rate),
-        mean_additional_all_pairs = sum(total_additional) / n_products_rev,
-        mean_total_all_pairs = sum(total_rate) / n_products_rev,
-        n_products_present = n(),
-        .groups = 'drop'
-      ) %>%
+    row <- aggregate_rate_groups(
+      rev_data, groups, n_products_rev,
+      present_mode = present_mode,
+      include_pair_count = include_pair_count
+    ) %>%
       mutate(
         revision = revision, valid_from = valid_from, valid_until = valid_until,
         n_products_total = n_products_rev
       )
     if (has_weights) {
-      wt_data <- prepare_interval_data_effective(rev_ts_w,
-                                                 sub_start, policy_params, stacking_method)
-      wt_country <- wt_data %>%
-        group_by(country) %>%
-        summarise(
-          tariffed_imports = sum(imports),
-          weighted_numerator = sum(total_rate * imports),
-          .groups = 'drop'
-        ) %>%
-        left_join(wctx$country_total_imp, by = 'country') %>%
-        mutate(
-          country_total_imports = coalesce(country_total_imports, tariffed_imports),
-          weighted_etr = weighted_numerator / country_total_imports
-        ) %>%
-        select(country, weighted_etr)
-      row <- row %>% left_join(wt_country, by = 'country')
+      weighted <- aggregate_weighted_groups(
+        wt_data, groups, denominators, denominator_col
+      )
+      row <- row %>% left_join(weighted, by = groups)
     }
-    return(row)
+    row
   }
 
   # Scale the re-derived per-authority contributions to the STORED effective
@@ -489,11 +527,8 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     net_df
   }
 
-  compute_agg_authority <- function(rev_ts, rev_ts_w, wctx, revision, valid_from, valid_until, sub_start = valid_from) {
-    rev_data <- prepare_interval_data(rev_ts,
-                                      sub_start, policy_params, stacking_method,
-                                      stacking = 'none')
-
+  compute_agg_authority <- function(rev_data, eff_data, wt_data, eff_wt, wctx,
+                                    revision, valid_from, valid_until) {
     # Use shared net authority decomposition from helpers.R
     net_data <- compute_net_authority_contributions(rev_data, cty_china = CTY_CHINA,
                                                      stacking_method = stacking_method)
@@ -502,10 +537,8 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     # net_301_cs = 0. Guard the tpc_additive path, which omits net_301_cs.
     if (!'net_301_cs' %in% names(net_data)) net_data$net_301_cs <- 0
     # Reduce to the effective additional (same authoritative basis as weighted_etr).
-    # prepare_interval_data_effective preserves rev_ts row order, so total_additional
+    # Effective preparation preserves row order, so total_additional
     # aligns positionally with net_data.
-    eff_data <- prepare_interval_data_effective(rev_ts, sub_start, policy_params,
-                                                stacking_method)
     net_data <- scale_net_to_effective(net_data, eff_data$total_additional)
 
     row <- tibble(
@@ -521,15 +554,10 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
       mean_other = mean(net_data$net_other)
     )
     if (has_weights) {
-      wt_data <- prepare_interval_data(rev_ts_w,
-                                       sub_start, policy_params, stacking_method,
-                                       stacking = 'none')
       if (nrow(wt_data) > 0) {
         wt_net <- compute_net_authority_contributions(wt_data, cty_china = CTY_CHINA,
                                                       stacking_method = stacking_method)
         if (!'net_301_cs' %in% names(wt_net)) wt_net$net_301_cs <- 0
-        eff_wt <- prepare_interval_data_effective(rev_ts_w, sub_start, policy_params,
-                                                  stacking_method)
         wt_net <- scale_net_to_effective(wt_net, eff_wt$total_additional)
         row$etr_232 <- sum(wt_net$net_232 * wt_net$imports) / wctx$total_imports
         row$etr_301 <- sum((wt_net$net_301 + wt_net$net_301_cs) * wt_net$imports) / wctx$total_imports
@@ -542,100 +570,6 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
         row$etr_232 <- row$etr_301 <- row$etr_ieepa <- row$etr_fentanyl <- 0
         row$etr_s122 <- row$etr_section_201 <- row$etr_other <- 0
       }
-    }
-    return(row)
-  }
-
-  compute_agg_category <- function(rev_ts, rev_ts_w, wctx, revision, valid_from, valid_until, sub_start = valid_from) {
-    rev_data <- prepare_interval_data_effective(
-      rev_ts %>%
-        mutate(hs6 = substr(hts10, 1, 6)) %>%
-        left_join(gtap_xwalk, by = 'hs6') %>%
-        mutate(gtap_code = coalesce(gtap_code, 'unmapped')),
-      sub_start, policy_params, stacking_method)
-    n_products_rev <- n_distinct(rev_data$hts10)
-    row <- rev_data %>%
-      group_by(gtap_code) %>%
-      summarise(
-        mean_additional_exposed = mean(total_additional),
-        mean_total_exposed = mean(total_rate),
-        mean_additional_all_pairs = sum(total_additional) / n_products_rev,
-        mean_total_all_pairs = sum(total_rate) / n_products_rev,
-        n_products_present = n_distinct(hts10),
-        n_pairs_present = n(),
-        .groups = 'drop'
-      ) %>%
-      mutate(
-        revision = revision, valid_from = valid_from, valid_until = valid_until,
-        n_products_total = n_products_rev
-      )
-    if (has_weights) {
-      wt_data <- prepare_interval_data_effective(
-        rev_ts_w %>%
-          mutate(hs6 = substr(hts10, 1, 6)) %>%
-          left_join(gtap_xwalk, by = 'hs6') %>%
-          mutate(gtap_code = coalesce(gtap_code, 'unmapped')),
-        sub_start, policy_params, stacking_method)
-      wt_sector <- wt_data %>%
-        group_by(gtap_code) %>%
-        summarise(
-          tariffed_imports = sum(imports),
-          weighted_numerator = sum(total_rate * imports),
-          .groups = 'drop'
-        ) %>%
-        left_join(wctx$sector_total_imports, by = 'gtap_code') %>%
-        mutate(
-          sector_total_imports = coalesce(sector_total_imports, tariffed_imports),
-          weighted_etr = weighted_numerator / sector_total_imports
-        ) %>%
-        select(gtap_code, weighted_etr)
-      row <- row %>% left_join(wt_sector, by = 'gtap_code')
-    }
-    return(row)
-  }
-
-  # by_hs mirrors compute_agg_category exactly, but the grouping key is the
-  # Budget Lab HS category_code derived from the product hts10 (no crosswalk
-  # join) and the weighted-ETR denominator is category_total_imports. Same
-  # import-weight base and weighting method as by_category / overall.
-  compute_agg_hs <- function(rev_ts, rev_ts_w, wctx, revision, valid_from, valid_until, sub_start = valid_from) {
-    rev_data <- prepare_interval_data_effective(
-      rev_ts %>% mutate(category_code = classify_hs10(hts10)),
-      sub_start, policy_params, stacking_method)
-    n_products_rev <- n_distinct(rev_data$hts10)
-    row <- rev_data %>%
-      group_by(category_code) %>%
-      summarise(
-        mean_additional_exposed = mean(total_additional),
-        mean_total_exposed = mean(total_rate),
-        mean_additional_all_pairs = sum(total_additional) / n_products_rev,
-        mean_total_all_pairs = sum(total_rate) / n_products_rev,
-        n_products_present = n_distinct(hts10),
-        n_pairs_present = n(),
-        .groups = 'drop'
-      ) %>%
-      mutate(
-        revision = revision, valid_from = valid_from, valid_until = valid_until,
-        n_products_total = n_products_rev
-      )
-    if (has_weights) {
-      wt_data <- prepare_interval_data_effective(
-        rev_ts_w %>% mutate(category_code = classify_hs10(hts10)),
-        sub_start, policy_params, stacking_method)
-      wt_cat <- wt_data %>%
-        group_by(category_code) %>%
-        summarise(
-          tariffed_imports = sum(imports),
-          weighted_numerator = sum(total_rate * imports),
-          .groups = 'drop'
-        ) %>%
-        left_join(wctx$category_total_imports, by = 'category_code') %>%
-        mutate(
-          category_total_imports = coalesce(category_total_imports, tariffed_imports),
-          weighted_etr = weighted_numerator / category_total_imports
-        ) %>%
-        select(category_code, weighted_etr)
-      row <- row %>% left_join(wt_cat, by = 'category_code')
     }
     return(row)
   }
@@ -658,6 +592,18 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   # OUT of this parity refactor and flagged for a follow-up. The collector is
   # validated and ready for that fix + for scenario effective_from dates.
   exp_bounds <- expiry_boundaries(policy_params)
+
+  add_aggregate_dimensions <- function(df) {
+    df <- df %>% mutate(category_code = classify_hs10(hts10))
+    if (has_categories) {
+      df <- df %>%
+        mutate(hs6 = substr(hts10, 1, 6)) %>%
+        left_join(gtap_xwalk, by = 'hs6') %>%
+        mutate(gtap_code = coalesce(gtap_code, 'unmapped'))
+    }
+    df
+  }
+
   # Single pass over revision intervals: `ts` (and `ts_weighted`) is filtered to
   # each revision ONCE and reused by all four aggregators across every
   # sub-interval — previously each aggregator re-scanned the full ~195M-row table
@@ -672,7 +618,9 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     rev_id      <- rev_intervals$revision[ri]
     valid_from  <- rev_intervals$valid_from[ri]
     valid_until <- rev_intervals$valid_until[ri]
-    rev_ts   <- ts %>% filter(revision == rev_id)
+    rev_ts <- ts %>%
+      filter(revision == rev_id) %>%
+      add_aggregate_dimensions()
 
     # Resolve this revision's weight context + weighted slice ONCE (reused by
     # every aggregator across every sub-interval; sub-intervals differ only by
@@ -701,7 +649,9 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
           list(fingerprint = iw$fingerprint, stats = iw$stats)
       } else {
         wctx <- wctx_static
-        rev_ts_w <- ts_weighted %>% filter(revision == rev_id)
+        rev_ts_w <- ts_weighted %>%
+          filter(revision == rev_id) %>%
+          add_aggregate_dimensions()
       }
     }
 
@@ -715,13 +665,46 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     for (k in seq_along(starts)) {
       s <- starts[k]; e <- ends[k]
       seg_i <- seg_i + 1L
-      ov[[seg_i]] <- compute_agg_overall(rev_ts, rev_ts_w, wctx, rev_id, s, e, sub_start = s)
-      ct[[seg_i]] <- compute_agg_country(rev_ts, rev_ts_w, wctx, rev_id, s, e, sub_start = s)
-      au[[seg_i]] <- compute_agg_authority(rev_ts, rev_ts_w, wctx, rev_id, s, e, sub_start = s)
-      if (has_categories) {
-        ca[[seg_i]] <- compute_agg_category(rev_ts, rev_ts_w, wctx, rev_id, s, e, sub_start = s)
+      eff_data <- prepare_interval_data_effective(
+        rev_ts, s, policy_params, stacking_method
+      )
+      raw_data <- prepare_interval_data(
+        rev_ts, s, policy_params, stacking_method, stacking = 'none'
+      )
+      eff_wt <- raw_wt <- NULL
+      if (has_weights) {
+        eff_wt <- prepare_interval_data_effective(
+          rev_ts_w, s, policy_params, stacking_method
+        )
+        raw_wt <- prepare_interval_data(
+          rev_ts_w, s, policy_params, stacking_method, stacking = 'none'
+        )
       }
-      hs[[seg_i]] <- compute_agg_hs(rev_ts, rev_ts_w, wctx, rev_id, s, e, sub_start = s)
+
+      ov[[seg_i]] <- compute_agg_overall(
+        eff_data, eff_wt, wctx, rev_id, s, e
+      )
+      ct[[seg_i]] <- compute_agg_grouped(
+        eff_data, eff_wt, wctx, rev_id, s, e,
+        groups = 'country', denominators = wctx$country_total_imp,
+        denominator_col = 'country_total_imports',
+        present_mode = 'rows', include_pair_count = FALSE
+      )
+      au[[seg_i]] <- compute_agg_authority(
+        raw_data, eff_data, raw_wt, eff_wt, wctx, rev_id, s, e
+      )
+      if (has_categories) {
+        ca[[seg_i]] <- compute_agg_grouped(
+          eff_data, eff_wt, wctx, rev_id, s, e,
+          groups = 'gtap_code', denominators = wctx$sector_total_imports,
+          denominator_col = 'sector_total_imports'
+        )
+      }
+      hs[[seg_i]] <- compute_agg_grouped(
+        eff_data, eff_wt, wctx, rev_id, s, e,
+        groups = 'category_code', denominators = wctx$category_total_imports,
+        denominator_col = 'category_total_imports'
+      )
     }
   }
   agg_overall <- bind_rows(ov)
