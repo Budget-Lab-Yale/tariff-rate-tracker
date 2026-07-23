@@ -124,8 +124,13 @@ for series in "${SERIES_LIST[@]}"; do
   mkdir -p "$TS_DIR"
 
   echo "--- [$series] list revisions (sbatch --wait) ---"
+  # The per-archive ch99 scan in discover_boundaries() runs in parallel over the
+  # ~89 archives (parallel::mclapply, fork-based) — give the job cores + tell it
+  # how many via TARIFF_LIST_CORES. Output is byte-identical to the serial scan.
+  LIST_CORES=8
   TARIFF_SCENARIO="$SCEN" TARIFF_POLICY_PARAMS="$POLICY_PARAMS_PATH" REVLIST="$RL" REV_TIMELINE="$RT" \
-    sbatch --wait --job-name="lr-$series" --time=00:15:00 --nodes=1 --ntasks=1 --cpus-per-task=1 --mem=8G \
+  TARIFF_LIST_CORES="$LIST_CORES" \
+    sbatch --wait --job-name="lr-$series" --time=00:15:00 --nodes=1 --ntasks=1 --cpus-per-task="$LIST_CORES" --mem=16G \
       --output="$HOME/slurm-logs/lr-$series-%j.out" --error="$HOME/slurm-logs/lr-$series-%j.err" --chdir="$REPO" \
       --wrap="$MODLOAD; Rscript scripts/list_revisions.R$LIST_ARGS" >/dev/null
   N=$(grep -c . "$RL" || true)
