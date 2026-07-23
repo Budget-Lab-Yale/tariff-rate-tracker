@@ -495,9 +495,9 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   # mixed-basis residual that goes negative on FTA/USMCA duty-free goods. Canonical
   # (mutual_exclusion) stacking only; the tpc_additive view re-derives weighted_etr
   # too, so it stays self-consistent without scaling.
-  auth_net_cols <- c('net_232', 'net_301', 'net_301_cs', 'net_s301br',
-                     'net_s301fl', 'net_ieepa', 'net_fentanyl', 'net_s122',
-                     'net_s338', 'net_section_201', 'net_other')
+  # Keep the historical summation order (floating-point load-bearing), but take
+  # the complete net-column census from the shared authority registry.
+  auth_net_cols <- authority_report_net_columns()
   scale_net_to_effective <- function(net_df, eff_additional) {
     if (!identical(stacking_method, 'mutual_exclusion')) return(net_df)
     cols <- intersect(auth_net_cols, names(net_df))

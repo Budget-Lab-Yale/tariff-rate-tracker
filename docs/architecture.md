@@ -47,6 +47,7 @@ src/
 ```
   authority_spec.R     The AuthoritySpec datatype + validation (docs/authority_spec.md).
   authority_adapter.R  build_authority_specs(): parser outputs -> uniform spec set.
+  authority_registry.R Shared R-code rate/net/spec/schema/reporting metadata per authority.
   stacking.R           Mutual-exclusion stacking rules + authority decomposition.
   rate_schema.R        Canonical rate_* columns, schema enforcement, authority classifier.
   scenario_inputs.R    Removes disabled-authority inputs before scenario calculation.
@@ -69,7 +70,7 @@ src/
 ## Core / infrastructure
 
 ```
-  helpers.R            Facade: sources policy_params, revisions, stacking,
+  helpers.R            Facade: sources policy_params, revisions, authority_registry, stacking,
                        timeline, rate_schema, data_loaders, output_paths, scenario_registry,
                        and defines low-level HTS/rate utilities. Sourcing it grants the full set.
   logging.R            init_logging() + log_info/warn/error.
@@ -139,8 +140,10 @@ HTS JSON archives
 that does `source(here('src', 'core', 'helpers.R'))` gets the full function set. Files
 that only need a slice can source a module directly:
 
-- `policy_params.R`, `stacking.R`, `rate_schema.R`, `output_paths.R`,
+- `policy_params.R`, `authority_registry.R`, `output_paths.R`,
   `scenario_registry.R`, `timeline.R` — no internal dependencies.
+- `stacking.R`, `rate_schema.R` — depend on `authority_registry.R` (and source it
+  themselves when loaded directly).
 - `revisions.R`, `data_loaders.R` — depend on `policy_params.R`.
 - `authority_adapter.R` — depends on `authority_spec.R` and `policy_params.R`.
 

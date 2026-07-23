@@ -12,6 +12,7 @@ library(here)
 source(here('src', 'core', 'csv_cache.R'))
 source(here('src', 'model', 'policy_params.R'))
 source(here('src', 'model', 'revisions.R'))
+source(here('src', 'model', 'authority_registry.R'))
 source(here('src', 'model', 'stacking.R'))
 source(here('src', 'model', 'timeline.R'))           # Phase 3c: unified schedule-boundary splitter
 source(here('src', 'model', 'rate_schema.R'))
