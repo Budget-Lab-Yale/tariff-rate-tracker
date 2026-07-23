@@ -28,7 +28,9 @@ yardstick produces false positives (see the §122 lesson below).
 | `ieepa_exempt_products.csv` | IEEPA reciprocal, US Note 2(v)(iii)(a) — `resources/annex_ii_first_appearance.csv` | yes (`build_annex_ii_dates.R`) |
 | `s122_exempt_products.csv` | §122, **US Note 2(aa)** to subch. III ch.99 (`data/us_notes/chapter99_*.txt`) | by inspection |
 | `s301_brazil_exempt_products.csv` | §301 Brazil, **FR-2026-11158** Annex (GPOTABLE in FR XML) | yes (`build_s301_brazil_annex.R`) |
-| `s301fl_exempt_products.csv` | §301 forced-labor, **FR-2026-11296** Annex A (91 FR 34272) | no — table is image-only (see `s301_forced_labor/README.md`) |
+| `s301fl_exempt_products.csv` | §301 forced-labor, **preliminary** FR-2026-11296 Annex A (91 FR 34272) | historical only — superseded by the final action |
+| `s301fl_final_common_exemptions.csv` | §301 forced-labor final action, Annex II Part A (2026-07-23) | yes — `scripts/build_s301fl_final_annex.R` parses a `pdftotext -layout` rendering |
+| `s301fl_final_country_exemptions.csv` | §301 forced-labor final action, Annex II Parts B–O (2026-07-23) | yes — same builder |
 
 ## Findings
 
@@ -74,7 +76,8 @@ junk instead: **1,629 of 1,632 codes are in the XML-verified Brazil annex**,
 `9802.00.91` is a standard Ch98 exemption, and `9031.49.40/.70` are legitimate
 civil-aircraft instruments. **No spurious codes.** Exactness/completeness vs the
 image table is unverified (would require OCR or a USTR machine-readable annex).
-Full provenance: `docs/s301_forced_labor/README.md`.
+Preliminary-list provenance: `docs/s301_forced_labor/README.md`. Final-action
+provenance and modeling details: `docs/forced_labor_scenario.md`.
 
 ## Changes applied (this audit)
 - **Fixed** `resources/s122_exempt_products.csv`: `8505110070` → `85051100`

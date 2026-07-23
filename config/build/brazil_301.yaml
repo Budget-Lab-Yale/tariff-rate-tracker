@@ -7,7 +7,8 @@
 #   * new rate_s301br RATE_SCHEMA column (all-zero before 2026-07-22)
 #   * new bnd_2026-07-22 boundary mint (turn-on interval)
 #   * daily_by_authority gains mean_s301br / etr_s301br
-#   * new_301 scenario is now forced-labor-ONLY (Brazil inherited from baseline)
+#   * new_301 is now an ACTUAL compatibility alias (Brazil and forced labor
+#     both inherit from baseline)
 #   * NEW no_s338 counterfactual: current law minus the §338 Canada action
 #
 # Three series for review: actual, new_301 (FL §301 on top of Brazil-inclusive

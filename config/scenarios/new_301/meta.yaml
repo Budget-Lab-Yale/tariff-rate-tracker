@@ -1,4 +1,4 @@
 kind: scenario
-description: 'USTR §301 Forced Labor action stepping into the expiring §122 slot (Brazil 25% §301 is baseline law since 2026-07-22 and inherited, not overlaid)'
+description: 'Compatibility alias for ACTUAL: Brazil and forced-labor §301 final actions are baseline law'
 publish: false
 extends: forced_labor

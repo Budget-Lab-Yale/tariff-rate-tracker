@@ -1,5 +1,10 @@
 # Forced-Labor §301 vs GTA — and the §232 displacement mechanism
 
+> **Historical note:** This analysis concerns USTR's June 2026 preliminary
+> proposal. The July 23 final action superseded its product lists and uses a
+> full Section 232 scope exclusion rather than `content_split`; see
+> `docs/forced_labor_scenario.md` for the implemented final policy.
+
 **Date:** 2026-06-07 · **Branch:** theseus · **Status:** findings only, NO code changed.
 **FINAL RESOLUTION (see §3b; verified against GTA's published flow-level data + our calculator code):**
 We model the forced-labor §301 **largely correctly.** All structural pieces verified working: §232

@@ -380,47 +380,78 @@ build_s301_tiers <- function(ch99_data, effective_date, pp) {
   setNames(pmin(pmax(u$exempt_share, 0), 1), u$hts10)
 }
 
-# ---- section 301 forced labor (scenario authority) --------------------------
-# USTR forced-labor §301 (FRN 91 FR 34272): per-country additional duty (two
-# tiers, 10% / 12.5%) on ALL products of ~60 economies EXCEPT an Annex A
-# exclusion list. Built ONLY when the (merged) config carries a
-# `section_301_forced_labor` block — supplied by config/scenarios/forced_labor/
-# overlay.yaml — so the authority is ABSENT in baseline. See [[forced-labor-301-scenario]].
+# ---- section 301 forced labor (baseline authority) --------------------------
+# USTR forced-labor §301 final action (2026-07-23): current law in baseline.
+# Flat 10%/12.5% origins coexist with EU/Taiwan 10%-net-of-MFN and
+# Japan/Korea/Switzerland 12.5%-net-of-MFN caps. Annex II has common and
+# country-specific product exemptions plus preference-conditional textiles.
 
-# Two-tier per-country rate map (census code -> 0.10/0.125) from the config tier
-# rosters. tier_10pct / tier_12_5pct are census-code lists; 10% wins on overlap.
+# Per-country target/surcharge map. Fixed tiers are surcharges; net-MFN tiers
+# carry `floor` semantics so the calculator deducts the statutory MFN rate.
 .resolve_s301fl_by_country <- function(cfg, countries) {
   t10  <- as.character(unlist(cfg$tier_10pct   %||% character(0)))
   t125 <- as.character(unlist(cfg$tier_12_5pct %||% character(0)))
+  n10  <- as.character(unlist(cfg$tier_10pct_net_mfn %||% character(0)))
+  n125 <- as.character(unlist(cfg$tier_12_5pct_net_mfn %||% character(0)))
   r10  <- as.numeric(cfg$rate_10   %||% 0.10)
   r125 <- as.numeric(cfg$rate_12_5 %||% 0.125)
   m <- numeric(0)
   for (c in t125) m[c] <- r125
-  for (c in t10)  m[c] <- r10   # 10% overrides if a code appears in both (disjoint in practice)
+  for (c in n125) m[c] <- r125
+  for (c in t10)  m[c] <- r10
+  for (c in n10)  m[c] <- r10
   m <- m[intersect(names(m), as.character(countries))]  # only economies the model knows
   m
 }
 
-# Annex A exclusion list (hts8 vector), date-windowed like the s122/IEEPA exempt
-# loaders. Empty file / missing => no exclusions.
-.resolve_s301fl_exempt <- function(cfg, effective_date) {
-  path <- here(cfg$exempt_products %||% 'resources/s301fl_exempt_products.csv')
-  if (!file.exists(path)) return(character(0))
-  ex <- readr::read_csv(path, col_types = readr::cols(.default = readr::col_character()))
-  if (!'hts8' %in% names(ex)) return(character(0))
-  rd <- as.Date(effective_date)
-  if ('effective_date_start' %in% names(ex)) {
-    ex <- dplyr::filter(ex, is.na(effective_date_start) | as.Date(effective_date_start) <= rd)
-  }
-  if ('effective_date_end' %in% names(ex)) {
-    ex <- dplyr::filter(ex, is.na(effective_date_end) | as.Date(effective_date_end) >= rd)
-  }
-  unique(as.character(ex$hts8))
+.resolve_s301fl_by_country_type <- function(cfg, countries) {
+  capped <- c(as.character(unlist(cfg$tier_10pct_net_mfn %||% character(0))),
+              as.character(unlist(cfg$tier_12_5pct_net_mfn %||% character(0))))
+  fixed <- c(as.character(unlist(cfg$tier_10pct %||% character(0))),
+             as.character(unlist(cfg$tier_12_5pct %||% character(0))))
+  x <- c(setNames(rep('surcharge', length(fixed)), fixed),
+         setNames(rep('floor', length(capped)), capped))
+  x[intersect(names(x), as.character(countries))]
 }
 
-# Build the section_301_forced_labor authority_spec, or NULL if the config block
-# is absent (baseline). content_split + USMCA-eligible (stacks like ieepa_reciprocal /
-# §122). DATE-GATED: by_country (and country scope) are populated only when the
+# Final Annex II exemption inputs. HTS codes may be eight or ten digits.
+.resolve_s301fl_exempt <- function(cfg, effective_date) {
+  common_path <- here(cfg$common_exemptions %||%
+                        'resources/s301fl_final_common_exemptions.csv')
+  country_path <- here(cfg$country_exemptions %||%
+                         'resources/s301fl_final_country_exemptions.csv')
+  if (!file.exists(common_path)) stop('Forced-labor common annex not found: ', common_path)
+  if (!file.exists(country_path)) stop('Forced-labor country annex not found: ', country_path)
+
+  common <- read_csv_cached(common_path, col_types = readr::cols(.default = readr::col_character()))
+  country <- read_csv_cached(country_path, col_types = readr::cols(.default = readr::col_character())) %>%
+    tidyr::separate_rows(countries, sep = ';') %>%
+    rename(country = countries)
+
+  pharma_path <- here(cfg$patented_pharma_products %||% 'resources/s232_pharma_products.csv')
+  patented_pharma <- if (as.Date(effective_date) >=
+                         as.Date(cfg$patented_pharma_exempt_date %||% '9999-12-31') &&
+                         file.exists(pharma_path)) {
+    p <- read_csv_cached(pharma_path, col_types = readr::cols(.default = readr::col_character()))
+    unique(as.character(p$hts10 %||% character(0)))
+  } else character(0)
+
+  list(
+    hts_code = unique(common$hts_code[common$condition %in% c('full', 'ex')]),
+    aircraft_hts_code = unique(common$hts_code[common$condition == 'aircraft']),
+    aircraft_share = as.numeric(cfg$aircraft_exempt_share %||% 0.90),
+    pharma_hts_code = unique(common$hts_code[common$condition == 'pharma']),
+    pharma_share = as.numeric(cfg$pharma_exempt_share %||% 0.50),
+    country_rules = country,
+    patented_pharma_hts10 = patented_pharma,
+    post_preference_cap_countries =
+      as.character(unlist(cfg$post_preference_cap_countries %||% character(0)))
+  )
+}
+
+# Build the section_301_forced_labor authority_spec. Additive except for explicit
+# full §232-scope exclusion; USMCA-eligible for Canada/Mexico. DATE-GATED:
+# by_country (and country scope) are populated only when the
 # revision's effective_date >= the action's effective_date, so the authority is
 # empty before the turn-on AND in every synthetic mint stamped before it. Because
 # the gate is by DATE (not a scenario op), every synthetic revision stamped on/after
@@ -433,12 +464,15 @@ build_s301_tiers <- function(ch99_data, effective_date, pp) {
   rate_layer <- list()
   if (active_now) {
     bc <- .resolve_s301fl_by_country(cfg, countries)
-    if (length(bc) > 0) rate_layer$by_country <- bc
+    if (length(bc) > 0) {
+      rate_layer$by_country <- bc
+      rate_layer$by_country_type <- .resolve_s301fl_by_country_type(cfg, countries)
+    }
   }
   scope <- if (length(rate_layer$by_country)) names(rate_layer$by_country) else character(0)
   spec <- authority_spec(
     authority = 'section_301_forced_labor',
-    stacking  = list(class = 'content_split', exceptions = list()),
+    stacking  = list(class = 'additive', exceptions = list()),
     usmca_treatment = 'eligible',
     active = list(from = eff, until = NA),
     programs = list(authority_program(
@@ -447,7 +481,7 @@ build_s301_tiers <- function(ch99_data, effective_date, pp) {
       country_scope = list(include = scope),
       rate = rate_layer))
   )
-  spec$programs[[1]]$exempt_products <- list(hts8 = .resolve_s301fl_exempt(cfg, effective_date))
+  spec$programs[[1]]$exempt_products <- .resolve_s301fl_exempt(cfg, effective_date)
   spec
 }
 
@@ -465,7 +499,7 @@ build_s301_tiers <- function(ch99_data, effective_date, pp) {
 # ingested). The exemption product lists stay FR-annex side-data: the HTS JSON
 # export carries the rate lines but not the U.S.-note-50 product tables.
 # stacking 'additive' (note 50(a): in addition to every other ch-99 duty, incl.
-# the scenario forced-labor §301 — neither notice carves out the other). The
+# baseline forced-labor §301 — neither notice carves out the other). The
 # note-50(a)(vi) §232 interaction is a FULL per-article exclusion implemented as
 # a calc-side SCOPE MASK in apply_section301_brazil (06_calculate_rates.R) — the
 # s338 note-51(c) pattern, NOT content_split, which was the June-4 PROPOSED
@@ -1072,10 +1106,9 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
       country_scope = list(include = 'all')))
   )
 
-  # --- section_301_forced_labor — per-country forced-labor §301 (SCENARIO) ---
-  # NULL in baseline (the config block ships only in config/scenarios/forced_labor/),
-  # so the authority — and its rate_s301fl column — never materialize there.
-  # Date-gated, content_split + USMCA-eligible. See .build_section_301_forced_labor.
+  # --- section_301_forced_labor — per-country forced-labor §301 (BASELINE) ---
+  # Final action in baseline, date-gated, additive with an explicit §232
+  # exclusion, and USMCA-eligible. See .build_section_301_forced_labor.
   section_301_forced_labor <- .build_section_301_forced_labor(pp, countries, effective_date)
 
   # --- section_301_brazil — Brazil-only 25% §301 (BASELINE) ------------------

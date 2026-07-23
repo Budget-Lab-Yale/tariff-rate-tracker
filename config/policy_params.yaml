@@ -833,6 +833,56 @@ section_338:
   products_file: 'resources/s338_products.csv'
   gn6_exempt_products: 'resources/s338_gn6_exempt_products.csv'
 
+# --- Section 301 forced labor (FINAL ACTION — baseline) ---------------------
+# USTR Notice of Action (pre-publication 2026-07-23; effective 2026-07-24),
+# headings 9903.05.20-.84 / U.S. note 52. This replaces the June proposed
+# `forced_labor` scenario with current law in ACTUAL.
+#
+# Rates:
+#   * flat 10% for 17 economies;
+#   * EU member states + Taiwan: max(10% - MFN, 0);
+#   * Japan, South Korea, Switzerland: max(12.5% - MFN, 0);
+#   * flat 12.5% for the remaining investigated economies.
+# South Korea's cap may use a properly claimed column-1 Special rate; the
+# calculator recomputes that origin after its HS2 preference adjustment.
+#
+# Exemptions: Annex II Part A is common; Parts B-O are country/product-specific.
+# `Ex` descriptions are modeled at the containing HTS code. Aircraft- and
+# pharma-use rows use the same 90%/50% utilization approximations as the Brazil
+# final action. Canada/Mexico USMCA exemptions are applied by the existing
+# product-share machinery; the enumerated FTA/CAFTA textile rows use the
+# existing HS2 preference-utilization proxy.
+# All §232 articles are fully excluded (note 52(f)); this is a scope mask, not a
+# content split. Patented pharma joins that carve-out on 2026-07-31.
+section_301_forced_labor:
+  effective_date: '2026-07-24'
+  rate_10: 0.10
+  rate_12_5: 0.125
+  common_exemptions: 'resources/s301fl_final_common_exemptions.csv'
+  country_exemptions: 'resources/s301fl_final_country_exemptions.csv'
+  aircraft_exempt_share: 0.90
+  pharma_exempt_share: 0.50
+  patented_pharma_exempt_date: '2026-07-31'
+  patented_pharma_products: 'resources/s232_pharma_products.csv'
+  post_preference_cap_countries: ['5800']             # South Korea
+  # Flat 10%: 17 economies.
+  tier_10pct: ['1220', '2010', '2050', '2110', '2150', '2740', '3310', '3570',
+               '4120', '5110', '5330', '5350', '5380', '5420', '5550', '5570',
+               '5600']
+  # 10% total-duty cap: EU-27 census origins + Taiwan.
+  tier_10pct_net_mfn: ['4010', '4050', '4099', '4190', '4210', '4231', '4239',
+                       '4279', '4280', '4330', '4351', '4359', '4370', '4470',
+                       '4490', '4510', '4550', '4700', '4710', '4730', '4759',
+                       '4791', '4792', '4840', '4850', '4870', '4910', '5830']
+  # 12.5% total-duty cap: Japan, South Korea, Switzerland.
+  tier_12_5pct_net_mfn: ['4419', '5800', '5880']
+  # Flat 12.5%: the remaining 38 investigated economies.
+  tier_12_5pct: ['2190', '2230', '2360', '2470', '3010', '3070', '3120', '3330',
+                 '3370', '3510', '3550', '4039', '4621', '4634', '4890', '5050',
+                 '5081', '5130', '5170', '5180', '5200', '5230', '5250', '5490',
+                 '5520', '5590', '5650', '5700', '5820', '6021', '6141', '7140',
+                 '7210', '7250', '7290', '7530', '7620', '7910']
+
 # --- Section 301 Brazil (FINAL ACTION — signed law, baseline) -----------------
 # USTR Notice of Action, FR Doc 2026-14542 (published 2026-07-20, effective
 # 2026-07-22): 25% additional ad-valorem duty on ALL products of Brazil via new
@@ -845,7 +895,7 @@ section_338:
 # the assumed 2026-07-24 to 2026-07-22.
 # Stacks ADDITIVELY on everything (note 50(a): "shall also be subject to any
 # additional duty provided for in this subchapter or in subchapter IV") — incl.
-# the scenario forced-labor §301, should an overlay activate it.
+# baseline forced-labor §301.
 # §232 interaction (note 50(a)(vi) / heading 9903.05.07) is a FULL per-article
 # exclusion over the enumerated §232 programs (steel/aluminum/copper +
 # derivatives, PV/LT + parts, MHD + parts, wood, semiconductors; patented
