@@ -7,19 +7,13 @@ library(jsonlite)
 library(yaml)
 library(here)
 
-# Source extracted modules (backward compatible — all consumers that
-# source helpers.R get the full function set)
-source(here('src', 'core', 'csv_cache.R'))
-source(here('src', 'model', 'policy_params.R'))
-source(here('src', 'model', 'revisions.R'))
-source(here('src', 'model', 'authority_registry.R'))
-source(here('src', 'model', 'stacking.R'))
-source(here('src', 'model', 'timeline.R'))           # Phase 3c: unified schedule-boundary splitter
-source(here('src', 'model', 'rate_schema.R'))
-source(here('src', 'model', 'scenario_inputs.R'))
-source(here('src', 'model', 'data_loaders.R'))
-source(here('src', 'io', 'output_paths.R'))   # Phase 5: output layout (actual/ + scenarios/)
-source(here('src', 'model', 'scenario_registry.R'))  # alternatives unification: config/scenarios registry
+# Backward-compatible entry point. Dependencies are declared in one manifest and
+# resolved recursively, so adding/reordering sources cannot change which symbols
+# exist. New callers should request the `core` bundle from module_loader.R.
+if (!exists('tariff_load_dependencies', mode = 'function')) {
+  source(here('src', 'core', 'module_loader.R'))
+}
+tariff_load_dependencies('helpers', environment())
 
 # =============================================================================
 # Output helpers

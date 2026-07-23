@@ -9,7 +9,7 @@ Every non-baseline series is a folder:
 
 ```
 config/scenarios/<name>/
-  meta.yaml      kind + description + publish flag
+  meta.yaml      kind + description + publish flag + optional extends parent
   overlay.yaml   the config DIFF vs config/policy_params.yaml
 ```
 
@@ -19,6 +19,17 @@ deep-merges the overlay onto the baseline config (`.deep_merge_lists()` in
 wholesale; `key: ~` deletes a baseline key). The rest of the pipeline runs
 unchanged on the merged params, so every downstream column — stacking, daily
 series, ETR exports — recomputes consistently.
+
+Overlay keys are validated recursively before merging. Unknown top-level or
+nested keys stop with their full path, so a spelling error cannot silently turn
+a scenario into the baseline. Scenario-only keys and optional baseline fields
+are explicitly registered in `policy_params.R`.
+
+One scenario may reuse another scenario's policy facts with `extends` in
+`meta.yaml`. Parent overlays resolve first and the child overlay is then applied.
+For example, `new_301` extends `forced_labor`; its empty overlay is ready for only
+the facts that eventually distinguish it. Missing parents and inheritance cycles
+fail loud.
 
 The registry (`src/model/scenario_registry.R`) reads the folders:
 
@@ -90,10 +101,9 @@ baseline authority added to `policy_params.yaml` must be added to `pre_2025`'s
 
 1. `mkdir config/scenarios/<name>` and write `meta.yaml` (pick the kind) +
    `overlay.yaml` containing ONLY the diff vs baseline.
-2. Empty overlay == baseline (the `actual` invariant). Unknown config keys are
-   inert unless the pipeline reads them — prefer keys the calculator already
-   consumes, or add an explicit hook (like `disabled_authorities`) rather than
-   patching outputs.
+2. Empty overlay == baseline unless `meta.yaml` declares `extends: <parent>`.
+   Unknown config keys fail loud. Add a deliberate schema entry and calculator
+   hook for a genuinely new key rather than patching outputs.
 3. `Rscript tests/test_scenario_registry.R` — registry validation is part of
    the suite.
 4. For a publishable full series, set `kind: scenario` and build with

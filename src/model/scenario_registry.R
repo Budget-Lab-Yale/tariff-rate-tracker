@@ -7,6 +7,7 @@
 #   meta.yaml      kind: alternative | counterfactual | scenario | baseline
 #                  description: one line
 #                  publish: true|false   (read by the publish layer; default false)
+#                  extends: parent_name  (optional; inherit parent's overlay)
 #   overlay.yaml   the config diff vs baseline, deep-merged at load time by
 #                  load_policy_params(scenario = name) (src/model/policy_params.R).
 #                  Counterfactuals typically set ONLY `disabled_authorities:`.
@@ -53,6 +54,12 @@ list_scenarios <- function(scenarios_dir = here('config', 'scenarios')) {
            'src/model/scenario_registry.R header.')
     }
     meta <- yaml::read_yaml(meta_path)
+    known_meta_keys <- c('kind', 'description', 'publish', 'extends')
+    unknown_meta_keys <- setdiff(names(meta), known_meta_keys)
+    if (length(unknown_meta_keys)) {
+      stop('Scenario "', name, '" meta.yaml has unknown key(s): ',
+           paste(unknown_meta_keys, collapse = ', '))
+    }
     kind <- meta$kind %||% NA_character_
     valid_kinds <- c('alternative', 'counterfactual', 'scenario', 'baseline')
     if (!kind %in% valid_kinds) {
@@ -65,6 +72,7 @@ list_scenarios <- function(scenarios_dir = here('config', 'scenarios')) {
       kind = kind,
       description = meta$description %||% '',
       publish = isTRUE(meta$publish),
+      extends = as.character(meta$extends %||% NA_character_),
       has_overlay = file.exists(overlay_path)
     )
   })

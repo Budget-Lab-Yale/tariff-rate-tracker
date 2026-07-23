@@ -1808,24 +1808,12 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
 
   message('\n  Building alternative timeseries: ', variant_name)
 
-  # Ensure pipeline components are sourced (needed for standalone use)
-  if (!exists('calculate_rates_for_revision', mode = 'function')) {
-    source(here('src', 'pipeline', '03_parse_chapter99.R'))
-    source(here('src', 'pipeline', '04_parse_products.R'))
-    source(here('src', 'pipeline', '05_parse_policy_params.R'))
-    source(here('src', 'pipeline', '06_calculate_rates.R'))
-    source(here('src', 'model', 'authority_spec.R'))
-    source(here('src', 'model', 'authority_adapter.R'))
+  # Resolve the declared calculation graph for standalone callers. The loader is
+  # idempotent, so normal build callers pay no repeated-source cost.
+  if (!exists('tariff_load_bundle', mode = 'function')) {
+    source(here('src', 'core', 'module_loader.R'))
   }
-  # Ensure the AuthoritySpec adapter is present even when the pipeline above was
-  # already sourced by the caller (the `if` block only fires for standalone use).
-  if (!exists('build_authority_specs', mode = 'function')) {
-    source(here('src', 'model', 'authority_spec.R'))
-    source(here('src', 'model', 'authority_adapter.R'))
-  }
-  if (!exists('build_revision_snapshot', mode = 'function')) {
-    source(here('src', 'pipeline', 'revision_snapshot.R'))
-  }
+  tariff_load_bundle('calculation', environment(build_alternative_timeseries))
 
   # Load revision dates and country codes
   rev_dates <- load_revision_dates(revision_dates_path)
@@ -1973,9 +1961,10 @@ run_alternative_series <- function(alternatives, imports = NULL,
   alt_specs <- build_scenario_alt_specs(alt_names,
                                         use_policy_dates = use_policy_dates)
 
-  if (!exists('alt_runner', mode = 'function')) {
-    source(here('src', 'core', 'parallel.R'))
+  if (!exists('tariff_load_module', mode = 'function')) {
+    source(here('src', 'core', 'module_loader.R'))
   }
+  tariff_load_module('parallel', environment(run_alternative_series))
 
   alt_workers <- max(1L, as.integer(alt_workers))
   message(sprintf(

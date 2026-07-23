@@ -34,6 +34,114 @@ library(here)
   out
 }
 
+# Scenario overlays are intentionally small, but two keys are scenario-only and
+# therefore do not appear in the baseline policy file. Keep their schema here so
+# validation remains fail-closed without mistaking legitimate scenario inputs
+# for typos.
+.scenario_overlay_extensions <- function() {
+  list(
+    disabled_authorities = character(),
+    section_301_forced_labor = list(
+      effective_date = '',
+      rate_10 = 0,
+      rate_12_5 = 0,
+      exempt_products = '',
+      tier_10pct = character(),
+      tier_12_5pct = character()
+    ),
+    # Optional fields documented in policy_params.yaml but intentionally absent
+    # from the active baseline configuration.
+    usmca_shares = list(month = 0L),
+    section_301_exclusions = list(line_coverage_file = '')
+  )
+}
+
+#' Reject unknown keys in a scenario overlay
+#'
+#' Validation is recursive: a typo in a nested policy field is just as dangerous
+#' as a typo at the top level. Sequences/scalars are leaves and are type-checked
+#' later by their consumers.
+.validate_scenario_overlay <- function(overlay, baseline, scenario = '<unknown>',
+                                       path = character()) {
+  if (is.null(overlay) || length(overlay) == 0) return(invisible(TRUE))
+  if (!.is_yaml_map(overlay)) {
+    stop('Scenario "', scenario, '": overlay must be a YAML map.', call. = FALSE)
+  }
+
+  schema <- if (length(path) == 0) {
+    .deep_merge_lists(baseline, .scenario_overlay_extensions())
+  } else baseline
+  unknown <- setdiff(names(overlay), names(schema))
+  if (length(unknown) > 0) {
+    prefix <- if (length(path)) paste0(paste(path, collapse = '.'), '.') else ''
+    stop('Scenario "', scenario, '" overlay has unknown key(s): ',
+         paste0(prefix, unknown, collapse = ', '), call. = FALSE)
+  }
+
+  for (key in names(overlay)) {
+    value <- overlay[[key]]
+    expected <- schema[[key]]
+    if (.is_yaml_map(value)) {
+      if (!.is_yaml_map(expected)) {
+        stop('Scenario "', scenario, '" overlay key ',
+             paste(c(path, key), collapse = '.'),
+             ' must not be a YAML map.', call. = FALSE)
+      }
+      .validate_scenario_overlay(value, expected, scenario, c(path, key))
+    }
+  }
+  invisible(TRUE)
+}
+
+.read_scenario_meta <- function(scenario, scenarios_dir) {
+  meta_path <- file.path(scenarios_dir, scenario, 'meta.yaml')
+  if (!file.exists(meta_path)) {
+    stop('Scenario "', scenario, '": metadata not found at ', meta_path,
+         call. = FALSE)
+  }
+  meta <- read_yaml(meta_path)
+  known <- c('kind', 'description', 'publish', 'extends')
+  unknown <- setdiff(names(meta), known)
+  if (length(unknown)) {
+    stop('Scenario "', scenario, '" meta.yaml has unknown key(s): ',
+         paste(unknown, collapse = ', '), call. = FALSE)
+  }
+  meta
+}
+
+# Resolve parent-first overlay composition. The returned overlay is still only
+# a diff against baseline; validation occurs before each layer is merged.
+.resolve_scenario_overlay <- function(scenario, baseline, scenarios_dir,
+                                      ancestry = character()) {
+  if (scenario %in% ancestry) {
+    stop('Scenario inheritance cycle: ',
+         paste(c(ancestry, scenario), collapse = ' -> '), call. = FALSE)
+  }
+  meta <- .read_scenario_meta(scenario, scenarios_dir)
+  parent <- as.character(meta$extends %||% character())
+  if (length(parent) > 1 || (length(parent) == 1 && !nzchar(parent))) {
+    stop('Scenario "', scenario, '": meta.yaml extends must be one scenario name.',
+         call. = FALSE)
+  }
+  resolved <- list()
+  if (length(parent) == 1) {
+    resolved <- .resolve_scenario_overlay(parent, baseline, scenarios_dir,
+                                          c(ancestry, scenario))
+  }
+
+  overlay_path <- file.path(scenarios_dir, scenario, 'overlay.yaml')
+  if (!file.exists(overlay_path)) {
+    stop('Scenario "', scenario, '": overlay not found at ', overlay_path,
+         call. = FALSE)
+  }
+  overlay <- read_yaml(overlay_path)
+  if (!is.null(overlay) && length(overlay) > 0) {
+    .validate_scenario_overlay(overlay, baseline, scenario)
+    resolved <- .deep_merge_lists(resolved, overlay)
+  }
+  resolved
+}
+
 #' Load policy parameters from YAML config
 #'
 #' Returns a list with convenience fields unpacked for direct use.
@@ -43,10 +151,14 @@ library(here)
 #'   (IEEPA invalidation, S122 effective/expiry) to their policy_effective_date
 #'   equivalents. Set FALSE when using --use-hts-dates or for utilities that
 #'   need raw HTS timing. See docs/policy_timing.md.
+#' @param scenario Optional scenario name; its validated, parent-resolved overlay
+#'   is merged onto the baseline.
+#' @param scenarios_dir Scenario registry root (overridable for tests).
 #' @return List with raw params plus convenience fields
 load_policy_params <- function(yaml_path = NULL,
                                use_policy_dates = TRUE,
-                               scenario = NULL) {
+                               scenario = NULL,
+                               scenarios_dir = here('config', 'scenarios')) {
   # TARIFF_POLICY_PARAMS overrides the config path so a fixture can build
   # against a config variant — e.g.
   # a populated section_301_content_split_codes — without editing the tracked
@@ -70,15 +182,11 @@ load_policy_params <- function(yaml_path = NULL,
   if (is.null(scenario)) scenario <- Sys.getenv('TARIFF_SCENARIO', '')
   scenario <- as.character(scenario)[1] %||% ''
   if (length(scenario) && !is.na(scenario) && nzchar(scenario) && scenario != 'actual') {
-    overlay_path <- here('config', 'scenarios', scenario, 'overlay.yaml')
-    if (!file.exists(overlay_path)) {
-      stop('Scenario "', scenario, '": overlay not found at ', overlay_path,
-           '. Create config/scenarios/', scenario, '/overlay.yaml (only the diff vs baseline).')
-    }
-    overlay <- read_yaml(overlay_path)
+    overlay_path <- file.path(scenarios_dir, scenario, 'overlay.yaml')
+    overlay <- .resolve_scenario_overlay(scenario, params, scenarios_dir)
     if (!is.null(overlay) && length(overlay) > 0) {
       params <- .deep_merge_lists(params, overlay)
-      message('  Scenario "', scenario, '": merged overlay ', overlay_path)
+      message('  Scenario "', scenario, '": resolved and merged overlay ', overlay_path)
     } else {
       message('  Scenario "', scenario, '": empty overlay (== baseline)')
     }

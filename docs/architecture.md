@@ -70,9 +70,9 @@ src/
 ## Core / infrastructure
 
 ```
-  helpers.R            Facade: sources policy_params, revisions, authority_registry, stacking,
-                       timeline, rate_schema, data_loaders, output_paths, scenario_registry,
-                       and defines low-level HTS/rate utilities. Sourcing it grants the full set.
+  module_loader.R      Explicit module dependency graph + core/calculation/daily/build bundles.
+  helpers.R            Backward-compatible facade resolved through the module graph; also defines
+                       low-level HTS/rate utilities.
   logging.R            init_logging() + log_info/warn/error.
   parallel.R           Parallel build scaffolding (--parallel / --alt-workers).
   parity.R             Tolerance comparator used by the parity-gated refactor harness.
@@ -82,6 +82,10 @@ src/
   install_dependencies.R Package installer. Entry point.
   quality_report.R     Post-build schema/anomaly diagnostics. Entry point.
 ```
+
+Production entrypoints request bundles from `module_loader.R`; they do not infer
+dependencies from source order or from whether a function happens to exist. See
+[`internal_modules.md`](internal_modules.md) for the dependency contract.
 
 ## Manual tools (run by hand; not part of a routine build)
 

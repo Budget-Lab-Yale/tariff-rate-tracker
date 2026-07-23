@@ -63,7 +63,10 @@ suppressPackageStartupMessages({
 if (!exists('%||%')) `%||%` <- function(a, b) if (is.null(a)) b else a
 
 if (requireNamespace('here', quietly = TRUE)) {
-  source(here::here('src', 'io', 'output_paths.R'))   # SNAPSHOT_FILE / actual_snapshots_dir
+  if (!exists('tariff_load_dependencies', mode = 'function')) {
+    source(here::here('src', 'core', 'module_loader.R'))
+  }
+  tariff_load_dependencies('build_panel_import_weights', environment())
 }
 
 

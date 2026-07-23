@@ -394,16 +394,8 @@ alt_runner <- function(alt_specs, alt_workers = 1L, log_dir = NULL,
       library(tidyverse)
       library(jsonlite)
     })
-    source(here('src', 'core', 'logging.R'))
-    source(here('src', 'core', 'helpers.R'))
-    source(here('src', 'pipeline', '03_parse_chapter99.R'))
-    source(here('src', 'pipeline', '04_parse_products.R'))
-    source(here('src', 'pipeline', '05_parse_policy_params.R'))
-    source(here('src', 'pipeline', '06_calculate_rates.R'))
-    source(here('src', 'model', 'authority_spec.R'))
-    source(here('src', 'model', 'authority_adapter.R'))
-    source(here('src', 'pipeline', 'revision_snapshot.R'))
-    source(here('src', 'pipeline', '09_daily_series.R'))
+    source(here('src', 'core', 'module_loader.R'))
+    tariff_load_bundle('daily', environment(.run_one_alt))
   }
 
   log_path <- if (!is.null(log_dir)) {

@@ -29,8 +29,8 @@ config carries the block (so it's absent in baseline) and is **date-gated** to i
 `effective_date` — so it's dormant before 2026-07-24 and in every pre-date synthetic
 mint, and `rate_s301fl` is dropped from those panels (baseline stays byte-identical,
 no `RATE_SCHEMA` change, no golden re-freeze). The 2026-07-24 turn-on is materialized
-by `boundary_overrides: ['2026-07-24']` → `build_boundary_mints` (empty-ops mint; the
-date-gate fires). Because the gate is by **date**, later empty-ops mints
+by the baseline boundary calendar—it is also the first day after §122 expires—so
+the scenario does not copy `boundary_overrides`. Because the gate is by **date**, later empty-ops mints
 (`bnd_2026-11-10` cranes/chassis) and the pharma `sched_` mint also carry it.
 
 ## How to RUN it

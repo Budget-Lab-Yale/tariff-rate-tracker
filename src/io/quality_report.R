@@ -21,7 +21,10 @@
 library(tidyverse)
 library(here)
 
-source(here('src', 'core', 'helpers.R'))
+if (!exists('tariff_load_dependencies', mode = 'function')) {
+  source(here('src', 'core', 'module_loader.R'))
+}
+tariff_load_dependencies('quality_report', environment())
 
 
 #' Run schema check on time series

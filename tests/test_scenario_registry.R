@@ -92,6 +92,27 @@ run_test('invalid kind fails loud', {
   expect_error(list_scenarios(d), 'kind must be one of')
 })
 
+run_test('unknown meta.yaml key fails loud', {
+  d <- tempfile('scenarios_')
+  dir.create(file.path(d, 'badmeta'), recursive = TRUE)
+  writeLines(c('kind: alternative', "description: 'x'", 'publish: false',
+               'publsh: true'), file.path(d, 'badmeta', 'meta.yaml'))
+  expect_error(list_scenarios(d), 'unknown key.*publsh')
+})
+
+run_test('new_301 declares forced_labor inheritance', {
+  row <- registry[registry$name == 'new_301', ]
+  stopifnot(nrow(row) == 1, row$extends == 'forced_labor')
+})
+
+run_test('every tracked scenario overlay resolves against the strict schema', {
+  names_to_load <- setdiff(registry$name, 'actual')
+  resolved <- lapply(names_to_load, function(nm) {
+    suppressMessages(load_policy_params(scenario = nm))
+  })
+  stopifnot(length(resolved) == length(names_to_load))
+})
+
 # =============================================================================
 # 2. Selector
 # =============================================================================

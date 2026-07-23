@@ -66,19 +66,8 @@ library(jsonlite)
 library(here)
 
 # Source pipeline components
-source(here('src', 'core', 'logging.R'))
-source(here('src', 'core', 'helpers.R'))
-source(here('src', 'core', 'parallel.R'))
-source(here('src', 'pipeline', '01_scrape_revision_dates.R'))
-source(here('src', 'pipeline', '02_download_hts.R'))
-source(here('src', 'pipeline', '03_parse_chapter99.R'))
-source(here('src', 'pipeline', '04_parse_products.R'))
-source(here('src', 'pipeline', '05_parse_policy_params.R'))
-source(here('src', 'pipeline', '06_calculate_rates.R'))
-source(here('src', 'model', 'authority_spec.R'))      # AuthoritySpec datatype
-source(here('src', 'model', 'authority_adapter.R'))   # build_authority_specs() (Phase 1)
-source(here('src', 'pipeline', '07_validate_tpc.R'))
-source(here('src', 'pipeline', 'revision_snapshot.R'))
+source(here('src', 'core', 'module_loader.R'))
+tariff_load_bundle('build', environment())
 
 
 #' Mint synthetic boundary snapshots from discovered schedule boundaries.

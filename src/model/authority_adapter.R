@@ -10,9 +10,9 @@
 # Parsers may remain authority-specific, but their outputs are fully consumed here;
 # no raw payload, sentinel rate, or calculator-side reconstruction is supported.
 #
-# Source order: this file depends on src/model/authority_spec.R (constructors,
-# validation, `%||%`) being sourced first, and on get_country_constants() from
-# src/pipeline/05_parse_policy_params.R for census-code scope population.
+# Dependencies are declared by the `authority_adapter` entry in
+# src/core/module_loader.R (AuthoritySpec constructors, parsers, policy params,
+# and the CSV cache). Production callers load the module, not an ordered list.
 # =============================================================================
 
 source(here::here('src', 'core', 'csv_cache.R'))
