@@ -41,21 +41,11 @@ section_301_forced_labor:
                  '5650', '5700', '5800', '5820', '5880', '6021', '6141', '7140',
                  '7210', '7250', '7290', '7530', '7620', '7910']
 
-# Materialize the 2026-07-24 turn-on as a synthetic boundary-mint revision. The
-# turn-on coincides with the §122 expiry boundary (2026-07-23 + 1), which
-# discover_boundaries() subtracts from the auto-discovered set — so it MUST be
-# listed here (the override path bypasses that subtraction). build_boundary_mints
-# re-stamps the tip archive at 2026-07-24 with EMPTY ops; the authority's date-gate
-# then fires (and s122 is already expired via the calc's in-force gate), giving the
-# [2026-07-24 .. horizon] interval its forced-labor layer. Because the gate is by
-# DATE, the later empty-ops bnd_2026-11-10 (cranes/chassis) and the pharma sched_
-# mint also carry forced-labor — no per-mint op needed.
-# NOTE: deep-merge REPLACES a list wholesale (it doesn't concatenate), so this must
-# re-list the baseline boundary_overrides too. 2026-06-08 is baseline's §232 metals
-# Annex I-C/III update (Proc. 11032); 2026-07-22 is baseline's Brazil §301 turn-on
-# (FR Doc 2026-14542, signed law since 2026-07-20 — inherited here like every other
-# baseline authority); 2026-08-19 is baseline's §338 Canada turn-on; 2026-09-29 is
-# baseline's pharma §232 turn-on — dropping any here would push it to the next mint,
-# desyncing the scenario from baseline before the forced-labor layer even turns on.
-# 2026-07-24 is the forced-labor turn-on. Keep all five.
-boundary_overrides: ['2026-06-08', '2026-07-22', '2026-07-24', '2026-08-19', '2026-09-29']
+# Its 2026-07-24 activation coincides with a boundary the BASELINE already mints
+# as a CURATED OVERRIDE (config/policy_params.yaml boundary_overrides), so no
+# scenario-specific override is needed. NB: the §122 sunset does NOT auto-generate
+# this date — discover_boundaries() excludes rate-bearing expiries (§122 is 10%),
+# so 2026-07-24 exists only because it is listed explicitly. Do not drop it from
+# baseline's overrides assuming the expiry regenerates it, or this turn-on will
+# silently slip to the next mint. See src/model/timeline.R + memory
+# [[s122-snapshot-timing-gap]].

@@ -56,22 +56,16 @@ pp <- list(SECTION_122 = list(finalized = FALSE,
                               effective_date = as.Date('2026-02-24'),
                               expiry_date = as.Date('2026-07-23')))
 
-# empty starting rates grid — everything materializes via add_blanket_pairs
-rates0 <- tibble(
-  hts10 = character(), country = character(),
-  rate_232 = numeric(), rate_301 = numeric(), rate_301_cs = numeric(),
-  rate_ieepa_recip = numeric(), rate_ieepa_fent = numeric(),
-  rate_s122 = numeric(), rate_section_201 = numeric(), rate_other = numeric(),
-  base_rate = numeric())
+# Policy stages receive the one canonical product-country table.
+rates0 <- build_rate_grid(products, countries)
 
-out <- apply_section122(rates0, specs, pp, products, countries,
+out <- apply_section122(rates0, specs, pp, products,
                         effective_date = as.Date('2026-05-01'))
 
 r <- function(h) out$rate_s122[out$hts10 == h & out$country == '5700']
 
 cat('--- condition-based scaling ---\n')
-check('unconditional (aa)(ii) exempt -> 0 (or dropped)',
-      length(r('1111111100')) == 0 || near(r('1111111100'), 0))
+check('unconditional (aa)(ii) exempt -> 0', near(r('1111111100'), 0))
 check('GN6 measured 0.90 -> 0.010', near(r('2222222200'), 0.010))
 check('GN6 measured 0.20 -> 0.080', near(r('3333333300'), 0.080))
 check('GN6 HS2-mean fallback (34, mean 0.20) -> 0.080', near(r('3499999900'), 0.080))
@@ -81,21 +75,11 @@ cat('\n--- the unconditional exempt line pays 0 either way ---\n')
 u <- out %>% filter(hts10 == '1111111100')
 check('unconditional line has no positive s122', all(coalesce(u$rate_s122, 0) == 0))
 
-cat('\n--- legacy fallback: no condition split -> full-line exempt (old behavior) ---\n')
-specs_legacy <- specs
-specs_legacy$section_122$programs[[1]]$exempt_products <-
-  list(hts8 = c('11111111', '22222222', '33333333'))  # bare, no gn6 split
-out_l <- apply_section122(rates0, specs_legacy, pp, products, countries,
-                          effective_date = as.Date('2026-05-01'))
-rl <- function(h) out_l$rate_s122[out_l$hts10 == h & out_l$country == '5700']
-check('legacy: 22222222 fully exempt (0 or dropped)',
-      length(rl('2222222200')) == 0 || near(rl('2222222200'), 0))
-check('legacy: plain line still full 0.10', near(rl('5555555500'), 0.10))
-
 cat('\n--- pre-force gate: expired -> no s122 applied ---\n')
-out_exp <- apply_section122(rates0, specs, pp, products, countries,
+out_exp <- apply_section122(rates0, specs, pp, products,
                             effective_date = as.Date('2026-08-01'))  # past expiry
-check('expired window -> no rows / no rate', nrow(out_exp) == 0 || all(coalesce(out_exp$rate_s122, 0) == 0))
+check('expired window preserves grid with zero rate',
+      nrow(out_exp) == nrow(rates0) && all(out_exp$rate_s122 == 0))
 
 message('\n==================================================')
 message('Tests: ', n_pass, ' passed, ', n_fail, ' failed')

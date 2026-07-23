@@ -40,16 +40,51 @@ ok(identical(.deep_merge_lists(base, list(a = 99))$a, 99) && identical(.deep_mer
 cat('\n== scenario overlay load ==\n')
 pp_base <- load_policy_params()
 pp_fl   <- load_policy_params(scenario = 'forced_labor')
+pp_new  <- load_policy_params(scenario = 'new_301')
 ok(is.null(pp_base$section_301_forced_labor), 'baseline: NO section_301_forced_labor block')
 ok(!is.null(pp_fl$section_301_forced_labor), 'forced_labor: block present after overlay merge')
 ok(identical(as.character(pp_fl$section_301_forced_labor$effective_date), '2026-07-24'),
    'forced_labor: effective_date 2026-07-24')
 ok('2026-07-24' %in% as.character(pp_fl$BOUNDARY_OVERRIDES), 'forced_labor: boundary_overrides has the forced-labor turn-on')
-# pharma is now DATE-GATED (a boundary_override, not a scheduled_activation op); the
-# forced_labor overlay must re-list it (deep-merge replaces lists), so both dates appear.
-ok('2026-09-29' %in% as.character(pp_fl$BOUNDARY_OVERRIDES), 'forced_labor: re-lists baseline pharma turn-on (2026-09-29)')
+# The overlay no longer copies baseline boundaries; it inherits the canonical list.
+ok(identical(pp_fl$boundary_overrides, pp_base$boundary_overrides),
+   'forced_labor: inherits canonical baseline boundaries without copying them')
+ok('2026-09-29' %in% as.character(pp_fl$BOUNDARY_OVERRIDES), 'forced_labor: inherits baseline pharma turn-on (2026-09-29)')
 ok('2026-09-29' %in% as.character(pp_base$BOUNDARY_OVERRIDES), 'baseline: pharma turn-on is a boundary_override')
 ok(length(pp_base$scheduled_activations) == 0, 'baseline: no scheduled_activations (pharma date-gated, not op-activated)')
+ok(identical(pp_new, pp_fl), 'new_301 inherits the forced_labor overlay exactly')
+
+cat('\n== fail-closed overlay schema ==\n')
+scenario_fixture <- function(name, meta, overlay) {
+  root <- tempfile('scenarios_')
+  dir.create(file.path(root, name), recursive = TRUE)
+  writeLines(meta, file.path(root, name, 'meta.yaml'))
+  writeLines(overlay, file.path(root, name, 'overlay.yaml'))
+  root
+}
+expect_overlay_error <- function(root, name, pattern) {
+  err <- tryCatch({
+    load_policy_params(scenario = name, scenarios_dir = root)
+    NULL
+  }, error = identity)
+  !is.null(err) && grepl(pattern, conditionMessage(err))
+}
+
+bad_top <- scenario_fixture(
+  'bad_top',
+  c('kind: counterfactual', "description: 'typo fixture'", 'publish: false'),
+  'disabled_authorites: [section_232]'
+)
+ok(expect_overlay_error(bad_top, 'bad_top', 'unknown key.*disabled_authorites'),
+   'unknown top-level overlay key fails loud')
+
+bad_nested <- scenario_fixture(
+  'bad_nested',
+  c('kind: alternative', "description: 'nested typo fixture'", 'publish: false'),
+  c('usmca_shares:', "  mod: 'annual'")
+)
+ok(expect_overlay_error(bad_nested, 'bad_nested', 'unknown key.*usmca_shares.mod'),
+   'unknown nested overlay key fails loud with its full path')
 
 cat('\n== two-tier by_country ==\n')
 cfg <- pp_fl$section_301_forced_labor
@@ -76,7 +111,7 @@ ok(identical(spec_on$usmca_treatment, 'eligible'), 'usmca_treatment = eligible')
 bc_on <- spec_on$programs[[1]]$rate$by_country
 ok(!is.null(bc_on) && length(bc_on) == 86, 'on-date: by_country populated (86)')
 bc_off <- .rate_get(spec_off$programs[[1]]$rate, 'by_country')
-ok(.rate_is_hollow(bc_off) || length(bc_off) == 0, 'pre-turn-on date: by_country empty (date-gate)')
+ok(is.null(bc_off) || length(bc_off) == 0, 'pre-turn-on date: by_country empty (date-gate)')
 ex <- spec_on$programs[[1]]$exempt_products$hts8
 ok(length(ex) > 1000, paste0('Annex A loaded (', length(ex), ' hts8)'))
 ok(validate_spec_set(do.call(authority_spec_set, list(spec_on))) %||% TRUE, 'spec validates')

@@ -45,14 +45,15 @@ cat('\n--- collect_schedule_boundaries: all sources, deduped + sorted ---\n')
 pp <- list(
   IEEPA_INVALIDATION_DATE = d('2025-11-01'),                                  # until -> 11-01
   SECTION_122    = list(finalized = FALSE, expiry_date = d('2025-07-04')),    # expiry -> 07-05
-  SWISS_FRAMEWORK = list(finalized = TRUE,  expiry_date = d('2025-05-01'))     # finalized -> skipped
+  SWISS_FRAMEWORK = list(finalized = TRUE, effective_date = d('2025-04-01'),
+                         expiry_date = d('2025-05-01')) # start kept; expiry skipped
 )
 specs <- list(list(active = list(from = d('2025-03-12'), until = d('2025-11-01'))))  # until dups invalidation
 got <- collect_schedule_boundaries(pp, specs = specs, horizon = d('2026-12-31'),
                                    extra = d('2025-09-15'))                          # annex (via extra)
-check(identical(got, c(d('2025-03-12'), d('2025-07-05'), d('2025-09-15'),
+check(identical(got, c(d('2025-03-12'), d('2025-04-01'), d('2025-07-05'), d('2025-09-15'),
                        d('2025-11-01'), d('2026-12-31'))),
-      'invalidation + s122 expiry + spec window + annex + horizon; SWISS skipped; 11-01 deduped')
+      'all starts retained; finalized Swiss expiry skipped; 11-01 deduped')
 check(length(collect_schedule_boundaries(NULL)) == 0, 'no inputs -> no boundaries')
 
 cat(sprintf('\nALL %d TIMELINE ASSERTIONS PASSED\n', pass))

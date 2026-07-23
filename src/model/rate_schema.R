@@ -6,19 +6,30 @@
 
 library(tidyverse)
 
+if (!exists('AUTHORITY_REGISTRY', inherits = TRUE)) {
+  source(here::here('src', 'model', 'authority_registry.R'))
+}
+
 # =============================================================================
 
 #' Canonical column vector for rate output
+panel_registry <- authority_panel_registry()
 RATE_SCHEMA <- c(
   'hts10', 'country', 'base_rate', 'statutory_base_rate',
-  'rate_232', 'rate_301', 'rate_301_cs', 'rate_s301br',
-  'rate_ieepa_recip', 'rate_ieepa_fent',
-  'rate_s122', 'rate_s338', 'rate_section_201', 'rate_other',
+  panel_registry$rate_col[panel_registry$schema_group == 'pre_swiss'],
+  'swiss_underlying_rate_ieepa_recip', 'swiss_framework_floor_rate',
+  'swiss_framework_effective_date', 'swiss_framework_expiry_date',
+  panel_registry$rate_col[panel_registry$schema_group == 'post_swiss'],
   'metal_share', 'heading_program',
   'total_additional', 'total_rate',
   'usmca_eligible', 'revision', 'effective_date',
   'valid_from', 'valid_until'
 )
+rm(panel_registry)
+
+# Per-authority columns carried by the one canonical product-country table.
+# Their names and stable panel order come from the shared R-code registry.
+AUTHORITY_RATE_COLUMNS <- authority_rate_columns()
 
 #' Ensure a rates data frame conforms to the canonical schema
 #'
@@ -29,18 +40,19 @@ RATE_SCHEMA <- c(
 #' @return Data frame with all RATE_SCHEMA columns present and ordered first
 enforce_rate_schema <- function(df) {
   # Defaults by column
-  defaults <- list(
+  defaults <- c(list(
     hts10 = NA_character_, country = NA_character_,
-    base_rate = 0, statutory_base_rate = 0, rate_232 = 0, rate_301 = 0, rate_301_cs = 0,
-    rate_s301br = 0,
-    rate_ieepa_recip = 0, rate_ieepa_fent = 0, rate_s122 = 0, rate_s338 = 0,
-    rate_section_201 = 0, rate_other = 0,
+    base_rate = 0, statutory_base_rate = 0,
+    swiss_underlying_rate_ieepa_recip = 0, swiss_framework_floor_rate = 0,
+    swiss_framework_effective_date = as.Date(NA),
+    swiss_framework_expiry_date = as.Date(NA)
+  ), setNames(rep(list(0), length(AUTHORITY_RATE_COLUMNS)), AUTHORITY_RATE_COLUMNS), list(
     metal_share = 1.0, heading_program = FALSE,
     total_additional = 0, total_rate = 0,
     usmca_eligible = FALSE, revision = NA_character_,
     effective_date = as.Date(NA),
     valid_from = as.Date(NA), valid_until = as.Date(NA)
-  )
+  ))
 
   for (col in RATE_SCHEMA) {
     if (!col %in% names(df)) {
@@ -72,9 +84,7 @@ enforce_rate_schema <- function(df) {
   # pairs legitimately leaves an absent authority column NA — that IS a 0 rate).
   # NB: total_additional/total_rate are deliberately NOT in this list — they are
   # guarded above (a NA total is a bug, not a fill-to-0 case).
-  rate_cols <- c('base_rate', 'statutory_base_rate', 'rate_232', 'rate_301', 'rate_301_cs',
-                 'rate_s301br', 'rate_ieepa_recip', 'rate_ieepa_fent', 'rate_s122',
-                 'rate_s338', 'rate_section_201', 'rate_other')
+  rate_cols <- c('base_rate', 'statutory_base_rate', AUTHORITY_RATE_COLUMNS)
   # Every rate_cols entry is in RATE_SCHEMA and the loop above guarantees each
   # RATE_SCHEMA column exists, so all are present here — no membership guard needed.
   for (col in rate_cols) {
@@ -94,9 +104,8 @@ enforce_rate_schema <- function(df) {
 #' `base_rate` coalesces to 0 (a missing / non-ad-valorem MFN rate is treated as
 #' duty-free by the model), and the `base_rate_type` exposure flag — when the
 #' frame carries it — coalesces to 'free' to match. This is the single default
-#' that calculate_rates_fast(), ensure_dense_grid(), and add_blanket_pairs()
-#' each apply to freshly product-joined rows; centralizing it keeps the two
-#' columns defaulting together (0 / 'free') from one place.
+#' that the canonical grid builder applies to freshly product-joined rows.
+#' Centralizing it keeps the two columns defaulting together (0 / 'free').
 #'
 #' @param df A frame carrying `base_rate` (and optionally `base_rate_type`)
 #' @return `df` with `base_rate` NA->0 and (if present) `base_rate_type` NA->'free'
@@ -109,52 +118,74 @@ default_base_cols <- function(df) {
 }
 
 
-#' Zero the rate columns of disabled authorities (scenario kill-switch)
+#' Build the model's single product-country rate table
 #'
-#' Drives the counterfactual scenarios (config/scenarios/no_301 etc.): the
-#' overlay sets `disabled_authorities:` (names from the config's
-#' `authority_columns` map) and calculate_rates_for_revision() calls this just
-#' BEFORE stacking (step 8), so totals and contribution shares recompute
-#' consistently on the remaining authorities. Successor to the Phase-7-deleted
-#' post-build `disable:` engine (apply_scenarios.R) — same column-zeroing
-#' semantics, but applied inside the calc per revision instead of patching the
-#' finished panel.
+#' The calculator creates this complete grid once. Every policy program then
+#' mutates columns on existing rows; programs never create rows or carry their
+#' own alternate table-building route.
 #'
-#' Caveats (same as the legacy engine, documented not fixed): cross-authority
-#' interactions computed in EARLIER steps are not re-derived — e.g. disabling
-#' section_232 does not re-run the IEEPA floor recomputation. Statutory_*
-#' columns are left untouched (they describe the law, not the counterfactual).
-#'
-#' @param rates Rates tibble (any tibble carrying the mapped columns)
-#' @param disabled Character vector of authority names (or NULL/empty = no-op)
-#' @param authority_columns Named vector: authority name -> rate column
-#'   (policy_params$AUTHORITY_COLUMNS)
-#' @return Rates tibble with the mapped columns zeroed
-apply_authority_disables <- function(rates, disabled, authority_columns) {
-  disabled <- as.character(unlist(disabled %||% character(0)))
-  if (length(disabled) == 0) return(rates)
-
-  invalid <- setdiff(disabled, names(authority_columns))
-  if (length(invalid) > 0) {
-    stop('apply_authority_disables: unknown authority name(s): ',
-         paste(invalid, collapse = ', '),
-         '. Valid (config authority_columns): ',
-         paste(names(authority_columns), collapse = ', '))
+#' @param products Parsed product table with unique hts10 and base_rate.
+#' @param countries Unique Census country codes.
+#' @param seed_rates Optional sparse footnote rates keyed by hts10,country.
+#' @return Complete product x country tibble with every authority column.
+build_rate_grid <- function(products, countries, seed_rates = NULL) {
+  required_products <- c('hts10', 'base_rate')
+  missing_products <- setdiff(required_products, names(products))
+  if (length(missing_products) > 0) {
+    stop('build_rate_grid: products is missing: ',
+         paste(missing_products, collapse = ', '), call. = FALSE)
+  }
+  if (anyNA(products$hts10) || any(products$hts10 == '') || anyDuplicated(products$hts10)) {
+    stop('build_rate_grid: products$hts10 must be non-empty and unique', call. = FALSE)
+  }
+  countries <- as.character(countries)
+  if (length(countries) == 0 || anyNA(countries) || any(countries == '') || anyDuplicated(countries)) {
+    stop('build_rate_grid: countries must be non-empty, non-missing, and unique', call. = FALSE)
   }
 
-  cols <- unname(authority_columns[disabled])
-  absent <- setdiff(cols, names(rates))
-  if (length(absent) > 0) {
-    stop('apply_authority_disables: mapped column(s) missing from rates: ',
-         paste(absent, collapse = ', '))
+  grid <- products %>%
+    select(hts10, base_rate, any_of('base_rate_type')) %>%
+    default_base_cols() %>%
+    tidyr::expand_grid(country = countries)
+
+  if (!is.null(seed_rates) && nrow(seed_rates) > 0) {
+    required_seed <- c('hts10', 'country')
+    missing_seed <- setdiff(required_seed, names(seed_rates))
+    if (length(missing_seed) > 0) {
+      stop('build_rate_grid: seed_rates is missing: ',
+           paste(missing_seed, collapse = ', '), call. = FALSE)
+    }
+    if (anyDuplicated(seed_rates[required_seed])) {
+      stop('build_rate_grid: seed_rates has duplicate (hts10, country) keys', call. = FALSE)
+    }
+    unexpected <- setdiff(names(seed_rates), c(required_seed, AUTHORITY_RATE_COLUMNS))
+    if (length(unexpected) > 0) {
+      stop('build_rate_grid: unexpected seed rate columns: ',
+           paste(unexpected, collapse = ', '), call. = FALSE)
+    }
+    # A seed keyed outside products x countries would vanish in the left_join
+    # below while both row-count invariants still pass — a silent duty drop.
+    orphaned <- seed_rates %>% anti_join(grid, by = required_seed)
+    if (nrow(orphaned) > 0) {
+      stop('build_rate_grid: ', nrow(orphaned), ' seed rate row(s) have (hts10, country) ',
+           'keys outside the product x country grid, e.g. ',
+           paste(utils::head(paste0(orphaned$hts10, '/', orphaned$country), 3), collapse = ', '),
+           call. = FALSE)
+    }
+    grid <- grid %>%
+      left_join(seed_rates, by = required_seed, relationship = 'one-to-one')
   }
-  for (col in cols) {
-    rates[[col]] <- 0
+
+  for (col in AUTHORITY_RATE_COLUMNS) {
+    if (!col %in% names(grid)) grid[[col]] <- 0
+    grid[[col]] <- dplyr::coalesce(grid[[col]], 0)
   }
-  message('  Disabled authorities (scenario): ',
-          paste(disabled, collapse = ', '),
-          ' [zeroed: ', paste(cols, collapse = ', '), ']')
-  rates
+
+  expected_rows <- nrow(products) * length(countries)
+  if (nrow(grid) != expected_rows || anyDuplicated(grid[c('hts10', 'country')])) {
+    stop('build_rate_grid: canonical grid identity invariant failed', call. = FALSE)
+  }
+  grid
 }
 
 
@@ -290,6 +321,18 @@ classify_authority <- function(ch99_code) {
   # Section 301: 9903.86-89 (China tariffs) + 9903.91 (Biden 301) + 9903.92 (cranes)
   if ((middle >= 86 && middle <= 89) || middle == 91 || middle == 92) {
     return('section_301')
+  }
+
+  # Section 301 Brazil (USTR final action FR 2026-14542, eff. 2026-07-22):
+  # charging heading 9903.05.01 (+25%) + companion exemption headings
+  # 9903.05.02-.09 (U.S. note 50). Codified by 2026 HTS rev_12. Route here so the
+  # heading lands in the section_301_brazil bucket instead of falling through to
+  # 'other'; the +25% is read off 9903.05.01 by extract_section301_brazil_rates()
+  # (the §122 pattern). The exemption headings .02-.09 carry no parseable rate
+  # ("duty provided in the applicable subheading" -> NA) and contribute nothing;
+  # their product scope comes from the FR-annex side-data lists regardless.
+  if (middle == 5) {
+    return('section_301_brazil')
   }
 
   # IEEPA reciprocal: 9903.90 (China surcharges) + 9903.93/95/96
@@ -502,60 +545,6 @@ is_valid_hts10 <- function(hts_code) {
   clean <- gsub('\\.', '', hts_code)
   nchar(clean) == 10 && grepl('^[0-9]+$', clean)
 }
-
-# =============================================================================
-# Blanket Tariff Expansion Helper
-# =============================================================================
-
-#' Add product-country pairs not yet in rates for a blanket tariff
-#'
-#' Common pattern used by fentanyl, 232 derivatives, and other blanket tariffs:
-#' expand covered products x applicable countries, anti-join against existing
-#' rows in rates, assign the blanket rate, and bind to rates.
-#'
-#' @param rates Current rates tibble
-#' @param products Product data with hts10, base_rate columns
-#' @param covered_hts10 Character vector of HTS10 codes subject to this tariff
-#' @param country_rates Tibble with 'country' and 'blanket_rate' columns
-#' @param rate_col Name of the rate column to set (e.g., 'rate_ieepa_fent')
-#' @param label Description for log message (e.g., 'fentanyl-only duties')
-#' @return Updated rates tibble with new pairs added
-add_blanket_pairs <- function(rates, products, covered_hts10, country_rates,
-                              rate_col, label) {
-  applicable <- country_rates %>% filter(blanket_rate > 0) %>% pull(country)
-  if (length(applicable) == 0 || length(covered_hts10) == 0) return(rates)
-
-  existing <- rates %>%
-    filter(hts10 %in% covered_hts10, country %in% applicable) %>%
-    select(hts10, country)
-
-  base_sel <- products %>%
-    filter(hts10 %in% covered_hts10) %>%
-    select(hts10, base_rate, dplyr::any_of('base_rate_type')) %>%
-    default_base_cols()
-  new_pairs <- base_sel %>%
-    tidyr::expand_grid(country = applicable) %>%
-    anti_join(existing, by = c('hts10', 'country')) %>%
-    left_join(country_rates, by = 'country') %>%
-    mutate(
-      rate_232 = 0, rate_301 = 0, rate_301_cs = 0, rate_s301br = 0,
-      rate_ieepa_recip = 0, rate_ieepa_fent = 0, rate_s122 = 0, rate_s338 = 0,
-      rate_section_201 = 0, rate_other = 0
-    )
-
-  new_pairs[[rate_col]] <- new_pairs$blanket_rate
-  new_pairs <- new_pairs %>%
-    filter(blanket_rate > 0) %>%
-    select(-blanket_rate)
-
-  if (nrow(new_pairs) > 0) {
-    message('  Adding ', nrow(new_pairs), ' product-country pairs for ', label)
-    rates <- bind_rows(rates, new_pairs)
-  }
-
-  return(rates)
-}
-
 
 # =============================================================================
 # Section 232 Derivative Products

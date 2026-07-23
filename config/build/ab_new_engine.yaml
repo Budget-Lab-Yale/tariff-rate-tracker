@@ -1,0 +1,24 @@
+# Counterfactual A/B — NEW engine side (cleanup branch).
+# Same scenario set as counterfactuals_usmca.yaml; output quarantined under
+# .validation so production latest cannot be repointed. Compare against the
+# ab-old-engine build (54b0fb9) via the parity harness; differences on the
+# counterfactuals are EXPECTED (input-removal vs column-zeroing) and are
+# quantified in docs/counterfactual_ab_2026-07-22.md.
+model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker/.validation/ab-new-engine
+policy_params_path: config/policy_params.yaml
+scenarios:
+  - no_232
+  - no_301
+  - no_ieepa
+  - no_ieepa_recip
+  - no_s122
+  - pre_2025
+  - usmca_2024
+  - usmca_annual
+  - usmca_monthly
+  - usmca_dec2025
+use_hts_dates: false
+weight_mode: required
+update_latest: false
+allow_partial: false
+verify: true

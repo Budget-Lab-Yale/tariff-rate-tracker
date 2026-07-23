@@ -1,3 +1,3 @@
-# Counterfactual: remove IEEPA reciprocal only (fentanyl stays). Successor to
-# the legacy `no_ieepa_recip` scenario.
+# Counterfactual: remove IEEPA reciprocal inputs before calculation; fentanyl
+# remains and is recalculated normally.
 disabled_authorities: [ieepa_reciprocal]

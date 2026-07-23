@@ -1,3 +1,3 @@
 # Alternative: exclude 0%-MFN (duty-free) lines from IEEPA — sensitivity to the
-# duty-free treatment assumption. Migrated from build_rebuild_alt_registry().
+# duty-free treatment assumption.
 ieepa_duty_free_treatment: 'nonzero_base_only'

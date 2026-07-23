@@ -320,10 +320,10 @@ setup_cache <- function() {
        wctx = list(shared = shared, hts_as_of_dates = aod))
 }
 
-run_test('parts are schema v2 and carry weight_metadata', {
+run_test('parts carry the current schema version and weight_metadata', {
   s <- setup_cache()
   p <- readRDS(file.path(s$td, 'daily_part_rev_a.rds'))
-  stopifnot(identical(as.integer(p$schema_version), 2L))
+  stopifnot(identical(as.integer(p$schema_version), as.integer(DAILY_PART_SCHEMA_VERSION)))
   stopifnot(!is.null(p$metadata$weight_metadata))
   stopifnot(p$metadata$weight_metadata$hts_as_of_date == '2026-01-01')
   stopifnot(identical(p$metadata$weight_mode, 'weighted'))
@@ -385,7 +385,7 @@ run_test('unweighted part carries no weight_metadata and loads without a context
   Sys.sleep(1.1)
   write_daily_part_for_snapshot(ts_a, 'rev_a', '2026-01-01', '2026-12-31', td)
   p <- readRDS(file.path(td, 'daily_part_rev_a.rds'))
-  stopifnot(identical(as.integer(p$schema_version), 2L))
+  stopifnot(identical(as.integer(p$schema_version), as.integer(DAILY_PART_SCHEMA_VERSION)))
   stopifnot(is.null(p$metadata$weight_metadata))
   stopifnot(identical(p$metadata$weight_mode, 'unweighted'))
   parts <- suppressMessages(load_daily_parts_if_complete(

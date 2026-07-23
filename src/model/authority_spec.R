@@ -47,16 +47,19 @@ METAL_TYPES         <- c('steel', 'aluminum', 'copper', 'other', 'none')
 #' @param rate          list — compositional layers {default, by_country,
 #'   default_unlisted_rate, overrides, by_product_tier, target_total} + a
 #'   `rate_type` semantics tag. Read by resolve_rate()/apply_rate_semantics()
-#'   (see the "rate" section below). The live adapter currently parks the real
-#'   object in `rate$resolved` with sentinel-string layer names (hollow).
+#'   (see the "rate" section below).
 #' @param metal         list|NULL — 232 only: {type, content}. Omit for non-metal.
 #' @param active        list|NULL — {from, until}; NULL inherits the authority's.
 #' @param stacking      list|NULL — per-program override of the authority stacking.
+#' @param settings      list — authority-specific behavioral parameters that are
+#'   not product, country, rate, metal, activation, or stacking fields.
 authority_program <- function(id, product_scope = list(), country_scope = list(include = 'all'),
-                              rate = list(), metal = NULL, active = NULL, stacking = NULL) {
+                              rate = list(), metal = NULL, active = NULL, stacking = NULL,
+                              settings = list()) {
   structure(
     list(id = id, product_scope = product_scope, country_scope = country_scope,
-         rate = rate, metal = metal, active = active, stacking = stacking),
+         rate = rate, metal = metal, active = active, stacking = stacking,
+         settings = settings),
     class = 'authority_program'
   )
 }
@@ -153,21 +156,7 @@ resolve_country_scope <- function(scope, all_countries) {
 # caller supplies — encoded as floor_base ('original' | 'post_mfn') in the
 # resolve_rate() descriptor so the calculator fetches the right base.
 #
-# HOLLOW fields: the live adapter parks the real rate object as a verbatim blob
-# in `rate$resolved` and fills the layer NAMES with sentinel strings
-# ('from_raw'/'from_list'/'from_products_base_rate'). Until the per-authority
-# planks populate real values, those sentinels are treated as ABSENT by both the
-# reader and the validator — existing specs validate and resolve to nothing here
-# (the calculator still reads the blob). Parity-trivial by construction.
-
-RATE_TYPES     <- c('surcharge', 'floor_static', 'floor_post_mfn', 'passthrough')
-RATE_SENTINELS <- c('from_raw', 'from_list', 'from_products_base_rate')
-
-# A field is "hollow" (no real structured value yet) if NULL or a length-1
-# sentinel string. Real numeric layers are not hollow.
-.rate_is_hollow <- function(x) {
-  is.null(x) || (is.character(x) && length(x) == 1L && x %in% RATE_SENTINELS)
-}
+RATE_TYPES <- c('surcharge', 'floor_static', 'floor_post_mfn', 'passthrough')
 
 # Exact-name field access. R's `$` and `[[` do PARTIAL prefix matching by
 # default, so rate$default would silently pick up `default_unlisted_rate` when
@@ -214,7 +203,7 @@ resolve_rate <- function(rate, product = NULL, country = NULL) {
   #   named scalar    `'4120' = 0.25`        product code -> rate, any country
   #   entry list      `list(products=, countries=(opt), rate=)`  product×country deal
   ov <- .rate_get(rate, 'overrides')
-  if (!.rate_is_hollow(ov) && is.list(ov) && length(ov)) {
+  if (!is.null(ov) && is.list(ov) && length(ov)) {
     onames <- names(ov)
     for (i in seq_along(ov)) {
       o  <- ov[[i]]
@@ -234,26 +223,26 @@ resolve_rate <- function(rate, product = NULL, country = NULL) {
   }
   # 2. by_product_tier — product -> rate
   bpt <- .rate_get(rate, 'by_product_tier')
-  if (!.rate_is_hollow(bpt) && !is.null(product) && !is.null(names(bpt))) {
+  if (!is.null(bpt) && !is.null(product) && !is.null(names(bpt))) {
     key <- as.character(product)
     if (key %in% names(bpt)) return(desc(bpt[[key]], 'by_product_tier'))
   }
   # 3. by_country — country -> rate
   bc <- .rate_get(rate, 'by_country')
-  bc_present <- !.rate_is_hollow(bc)
+  bc_present <- !is.null(bc)
   if (bc_present && !is.null(country) && !is.null(names(bc))) {
     key <- as.character(country)
     if (key %in% names(bc)) return(desc(bc[[key]], 'by_country'))
   }
   # 4. default_unlisted_rate — only meaningful as the by_country complement
   du <- .rate_get(rate, 'default_unlisted_rate') %||% .rate_get(rate, 'default_unlisted')
-  if (bc_present && !.rate_is_hollow(du)) return(desc(du, 'default_unlisted'))
+  if (bc_present && !is.null(du)) return(desc(du, 'default_unlisted'))
   # 5. default — flat in-scope fallback
   d <- .rate_get(rate, 'default')
-  if (!.rate_is_hollow(d)) return(desc(d, 'default'))
+  if (!is.null(d)) return(desc(d, 'default'))
   # 6. target_total — all-in floor target fallback
   tt <- .rate_get(rate, 'target_total')
-  if (!.rate_is_hollow(tt)) return(desc(tt, 'target_total'))
+  if (!is.null(tt)) return(desc(tt, 'target_total'))
   desc(NA_real_, 'none')
 }
 
@@ -287,8 +276,7 @@ apply_rate_semantics <- function(value, rate_type = 'surcharge', base = NA_real_
   out
 }
 
-#' Validate a program's compositional rate field (Plank 0). Hollow sentinels and
-#' the legacy `resolved` blob are allowed and skipped; real layers are checked.
+#' Validate a program's compositional rate field.
 #' Fail-loud, in the spirit of validate_authority_spec.
 validate_rate <- function(rate, ctx) {
   if (is.null(rate)) return(invisible(TRUE))
@@ -296,7 +284,7 @@ validate_rate <- function(rate, ctx) {
 
   allowed <- c('default', 'by_country', 'default_unlisted_rate', 'default_unlisted',
                'overrides', 'by_product_tier', 'target_total', 'rate_type',
-               'flat', 'resolved', 'product_overrides_file', 'floors',
+               'flat', 'product_overrides_file', 'floors',
                # Plank 4b (IEEPA de-blob): per-country reciprocal companions to
                # by_country. by_country_type promotes the per-country rate-semantics
                # tag to the schema (decision 2; surcharge|floor|passthrough — the
@@ -307,7 +295,8 @@ validate_rate <- function(rate, ctx) {
                # default_unlisted_exclude removes census codes from the
                # default_unlisted complement (decision 3; IEEPA CA/MX carve-out).
                # carveouts is the fentanyl product×country lower-rate layer.
-               'by_country_type', 'by_country_eo_rate', 'by_country_eo_ch99',
+               'by_country_type', 'by_country_underlying',
+               'by_country_underlying_type', 'by_country_eo_rate', 'by_country_eo_ch99',
                'default_unlisted_exclude', 'carveouts')
   unknown <- setdiff(names(rate), allowed)
   unknown <- unknown[nzchar(unknown)]
@@ -320,14 +309,14 @@ validate_rate <- function(rate, ctx) {
                  paste(rt, collapse = '/'), paste(RATE_TYPES, collapse = ', ')))
 
   chk_scalar <- function(x, nm) {
-    if (.rate_is_hollow(x)) return(invisible())
-    if (is.character(x)) stop(sprintf('[%s] rate$%s is a non-sentinel string: %s', ctx, nm, x))
+    if (is.null(x)) return(invisible())
+    if (is.character(x)) stop(sprintf('[%s] rate$%s must be numeric', ctx, nm))
     if (!is.numeric(x) || length(x) != 1L || !is.finite(x) || x < 0)
       stop(sprintf('[%s] rate$%s must be a single finite non-negative number', ctx, nm))
   }
   chk_named_num <- function(x, nm) {
-    if (.rate_is_hollow(x)) return(invisible())
-    if (is.character(x)) stop(sprintf('[%s] rate$%s is a non-sentinel string', ctx, nm))
+    if (is.null(x)) return(invisible())
+    if (is.character(x)) stop(sprintf('[%s] rate$%s must be numeric', ctx, nm))
     if (is.null(names(x)) || any(!nzchar(names(x))))
       stop(sprintf('[%s] rate$%s must be a NAMED numeric (names = lookup keys)', ctx, nm))
     dups <- unique(names(x)[duplicated(names(x))])
@@ -347,7 +336,7 @@ validate_rate <- function(rate, ctx) {
   chk_named_num(.rate_get(rate, 'by_product_tier'),    'by_product_tier')
 
   ov <- .rate_get(rate, 'overrides')
-  if (!.rate_is_hollow(ov)) {
+  if (!is.null(ov)) {
     if (!is.list(ov)) stop(sprintf('[%s] rate$overrides must be a list', ctx))
     onames <- names(ov)
     for (i in seq_along(ov)) {
@@ -380,7 +369,7 @@ validate_rate <- function(rate, ctx) {
   # as pmax(floor - base, 0) vs the ORIGINAL base. Reader-invisible (resolve_rate never reads
   # rate$floors); read by the calc via s232_deal_records().
   fl <- .rate_get(rate, 'floors')
-  if (!.rate_is_hollow(fl)) {
+  if (!is.null(fl)) {
     if (!is.list(fl)) stop(sprintf('[%s] rate$floors must be a list', ctx))
     for (i in seq_along(fl)) {
       f <- fl[[i]]
@@ -398,7 +387,7 @@ validate_rate <- function(rate, ctx) {
   # census-code names) but are read by the calc, not resolve_rate.
   IEEPA_TYPES <- c('surcharge', 'floor', 'passthrough')
   bct <- .rate_get(rate, 'by_country_type')
-  if (!.rate_is_hollow(bct)) {
+  if (!is.null(bct)) {
     if (!is.character(bct) || is.null(names(bct)) || any(!nzchar(names(bct))))
       stop(sprintf('[%s] rate$by_country_type must be a NAMED character (names = census codes)', ctx))
     if (any(!bct %in% IEEPA_TYPES))
@@ -406,20 +395,29 @@ validate_rate <- function(rate, ctx) {
                    paste(IEEPA_TYPES, collapse = ', ')))
   }
   chk_named_num(.rate_get(rate, 'by_country_eo_rate'), 'by_country_eo_rate')
+  chk_named_num(.rate_get(rate, 'by_country_underlying'), 'by_country_underlying')
+  bcut <- .rate_get(rate, 'by_country_underlying_type')
+  if (!is.null(bcut)) {
+    if (!is.character(bcut) || is.null(names(bcut)) || any(!nzchar(names(bcut))))
+      stop(sprintf('[%s] rate$by_country_underlying_type must be a NAMED character (names = census codes)', ctx))
+    if (any(!bcut %in% IEEPA_TYPES))
+      stop(sprintf('[%s] rate$by_country_underlying_type values must be one of: %s', ctx,
+                   paste(IEEPA_TYPES, collapse = ', ')))
+  }
   beoc <- .rate_get(rate, 'by_country_eo_ch99')
-  if (!.rate_is_hollow(beoc)) {
+  if (!is.null(beoc)) {
     if (!is.character(beoc) || is.null(names(beoc)) || any(!nzchar(names(beoc))))
       stop(sprintf('[%s] rate$by_country_eo_ch99 must be a NAMED character (NA allowed)', ctx))
   }
   due <- .rate_get(rate, 'default_unlisted_exclude')
-  if (!.rate_is_hollow(due) && !is.character(due))
+  if (!is.null(due) && !is.character(due))
     stop(sprintf('[%s] rate$default_unlisted_exclude must be a character vector of census codes', ctx))
 
   # carveouts (Plank 4b/S2 fentanyl): per-ch99 x census carve-out rates as three
   # equal-length parallel vectors {ch99_code, census_code, rate}. The calc joins
   # ch99_code to the hts8 carve-out product CSV. Reader-invisible to resolve_rate.
   cvo <- .rate_get(rate, 'carveouts')
-  if (!.rate_is_hollow(cvo)) {
+  if (!is.null(cvo)) {
     if (!is.list(cvo) || is.null(cvo$ch99_code) || is.null(cvo$census_code) || is.null(cvo$rate))
       stop(sprintf('[%s] rate$carveouts must be a list with ch99_code/census_code/rate', ctx))
     n <- length(cvo$ch99_code)
@@ -474,6 +472,8 @@ validate_authority_spec <- function(spec) {
     if (!is.null(p$metal) && !is.null(p$metal$type) && !p$metal$type %in% METAL_TYPES) {
       stop(sprintf('[%s/%s] invalid metal.type: %s', a, p$id, p$metal$type))
     }
+    if (!is.list(p$settings))
+      stop(sprintf('[%s/%s] settings must be a list', a, p$id))
     validate_rate(p$rate, sprintf('%s/%s', a, p$id %||% '?'))
   }
   invisible(TRUE)

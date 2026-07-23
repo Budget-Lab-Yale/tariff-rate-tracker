@@ -9,7 +9,8 @@
 # Expects (exported by the orchestrator):
 #   PARITY_MANIFEST      path to the manifest TSV
 #   PARITY_RESULTS_DIR   directory holding the per-task result TSVs
-#   PARITY_REFERENCE     reference build root (for the summary header)
+#   PARITY_REFERENCE     reference model_data vintage/series
+#   PARITY_CANDIDATE     candidate model_data vintage/series
 #
 # Not meant to be submitted directly — use submit_plank3_parity.sh.
 
@@ -34,12 +35,13 @@ module load R/4.4.2-gfbf-2024a
 
 : "${PARITY_MANIFEST:?PARITY_MANIFEST must be exported by the orchestrator}"
 : "${PARITY_RESULTS_DIR:?PARITY_RESULTS_DIR must be exported by the orchestrator}"
+: "${PARITY_REFERENCE:?PARITY_REFERENCE must be exported by the orchestrator}"
+: "${PARITY_CANDIDATE:?PARITY_CANDIDATE must be exported by the orchestrator}"
 
-REF_ARGS=()
-if [ -n "${PARITY_REFERENCE:-}" ]; then REF_ARGS=(--reference "$PARITY_REFERENCE"); fi
-
-echo "parity summary: manifest=$PARITY_MANIFEST results=$PARITY_RESULTS_DIR ref=${PARITY_REFERENCE:-<default>}"
+echo "parity summary: manifest=$PARITY_MANIFEST results=$PARITY_RESULTS_DIR ref=$PARITY_REFERENCE candidate=$PARITY_CANDIDATE"
 Rscript scripts/summarize_parity_results.R \
   --manifest "$PARITY_MANIFEST" \
   --results-dir "$PARITY_RESULTS_DIR" \
-  "${REF_ARGS[@]}"
+  --reference "$PARITY_REFERENCE" \
+  --candidate "$PARITY_CANDIDATE" \
+  --allow-extra-files "${PARITY_ALLOW_EXTRA_FILES:-}"

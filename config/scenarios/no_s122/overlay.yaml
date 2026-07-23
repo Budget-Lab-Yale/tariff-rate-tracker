@@ -1,3 +1,2 @@
-# Counterfactual: remove the Section 122 surcharge. Successor to the legacy
-# `no_s122` scenario.
+# Counterfactual: remove the Section 122 Chapter-99 input before calculation.
 disabled_authorities: [section_122]

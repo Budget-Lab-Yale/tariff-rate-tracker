@@ -9,8 +9,8 @@
 # 'none', use-conditional shares), the stacking-policy invariant, the
 # calculator step (apply_section301_brazil: 25% on non-exempt Brazil rows,
 # use-conditional lists scaled by (1 - share) -> 2.5%/12.5%, §232 full-scope
-# exclusion mask incl. the annex_2-pays tier rule, pair seeding with
-# product-level §232 exclusion), and boundary discovery of bnd_2026-07-22.
+# exclusion mask incl. the annex_2-pays tier rule, the complete grid (no seeding),
+# per-row §232 exclusion), and boundary discovery of bnd_2026-07-22.
 # Synthetic in-memory fixtures for the calc checks (the s338 test pattern).
 #
 # Usage: Rscript tests/test_brazil_301.R
@@ -80,11 +80,26 @@ ok(length(br_ex_spec$aircraft_hts8) == 546 && isTRUE(all.equal(br_ex_spec$aircra
 ok(length(br_ex_spec$pharma_hts8) == 705 && isTRUE(all.equal(br_ex_spec$pharma_share, 0.50)),
    'spec carries 705 pharma-use codes @ 50% exempt share (GTA effective 12.5%)')
 bc_pre <- .rate_get(spec_pre$programs[[1]]$rate, 'by_country')
-ok(.rate_is_hollow(bc_pre) || length(bc_pre) == 0, 'pre-07-22 revision: hollow (date-gated)')
+ok(is.null(bc_pre) || length(bc_pre) == 0, 'pre-07-22 revision: hollow (date-gated)')
 ok(length(spec_pre$programs[[1]]$country_scope$include) == 0, 'pre-07-22: empty country scope')
 ok(is_authority_spec(spec_on), 'valid authority_spec object')
 ok(is.null(.build_section_301_brazil(list(), countries, as.Date('2026-08-01'))),
    'absent config block -> NULL (defensive)')
+
+cat('\n== rate source: HTS 9903.05.01 primary, config fallback (2026 HTS rev_12) ==\n')
+# HTS is the source of truth for the +25%. A synthetic ch99 carrying 9903.05.01
+# at a DELIBERATELY different rate must win over the config literal; absence of
+# the heading must fall back to config (pre-rev_12 snapshots / early mints).
+ch99_hts  <- tibble(ch99_code = '9903.05.01', rate = 0.30)
+ch99_none <- tibble(ch99_code = '9903.88.01', rate = 0.10)   # no Brazil heading
+spec_hts <- .build_section_301_brazil(pp, countries, as.Date('2026-07-22'), ch99_hts)
+spec_fb  <- .build_section_301_brazil(pp, countries, as.Date('2026-07-22'), ch99_none)
+ok(isTRUE(all.equal(unname(spec_hts$programs[[1]]$rate$by_country[BR]), 0.30)),
+   'HTS 9903.05.01 rate (0.30) overrides the config literal (0.25)')
+ok(isTRUE(all.equal(unname(spec_fb$programs[[1]]$rate$by_country[BR]), 0.25)),
+   'no 9903.05.01 in ch99 -> config fallback (0.25)')
+ok(isTRUE(all.equal(unname(spec_on$programs[[1]]$rate$by_country[BR]), 0.25)),
+   'ch99_data = NULL (default) -> config rate, unchanged from pre-rev_12 behavior')
 
 cat('\n== stacking policy ==\n')
 pol <- default_stacking_policy('5700')
@@ -107,7 +122,7 @@ cat('\n== calculator: apply_section301_brazil (synthetic fixture) ==\n')
 #   6109.10.00  plain covered (no §232, not exempt)     -> 0.25
 #   0201.10.05  beef, note-50(a)(ii) exempt             -> 0
 #   8802.30.01  aircraft-use list (a)(iv), existing row -> 0.25*(1-0.90) = 0.025
-#   3003.31.00  pharma-use list (a)(v), SEEDED pair     -> 0.25*(1-0.50) = 0.125
+#   3003.31.00  pharma-use list (a)(v), grid pair      -> 0.25*(1-0.50) = 0.125
 #   7210.11.00  §232 STATUTORY arm (statutory > 0)      -> 0
 #   7801.10.00  §232 ANNEX arm (in-scope tier, rate 0)  -> 0
 #   3303.00.30  annex_2 (REMOVED from §232 scope)       -> PAYS 0.25
@@ -120,19 +135,25 @@ specs_fix <- list(
 products <- tibble(
   hts10 = c('6109100012', '0201100500', '8802300100', '7210110000', '7801100000',
             '3303003000', '4413000000', '8703230100',
-            '2203000060',    # beer — NOT in rates: seeding check (not exempt)
-            '3003310000',    # pharma-use — NOT in rates: seeded THEN share-scaled
-            '9990000000'),   # annex-tier product NOT in rates: must NOT seed
+            '2203000060',    # beer — on the grid, zero rates (not exempt) -> 0.25
+            '3003310000',    # pharma-use — on the grid, share-scaled -> 0.125
+            '9990000000'),   # annex-tier row — masked by its s232_annex tag -> 0
   base_rate = 0)
+# The one-grid build materializes every pair before authority steps run, so
+# all covered products are PRESENT with zero rates (the retired sparse-table
+# seeder never runs). The annex-tier row carries its s232_annex tag the way
+# the real annex step would have set it upstream.
 rates <- tibble(
   hts10   = c('6109100012', '6109100012', '0201100500', '8802300100', '7210110000',
-              '7801100000', '3303003000', '4413000000', '8703230100'),
-  country = c(BR, '5700', BR, BR, BR, BR, BR, BR, BR),
+              '7801100000', '3303003000', '4413000000', '8703230100',
+              '2203000060', '3003310000', '9990000000'),
+  country = c(BR, '5700', BR, BR, BR, BR, BR, BR, BR, BR, BR, BR),
   base_rate = 0,
-  rate_232           = c(0, 0, 0, 0, 0.25, 0,          0,         0,    0.25),
-  statutory_rate_232 = c(0, 0, 0, 0, 0.25, 0,          0,         0,    0.25),
-  s232_annex = c(NA, NA, NA, NA, NA, 'annex_1b', 'annex_2', NA, NA),
-  heading_program = c(FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE, TRUE),
+  rate_232           = c(0, 0, 0, 0, 0.25, 0,          0,         0,    0.25, 0, 0, 0),
+  statutory_rate_232 = c(0, 0, 0, 0, 0.25, 0,          0,         0,    0.25, 0, 0, 0),
+  s232_annex = c(NA, NA, NA, NA, NA, 'annex_1b', 'annex_2', NA, NA, NA, NA, 'annex_1a'),
+  heading_program = c(FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE, TRUE,
+                      FALSE, FALSE, FALSE),
   rate_301 = 0, rate_301_cs = 0, rate_ieepa_recip = 0, rate_ieepa_fent = 0,
   rate_s122 = 0, rate_section_201 = 0, rate_other = 0)
 
@@ -144,7 +165,7 @@ ok(isTRUE(all.equal(g('0201100500', BR), 0)), 'note-50(a)(ii) exempt (beef) -> 0
 ok(isTRUE(all.equal(g('8802300100', BR), 0.025)),
    'aircraft-use list (a)(iv): existing row scaled to 25% * (1 - 0.90) = 2.5%')
 ok(isTRUE(all.equal(g('3003310000', BR), 0.125)),
-   'pharma-use list (a)(v): SEEDED pair scaled to 25% * (1 - 0.50) = 12.5%')
+   'pharma-use list (a)(v): grid pair scaled to 25% * (1 - 0.50) = 12.5%')
 ok(isTRUE(all.equal(g('7210110000', BR), 0)),
    'article with statutory §232 > 0 (statutory arm) -> 0 (FULL exclusion, no content split)')
 ok(isTRUE(all.equal(g('7801100000', BR), 0)),
@@ -153,9 +174,9 @@ ok(isTRUE(all.equal(g('3303003000', BR), 0.25)),
    'annex_2 (REMOVED from §232 scope) article PAYS 0.25 (same tier rule as s338)')
 ok(isTRUE(all.equal(g('4413000000', BR), 0)), 'wood §232 heading arm -> 0')
 ok(isTRUE(all.equal(g('8703230100', BR), 0)), 'PV §232 heading arm -> 0')
-ok(isTRUE(all.equal(g('2203000060', BR), 0.25)), 'missing non-exempt Brazil pair seeded at 0.25')
+ok(isTRUE(all.equal(g('2203000060', BR), 0.25)), 'non-exempt Brazil pair on the complete grid charged 0.25')
 ok(length(g('2203000060', '5700')) == 0, 'no non-Brazil pairs seeded')
-ok(length(g('9990000000', BR)) == 0, 'missing ANNEX-TIER product NOT seeded (product-level §232 exclusion)')
+ok(isTRUE(all.equal(g('9990000000', BR), 0)), 'annex-tier row masked to 0 (per-row §232 exclusion)')
 ok(length(g('0201100500', '5700')) == 0, 'exempt product not expanded to other countries')
 
 # Pre-turn-on spec: all-zero column persists (RATE_SCHEMA member, never dropped)

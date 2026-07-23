@@ -43,9 +43,8 @@ SCALED by an adjustment share (semiconductors, subdivision-r, auto rebate).
 ## Legend
 
 - ✅ **implemented** in the spec as a real structured field, read by the calculator
-- 🟡 **named but hollow** — the field name exists in the schema/adapter, but the
-  real data rides as a verbatim blob in `programs[[1]]$rate$resolved` (sentinel
-  `'from_raw'`/`'from_list'`); the calculator unpacks the blob, not the field
+- ✅ **implemented** — the adapter populates a real structured field and the
+  calculator reads it
 - ❌ **absent** — no schema field at all; lives only as calculator control-flow
 - 🔧 **adjustment** — not statutory; belongs in `adjustment_params`, not the spec rate
 
@@ -58,10 +57,10 @@ This is the richest dimension and the one being filled. Each row is a distinct
 
 | Mechanism | What it does | Live example | Where today (≈line in `06_calculate_rates.R` unless noted) | Spec field | Status |
 |---|---|---|---|---|---|
-| **flat default** | one rate for everything in scope | 232 steel 50% | `s232_rates$steel_rate`; blanket apply `:1683` | `rate.default` | 🟡 |
-| **by_country** | per-origin-country rate | IEEPA recip per country | `ieepa_rates` tibble → `ieepa_country_rate :1096` | `rate.by_country` (`adapter:122` `'from_raw'`) | 🟡 |
-| **per-product override (HS8 SET)** | named product → set rate | UK deal `4120` 25% | `rate.overrides`; deal apply `:1860` | `rate.overrides` | 🟡 |
-| **per-product tier (file)** | product list carries 7.5/25 | Section 301 lists | `s301_product_lists.csv` | `rate.by_product_tier` (`'from_list'`) | 🟡 |
+| **flat default** | one rate for everything in scope | 232 steel 50% | adapter → source/heading program | `rate.default` | ✅ |
+| **by_country** | per-origin-country rate | IEEPA recip per country | adapter phase collapse | `rate.by_country` | ✅ |
+| **per-product override (HS8 SET)** | named product → set rate | UK deal `4120` 25% | adapter deal layer | `rate.overrides` | ✅ |
+| **per-product tier (file)** | product list carries 7.5/25 | Section 301 lists | adapter resolves both stacking flavors | `rate.by_product_tier` | ✅ |
 | **product rate-override file (coalesce)** | per-product LOWER/higher rate, not exclusion | fentanyl potash carve-out | `coalesce(carveout_rate, fent_rate, 0) :1311` | `rate.product_overrides_file` (doc) | 🟡 |
 | **product × country deal** | program's products × a specific country → rate | 232 EU/JP autos 15% | `deal$rate :1860/:1912` | `rate.overrides` + `{active, applies_to}` (doc proposes) | 🟡/❌ partial |
 | **default-for-complement** | rate for every country NOT explicitly listed | IEEPA universal 10% | `attr(ieepa_rates,'universal_baseline') :1015,:1091` | `rate.default_unlisted_rate` (`adapter:122`) | 🟡 |
@@ -99,10 +98,9 @@ default rate, the product list, the floor) is spec; the share is adjustment.
 
 ## The gap taxonomy (for dimension 4/5)
 
-- **(A) Named-but-hollow** — `default, by_country, overrides, target_total,
-  by_product_tier, product_overrides_file, default_unlisted_rate`: the schema
-  names them; the work is *implement the field* (populate it in the adapter from
-  the data the parser already produces; make the calculator read it). Bulk of the lift.
+- **(A) Structured value layers** — `default, by_country, overrides, target_total,
+  by_product_tier, product_overrides_file, default_unlisted_rate` are populated
+  by the adapter. Sentinel strings and raw payload slots are rejected by validation.
 - **(B) Absent from schema** — `per-country dated surcharge` (Russia),
   `date-bounded country override` (TRQ exemptions), `rate_type` three-way switch,
   `floor_base/floor_timing`: the schema needs *new fields*.
@@ -178,41 +176,30 @@ Setup: **rev_8 (2026-05-22)** archive encodes s122 active + pharma with offset
   `pharma.from=09-01`. Boundaries `{05-22, 07-24, 09-01}`. Evaluate `spec_8` as-of
   each → **three frames**, pharma on from 09-01, **all from one parse, no hole.** ✅
 
-### Three boundary mechanisms today (not unified) → one
+### Boundary mechanisms: unified
 
-| Edge kind | Drawn by today |
+| Edge kind | Drawn by |
 |---|---|
 | input change | real revision dates (build loop) |
-| expiry | `09` post-hoc splitter (`collect_expiry_adjustments`; s122/Swiss) |
-| future turn-on | hand-authored synthetic revision (`scheduled_activations`, `00`) |
-| mid-interval Ch99 offset | **nobody → silent hole** |
+| expiry | minted boundary snapshot (`discover_boundaries`, `00`) |
+| future turn-on | minted boundary snapshot / scheduled activation (`00`) |
+| mid-interval Ch99 offset | minted boundary snapshot (`discover_boundaries`, `00`) |
 
 The **unified splitter** = one function builds one sorted list of *every* edge
 (`revision dates ∪ active.from ∪ active.until ∪ expiries ∪ Ch99 offsets ∪ scenario
 effective_from`) and cuts at all of them. One list, one cutter, nothing missed.
 
-### Build state — mostly built, on a leash 🟡
+### Build state — live and unified
 
-`src/model/timeline.R` (115 lines, unit-tested) already implements it:
+`src/model/timeline.R` implements it:
 - `collect_schedule_boundaries()` — **comprehensive collector** (knows IEEPA
-  invalidation + s122/Swiss + spec `active.from/until`). Built + validated.
-- `timeline_split_points()` — the splitter. **Wired live at `09:330`.**
-- `expiry_boundaries()` — the **parity bridge** (legacy s122/Swiss only).
+  invalidation + s122/Swiss + spec `active.from/until`).
+- `discover_boundaries()` — assigns each non-revision edge to an owning archive.
+- `build_boundary_mints()` — recomputes that archive as of the boundary date.
 
-It is **fed only `expiry_boundaries()` today** (`09:326`), so it reproduces the
-legacy output exactly (parity-green). The comprehensive collector is **built but
-not fed**, on purpose — turning it on is a *behavior change* (adds frames), not
-parity-safe by construction. Remaining work, **per edge-type**:
-1. feed the comprehensive boundary set, AND
-2. wire the matching **state-change** at each new boundary (a cut on the right date
-   with the *wrong rate* is worse than no cut — e.g. IEEPA invalidation needs its
-   zeroing keyed to the boundary, not the revision date; `09:318-324`), AND
-3. validate the new frames **without a parity net** (output changes by design; some
-   carry open modeling questions, e.g. invalidation `02-20 vs 02-24`).
-
-> **Effort:** the engine is ~90% built and tested. What's left is *turning it on
-> one edge-type at a time*, gated on correctness/judgment (days per edge-type), not
-> construction. The scary part — building a new timeline engine — is done.
+Downstream daily and point-in-time paths do not split or mutate the calculated
+panel. The Swiss framework carries its underlying rate, floor, and dates in the
+snapshot, allowing its first-dead-day mint to restore the right state.
 
 ### Same disease as rate & stacking
 
@@ -232,6 +219,6 @@ _(known mechanisms listed; to be worked the same way as dimension 4)_
 - **1 Identity** — authority id; legal nature drives stacking-class + USMCA defaults (declared constants, `adapter`). Mostly ✅ structural.
 - **2 Product scope** — `chapters | prefixes | list_file | products_file`, `exclude_file`; tiered subsets (wood softwood vs furniture); precedence (file wins). Partly ✅ (scope is structured), partly in calc.
 - **3 Country scope** — `include: all|codes`, `exclude: codes/file`; groups (eu27, swiss). ✅ for 232/301/201; IEEPA scope still hardcoded in calc (CA/MX `:1091`, floor groups `:1020`).
-- **7 Stacking** — `class ∈ {additive, content_split, primary_metal, primary_full}` ✅ declared; `exceptions` (China-fentanyl) ✅ declared but calc ignores (`stacking.R:145`); program **overlap resolution** (exclusions-first, highest-rate-wins, replace) ❌ in calc only / dormant `resolved_programs.R`.
+- **7 Stacking** — `class ∈ {additive, content_split, primary_metal, primary_full}` ✅ declared; `exceptions` (China-fentanyl) ✅ declared but calc ignores (`stacking.R:145`); program **overlap resolution** (exclusions-first, highest-rate-wins, replace) ❌ remains calculator-specific.
 - **8 Cross-regime** — `usmca_treatment` ✅ declared (but calc recomputes from annex membership, not the flag); MFN base coupling ❌ (no `mfn` rate, floors subtract `base_rate` directly); true exemptions (Ch98 9802 zeroing vs rate-override) — must stay distinct from rate-override files.
 - **9 Physical (232)** — `metal.{type, content}` ✅ in schema; drives content-split.

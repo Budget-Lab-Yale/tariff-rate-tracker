@@ -1,11 +1,7 @@
 # Scenarios, alternatives, and counterfactuals
 
-> **History.** Two prior mechanisms are gone: the legacy post-build patch engine
-> (`config/scenarios.yaml` + `apply_scenarios.R`, deleted in Phase 7) and the
-> AuthoritySpec verb/operations API (`src/scenario_ops.R`,
-> `TARIFF_SCENARIO_OPS`, deleted in `54cc662` — it never had a production
-> caller). The live mechanism is the **config overlay model**, unified
-> 2026-06-10 under one registry. "Baseline = the empty scenario."
+The config overlay model is the sole scenario mechanism. "Baseline = the empty
+scenario."
 
 ## The model
 
@@ -13,7 +9,7 @@ Every non-baseline series is a folder:
 
 ```
 config/scenarios/<name>/
-  meta.yaml      kind + description + publish flag
+  meta.yaml      kind + description + publish flag + optional extends parent
   overlay.yaml   the config DIFF vs config/policy_params.yaml
 ```
 
@@ -23,6 +19,17 @@ deep-merges the overlay onto the baseline config (`.deep_merge_lists()` in
 wholesale; `key: ~` deletes a baseline key). The rest of the pipeline runs
 unchanged on the merged params, so every downstream column — stacking, daily
 series, ETR exports — recomputes consistently.
+
+Overlay keys are validated recursively before merging. Unknown top-level or
+nested keys stop with their full path, so a spelling error cannot silently turn
+a scenario into the baseline. Scenario-only keys and optional baseline fields
+are explicitly registered in `policy_params.R`.
+
+One scenario may reuse another scenario's policy facts with `extends` in
+`meta.yaml`. Parent overlays resolve first and the child overlay is then applied.
+For example, `new_301` extends `forced_labor`; its empty overlay is ready for only
+the facts that eventually distinguish it. Missing parents and inheritance cycles
+fail loud.
 
 The registry (`src/model/scenario_registry.R`) reads the folders:
 
@@ -48,14 +55,12 @@ Rscript src/pipeline/00_build_timeseries.R --alternatives no_301,metal_flat
 Rscript src/pipeline/00_build_timeseries.R --alternatives counterfactuals --alternatives-only
 ```
 
-Legacy spellings still work (`--with-alternatives` == `--alternatives
-alternatives`; `--rebuild-alts <list>` == `--alternatives <list>`). Unknown
-names fail loud. Each variant is a full per-revision recalc (counterfactuals
+Unknown names fail loud. Each variant is a full per-revision recalc (counterfactuals
 are not cheap column patches anymore — consistency over speed), dispatched
 through `alt_runner()` with one fresh subprocess per variant when
 `--parallel --alt-workers N` is set.
 
-## Counterfactuals: the authority kill-switch
+## Counterfactuals: remove an authority before calculation
 
 A counterfactual overlay sets one key:
 
@@ -64,17 +69,21 @@ A counterfactual overlay sets one key:
 disabled_authorities: [section_301, section_301_brazil]
 ```
 
-Names come from the config's `authority_columns` map (section_232, section_301,
-section_301_content_split, ieepa_reciprocal, ieepa_fentanyl, section_122,
-section_338, section_301_brazil, other). `calculate_rates_for_revision()` zeroes the mapped rate columns just
-before stacking (step 7g → `apply_authority_disables()` in
-`src/model/rate_schema.R`), so totals and contribution shares recompute on what
-remains. Unknown names fail loud; the key is absent in baseline, so baseline
-output is byte-identical.
+Supported names are section_232, section_301, section_301_content_split,
+section_301_brazil, section_338, ieepa_reciprocal, ieepa_fentanyl, section_122,
+and other. The shared revision builder calls `apply_counterfactual_inputs()`
+after parsing the source data and before building authority specs or
+calculating rates. It removes the disabled authority's Chapter 99 rows, any
+authority-specific extracted inputs, and config-only authority blocks
+(section_338, section_301_brazil, the §232 annex/heading programs), then runs
+the normal calculator. Cross-authority effects, exemptions, floors, stacking,
+totals, and contribution shares are therefore recalculated for the
+counterfactual world rather than edited after the fact.
 
-Carried-over limitation (same as the legacy engine): cross-authority effects
-computed in earlier steps (e.g. IEEPA floors measured against a 232-inclusive
-base) are not re-derived when the other authority is disabled.
+Unknown names fail loud. A direct calculator call with a counterfactual config
+also fails unless this input step has run, preventing accidental use of the old
+late-column-edit behavior. The key is absent in baseline, so baseline inputs are
+unchanged.
 
 `no_301` removes ALL §301 instruments: the legacy China columns and the
 2026-07-22 Brazil baseline authority (which would otherwise leak in from its
@@ -92,22 +101,14 @@ baseline authority added to `policy_params.yaml` must be added to `pre_2025`'s
 
 1. `mkdir config/scenarios/<name>` and write `meta.yaml` (pick the kind) +
    `overlay.yaml` containing ONLY the diff vs baseline.
-2. Empty overlay == baseline (the `actual` invariant). Unknown config keys are
-   inert unless the pipeline reads them — prefer keys the calculator already
-   consumes, or add an explicit hook (like `disabled_authorities`) rather than
-   patching outputs.
+2. Empty overlay == baseline unless `meta.yaml` declares `extends: <parent>`.
+   Unknown config keys fail loud. Add a deliberate schema entry and calculator
+   hook for a genuinely new key rather than patching outputs.
 3. `Rscript tests/test_scenario_registry.R` — registry validation is part of
    the suite.
 4. For a publishable full series, set `kind: scenario` and build with
    `TARIFF_SCENARIO=<name>`; for sensitivity/counterfactual daily series, use
    `--alternatives <name>`.
 
-## Migration status (2026-06-10)
-
-The seven historical rebuild alternatives were migrated from hand-coded
-`pp_override` closures (`build_rebuild_alt_registry()`, now deprecated) to
-overlays; `tests/test_scenario_registry.R` pins closure-vs-overlay parity.
-The six counterfactuals orphaned by the Phase-7 deletion were resurrected as
-`disabled_authorities` overlays with their legacy semantics. Remaining gate
-before deleting the deprecated closure registry: a cluster run reproducing
-`output/alternative/*.csv` (todo.md, alternatives-unification Step 5).
+Baseline and all scenarios use the same `build_revision_snapshot()` unit. A
+small committed HTS fixture checks the saved baseline and no-§232 outputs.

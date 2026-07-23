@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tariff Rate Tracker — structural simplification review</title>
+  <style>
+    :root {
+      --ink: #18212b;
+      --muted: #5f6d78;
+      --paper: #f7f4ed;
+      --card: #fffdf8;
+      --line: #d9d3c5;
+      --navy: #123b54;
+      --blue: #28708f;
+      --teal: #2d8074;
+      --amber: #c27a20;
+      --red: #b5453c;
+      --green: #267455;
+      --code: #eff2f1;
+      --shadow: 0 10px 32px rgba(31, 43, 51, .08);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 90% 5%, rgba(45,128,116,.10), transparent 26rem),
+        linear-gradient(180deg, #f2eee5 0, var(--paper) 22rem);
+      font: 16px/1.58 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    a { color: var(--blue); text-decoration-thickness: .08em; text-underline-offset: .15em; }
+    code, .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: .92em;
+    }
+    code { background: var(--code); padding: .12em .32em; border-radius: .25rem; }
+    .shell { max-width: 1240px; margin: 0 auto; padding: 0 30px 72px; }
+    header { padding: 70px 0 34px; max-width: 1040px; }
+    .eyebrow { color: var(--teal); font-weight: 750; letter-spacing: .11em; text-transform: uppercase; font-size: .78rem; }
+    h1 { margin: .32rem 0 .8rem; font-family: Georgia, "Times New Roman", serif; font-size: clamp(2.5rem, 6vw, 5.25rem); line-height: .98; letter-spacing: -.045em; color: var(--navy); }
+    .dek { font-size: 1.23rem; max-width: 850px; color: #3e4c56; }
+    .meta { margin-top: 1.2rem; color: var(--muted); font-size: .92rem; }
+    nav {
+      position: sticky; top: 0; z-index: 5;
+      margin: 0 -12px 42px; padding: 10px 12px;
+      background: rgba(247,244,237,.94); backdrop-filter: blur(10px);
+      border-bottom: 1px solid rgba(217,211,197,.85);
+      display: flex; flex-wrap: wrap; gap: 8px;
+    }
+    nav a { text-decoration: none; color: var(--navy); border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 6px 11px; font-size: .86rem; }
+    section { scroll-margin-top: 72px; margin: 0 0 58px; }
+    h2 { margin: 0 0 14px; font-family: Georgia, "Times New Roman", serif; font-size: 2rem; color: var(--navy); letter-spacing: -.02em; }
+    h3 { margin: 0 0 8px; font-size: 1.16rem; color: var(--navy); }
+    p { margin: .45rem 0 .9rem; }
+    .callout { border-left: 5px solid var(--teal); background: #edf6f3; padding: 18px 21px; border-radius: 0 10px 10px 0; max-width: 1000px; }
+    .callout.risk { border-color: var(--red); background: #fbefec; }
+    .callout strong { color: var(--navy); }
+    .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; }
+    .stat { grid-column: span 3; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; box-shadow: var(--shadow); }
+    .stat .big { display: block; font: 700 2rem/1 Georgia, serif; color: var(--navy); }
+    .stat .label { display: block; color: var(--muted); margin-top: 7px; font-size: .9rem; }
+    .finding { margin: 0 0 22px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; box-shadow: var(--shadow); }
+    .finding-head { display: grid; grid-template-columns: 66px minmax(0,1fr) auto; gap: 16px; align-items: center; padding: 20px 22px; background: linear-gradient(90deg, rgba(18,59,84,.06), transparent); }
+    .rank { width: 50px; height: 50px; border-radius: 50%; display: grid; place-items: center; color: white; background: var(--navy); font: 700 1.5rem Georgia, serif; }
+    .finding h3 { font-size: 1.32rem; margin: 0; }
+    .subtitle { color: var(--muted); margin-top: 3px; font-size: .94rem; }
+    .tags { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+    .tag { white-space: nowrap; border-radius: 999px; padding: 4px 8px; font-size: .73rem; font-weight: 700; letter-spacing: .025em; text-transform: uppercase; }
+    .tag.high { background: #f8ddd8; color: #832d27; }
+    .tag.medium { background: #f8ead2; color: #7c4c0f; }
+    .tag.large { background: #dcecf3; color: #1c576e; }
+    .tag.safe { background: #daf0e5; color: #1f6549; }
+    .finding-body { padding: 4px 22px 23px; }
+    .columns { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+    ul, ol { padding-left: 1.35rem; }
+    li { margin: .35rem 0; }
+    .evidence { background: #f5f2eb; border: 1px solid var(--line); border-radius: 9px; padding: 12px 14px; font-size: .9rem; }
+    .target { border-left: 3px solid var(--blue); padding-left: 12px; }
+    .flow { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; gap: 10px; align-items: stretch; margin: 16px 0; }
+    .flow .box { border: 1px solid var(--line); background: #fff; border-radius: 9px; padding: 13px; text-align: center; }
+    .flow .arrow { align-self: center; color: var(--teal); font-size: 1.5rem; }
+    table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); font-size: .92rem; }
+    th, td { text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); padding: 10px 12px; }
+    th { color: var(--navy); background: #efede6; font-size: .8rem; letter-spacing: .04em; text-transform: uppercase; }
+    tr:last-child td { border-bottom: 0; }
+    .barrow { display: grid; grid-template-columns: minmax(190px, 1.7fr) 3fr 66px; gap: 10px; align-items: center; margin: 8px 0; }
+    .bartrack { height: 12px; background: #e1ddd3; border-radius: 99px; overflow: hidden; }
+    .bar { height: 100%; background: linear-gradient(90deg, var(--teal), var(--blue)); border-radius: inherit; }
+    .phase { grid-column: span 4; background: var(--card); border: 1px solid var(--line); border-top: 5px solid var(--teal); border-radius: 10px; padding: 17px; }
+    .phase .num { font: 700 1.5rem Georgia, serif; color: var(--teal); }
+    .check { color: var(--green); font-weight: 750; }
+    .fail { color: var(--red); font-weight: 750; }
+    .warn { color: var(--amber); font-weight: 750; }
+    .small { color: var(--muted); font-size: .88rem; }
+    .footnote { border-top: 1px solid var(--line); padding-top: 20px; color: var(--muted); font-size: .9rem; }
+    @media (max-width: 900px) {
+      .stat { grid-column: span 6; }
+      .phase { grid-column: span 12; }
+      .finding-head { grid-template-columns: 52px 1fr; }
+      .tags { grid-column: 1 / -1; justify-content: flex-start; }
+      .columns { grid-template-columns: 1fr; }
+      .flow { grid-template-columns: 1fr; }
+      .flow .arrow { transform: rotate(90deg); justify-self: center; }
+    }
+    @media print {
+      nav { display: none; }
+      body { background: white; font-size: 11pt; }
+      .shell { max-width: none; padding: 0; }
+      header { padding-top: 0; }
+      .finding, .stat { box-shadow: none; break-inside: avoid; }
+      section { break-before: auto; }
+      a { color: inherit; }
+    }
+  </style>
+</head>
+<body>
+<div class="shell">
+  <header>
+    <div class="eyebrow">Maintainability &amp; policy-risk review</div>
+    <h1>Make the model easier to trust by giving each rule one home.</h1>
+    <p class="dek">A plain-language review of where the Tariff Rate Tracker is hard to maintain, why that creates policy risk, and how to simplify it without hiding important choices in settings files.</p>
+    <p class="meta">Review date: 21 July 2026 · Review base: <span class="mono">54b0fb9</span> · Implementation branch: <span class="mono">cleanup</span> · <strong>Status refresh: 22 July 2026</strong> (independent verification + close-out; branch at <span class="mono">a7e2ad7</span>, pushed)</p>
+  </header>
+
+  <nav aria-label="Report sections">
+    <a href="#status-2026-07-22">Status (22 July)</a>
+    <a href="#verdict">Bottom line</a>
+    <a href="#shape">Scale</a>
+    <a href="#recommendations">Recommendations</a>
+    <a href="#roadmap">Order of work</a>
+    <a href="#tests">What was tested</a>
+    <a href="#quick-wins">Quick wins</a>
+    <a href="#implementer-notes">Implementer notes</a>
+  </nav>
+
+  <section id="status-2026-07-22">
+    <h2>Status update — 22 July 2026</h2>
+    <p class="small">This section supersedes the "current priority order" notes below. Written for a non-programmer; technical detail lives in <a href="#implementer-notes">Implementer notes</a> at the bottom.</p>
+
+    <h3>What is finished and verified</h3>
+    <ul>
+      <li><strong>The cleanup itself is done, committed, and independently verified.</strong> An outside review (separate from the author of this document) re-checked both the plan and the code. A rebuilt-from-scratch run matched the sealed reference on every one of 114 published files, with <em>nothing excluded</em> — including one published file (the daily product-group report) that earlier checks had never inspected. The exact code that passed is the exact code on the branch; that traceability gap is closed.</li>
+      <li><strong>One real safety bug was found and fixed during that review.</strong> A guard that should stop the build when a new §232 tariff is configured but not fully wired up had been accidentally disconnected — the failure mode was "build succeeds, new tariff silently published as zero." It is reconnected, with tests so it cannot silently die again.</li>
+      <li><strong>The scenario-engine change was measured, not assumed.</strong> The cleanup changed how "what-if" scenarios (no §232, no IEEPA, …) are computed. We built every scenario under the old engine and the new engine from identical inputs and compared: the baseline and seven of ten scenarios are identical; only the three IEEPA-removal scenarios move, by at most 0.013 percentage points overall — all of it traced to one known cause (Taiwanese steel-derivative lines with zero declared metal content). Details and the one open judgment call are in <span class="mono">docs/counterfactual_ab_2026-07-22.md</span>.</li>
+      <li><strong>The Canada §338 and Brazil §301 work is merged in.</strong> Those two new tariffs were built on the main line while the cleanup ran in parallel; they are now ported onto the new architecture, with their full test files passing. The whole suite: 36 files, zero failures.</li>
+      <li><strong>The repeated authority-column lists now have one R-code registry.</strong> Schema columns, zero defaults, stacking mappings, and the complete reporting census read the same structural description. This changes no policy behavior: a full weighted production build passed its 11-check verifier, and actual plus <span class="mono">new_301</span> matched the sealed reference on all 120 artifacts.</li>
+      <li><strong>Housekeeping done:</strong> the unused blog-pipeline compatibility code is deleted; the deprecated tariff-etrs concern is closed; the branch is pushed to GitHub; a final "merged branch reproduces production" check is running as this is written.</li>
+    </ul>
+
+    <h3>What remains, in recommended order</h3>
+    <table>
+      <thead><tr><th>#</th><th>Task</th><th>Why this order</th><th>Size</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td><strong>Put the Swiss expiration on the same calendar as everything else</strong> (recommendation 3). <em>Implemented 22 July:</em> snapshots now store the underlying rate, temporary floor, and dates; the after-the-fact daily edit is deleted.</td><td>The model now has one calendar-owned route for policy changes.</td><td>Done</td></tr>
+        <tr><td>2</td><td><strong>Make tariff-combination rules general.</strong> <em>First enabling slice completed 22 July:</em> the rate/net columns, spec keys, default stacking classes, panel placement, and reporting census now live in one R-code registry. The remaining work is to generalize genuinely new interaction patterns, not repeat existing plumbing.</td><td>The omission-prone column wiring is fixed; broader interaction work can now build on a validated registry.</td><td>Medium</td></tr>
+        <tr><td>3</td><td><strong>Give the code a formal internal structure.</strong> <em>Implemented 22 July:</em> reusable production files now live in an explicit dependency manifest; the main build, workers, daily runner, reporting, and publishing request named bundles rather than probing load order. A clean-environment contract test covers the graph.</td><td>Dependencies now resolve deterministically and cycles/unknown modules fail loud.</td><td>Done</td></tr>
+        <tr><td>4</td><td><strong>Define the list of rate columns once.</strong> Implemented 22 July in <span class="mono">src/model/authority_registry.R</span>, with fail-closed invariants and full production parity.</td><td>Adding an authority no longer requires separately synchronizing the schema/default/stacking lists.</td><td>Done</td></tr>
+        <tr><td>5</td><td><strong>Share common facts across scenario configs.</strong> <em>Implemented 22 July:</em> <code>new_301</code> inherits the forced-labor policy block; both inherit the canonical baseline boundary calendar.</td><td>The country rosters and dates now have one owner, with resolved-config tests.</td><td>Done</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Decisions waiting on the group</h3>
+    <ul>
+      <li><strong>Taiwan zero-metal-content ruling</strong> (from the scenario measurement above): in a world with no IEEPA reciprocal tariff, do those steel-derivative lines pay the flat §232 rate (the new engine's answer, recommended) or nothing (the old engine's accidental answer)? Bounded either way; one word settles it.</li>
+      <li><strong>Optionally</strong>: delete the <span class="mono">products_raw.csv</span> export (commented as blog-only, but produced by three pipeline components — left in place pending a decision).</li>
+    </ul>
+  </section>
+
+  <section id="verdict">
+    <h2>Bottom line</h2>
+    <div class="callout">
+      <strong>I found no sign that the baseline results are broadly wrong.</strong> The main tests passed. The larger concern is future error: one policy fact can appear in several parts of the model, and several different routes can produce a public result. A change can therefore be correct in one place but quietly missing in another.
+    </div>
+    <div class="callout good">
+      <strong>Work already completed.</strong> The project now finds every test file automatically. The daily summaries for countries and product groups use the same shared calculation instead of three copied versions. A new small saved example also checks that a baseline result and a “no §232” result are written correctly.
+    </div>
+    <p>The main problem is not the number of tariff programs. The problem is that the model often describes the same program more than once: first when reading source material, again when preparing calculation inputs, again in the main calculator, and sometimes again for scenarios or daily reports. Each copy is understandable on its own. Keeping the copies in agreement is the dangerous part.</p>
+    <div class="callout good">
+      <strong>The clearest scenario risk has now been fixed.</strong> A scenario such as “no §232” now removes that program before calculation and rebuilds the result. Normal and scenario runs also use the same builder, so earlier interactions with other programs are recalculated instead of being left behind.
+    </div>
+    <div class="callout">
+      <strong>Current three-item priority order.</strong> (1) Run a full production parity checkpoint for the cleanup already completed. (2) Build the product-by-country table once and remove every program-specific row-building route. (3) Finish the common policy format, moving simpler authorities first and §232 last. Calendar and package-structure work are outside this work period.
+    </div>
+    <div class="callout good">
+      <strong>Validation update.</strong> All three requested code changes are implemented and externally validated through <code>model_data</code>. The production checkpoint matched 112 of 112 artifacts exactly. The one-table build passed its 11-check verifier and its economic parity gate matched 112 of 112 artifacts. Its canonical grid intentionally normalizes seven previously sparse zero/NA fields: <code>base_rate_type</code>, <code>steel_share</code>, <code>aluminum_share</code>, <code>copper_share</code>, <code>other_metal_share</code>, <code>is_copper_heading</code>, and <code>statutory_rate_232</code>. The common policy format passed all 35 discovered test files, its 11-check verifier, and a full 112-of-112 parity gate against the sealed one-table vintage.
+    </div>
+  </section>
+
+  <section id="shape">
+    <h2>The scale of the maintenance problem</h2>
+    <div class="grid">
+      <div class="stat"><span class="big">21,504</span><span class="label">lines of production R</span></div>
+      <div class="stat"><span class="big">34</span><span class="label">production R files</span></div>
+      <div class="stat"><span class="big">41%</span><span class="label">of the code in four pipeline files</span></div>
+      <div class="stat"><span class="big">2,321</span><span class="label">lines in the largest calculation function</span></div>
+    </div>
+    <p>Large files are not automatically bad. Here, however, the largest files also contain several overlapping ways to describe, calculate, and report tariff rules. That makes reviews slow and makes it harder to know whether a change reached every public output.</p>
+
+    <div class="barrow"><div>Main rate calculator</div><div class="bartrack"><div class="bar" style="width:100%"></div></div><div>3,939</div></div>
+    <div class="barrow"><div>Daily reporting</div><div class="bartrack"><div class="bar" style="width:55.9%"></div></div><div>2,203</div></div>
+    <div class="barrow"><div>Policy preparation</div><div class="bartrack"><div class="bar" style="width:35.8%"></div></div><div>1,412</div></div>
+    <div class="barrow"><div>Historical-series builder</div><div class="bartrack"><div class="bar" style="width:33.6%"></div></div><div>1,323</div></div>
+
+    <p class="small">These counts include comments because long explanations of old migrations also take time to understand and keep current.</p>
+  </section>
+
+  <section id="recommendations">
+    <h2>Six recommendations, in priority order</h2>
+
+    <article class="finding" id="r1">
+      <div class="finding-head">
+        <div class="rank">1</div>
+        <div><h3>Give every tariff program one official description.</h3><div class="subtitle">Do not keep both the old and new descriptions alive indefinitely.</div></div>
+        <div class="tags"><span class="tag high">Risk reduction: very high</span><span class="tag large">Possible deletion: 2.5–4k lines</span><span class="tag medium">Effort: high</span></div>
+      </div>
+      <div class="finding-body">
+        <p>The model is partway through a redesign. A newer, common format describes tariff programs, but important §232 details still live in an older bundle of data. Some information is copied into the new format while some remains in the old one. The main calculator reads both.</p>
+        <p>This forces a reviewer to remember which version controls each detail. It also means a future correction might update only one version.</p>
+        <div class="flow">
+          <div class="box"><strong>Read the legal facts</strong><br><span class="small">products, countries, rates, dates</span></div><div class="arrow">→</div>
+          <div class="box"><strong>Create one policy description</strong><br><span class="small">including exceptions and interactions</span></div><div class="arrow">→</div>
+          <div class="box"><strong>Calculate once</strong><br><span class="small">then validate and publish</span></div>
+        </div>
+        <p class="target"><strong>Recommendation:</strong> finish moving every live tariff program into the common format, then delete the older routes. Keep the actual policy logic in R code so it remains reviewable; do not replace it with a large, hard-to-audit settings language.</p>
+        <p class="target"><strong>Status:</strong> implemented. Sentinel rate strings and the residual §232 payload are gone. §201, both §301 stacking flavors, metal derivatives, country deals, and every named §232 heading now reach the calculator as explicit programs. Validation rejects the deleted representation.</p>
+        <p>If the group cannot fund the full move, simplify the new layer and clearly document it as a wrapper. A smaller honest design is safer than two half-complete calculation systems.</p>
+      </div>
+    </article>
+
+    <article class="finding" id="r2">
+      <div class="finding-head">
+        <div class="rank">2</div>
+        <div><h3>Build the product-by-country table once.</h3><div class="subtitle">Each tariff program should add only the rates and labels that it changes.</div></div>
+        <div class="tags"><span class="tag high">Risk reduction: high</span><span class="tag large">Possible deletion: 0.8–1.5k lines</span><span class="tag medium">Effort: medium-high</span></div>
+      </div>
+      <div class="finding-body">
+        <p>Several programs separately add missing product-country rows, update rows that already exist, and fill unrelated tariff columns with zero. At the end, the model builds the complete table anyway.</p>
+        <p>This repetition makes every new program responsible for knowing the shape and default values of every older program. That is unnecessary coupling and an easy source of missing or stale columns.</p>
+        <ol>
+          <li>Create the complete product-country list once.</li>
+          <li>Give each row a stable identifier.</li>
+          <li>Let each tariff program return only the rows it changes.</li>
+          <li>Combine the changes once, check the totals once, and publish once.</li>
+        </ol>
+        <p class="target">This keeps the current output shape and should not require more memory than the finished table already uses. It removes repeated row-building code and gives defaults one clear home.</p>
+        <p class="target"><strong>Status:</strong> implemented. The Cartesian product is created once by <code>build_rate_grid()</code>. Program-specific row builders, densifiers, and the alternate resolved-program table/stacker were deleted; the final row-count and natural-key invariants are mandatory.</p>
+      </div>
+    </article>
+
+    <article class="finding" id="r3">
+      <div class="finding-head">
+        <div class="rank">3</div>
+        <div><h3>Use one calendar for every policy change.</h3><div class="subtitle">A date should have one answer everywhere in the model.</div></div>
+        <div class="tags"><span class="tag high">Risk reduction: very high</span><span class="tag large">Possible deletion: 0.3–0.7k lines</span><span class="tag medium">Effort: medium</span></div>
+      </div>
+      <div class="finding-body">
+        <p>Most mid-period policy changes cause the model to calculate a new dated snapshot. One Swiss expiration is handled differently: later reporting code edits the rate after the main calculation. The exception exists because the saved result does not retain enough information to rebuild the correct post-expiration rate.</p>
+        <p class="target"><strong>Recommendation:</strong> save the underlying rate, the temporary floor, and their active dates. Then calculate every start or expiration date through the same route.</p>
+        <p class="target"><strong>Status (22 July):</strong> complete. The panel stores the underlying reciprocal rate, temporary floor, and framework dates; <code>bnd_2026-04-01</code> owns the first post-expiry day. Daily reports and point queries no longer edit rates after calculation. The full local suite, migration checks, and independent production parity all pass.</p>
+        <div class="columns">
+          <div class="evidence"><strong>What goes away</strong><br>Special expiration edits in daily reports and point-in-time queries.</div>
+          <div class="evidence"><strong>What improves</strong><br>Published snapshots, daily reports, and one-date lookups all use the same policy state.</div>
+        </div>
+      </div>
+    </article>
+
+    <article class="finding" id="r4">
+      <div class="finding-head">
+        <div class="rank">4</div>
+        <div><h3>Recalculate scenarios from changed policy inputs.</h3><div class="subtitle">Never create a scenario by editing finished rates.</div></div>
+        <div class="tags"><span class="tag high">Risk reduction: very high</span><span class="tag large">Less repeated code</span><span class="tag safe">Status: completed</span></div>
+      </div>
+      <div class="finding-body">
+        <p>Previously, some scenarios calculated the baseline and then erased one tariff program’s final rate. That could leave behind effects the program had on other rules.</p>
+        <p class="target"><strong>Status:</strong> completed in the current cleanup. A “no §232” scenario now removes §232 at the start and runs the normal calculation again. Normal and scenario runs use the same builder.</p>
+        <p>Exemptions, floors, trade preferences, and interactions with other programs can now adjust naturally. The calculator also stops with an error if a future scenario accidentally tries to skip this safer route.</p>
+      </div>
+    </article>
+
+    <article class="finding" id="r5">
+      <div class="finding-head">
+        <div class="rank">5</div>
+        <div><h3>Make dependencies clear and run every test.</h3><div class="subtitle">A test that CI never runs provides false comfort.</div></div>
+        <div class="tags"><span class="tag high">Risk reduction: high</span><span class="tag large">Possible deletion: 0.3–0.7k lines</span><span class="tag medium">Effort: medium</span></div>
+      </div>
+      <div class="finding-body">
+        <p>Before this cleanup, several files worked only when other files happened to be loaded first. The regular CI job also ran only a hand-picked subset of tests. A broader test run found stale assumptions and missing dependencies that the normal checks had missed.</p>
+        <p class="target"><strong>Status:</strong> the immediate problem is fixed. CI discovers every test file, runs each separately, and clearly reports checks skipped because needed source material is absent. A small saved example now protects the shared baseline and scenario builder too.</p>
+        <p><strong>Next step:</strong> give the model a formal internal package structure. Each file should state what it needs, and loading order should never decide whether a function exists.</p>
+      </div>
+    </article>
+
+    <article class="finding" id="r6">
+      <div class="finding-head">
+        <div class="rank">6</div>
+        <div><h3>Use one method for daily summaries.</h3><div class="subtitle">Country and product-group reports repeat the same arithmetic.</div></div>
+        <div class="tags"><span class="tag medium">Risk reduction: medium</span><span class="tag large">Less repeated code</span><span class="tag safe">Status: completed</span></div>
+      </div>
+      <div class="finding-body">
+        <p>The daily reporting file had separate but nearly identical calculations for countries and two kinds of product groups. It also prepared the same interval data several times.</p>
+        <p class="target"><strong>Status:</strong> completed in the current cleanup. The data is now prepared once for each period, and the three grouped reports use the same summary method. The special breakdown by tariff program remains separate because it answers a different question.</p>
+        <p>This reduces the chance that one report quietly uses a different denominator or missing-data rule from the others. The full daily-report test suite passes.</p>
+      </div>
+    </article>
+  </section>
+
+  <section id="roadmap">
+    <h2>Current priority order and overnight status</h2>
+    <div class="grid">
+      <div class="phase"><div class="num">Priority 1 — complete</div><h3>Production parity checkpoint</h3><p>Actual and <code>new_301</code>: 112/112 external model-data artifacts matched exactly, including all snapshots and daily outputs.</p></div>
+      <div class="phase"><div class="num">Priority 2 — complete</div><h3>Build the main table once</h3><p>One canonical product-country grid now exists. The external build verifier passed 11/11 and economic parity passed 112/112 artifacts for actual and <code>new_301</code>. Seven sparse metadata/default representations were intentionally normalized by the canonical grid; tariff rates, totals, dates, keys, and daily outputs remain gated.</p></div>
+      <div class="phase"><div class="num">Priority 3 — complete</div><h3>Finish the common policy format</h3><p>All old sentinel/blob routes are deleted. The complete regression suite, external 11-check verifier, and full actual/<code>new_301</code> parity all pass: 112/112 artifacts.</p></div>
+    </div>
+
+    <h3 style="margin-top:24px">What must be checked after each step</h3>
+    <table>
+      <thead><tr><th>Check</th><th>Simple standard</th><th>Reason</th></tr></thead>
+      <tbody>
+        <tr><td>Individual rates</td><td>Every product-country-date result matches, apart from an approved and explained change.</td><td>A correct average can hide offsetting mistakes.</td></tr>
+        <tr><td>Dates</td><td>No missing days, overlaps, or shifted start and end dates.</td><td>A timing mistake can be larger than a rate mistake.</td></tr>
+        <tr><td>Published files</td><td>Saved snapshots match the data used for daily reports.</td><td>Prevents correct internal results from producing stale public files.</td></tr>
+        <tr><td>Scenarios</td><td>Each scenario is freshly calculated from changed inputs.</td><td>Proves it represents a different policy world.</td></tr>
+        <tr><td>Headline numbers</td><td>Weighted and unweighted rates and their denominators match.</td><td>Protects the figures most likely to be quoted publicly.</td></tr>
+        <tr><td>Legal examples</td><td>Hand-check a small set of high-risk countries, products, and dates.</td><td>Matching old code alone does not prove the legal reading is right.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="tests">
+    <h2>What was tested</h2>
+    <table>
+      <thead><tr><th>Check</th><th>Result</th><th>Limit</th></tr></thead>
+      <tbody>
+        <tr><td>All automatically discovered test files</td><td class="check">35 passed, 0 failed</td><td>Six files contained one or more clearly reported skipped checks; one vestigial test file was deleted with its retired subsystem.</td></tr>
+        <tr><td>Daily reporting</td><td class="check">81 passed, 1 skipped</td><td>The skipped check needed saved build data.</td></tr>
+        <tr><td>Main rate calculation</td><td class="check">90 passed, 22 skipped</td><td>The skipped checks needed saved revision outputs.</td></tr>
+        <tr><td>Policy-source PDF reading</td><td class="check">17 passed, 8 skipped</td><td>The local §232 source PDF was unavailable.</td></tr>
+        <tr><td>R and HTML syntax</td><td class="check">Passed</td><td>This confirms valid files, not correct policy meaning.</td></tr>
+        <tr><td>Prior-cleanup production parity</td><td class="check">112 of 112 exact</td><td>External <code>model_data</code>, actual plus <code>new_301</code>.</td></tr>
+        <tr><td>One-table production build</td><td class="check">11/11 verifier; 112/112 economic-parity artifacts</td><td>External <code>model_data</code> gate; seven documented sparse metadata/default normalizations are intentional.</td></tr>
+      </tbody>
+    </table>
+    <p>The green test result is meaningful, but it is not a full legal audit. Checks that need large saved outputs or source PDFs must still run in the production environment before a major release.</p>
+  </section>
+
+  <section id="quick-wins">
+    <h2>Smaller cleanup opportunities</h2>
+    <p>These are useful supporting tasks, but they do not replace the six structural changes above.</p>
+    <table>
+      <thead><tr><th>Opportunity</th><th>Action</th><th>Safety check</th></tr></thead>
+      <tbody>
+        <tr><td>Second, normally disabled stacking system</td><td class="check">Deleted with the resolved-program table.</td><td>Focused, full, and external Item 3 parity gates pass.</td></tr>
+        <tr><td>Repeated lists of rate columns</td><td class="check">Implemented with one R-code authority registry.</td><td>Registry invariants, full test suite, production verifier, and 120/120 strict parity artifacts pass.</td></tr>
+        <tr><td>Files that load differently depending on order</td><td class="check">Implemented with the internal module manifest and named bundles.</td><td>Clean-environment loading is tested.</td></tr>
+        <tr><td>Warnings in small synthetic tests</td><td>Fix them and treat future warnings as failures.</td><td>All fixture tests remain green.</td></tr>
+        <tr><td>Copied country lists and dates in scenarios</td><td class="check">Implemented with scenario inheritance and the baseline boundary calendar.</td><td>Resolved <code>forced_labor</code>/<code>new_301</code> settings are identical.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>How to know the cleanup is finished</h2>
+    <p>A maintainer should be able to answer each of these questions from one place:</p>
+    <ul>
+      <li>Which products, countries, dates, and rates define a tariff program?</li>
+      <li>How does that program interact with other tariffs and trade preferences?</li>
+      <li>What policy was active on a given date?</li>
+      <li>What input did a scenario change?</li>
+      <li>Which calculation produced a published number?</li>
+    </ul>
+    <p>The goal is not merely fewer files. It is a clear, reviewable path from a legal fact to every published number.</p>
+  </section>
+
+  <section id="implementer-notes">
+    <h2>Implementer notes (technical appendix)</h2>
+    <p class="small">For whoever (human or model) picks up the outstanding tasks. State as of branch <span class="mono">cleanup</span> @ <span class="mono">a7e2ad7</span>, 22 July 2026. Read <span class="mono">CLAUDE.md</span> first for cluster rules (module-load R in the same shell as Rscript; interactive sessions cap at 5&nbsp;GB — full builds go through <span class="mono">sbatch scripts/submit_build_array.sh --config &lt;yaml&gt;</span>, never the login node).</p>
+
+    <h3>Validation infrastructure you should reuse, not rebuild</h3>
+    <ul>
+      <li><strong>External gates live under</strong> <span class="mono">&lt;model_data_root&gt;/.validation/</span>: sealed reference vintages (<span class="mono">item2-one-grid</span>, <span class="mono">item3-common-policy</span>, <span class="mono">item4-pre-cleanup</span>, <span class="mono">final-freeze</span>, <span class="mono">post-merge</span>, <span class="mono">ab-{old,new}-engine</span>) and parity work dirs under <span class="mono">.validation/parity/&lt;run-id&gt;/</span>. These are plain directories — do not rebuild into an existing root or the baseline silently moves. They can be deleted once the branch merges.</li>
+      <li><strong>Parity harness:</strong> <span class="mono">bash scripts/submit_plank3_parity.sh &lt;reference-series&gt; &lt;candidate-series&gt; &lt;work-root&gt; &lt;run-id&gt;</span> (sbatch-wrap it). Artifact registry: <span class="mono">PARITY_ARTIFACTS</span> in <span class="mono">src/core/parity.R</span> — now includes <span class="mono">daily_by_hs</span> (key <span class="mono">date × category_code</span>). <span class="mono">PARITY_IGNORE_COLUMNS</span> skips values only. Schema migrations may explicitly set <span class="mono">PARITY_ALLOW_EXTRA_COLUMNS</span> and <span class="mono">PARITY_ALLOW_EXTRA_FILES</span>; both are recorded in results/summary, while normal parity remains schema-strict.</li>
+      <li><strong>Engine A/B:</strong> <span class="mono">scripts/ab_delta_report.R --old &lt;vintage-root&gt; --new &lt;vintage-root&gt;</span> (note: <span class="mono">analyze_*.R</span> is gitignored — that's why the name). Old-engine reference builds ran from the sibling clone <span class="mono">../tariff-rate-tracker-a851db2</span>, currently detached at <span class="mono">54b0fb9</span> with <span class="mono">data/</span> rsynced from the main repo — restore or delete it when done.</li>
+      <li><strong>CI parity locally:</strong> <span class="mono">printf 'weight_mode: unweighted\n' &gt; config/local_paths.yaml</span>, run <span class="mono">tests/run_all_tests.R</span>, then <em>delete</em> <span class="mono">local_paths.yaml</span>. 36 files, ~1 min unit-scope; the data-gated checks only run against a real build.</li>
+    </ul>
+
+    <h3>Task 1 — Swiss expiration onto the calendar</h3>
+    <ul>
+      <li><strong>Implemented 22 July:</strong> the <span class="mono">swiss_framework</span> block remains the source of the two countries, floor, dates, and <span class="mono">finalized</span> flag. The authority adapter preserves the pre-floor reciprocal rate and the calculator writes four explicit Swiss metadata columns.</li>
+      <li><span class="mono">discover_boundaries()</span> now emits <span class="mono">bnd_2026-04-01</span>. That recompute removes the floor and restores the underlying rate when the authority remains live; the daily and point-query expiry editors were deleted.</li>
+      <li><strong>Release gate passed:</strong> the complete local suite passes (36 files, zero failures); migration validation found exactly four schema columns plus one boundary snapshot and unchanged daily outputs; two independent production builds match exactly for all 60 actual and 60 <span class="mono">new_301</span> artifacts. See <span class="mono">docs/swiss_calendar_migration_2026-07-22.md</span>.</li>
+    </ul>
+
+    <h3>Task 2 — stacking generality</h3>
+    <ul>
+      <li>Live path: <span class="mono">apply_stacking_rules()</span> + <span class="mono">stacking_policy_from_specs()</span> in <span class="mono">src/model/stacking.R</span>; classes today: <span class="mono">additive</span>, <span class="mono">content_split</span>, <span class="mono">primary_metal/primary_full</span>, per-country exceptions. Wide-format, one <span class="mono">net_*</span> column per authority.</li>
+      <li><strong>Registry slice implemented 22 July:</strong> <span class="mono">src/model/authority_registry.R</span> is now the R-code source for rate/net mappings, spec authority, default stacking class, baseline-panel/schema placement, and reporting census/order. <span class="mono">RATE_SCHEMA</span>, defaults/NA-fill, canonical-grid seeding, both stacking-policy builders, the additive stack, and the daily net census derive from it. Malformed registries fail closed; see <span class="mono">docs/authority_registry_migration_2026-07-22.md</span>.</li>
+      <li>Remaining explicit reporting logic is semantic, not a repeated column census: §301 flavors fold into the §301 public bucket, while Brazil §301 remains separate. A future change to published part columns still requires a deliberate <span class="mono">DAILY_PART_SCHEMA_VERSION</span> bump.</li>
+      <li>History: a long-format "resolved programs" stacker existed for exactly this and was deleted as dead code (never production-enabled). Do not resurrect from git history without re-validating; the wide stacker is the only path that has ever produced published numbers.</li>
+      <li>Related judgment codified nearby: the §338/Brazil §232-exclusion scope masks are per-row column reads inside <span class="mono">apply_section338()</span>/<span class="mono">apply_section301_brazil()</span> (06), with tripwire comments about later mutations of <span class="mono">statutory_rate_232</span>/<span class="mono">s232_annex</span>/<span class="mono">heading_program</span> — external verifiers <span class="mono">scripts/verify_s338_snapshot.R</span> / <span class="mono">verify_s301_brazil_snapshot.R</span> assert the masks against final columns. If you generalize stacking, keep those masks scope-mask semantics (NOT content_split).</li>
+    </ul>
+
+    <h3>Gotchas established this week (do not relearn these)</h3>
+    <ul>
+      <li><strong>§232 heading fail-closed guard</strong> lives in the adapter next to <span class="mono">compute_heading_gates()</span>'s call (<span class="mono">authority_adapter.R</span>): a heading key in <span class="mono">policy_params$section_232_headings</span> absent from the fixed gate registry is a hard stop. The calc-side check is intentionally gone (it compared a list to itself). Unit tests cover it in <span class="mono">tests/test_authority_adapter.R</span>.</li>
+      <li><strong>Counterfactual engine:</strong> <span class="mono">src/model/scenario_inputs.R</span> — <span class="mono">apply_counterfactual_inputs()</span> removes Ch99 rows (via <span class="mono">classify_authority</span>), extractor tables, and config-only blocks (<span class="mono">section_338</span>, <span class="mono">section_301_brazil</span>, §232 annex/headings) <em>before</em> specs are built; <span class="mono">assert_counterfactual_inputs_applied()</span> (06:~1179) is a marker tripwire, not proof the filtered tables were used — keep all callers routed through <span class="mono">build_revision_snapshot()</span>.</li>
+      <li><strong>Known open behavior question:</strong> Taiwan zero-metal-content ch73 derivative lines in IEEPA-removal scenarios (346 lines; new engine charges flat §232, old engine charged nothing). If the group rules for the §232-on-metal-content-only reading, the change is in the §232 content-split gating where the reciprocal's existence is read — see <span class="mono">docs/counterfactual_ab_2026-07-22.md</span> for both readings.</li>
+      <li><strong>Sentinel payloads are gone:</strong> <span class="mono">validate_rate</span> rejects <span class="mono">rate$resolved</span>/string sentinels; builders date-gate by <em>omitting</em> layers, so test for <span class="mono">is.null</span>, never <span class="mono">.rate_is_hollow</span> (deleted).</li>
+      <li><strong>Build configs and scenario YAML fail loud on unknown keys.</strong> Scenario overlay validation is recursive and reports the full bad path; metadata keys are also validated. The tracked-overlay gate ensures every registered scenario resolves against the schema.</li>
+      <li><strong>build_rate_grid</strong> (rate_schema.R) hard-stops on seed keys outside products × countries, on identity violations, and on unexpected seed columns. Programs must never add rows — the two retired seeder patterns (<span class="mono">add_blanket_pairs</span>, <span class="mono">ensure_dense_grid</span>) exist only in git history.</li>
+      <li><strong>Downstream consumers</strong> (verified): Tariff-Model reads the snapshot rate panel via a column whitelist (none of the seven normalized columns) and <span class="mono">daily_by_hs.csv</span> for its dashboard. tariff-etrs is deprecated; the blog pipeline is dead and its CLI aliases (<span class="mono">--with-alternatives</span>/<span class="mono">--rebuild-alts</span>) were removed for good.</li>
+    </ul>
+  </section>
+
+  <footer class="footnote">
+    <p><strong>How this review was done.</strong> I inventoried the repository, traced the main baseline and scenario calculations, reviewed the calendar and reporting paths, read prior architecture notes, checked file syntax, and ran the available tests. Estimates of possible code deletion are rough planning ranges, not promises.</p>
+    <p><strong>Scope.</strong> This is a software-structure review, not a new legal review of every tariff action and not a full production-data rebuild. It identifies places where the software makes legal or numerical mistakes easier to introduce or harder to detect.</p>
+  </footer>
+</div>
+</body>
+</html>

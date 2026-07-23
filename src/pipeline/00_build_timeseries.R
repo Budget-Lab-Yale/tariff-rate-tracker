@@ -17,10 +17,7 @@
 #   Rscript src/pipeline/00_build_timeseries.R --alternatives all   # Also run every registered alternative + counterfactual
 #   Rscript src/pipeline/00_build_timeseries.R --alternatives no_301,metal_flat  # Run specific scenarios by name
 #   Rscript src/pipeline/00_build_timeseries.R --alternatives counterfactuals    # Run all kind=counterfactual scenarios
-#   Rscript src/pipeline/00_build_timeseries.R --alternatives-only  # Run only alternatives (requires existing timeseries)
-#   Legacy spellings (still supported, map to the registry):
-#   Rscript src/pipeline/00_build_timeseries.R --with-alternatives  # == --alternatives alternatives
-#   Rscript src/pipeline/00_build_timeseries.R --rebuild-alts metal_flat,usmca_2024  # == --alternatives metal_flat,usmca_2024
+#   Rscript src/pipeline/00_build_timeseries.R --alternatives counterfactuals --alternatives-only
 #   Rscript src/pipeline/00_build_timeseries.R --refresh-usmca     # Re-download USMCA shares from DataWeb API
 #   (output is written to the model-data interface automatically by the gather —
 #    config: model_data_root; no --publish step. See scripts/build_gather.R.)
@@ -60,7 +57,6 @@
 #     ch99_rev_32.rds             # cached parse (for incremental start)
 #     products_rev_32.rds
 #     rate_timeseries.rds         # final combined long-format
-#     validation_rev_6.rds        # TPC comparison at rev_6
 #
 # =============================================================================
 
@@ -69,137 +65,8 @@ library(jsonlite)
 library(here)
 
 # Source pipeline components
-source(here('src', 'core', 'logging.R'))
-source(here('src', 'core', 'helpers.R'))
-source(here('src', 'core', 'parallel.R'))
-source(here('src', 'pipeline', '01_scrape_revision_dates.R'))
-source(here('src', 'pipeline', '02_download_hts.R'))
-source(here('src', 'pipeline', '03_parse_chapter99.R'))
-source(here('src', 'pipeline', '04_parse_products.R'))
-source(here('src', 'pipeline', '05_parse_policy_params.R'))
-source(here('src', 'pipeline', '06_calculate_rates.R'))
-source(here('src', 'model', 'authority_spec.R'))      # AuthoritySpec datatype
-source(here('src', 'model', 'authority_adapter.R'))   # build_authority_specs() (Phase 1)
-source(here('src', 'pipeline', '07_validate_tpc.R'))
-
-
-# =============================================================================
-# Per-revision unit
-# =============================================================================
-
-#' Build a single revision's rate snapshot (the unit of parallel work).
-#'
-#' Resolves the revision's JSON, parses it, extracts authority params, runs the
-#' calculator, and writes the *revision-scoped* artifacts: snapshot_<rev>.rds,
-#' ch99_<rev>.rds, products_<rev>.rds (+ validation_<rev>.rds if a tpc_date is
-#' present). It deliberately does NOT compute the cross-revision delta or write
-#' the shared data/processed/products_raw.csv — those depend on neighbouring
-#' revisions / are single-writer, so they live in the orchestration layer (the
-#' serial loop, or the array gather step). Errors propagate to the caller, which
-#' decides whether to isolate (serial loop) or fail the task (array).
-#'
-#' @return list(rates, ch99_data, products, snapshot_path, n_rates)
-build_revision_snapshot <- function(rev_id, eff_date, tpc_date = NA,
-                                    archive_dir = 'data/hts_archives',
-                                    output_dir = 'data/timeseries',
-                                    country_lookup, countries, census_codes,
-                                    pp_build,
-                                    stacking_method = 'mutual_exclusion',
-                                    tpc_path = NULL,
-                                    archive_rev_id = rev_id) {
-  # a. Resolve JSON path. `archive_rev_id` decouples *which archive to parse*
-  #    from *what id/date to stamp*: for a real revision it equals `rev_id`
-  #    (default, unchanged behavior); a synthetic future revision parses the TIP
-  #    archive (`archive_rev_id` = latest real rev) but stamps the snapshot and
-  #    every `revision` label with `rev_id` and the future `eff_date`. The
-  #    calculator's internal date gates fire as-of `eff_date`, so the synthetic
-  #    revision automatically reflects every other scheduled change in force by D
-  #    (e.g. an s122 sunset). See build_boundary_mints().
-  json_path <- resolve_json_path(archive_rev_id, archive_dir)
-
-  # b. Read raw JSON (needed for IEEPA/USMCA extraction)
-  hts_raw <- fromJSON(json_path, simplifyDataFrame = FALSE)
-
-  # c. Parse Chapter 99 entries
-  ch99_data <- parse_chapter99(json_path)
-
-  # d. Parse products
-  products <- parse_products(json_path)
-
-  # e. Extract IEEPA rates, fentanyl rates, Section 232 rates, and USMCA eligibility.
-  #    Pass eff_date so IEEPA & fentanyl extractors gate entries whose legal
-  #    effective date in their description is after this revision (mirrors
-  #    the filter_active_ch99() gate inside calculate_rates_for_revision).
-  ieepa_rates <- extract_ieepa_rates(hts_raw, country_lookup, effective_date = eff_date)
-  fentanyl_rates <- extract_ieepa_fentanyl_rates(hts_raw, country_lookup, effective_date = eff_date)
-  ch99_data_active <- filter_active_ch99(ch99_data, as.Date(eff_date))
-  s232_rates <- extract_section232_rates(ch99_data_active, effective_date = eff_date,
-                                         policy_params = pp_build)
-  usmca <- extract_usmca_eligibility(hts_raw)
-
-  # f. AuthoritySpec path (Phase 6f: ALWAYS ON — specs are the authoritative input).
-  #    Re-package the parser outputs into a spec set; the calculator reads
-  #    rates/scope/gates off it. Counterfactuals are authored as config overlays
-  #    (config/scenarios/<name>/overlay.yaml, deep-merged into pp_build), so the
-  #    spec the calculator sees already reflects the scenario — no per-revision
-  #    mutation step here.
-  specs <- build_authority_specs(
-    products, ch99_data, ieepa_rates, usmca,
-    countries, rev_id, eff_date,
-    s232_rates = s232_rates, fentanyl_rates = fentanyl_rates,
-    policy_params = pp_build
-  )
-
-  # g. Calculate rates for this revision
-  rates <- calculate_rates_for_revision(
-    products, ch99_data, usmca,
-    countries, rev_id, eff_date,
-    specs = specs,
-    stacking_method = stacking_method,
-    policy_params = pp_build
-  )
-
-  # h. Save snapshot
-  snapshot_path <- file.path(output_dir, paste0('snapshot_', rev_id, '.rds'))
-  saveRDS(rates, snapshot_path)
-
-  # i. Cache parse results (for incremental + the array gather's delta step)
-  saveRDS(ch99_data, file.path(output_dir, paste0('ch99_', rev_id, '.rds')))
-  saveRDS(products, file.path(output_dir, paste0('products_', rev_id, '.rds')))
-
-  # j. TPC validation if this revision has a tpc_date
-  if (!is.na(tpc_date) && !is.null(tpc_path) && file.exists(tpc_path)) {
-    message('  Running TPC validation for date: ', tpc_date)
-    tryCatch({
-      validation <- validate_revision_against_tpc(
-        revision_rates = rates,
-        tpc_path = tpc_path,
-        tpc_date = tpc_date,
-        census_codes = census_codes
-      )
-      val_path <- file.path(output_dir, paste0('validation_', rev_id, '.rds'))
-      saveRDS(validation, val_path)
-      message('  TPC match rate: ', round(validation$match_rate * 100, 1), '%')
-    }, error = function(e) {
-      message('  TPC validation failed: ', conditionMessage(e))
-    })
-  }
-
-  # k. Log summary
-  if (nrow(rates) > 0) {
-    ieepa_summary <- rates %>%
-      filter(rate_ieepa_recip > 0) %>%
-      summarise(
-        n_countries = n_distinct(country),
-        mean_rate = mean(rate_ieepa_recip)
-      )
-    message('  IEEPA active in ', ieepa_summary$n_countries, ' countries, ',
-            'mean rate: ', round(ieepa_summary$mean_rate * 100, 1), '%')
-  }
-
-  list(rates = rates, ch99_data = ch99_data, products = products,
-       snapshot_path = snapshot_path, n_rates = nrow(rates))
-}
+source(here('src', 'core', 'module_loader.R'))
+tariff_load_bundle('build', environment())
 
 
 #' Mint synthetic boundary snapshots from discovered schedule boundaries.
@@ -236,9 +103,7 @@ build_revision_snapshot <- function(rev_id, eff_date, tpc_date = NA,
 #' @return rev_dates with one row appended per minted boundary (unchanged if none).
 build_boundary_mints <- function(rev_dates, boundaries, pp_build, output_dir,
                                  country_lookup, countries, census_codes,
-                                 archive_dir = 'data/hts_archives',
-                                 stacking_method = 'mutual_exclusion',
-                                 tpc_path = NULL) {
+                                 archive_dir = 'data/hts_archives') {
   if (is.null(boundaries) || nrow(boundaries) == 0) return(rev_dates)
 
   message('\n', strrep('=', 60))
@@ -273,12 +138,11 @@ build_boundary_mints <- function(rev_dates, boundaries, pp_build, output_dir,
     message('  [bnd] ', bid, ' = owner ', owner, ' stamped at ', D,
             ' (', src, ')')
     build_revision_snapshot(
-      rev_id = bid, eff_date = D, tpc_date = NA,
+      rev_id = bid, eff_date = D,
       archive_rev_id = owner,
       archive_dir = archive_dir, output_dir = output_dir,
       country_lookup = country_lookup, countries = countries,
-      census_codes = census_codes, pp_build = pp_build,
-      stacking_method = stacking_method, tpc_path = tpc_path
+      census_codes = census_codes, pp_build = pp_build
     )
     new_rows[[k]] <- tibble(revision = bid, effective_date = D)
   }
@@ -330,25 +194,23 @@ build_array_revision_timeline <- function(rev_dates, pp_build,
       transmute(
         revision,
         effective_date = as.Date(date),
-        tpc_date = as.Date(NA),
         archive_rev_id = owner_rev,
         source = 'boundary'
       )
   } else {
     tibble(
       revision = character(), effective_date = as.Date(character()),
-      tpc_date = as.Date(character()), archive_rev_id = character(),
+      archive_rev_id = character(),
       source = character()
     )
   }
 
   out <- bind_rows(
-    real %>% select(any_of(c('revision', 'effective_date', 'tpc_date')),
+    real %>% select(any_of(c('revision', 'effective_date')),
                     archive_rev_id, source),
     bnd
   ) %>%
-    mutate(effective_date = as.Date(effective_date),
-           tpc_date = as.Date(tpc_date)) %>%
+    mutate(effective_date = as.Date(effective_date)) %>%
     arrange(effective_date, revision)
 
   dup <- out$revision[duplicated(out$revision)]
@@ -590,7 +452,6 @@ assemble_timeseries <- function(output_dir, rev_dates, pp_build,
 #' @param output_dir Directory for time series outputs
 #' @param revision_dates_path Path to revision_dates.csv
 #' @param census_codes_path Path to census_codes.csv
-#' @param tpc_path Path to TPC validation data; defaults to local_paths config
 #' @param scenario Scenario name (default: 'baseline')
 #' @param start_from NULL for full backfill; revision ID for incremental
 #' @param allow_partial If TRUE, assemble the panel even when some attempted
@@ -602,10 +463,8 @@ build_full_timeseries <- function(
   output_dir = 'data/timeseries',
   revision_dates_path = 'config/revision_dates.csv',
   census_codes_path = 'resources/census_codes.csv',
-  tpc_path = NULL,
   scenario = 'baseline',
   start_from = NULL,
-  stacking_method = 'mutual_exclusion',
   use_policy_dates = TRUE,
   parallel_cfg = NULL,
   allow_partial = FALSE
@@ -631,9 +490,6 @@ build_full_timeseries <- function(
 
   # ---- Setup ----
   ensure_dir(output_dir)
-  if (is.null(tpc_path)) {
-    tpc_path <- load_local_paths()$tpc_benchmark
-  }
 
   # Load revision dates
   rev_dates <- load_revision_dates(revision_dates_path,
@@ -721,7 +577,6 @@ build_full_timeseries <- function(
     rev_id <- revisions_to_process[i]
     rev_info <- rev_dates %>% filter(revision == rev_id)
     eff_date <- rev_info$effective_date
-    tpc_date <- rev_info$tpc_date
 
     cli::cli_progress_update()
 
@@ -735,11 +590,10 @@ build_full_timeseries <- function(
     tryCatch({
       # Build this revision's snapshot (parse -> extract -> calc -> save).
       res <- build_revision_snapshot(
-        rev_id = rev_id, eff_date = eff_date, tpc_date = tpc_date,
+        rev_id = rev_id, eff_date = eff_date,
         archive_dir = archive_dir, output_dir = output_dir,
         country_lookup = country_lookup, countries = countries,
-        census_codes = census_codes, pp_build = pp_build,
-        stacking_method = stacking_method, tpc_path = tpc_path
+        census_codes = census_codes, pp_build = pp_build
       )
       ch99_data <- res$ch99_data
       products  <- res$products
@@ -801,18 +655,17 @@ build_full_timeseries <- function(
   # After the real-revision snapshots + their ch99_<rev>.rds caches exist, discover
   # every schedule boundary that falls strictly inside a real interval and that the
   # calc re-resolves on recompute (Ch99 offsets / IEEPA invalidation / §232
-  # country-exemption expiries), and mint one `bnd_<date>` snapshot per boundary.
+  # country-exemption expiries / policy sunsets), and mint one `bnd_<date>`
+  # snapshot per boundary.
   # assemble_timeseries derives the new interval from rev_dates ordering. Empty
-  # discovery => no-op. NOTE: these are NOT fed to the 09 expiry splitter — the
-  # mint already creates the interval; feeding it would duplicate the owner.
+  # discovery => no-op. Daily reporting reads the minted intervals directly.
   boundaries <- discover_boundaries(rev_dates, output_dir, pp_build,
                                     overrides = pp_build$BOUNDARY_OVERRIDES,
                                     horizon = pp_build$SERIES_HORIZON_END)
   rev_dates <- build_boundary_mints(
     rev_dates, boundaries, pp_build, output_dir,
     country_lookup = country_lookup, countries = countries,
-    census_codes = census_codes, archive_dir = archive_dir,
-    stacking_method = stacking_method, tpc_path = tpc_path)
+    census_codes = census_codes, archive_dir = archive_dir)
 
   # ---- Bind snapshots -> timeseries (+ intervals, parquet, metadata) ----
   # Reconcile the revisions this run attempted (revisions_to_process — already
@@ -988,11 +841,11 @@ if (sys.nframe() == 0) {
   # rots invisibly in wrapper scripts: --publish-internal was dropped from this
   # CLI but stale wrappers kept passing it, running builds that silently never
   # published. Value-taking flags consume the following token.
-  KNOWN_FLAGS <- c('--full', '--build-only', '--core-only', '--with-alternatives',
+  KNOWN_FLAGS <- c('--full', '--build-only', '--core-only',
                    '--alternatives-only', '--refresh-usmca', '--publish-git',
                    '--allow-partial', '--use-hts-dates', '--unweighted',
                    '--skip-release-check', '--parallel')
-  VALUE_FLAGS <- c('--start-from', '--rebuild-alts', '--workers', '--alt-workers',
+  VALUE_FLAGS <- c('--start-from', '--workers', '--alt-workers',
                    '--backend', '--alternatives')
   i <- 1L
   while (i <= length(args)) {
@@ -1013,7 +866,6 @@ if (sys.nframe() == 0) {
   full_rebuild <- '--full' %in% args
   build_only <- '--build-only' %in% args
   core_only <- '--core-only' %in% args
-  with_alternatives <- '--with-alternatives' %in% args
   alternatives_only <- '--alternatives-only' %in% args
   refresh_usmca <- '--refresh-usmca' %in% args
   do_publish_git      <- '--publish-git' %in% args
@@ -1022,28 +874,16 @@ if (sys.nframe() == 0) {
   unweighted <- '--unweighted' %in% args
   skip_release_check <- '--skip-release-check' %in% args
   start_from <- NULL
-  rebuild_alts <- NULL
   alternatives_arg <- NULL
   for (i in seq_along(args)) {
     if (args[i] == '--start-from' && i < length(args)) start_from <- args[i + 1]
-    if (args[i] == '--rebuild-alts' && i < length(args))
-      rebuild_alts <- strsplit(args[i + 1], ',')[[1]]
     if (args[i] == '--alternatives' && i < length(args))
       alternatives_arg <- args[i + 1]
   }
 
-  # --alternatives <names|all|alternatives|counterfactuals> is the canonical
-  # selector (config/scenarios registry; see src/model/scenario_registry.R). The
-  # legacy pair still works — --with-alternatives == --alternatives alternatives,
-  # --rebuild-alts <list> == --alternatives <list> — so existing wrappers
-  # (incl. the blog pipeline) are unaffected. Nudge toward the new flag.
-  if (is.null(alternatives_arg) && (with_alternatives || !is.null(rebuild_alts))) {
-    message('NOTE: --with-alternatives / --rebuild-alts are legacy spellings; ',
-            'prefer --alternatives <names|all|alternatives|counterfactuals>.')
-  }
-  if (!is.null(alternatives_arg) && (with_alternatives || !is.null(rebuild_alts))) {
-    stop('Pass either --alternatives or the legacy --with-alternatives/',
-         '--rebuild-alts pair, not both.')
+  if (alternatives_only && is.null(alternatives_arg)) {
+    stop('--alternatives-only requires --alternatives ',
+         '<names|all|alternatives|counterfactuals>.')
   }
 
   # --unweighted overrides config to opt into an unweighted run for this invocation.
@@ -1065,7 +905,6 @@ if (sys.nframe() == 0) {
     full = full_rebuild,
     build_only = build_only,
     core_only = core_only,
-    with_alternatives = with_alternatives,
     alternatives_only = alternatives_only,
     alternatives = alternatives_arg,
     refresh_usmca = refresh_usmca,
@@ -1099,8 +938,6 @@ if (sys.nframe() == 0) {
     source(here('src', 'pipeline', '09_daily_series.R'))
     source(here('src', 'io', 'build_import_weights.R'))
 
-    pp <- load_policy_params(use_policy_dates = use_policy_dates)
-
     # Pre-flight: auto-build weights if missing (alternatives need them).
     if (!unweighted) {
       tryCatch(
@@ -1114,10 +951,8 @@ if (sys.nframe() == 0) {
     imports <- load_import_weights(weight_mode = cli_weight_mode)
 
     capture_messages({
-      run_alternative_series(imports = imports, policy_params = pp,
-                              rebuild = TRUE,
-                              rebuild_alts = rebuild_alts,
-                              alternatives = alternatives_arg,
+      run_alternative_series(alternatives = alternatives_arg,
+                              imports = imports,
                               alt_workers = parallel_cfg$alt_workers,
                               use_policy_dates = use_policy_dates)
     })
@@ -1288,20 +1123,19 @@ if (sys.nframe() == 0) {
         error = function(e) message('Quality report failed: ', conditionMessage(e))
       )
 
-      # --- Step F: Alternative daily series ---
-      # Post-build alternatives always run; rebuild alternatives only with --with-alternatives.
+      # --- Step F: Requested alternative daily series ---
       # Release the full timeseries — alternatives iterate per-revision snapshots
       # and holding ts alongside them was the source of prior OOMs.
       rm(ts)
       gc()
-      tryCatch({
-        run_alternative_series(imports = imports, policy_params = pp,
-                                rebuild = with_alternatives,
-                                rebuild_alts = rebuild_alts,
-                                alternatives = alternatives_arg,
-                                alt_workers = parallel_cfg$alt_workers,
-                                use_policy_dates = use_policy_dates)
-      }, error = function(e) message('Alternative series failed: ', conditionMessage(e)))
+      if (!is.null(alternatives_arg)) {
+        tryCatch({
+          run_alternative_series(alternatives = alternatives_arg,
+                                  imports = imports,
+                                  alt_workers = parallel_cfg$alt_workers,
+                                  use_policy_dates = use_policy_dates)
+        }, error = function(e) message('Alternative series failed: ', conditionMessage(e)))
+      }
     }
 
     }) # end capture_messages

@@ -1,0 +1,24 @@
+# rev_12 canonical build — actual + new_301, first vintage to include 2026 HTS
+# rev_12 (Section 301 Brazil final action codified as ch99 headings
+# 9903.05.01-.09, eff. 2026-07-22) AND the Brazil rate-source swap (the +25% now
+# reads off HTS 9903.05.01 via extract_section301_brazil_rates(), config rate
+# demoted to fallback).
+#
+# Parallel array flow (fans revisions across Slurm nodes). Builds and VERIFIES a
+# fresh vintage but does NOT move `latest`: review the new vintage, then repoint
+# deliberately with
+#   Rscript scripts/publish_vintage.R --latest-only <vintage>
+#
+#   bash scripts/submit_build_array.sh --config config/build/rev12.yaml
+
+model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker
+policy_params_path: config/policy_params.yaml
+
+scenarios:
+  - new_301
+
+use_hts_dates: false
+weight_mode: required
+update_latest: false        # review the rev_12 vintage before repointing latest
+allow_partial: false
+verify: true                # finalize runs scripts/verify_build.R against the vintage

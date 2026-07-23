@@ -1,14 +1,7 @@
 # =============================================================================
 # authority_adapter unit tests
 # =============================================================================
-# Pure-logic checks for src/model/authority_adapter.R — the lossless re-packaging.
-# The crux of parity (Phase 6b): the residual BLOB objects (s232_rates [decision-8
-# §232 residual], fentanyl_rates) are parked VERBATIM in their owning program's
-# rate$resolved slot and read back via *_from_specs() UNCHANGED. section_122 was
-# DE-BLOBBED in Plank 3 (rate$default); ieepa_reciprocal was DE-BLOBBED in Plank 4b/S1
-# — the adapter resolves the per-country table (phase-collapse + floor override) into
-# structured rate layers (by_country + companions + default_unlisted_rate), no
-# rate$resolved blob. No model data.
+# Pure-logic checks for the parser-to-AuthoritySpec boundary. No model data.
 #
 # get_country_constants() / load_policy_params() (normally from
 # 05_parse_policy_params.R) are stubbed so this runs without the parser
@@ -34,6 +27,8 @@ HEADING_GATES_SENTINEL <- list(autos_passenger = TRUE, copper = FALSE)
 compute_heading_gates <- function(specs, s232_rates) HEADING_GATES_SENTINEL  # S1b: (specs, s232_rates)
 S122_SENTINEL <- list(s122_rate = 0.10, has_s122 = TRUE)   # Phase 6a
 extract_section122_rates <- function(ch99_data) S122_SENTINEL
+extract_section_201_rates <- function(ch99_data, policy_params = NULL)
+  list(s201_rates = NULL, has_s201 = FALSE, solar_rate = 0)
 # S2 (blanket slice): the adapter calls is_232_exempt over `countries` to build the
 # steel/aluminum by_country overlay. Census-only stub (the test data uses census codes).
 is_232_exempt <- function(census_code, exempt_list) isTRUE(census_code %in% exempt_list)
@@ -96,15 +91,9 @@ check(setequal(names(specs),
       'all eight authorities present')
 check(isTRUE(validate_spec_set(specs)), 'validates (fail-loud passed inside)')
 
-cat('\n--- lossless relocation: identical R objects in programs[[1]]$rate$resolved ---\n')
-check(identical(s232_rates_from_specs(specs), s232),
-      's232 21-field list reachable via s232_rates_from_specs (parked on programs[[1]])')
-check(is.null(specs[['ieepa_reciprocal']]$programs[[1]]$rate$resolved),
-      'ieepa_reciprocal carries NO resolved blob (Plank 4b/S1 de-blobbed)')
+cat('\n--- structured authority payloads ---\n')
 check(isTRUE(all.equal(unname(specs[['ieepa_reciprocal']]$programs[[1]]$rate$by_country['5700']), 0.20)),
       'ieepa reciprocal rate$by_country resolved from spec (China 0.20)')
-check(is.null(specs[['ieepa_fentanyl']]$programs[[1]]$rate$resolved),
-      'ieepa_fentanyl carries NO resolved blob (Plank 4b/S2 de-blobbed)')
 check(isTRUE(all.equal(unname(specs[['ieepa_fentanyl']]$programs[[1]]$rate$by_country['5700']), 0.20)),
       'fentanyl rate$by_country = max-per-census general (China 0.10/0.20 -> 0.20)')
 check(identical(specs[['ieepa_fentanyl']]$programs[[1]]$rate$carveouts$ch99_code, '9903.01.13'),
@@ -113,8 +102,6 @@ check(identical(specs[['section_122']]$programs[[1]]$rate$default, S122_SENTINEL
       's122 blanket rate structured into rate$default (Plank 3, de-blobbed)')
 check(identical(specs[['section_122']]$programs[[1]]$rate$rate_type, 'surcharge'),
       's122 rate_type = surcharge (additive blanket duty)')
-check(is.null(specs[['section_122']]$programs[[1]]$rate$resolved),
-      's122 carries NO resolved blob (de-blobbed in Plank 3)')
 check(isTRUE(all.equal(specs[['ieepa_reciprocal']]$programs[[1]]$rate$default_unlisted_rate, 0.10)),
       'universal_baseline -> ieepa_reciprocal rate$default_unlisted_rate (de-blobbed)')
 check(is.null(attr(specs[['section_232']], 'raw_s232', exact = TRUE)),
@@ -127,16 +114,16 @@ check(identical(.prog('steel')$rate$default, 0.50),
       'steel base rate structured into rate$default (S1a, = s232$steel_rate)')
 check(identical(.prog('aluminum')$rate$default, 0.50),
       'aluminum base rate structured into rate$default (S1a)')
-check(identical(.prog('autos')$rate$default, 0),
+check(identical(.prog('autos_source')$rate$default, 0),
       'autos base rate -> rate$default = 0 when s232$auto_rate absent (verbatim, incl. 0)')
 check(identical(.prog('steel')$rate$rate_type, 'surcharge'),
       '232 program rate_type = surcharge (additive)')
 check(identical(resolve_rate(.prog('steel')$rate)$value, 0.50),
       'calc-side read: resolve_rate(steel program) = 0.50 (the de-blobbed base)')
-check(identical(resolve_rate(.prog('autos')$rate)$value, 0),
+check(identical(resolve_rate(.prog('autos_source')$rate)$value, 0),
       'calc-side read: resolve_rate(autos program) = 0 (not NA) — baseline-safe')
-check(identical(s232_rates_from_specs(specs), s232),
-      'S1a coexistence: the residual resolved blob is still parked on programs[[1]] verbatim')
+check(!'resolved' %in% unlist(lapply(s232_progs, function(p) names(p$rate))),
+      'section_232 has no residual rate payload')
 
 cat('\n--- Plank 4a / S2: steel/aluminum exempt + overrides + config -> rate$by_country ---\n')
 check(identical(.prog('steel')$rate$by_country, stats::setNames(0, '1220')),
@@ -149,7 +136,7 @@ check(identical(resolve_rate(.prog('steel')$rate, product = NULL, country = '570
       'calc read: resolve_rate(steel, country=China) = 0.50 (base; not in by_country)')
 
 cat('\n--- Plank 4a / S2 deals: auto/wood deals -> rate$overrides (surcharge) + rate$floors ---\n')
-.autos <- .prog('autos')
+.autos <- .prog('autos_source')
 check(length(.autos$rate$overrides) == 1L &&
       identical(.autos$rate$overrides[[1]]$rate, 0.075) &&
       identical(.autos$rate$overrides[[1]]$scope, 'auto_vehicles'),
@@ -162,24 +149,25 @@ check(length(.autos$rate$floors) == 1L &&
       'autos floor deal (EU) -> rate$floors, EU expanded to 27 census codes')
 check(identical(resolve_rate(.autos$rate, product = NULL, country = '4120')$value, 0),
       'scope-form overrides/floors invisible to resolve_rate: returns default(0), not the deal rate')
-check(length(.prog('wood')$rate$overrides) == 1L &&
-      identical(.prog('wood')$rate$overrides[[1]]$rate, 0.10) &&
-      identical(.prog('wood')$rate$overrides[[1]]$scope, 'softwood'),
+check(length(.prog('wood_source')$rate$overrides) == 1L &&
+      identical(.prog('wood_source')$rate$overrides[[1]]$rate, 0.10) &&
+      identical(.prog('wood_source')$rate$overrides[[1]]$scope, 'softwood'),
       'wood surcharge deal -> wood program rate$overrides (S2 deals)')
 check(isTRUE(validate_spec_set(specs)),
       'spec set with scope-form overrides + floors still validates (Plank-0 additive change)')
 
 cat('\n--- Plank 4a / S1b: heading programs de-blobbed + dormant pharmaceuticals program ---\n')
 prog_ids <- vapply(s232_progs, function(p) p$id, character(1))
-check(length(s232_progs) == 8L && 'pharmaceuticals' %in% prog_ids,
-      'section_232 has 8 programs incl. the dormant pharmaceuticals (S1b)')
-check(identical(.prog('copper')$rate$default, 0) &&
-      identical(.prog('mhd')$rate$default, 0) &&
-      identical(.prog('wood')$rate$default, 0) &&
-      identical(.prog('semiconductors')$rate$default, 0) &&
-      identical(.prog('pharmaceuticals')$rate$default, 0),
+check(length(s232_progs) == 10L &&
+      all(c('pharmaceuticals_source', 'steel_derivatives', 'aluminum_derivatives') %in% prog_ids),
+      'section_232 has explicit base, heading-group, and derivative programs')
+check(identical(.prog('copper_source')$rate$default, 0) &&
+      identical(.prog('mhd_source')$rate$default, 0) &&
+      identical(.prog('wood_source')$rate$default, 0) &&
+      identical(.prog('semiconductors_source')$rate$default, 0) &&
+      identical(.prog('pharmaceuticals_source')$rate$default, 0),
       'copper/mhd/wood/semi/pharma base rates -> rate$default = 0 (absent in stub)')
-check(identical(resolve_rate(.prog('pharmaceuticals')$rate)$value, 0),
+check(identical(resolve_rate(.prog('pharmaceuticals_source')$rate)$value, 0),
       'calc-side read: resolve_rate(pharmaceuticals) = 0 (dormant, baseline-safe)')
 
 cat('\n--- normalized scaffold (not read in Phase 1, but should be faithful) ---\n')
@@ -189,16 +177,15 @@ check(identical(specs[['section_201']]$programs[[1]]$country_scope$exclude, '122
       '201 Canada exemption captured as country_scope exclude')
 check(identical(specs[['section_232']]$stacking$class, 'primary_metal'),
       '232 authority stacking.class = primary_metal')
-check(identical(attr(specs[['section_232']], 'heading_gates', exact = TRUE),
-                HEADING_GATES_SENTINEL),
-      '232 heading_gates precomputed onto the spec (Phase 2c)')
+check(is.null(specs[['section_232']]$heading_gates),
+      '232 heading activation is carried by programs, not an authority-side cache')
 
 cat('\n--- serialization round-trip preserves relocated payloads + nested attrs ---\n')
 tmp <- tempfile(fileext = '.rds')
 saveRDS(specs, tmp)
 specs2 <- readRDS(tmp)
-check(identical(s232_rates_from_specs(specs2), s232),
-      's232 program rate$resolved survives saveRDS/readRDS')
+check(isTRUE(specs2[['section_232']]$active$enabled),
+      's232 structured activation survives saveRDS/readRDS')
 check(identical(specs2[['section_122']]$programs[[1]]$rate$default, S122_SENTINEL$s122_rate),
       's122 program rate$default survives saveRDS/readRDS')
 check(isTRUE(all.equal(specs2[['ieepa_reciprocal']]$programs[[1]]$rate$default_unlisted_rate, 0.10)),
@@ -314,5 +301,42 @@ check(length(ovs_def) == 2,
 check(isTRUE(all.equal(unname(ovs_def[[1]]$rate_map['7208100000']), 0.25)) &&
         isTRUE(all.equal(unname(ovs_def[[1]]$rate_map['7326908688']), 0.15)),
       'defaults: UK rate_map = unconditional uk_rate (q = 1.0, legacy-identical)')
+
+cat('\n--- unregistered §232 heading fails closed ---\n')
+# A heading configured in policy_params but absent from compute_heading_gates()'s
+# registry must be a hard stop, never a silently-disabled (zero-rate) program.
+pp_bad_heading <- list(section_232_headings = list(
+  robotics = list(default_rate = 0.25, products_file = 'nonexistent.csv')))
+err <- tryCatch({
+  build_authority_specs(
+    products = data.frame(), ch99_data = data.frame(),
+    ieepa_rates = ieepa, usmca = data.frame(),
+    countries = c('5700', '1220', '2010'),
+    revision_id = 'rev_guard', effective_date = as.Date('2025-06-01'),
+    s232_rates = s232, fentanyl_rates = fent, policy_params = pp_bad_heading
+  )
+  NULL
+}, error = function(e) conditionMessage(e))
+check(!is.null(err) && grepl('robotics', err) && grepl('no activation gate', err),
+      'unregistered heading (robotics) hard-stops with an actionable message')
+
+# Positive control: gate-registered headings still build (copper is in the stub
+# sentinel with gate FALSE -> program present, enabled = FALSE, no error).
+# s232_spec_rate lives in 06 (not sourced here); resolved at call time like the
+# other stubs. 0 = "no parsed rate" -> the heading falls back to default_rate.
+s232_spec_rate <- function(specs, id) 0
+pp_ok_heading <- list(section_232_headings = list(
+  copper = list(default_rate = 0.50)))
+specs_guard <- build_authority_specs(
+  products = data.frame(), ch99_data = data.frame(),
+  ieepa_rates = ieepa, usmca = data.frame(),
+  countries = c('5700', '1220', '2010'),
+  revision_id = 'rev_guard_ok', effective_date = as.Date('2025-06-01'),
+  s232_rates = s232, fentanyl_rates = fent, policy_params = pp_ok_heading
+)
+guard_prog <- Filter(function(p) identical(p$id, 'copper'),
+                     specs_guard[['section_232']]$programs)
+check(length(guard_prog) == 1 && identical(guard_prog[[1]]$active$enabled, FALSE),
+      'registered heading with FALSE gate builds as an explicit disabled program')
 
 cat(sprintf('\nALL %d AUTHORITY_ADAPTER ASSERTIONS PASSED\n', pass))

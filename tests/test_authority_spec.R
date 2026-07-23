@@ -49,7 +49,7 @@ s301 <- authority_spec(
     id = 's301',
     product_scope = list(list_file = 'resources/s301_product_lists.csv'),
     country_scope = list(include = c('5700')),
-    rate = list(by_product_tier = 'from_list')))
+    rate = list(by_product_tier = c(`01010000` = 0.25))))
 )
 
 cat('\n--- spec set bundling ---\n')

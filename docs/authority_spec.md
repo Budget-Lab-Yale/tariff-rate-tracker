@@ -113,23 +113,13 @@ layered on the tip of the baseline panel and recomputed forward from its
 `effective_from` (dates before are reused baseline, untouched).
 
 **The tip is itself a time path, not a flat rate.** Current law as of any date
-already encodes scheduled future changes — but they reach the timeline through
-**two different mechanisms today**, which the new engine must unify:
-
-- **Expiries** (s122 sunset, Swiss-framework expiry 2026-03-31) are split into
-  sub-intervals *after* the panel is built, by `collect_expiry_adjustments` /
-  `get_expiry_split_points` (defined in `src/core/helpers.R:391,469`; invoked from
-  `09_daily_series.R`).
-- **Activation offsets** (`effective_date_offset`) are handled *earlier and
-  differently* — `filter_active_ch99` (defined in `src/model/rate_schema.R:220`, called
-  at `06:719`) gates them per revision at calc time. The expiry splitter does
-  **not** create a sub-interval at a mid-interval Ch99 activation offset.
-
-So the baseline path *is* multi-interval, but it is **not** one unified splitter
-today (an overstatement to avoid). A scenario must therefore *compose* with this
-scheduled path, and the synthetic-revision timeline must **explicitly collect every
-schedule boundary** into one splitter (see implementation requirements below). This
-keeps baseline and counterfactual symmetric: all downstream derivations work unchanged.
+already encodes scheduled future changes. `collect_schedule_boundaries()` gathers
+starts, first-dead-day expiries, activation offsets, and scenario dates; the build
+mints each non-revision boundary before downstream artifacts are derived. Swiss
+framework snapshots also retain the underlying rate, temporary floor, and active
+dates, so expiry is a normal calculator recompute rather than a report-side edit.
+This keeps baseline and counterfactual symmetric: every consumer reads the same
+interval-encoded panel.
 
 ### Where the scenario injects: the parameter layer (not JSON, not the panel)
 
@@ -150,9 +140,7 @@ logic (metal-share assignment, USMCA scaling, stacking) re-runs on the delta for
 free — "the calculator still holds," structurally guaranteed.
 
 We do **not** synthesize fake JSON (Layer A), and we do **not** post-process the
-output panel (Layer C) — which is what the legacy post-build patch engine
-(`apply_scenarios.R`, deleted in Phase 7) did, and exactly why it was limited to
-column edits and could not introduce coverage or set archetype tags correctly.
+output panel (Layer C). Scenarios change inputs and rerun the calculator.
 
 ## The schema
 
@@ -201,7 +189,7 @@ section_301:
     - id: s301
       product_scope: { list_file: resources/s301_product_lists.csv }
       country_scope: { include: ['5700'] }    # China; was `if (country == cty_china)`
-      rate: { by_product_tier: from_list }    # 7.5% / 25% carried by the list file
+      rate: { by_product_tier: { "01012100": 0.25, "01012900": 0.075 } }
 ```
 
 And IEEPA fentanyl — the country-dependent stacking wrinkle, expressed as data:
@@ -373,16 +361,14 @@ Resolution is a **precedence pipeline**, not a single `max()`:
   heading-program rate (`06:1985`, `heading_program_products`).
 - **Metadata is combined, not "taken from the winner."** USMCA exemption is OR-combined
   across overlapping headings — `heading_usmca_exempt = any(...)` (`06:1435`) — not read off
-  the single max-rate program. `metal` / `stacking.class` resolve to the *post-exclusion row
-  state* in the resolved-program intermediate table (impl req 2), which carries the active
-  per-type share, `deriv_type`, `is_copper_heading`, and `s232_annex` — not a pointer to one
-  "winning program."
+  the single max-rate program. `metal` / `stacking.class` resolve onto the canonical
+  product-country grid, which carries the active per-type share, `deriv_type`,
+  `is_copper_heading`, and `s232_annex` — not a pointer to one "winning program."
 
 ## The scenario delta: operations on specs
 
 A synthetic future revision is a small list of operations over the baseline
-specs — the uniform replacement for today's `disable:` / `patches:`
-(`config/scenarios.yaml`).
+specs.
 
 A scenario has **two independent dimensions**: `policy` (statutory deltas over the
 specs) and `assumptions` (modeling deltas over `adjustment_params`). Either may be
@@ -392,8 +378,8 @@ current-policy (cancel them); `base` pins the branch point.
 **Recompute scope differs by dimension.** Only `policy` ops carry `effective_from`, so a
 policy-only scenario recomputes forward from that date and reuses baseline before it. An
 `assumptions` change (USMCA mode, metal-content method) is **not** dated — it is a
-*whole-series* rebuild (it re-runs every revision, the way `build_rebuild_alt_registry`
-overrides `pp` today, `09:1342`), so it invalidates the entire series, not just the tip.
+*whole-series* rebuild (the scenario overlay is applied to every revision), so it
+invalidates the entire series, not just the tip.
 Either give assumptions an effective date too, or state this asymmetry explicitly.
 
 ```yaml
@@ -457,8 +443,7 @@ of an existing program). Each carries `effective_from`.
 - Unknown authority/program id, unknown census code, or `primary_metal` without a
   `metal.type` → **hard error**, never a silent no-op.
 
-**The timeline splitter is new work, not a reuse of the old `collect_patch_split_dates()`**
-(from the Phase-7-deleted `apply_scenarios.R`, which only read `patches[].filter.from_date`). A synthetic
+**The timeline splitter must operate on policy boundaries.** A synthetic
 revision must build a modified spec set, recompute coverage, assign a synthetic
 revision id, and append the forward interval(s) — which the current
 `09_daily_series.R` interval-splitting does **not** do.
@@ -541,12 +526,10 @@ Merge rule: scalar knobs shallow-merge; the file-/mode-backed knobs (`usmca_shar
 `metal_content`, `mfn_exemption`) resolve through their loader and must be **pinned in the
 persisted per-revision state** so a `base:<date>` reload reproduces them.
 
-**Cross-dimension coupling (not fully independent).** `add_program` for a 232 auto/MHD type
-will *not* receive `us_auto_content_share` / rebate scaling, because that math keys off
-membership in the baseline-derived `auto_products` / `mhd_products` sets (`06:2606`), not the
-spec. So the resolved-program intermediate table (impl req 2) must carry the program's
-`metal` / `usmca_treatment` / `stacking.class`, and adjustment scaling must key off *that*,
-not the legacy derived sets — otherwise new statutory coverage silently misses its assumptions.
+**Cross-dimension coupling.** §232 heading programs carry their product scope, activation,
+rate, USMCA treatment, and adjustment settings together. The calculator derives the auto,
+MHD, metal, semiconductor, and pharmaceutical sets from those programs on the canonical
+grid; it does not maintain an alternate program table.
 
 ## Data flow under the new model
 
@@ -601,8 +584,7 @@ exactly this), so a consumer reads `actual` and any scenario the same way:
   internal "baseline" still means the empty-scenario computation; `actual/` is its published
   series.
 - **`scenarios/<name>/`** — each counterfactual is a first-class, vintage-scoped series with a
-  **run-time name**, replacing today's flat `alternative/daily_*_<variant>.csv` suffix
-  convention (where names were fixed in `config/scenarios.yaml`). Its `manifest.json` records
+  **run-time name** from the scenario registry. Its `manifest.json` records
   the full recipe (`base:`, `baseline_mode`, the operations, the `adjustment_params` overrides,
   and the parent vintage) so the run is reproducible.
 
@@ -620,9 +602,12 @@ and every consumer in lockstep (migration step 5 below).
 
 ## Implementation requirements surfaced in review
 
-Three things the schema implies but the current code does not yet support:
+Three things the schema implies. **(2) and (3) have since landed** — with the
+one-canonical-grid refactor and the unified minted-boundary calendar,
+respectively; **(1) remains open** (tracked as the scheduled-activations /
+past-`base:` gap):
 
-1. **Per-revision spec persistence (for `base: <date>`).** `policy_params.yaml` is
+1. **(OPEN) Per-revision spec persistence (for `base: <date>`).** `policy_params.yaml` is
    *current-only* — it is not versioned as "what we knew on 2026-02-24" (IEEPA
    invalidation date, s122 expiry, Swiss/Annex settings, horizon all live in the
    single current file). A past pin would otherwise leak *today's* future knowledge
@@ -639,19 +624,10 @@ Three things the schema implies but the current code does not yet support:
    JSON.) Without this, "past base" is reproducible only by `git checkout`, not by scenario
    config.
 
-2. **A resolved-program intermediate table (before collapsing to `rate_*`).** The
-   output panel collapses 232 down to `rate_232` + `metal_share`, which is *not enough*
-   for a generic stacker: two rows can both have `rate_232 > 0` yet need different stacking
-   (steel owns only the metal-content fraction; autos/drones own full customs value;
-   semis/annex have special overlap rules). The stacker cannot infer this from `rate_232`
-   alone. Build an intermediate table at resolution time. The minimal
-   `(hts10, country, authority, program_id, rate, stacking_class, metal_type,
-   usmca_treatment)` set is **insufficient** — it must also carry `base_rate` (every floor
-   subtracts it), `nonmetal_share` (computed *per metal type*, `stacking.R:79-99` — or the
-   per-type `steel/aluminum/copper/other_metal_share` + `deriv_type` + `is_copper_heading`),
-   `s232_annex`, and a within-authority phase/precedence rank for IEEPA. Collapse to the
-   `rate_*` columns *after* stacking. This is what makes the `stacking.class` generalization
-   (step 3) actually reliable.
+2. **(DONE) One canonical product-country grid.** `build_rate_grid()` creates the full
+   product-country universe once. Authorities mutate their own rate and metadata columns;
+   none may add rows or create an intermediate per-program panel. The final invariant checks
+   the exact Cartesian row count and unique `(hts10, country)` key before stacking.
 
    **Define the output contract.** Earlier sections promise the RATE_SCHEMA panel is
    *preserved*, while this collapses to `rate_*` only after stacking — resolve the tension by
@@ -661,15 +637,13 @@ Three things the schema implies but the current code does not yet support:
    persisted as snapshot *extras* (formalizing today's per-type-share extras), or *replaces*
    that downstream decomposition — and say which.
 
-3. **A unified timeline splitter.** The synthetic-revision builder must collect **all**
+3. **(DONE) A unified timeline splitter.** The synthetic-revision builder must collect **all**
    schedule boundaries into one splitter — `active.from` / `active.until`, scenario
-   `effective_from`, the horizon, and **every `effective_date`-keyed gate**, not just the two
-   post-panel expiries (s122/Swiss) in `collect_expiry_adjustments`. The calculator-internal
+   `effective_from`, the horizon, and **every `effective_date`-keyed gate**. The calculator-internal
    gates are easy to miss because they are not "expiries": annex activation (`06:1906`),
    annex_3 sunset (`06:2096`), IEEPA invalidation (`06:754`), and Ch99 `effective_date_offset`
-   activations (`filter_active_ch99`). Today these reach the timeline through two separate
-   mechanisms (`filter_active_ch99` + `get_expiry_split_points`) that do **not** cover
-   mid-interval Ch99 activations; the unified splitter replaces both.
+   activations (`filter_active_ch99`). The unified boundary collector and minted
+   snapshots now own these transitions; downstream consumers do not split or edit them.
 
 ## Migration plan (incremental, not a rewrite)
 
@@ -678,12 +652,12 @@ tolerance** (refactors reorder float ops, so byte-identity is the wrong bar).
 
 0. **Parity harness first — build it, don't "extend."** Neither a baseline golden, a
    per-authority golden, nor a tolerance comparator exists today, and
-   `scripts/submit_alt_equivalence.sh` is byte-level `cmp` over a **hardcoded** variant list
-   that has already drifted (6 listed vs 7 in `build_rebuild_alt_registry`, `09:1342`). So:
+   `scripts/submit_alt_equivalence.sh` needs a tolerance-aware comparison over the
+   registered scenario set. So:
    author a tolerance comparator (specify ε **per column class** — rates vs shares vs
    weighted ETR — absolute or relative, plus near-zero handling), capture a **baseline +
    per-authority golden** from a clean build, and **drive the variant list from
-   `build_rebuild_alt_registry`** so it cannot drift again. This is the safety net the rest
+   `list_scenarios()`** so it cannot drift again. This is the safety net the rest
    of the plan leans on.
 
    The migration also has real **API blast radius**: replacing `ieepa_rates` /
@@ -718,12 +692,9 @@ tolerance** (refactors reorder float ops, so byte-identity is the wrong bar).
    leave 301 scoped to China and still pass a byte-identical baseline — a silent miss.
    Small, high-value, unlocks re-scoping scenarios.
 
-3. **Build the resolved-program intermediate table, then generalize stacking.** First land
-   impl req 2 (the intermediate table) and prove the collapse-after-stacking reproduces
-   today's `rate_*` within tolerance — the doc calls this "what makes the `stacking.class`
-   generalization reliable," so it is a gated sub-step, not an implied one. Then generalize
-   stacking to read `stacking.class` + `stacking.exceptions` instead of literal branches —
-   this is where the China-fentanyl special case becomes data.
+3. **Apply common specs to the canonical grid.** The adapter resolves parser outputs into
+   explicit programs; the calculator reads those programs and the shared stacker consumes
+   the resulting wide columns. There is no second stacking engine or resolved-program table.
 
 4. **Collapse steps opportunistically.** Once authorities are uniform specs, the
    per-authority step blocks can merge into a generic "apply each spec" loop.
@@ -787,9 +758,8 @@ not lost):
 - **Scenario-correctness validation.** Parity (step 0) covers baseline only. There is no
   golden/fixture for a counterfactual, no "this op changed exactly these rows and nothing
   else" assertion, no regression harness for the verb vocabulary.
-- **Backward-compatibility** with the existing `disable:` / `patches:` format — 8 live
-  scenarios in `config/scenarios.yaml` + `docs/scenarios.md` +
-  `run_post_build_scenarios_per_revision`. Translate, dual-support, or hard-cut?
+- **Backward compatibility:** none. Scenario inputs use the config-overlay
+  registry; retired formats are not translated or dual-supported.
 - **Multi-scenario composition.** The on-disk layout is now settled (see "Output layout":
   `scenarios/<name>/`); what remains is how the `policy × assumptions × baseline_mode × base`
   cross-product is *enumerated and named* (one scenario name per combination, or nested?).

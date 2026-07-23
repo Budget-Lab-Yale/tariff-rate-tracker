@@ -1,0 +1,679 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AuthoritySpec and the Authority Registry — PM Guide</title>
+  <style>
+    :root {
+      --ink: #172033;
+      --muted: #61708a;
+      --paper: #f5f7fb;
+      --card: #ffffff;
+      --line: #dce3ee;
+      --navy: #12355b;
+      --blue: #2e6fbb;
+      --blue-soft: #eaf3ff;
+      --green: #157a62;
+      --green-soft: #e7f7f1;
+      --gold: #a66b00;
+      --gold-soft: #fff4d8;
+      --purple: #6c4ab6;
+      --purple-soft: #f1ecff;
+      --red: #a43d45;
+      --shadow: 0 16px 40px rgba(21, 39, 67, .09);
+      --radius: 18px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--paper);
+      font: 16px/1.55 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    a { color: var(--blue); }
+    code, .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: .92em;
+    }
+    code {
+      padding: .12rem .38rem;
+      border-radius: 6px;
+      color: #263f64;
+      background: #edf2f8;
+    }
+
+    .hero {
+      color: white;
+      background:
+        radial-gradient(circle at 88% 14%, rgba(66, 153, 225, .35), transparent 30%),
+        linear-gradient(125deg, #102a49, #154f76 70%, #146b70);
+      padding: 68px 24px 76px;
+    }
+    .hero-inner, main, .nav-inner { max-width: 1120px; margin: 0 auto; }
+    .eyebrow {
+      margin-bottom: 12px;
+      color: #a9dcff;
+      font-size: .78rem;
+      font-weight: 800;
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+    h1 {
+      max-width: 900px;
+      margin: 0;
+      font-size: clamp(2.35rem, 6vw, 4.4rem);
+      line-height: 1.02;
+      letter-spacing: -.045em;
+    }
+    .hero p {
+      max-width: 780px;
+      margin: 24px 0 0;
+      color: #dceeff;
+      font-size: 1.18rem;
+    }
+    .hero-answer {
+      display: inline-flex;
+      gap: 10px;
+      align-items: center;
+      margin-top: 28px;
+      padding: 12px 16px;
+      border: 1px solid rgba(255,255,255,.3);
+      border-radius: 999px;
+      background: rgba(255,255,255,.1);
+      font-weight: 750;
+    }
+
+    nav {
+      position: sticky;
+      z-index: 5;
+      top: 0;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255,255,255,.94);
+      backdrop-filter: blur(12px);
+    }
+    .nav-inner {
+      display: flex;
+      gap: 20px;
+      overflow-x: auto;
+      padding: 13px 24px;
+      white-space: nowrap;
+    }
+    nav a { color: #42516a; font-size: .87rem; font-weight: 700; text-decoration: none; }
+    nav a:hover { color: var(--blue); }
+
+    main { padding: 48px 24px 80px; }
+    section { scroll-margin-top: 72px; margin: 0 0 72px; }
+    h2 {
+      margin: 0 0 14px;
+      color: var(--navy);
+      font-size: clamp(1.65rem, 3vw, 2.35rem);
+      line-height: 1.12;
+      letter-spacing: -.025em;
+    }
+    h3 { margin: 0 0 8px; color: var(--navy); font-size: 1.12rem; }
+    .lede { max-width: 790px; margin: 0 0 28px; color: var(--muted); font-size: 1.06rem; }
+
+    .two-up, .three-up, .four-up {
+      display: grid;
+      gap: 18px;
+    }
+    .two-up { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .three-up { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .four-up { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+    .card {
+      padding: 24px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--card);
+      box-shadow: var(--shadow);
+    }
+    .card p:last-child { margin-bottom: 0; }
+    .spec-card { border-top: 5px solid var(--purple); }
+    .registry-card { border-top: 5px solid var(--green); }
+    .label {
+      display: inline-block;
+      margin-bottom: 12px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      font-size: .72rem;
+      font-weight: 850;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+    .label.purple { color: var(--purple); background: var(--purple-soft); }
+    .label.green { color: var(--green); background: var(--green-soft); }
+    .label.gold { color: var(--gold); background: var(--gold-soft); }
+    .plain-list { margin: 12px 0 0; padding-left: 20px; }
+    .plain-list li { margin: 5px 0; }
+
+    .answer-strip {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 18px;
+      align-items: center;
+      margin-top: 18px;
+      padding: 22px;
+      border: 1px solid #bfd7ef;
+      border-radius: var(--radius);
+      background: var(--blue-soft);
+    }
+    .answer-strip strong { display: block; color: var(--navy); font-size: 1.05rem; }
+    .not-equal { color: var(--blue); font-size: 1.8rem; font-weight: 900; }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(130px, 1fr));
+      gap: 26px;
+      overflow-x: auto;
+      padding: 10px 2px 18px;
+    }
+    .flow-step {
+      position: relative;
+      min-height: 160px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 15px;
+      background: white;
+    }
+    .flow-step:not(:last-child)::after {
+      position: absolute;
+      top: 50%;
+      right: -22px;
+      content: "→";
+      color: #8da0ba;
+      font-size: 1.45rem;
+      font-weight: 900;
+      transform: translateY(-50%);
+    }
+    .step-num {
+      display: grid;
+      width: 30px;
+      height: 30px;
+      place-items: center;
+      margin-bottom: 12px;
+      border-radius: 9px;
+      color: white;
+      background: var(--blue);
+      font-size: .8rem;
+      font-weight: 850;
+    }
+    .flow-step p { margin: 6px 0 0; color: var(--muted); font-size: .88rem; }
+
+    .structure {
+      padding: 20px;
+      border: 1px solid #d7caef;
+      border-radius: 15px;
+      background: #fbf9ff;
+    }
+    .tree-row {
+      display: grid;
+      grid-template-columns: 180px 1fr;
+      gap: 16px;
+      padding: 12px 0;
+      border-bottom: 1px dashed #ddd5eb;
+    }
+    .tree-row:last-child { border-bottom: 0; }
+    .tree-key { color: var(--purple); font-weight: 800; }
+    .tree-value { color: #44516a; }
+    .indent { margin-left: 22px; padding-left: 18px; border-left: 3px solid #d8c9f7; }
+
+    .registry-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      overflow: hidden;
+      border: 1px solid #bfe2d8;
+      border-radius: 15px;
+      background: white;
+    }
+    .registry-cell { min-height: 112px; padding: 16px; border-right: 1px solid #d9eee8; }
+    .registry-cell:last-child { border-right: 0; }
+    .registry-cell small { display: block; margin-bottom: 7px; color: var(--muted); font-weight: 750; }
+    .registry-cell strong { color: var(--green); }
+
+    .callout {
+      margin-top: 20px;
+      padding: 18px 20px;
+      border-left: 5px solid var(--blue);
+      border-radius: 10px;
+      background: var(--blue-soft);
+    }
+    .callout.warning { border-color: var(--gold); background: var(--gold-soft); }
+    .callout.success { border-color: var(--green); background: var(--green-soft); }
+
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 16px; background: white; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 14px 16px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { color: var(--navy); background: #edf3f9; font-size: .78rem; letter-spacing: .04em; text-transform: uppercase; }
+    tr:last-child td { border-bottom: 0; }
+
+    .example-head {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      margin-bottom: 24px;
+      padding: 18px 22px;
+      border-radius: 16px;
+      color: white;
+      background: linear-gradient(115deg, #163f68, #266d85);
+    }
+    .flag {
+      display: grid;
+      flex: 0 0 54px;
+      width: 54px;
+      height: 54px;
+      place-items: center;
+      border-radius: 14px;
+      color: #cf2437;
+      background: white;
+      font-size: 1.8rem;
+      font-weight: 900;
+    }
+    .example-head h3 { margin: 0; color: white; font-size: 1.35rem; }
+    .example-head p { margin: 3px 0 0; color: #d8efff; }
+
+    .timeline {
+      display: grid;
+      grid-template-columns: 1fr 90px 1fr;
+      gap: 12px;
+      align-items: stretch;
+    }
+    .time-card { padding: 20px; border: 1px solid var(--line); border-radius: 15px; background: white; }
+    .time-card.off { border-top: 5px solid #9aa7ba; }
+    .time-card.on { border-top: 5px solid var(--green); }
+    .date-marker { display: grid; place-items: center; color: var(--gold); font-size: .8rem; font-weight: 850; text-align: center; }
+
+    .stack-card { position: relative; overflow: hidden; }
+    .stack-card::before { position: absolute; inset: 0 auto 0 0; width: 5px; content: ""; background: var(--blue); }
+    .stack-card.split::before { background: var(--gold); }
+    .stack-card.primary::before { background: var(--purple); }
+    .mini-bars { display: flex; height: 18px; overflow: hidden; margin: 18px 0 8px; border-radius: 999px; background: #eef2f7; }
+    .mini-bars span:nth-child(1) { background: var(--purple); }
+    .mini-bars span:nth-child(2) { background: var(--gold); }
+    .mini-bars span:nth-child(3) { background: var(--green); }
+
+    .before-after { display: grid; grid-template-columns: 1fr 70px 1fr; gap: 14px; align-items: center; }
+    .before, .after { min-height: 300px; padding: 24px; border-radius: var(--radius); }
+    .before { border: 1px solid #ebc8cb; background: #fff8f8; }
+    .after { border: 1px solid #bfe1d8; background: #f5fcf9; }
+    .big-arrow { color: var(--green); font-size: 2.4rem; font-weight: 900; text-align: center; }
+    .list-box { margin: 12px 0; padding: 12px 14px; border-radius: 10px; background: white; box-shadow: 0 4px 14px rgba(20,40,70,.06); }
+
+    .guard {
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: white;
+    }
+    .guard-icon { font-size: 1.35rem; }
+    .guard p { margin: 4px 0 0; color: var(--muted); font-size: .92rem; }
+
+    details { margin: 10px 0; border: 1px solid var(--line); border-radius: 12px; background: white; }
+    summary { cursor: pointer; padding: 15px 18px; color: var(--navy); font-weight: 800; }
+    details p { margin: 0; padding: 0 18px 17px; color: var(--muted); }
+
+    .takeaway {
+      padding: 30px;
+      border-radius: 22px;
+      color: white;
+      background: linear-gradient(115deg, #12365d, #156b70);
+      box-shadow: var(--shadow);
+    }
+    .takeaway h2 { color: white; }
+    .takeaway p { max-width: 860px; margin-bottom: 0; color: #e2f2ff; font-size: 1.08rem; }
+    footer { padding: 30px 24px 45px; color: var(--muted); text-align: center; font-size: .85rem; }
+
+    @media (max-width: 850px) {
+      .two-up, .three-up, .four-up { grid-template-columns: 1fr; }
+      .registry-row { grid-template-columns: 1fr 1fr; }
+      .registry-cell:nth-child(2) { border-right: 0; }
+      .registry-cell { border-bottom: 1px solid #d9eee8; }
+      .timeline, .before-after { grid-template-columns: 1fr; }
+      .date-marker, .big-arrow { transform: rotate(90deg); }
+      .answer-strip { grid-template-columns: 1fr; }
+      .not-equal { transform: rotate(90deg); text-align: center; }
+    }
+
+    @media print {
+      nav { display: none; }
+      body { background: white; }
+      .hero { padding: 35px 24px; }
+      section { break-inside: avoid; margin-bottom: 38px; }
+      .card { box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="hero-inner">
+      <div class="eyebrow">PM guide · Tariff Rate Tracker</div>
+      <h1>Policy instructions and model plumbing are two different things.</h1>
+      <p><strong>AuthoritySpec</strong> tells the model what a tariff does. The <strong>authority registry</strong> tells the software where that tariff belongs. They work together, but neither replaces the other.</p>
+      <div class="hero-answer"><span aria-hidden="true">✓</span> Short answer: the registry is not AuthoritySpec.</div>
+    </div>
+  </header>
+
+  <nav aria-label="Page sections">
+    <div class="nav-inner">
+      <a href="#answer">The distinction</a>
+      <a href="#journey">The journey</a>
+      <a href="#structures">Data structures</a>
+      <a href="#example">Canada example</a>
+      <a href="#stacking">Combination rules</a>
+      <a href="#before-after">Before and after</a>
+      <a href="#safety">Safety</a>
+      <a href="#faq">FAQ</a>
+    </div>
+  </nav>
+
+  <main>
+    <section id="answer">
+      <h2>The distinction in one screen</h2>
+      <p class="lede">Think of launching a product. The product brief describes what customers get; the operations checklist says which systems and reports must carry it. This model uses the same separation.</p>
+
+      <div class="two-up">
+        <article class="card spec-card">
+          <span class="label purple">Policy brief</span>
+          <h3>AuthoritySpec: what the tariff means</h3>
+          <ul class="plain-list">
+            <li>Which products and countries are covered?</li>
+            <li>What rate applies?</li>
+            <li>When does it start and stop?</li>
+            <li>What exemptions or special treatments apply?</li>
+            <li>How should it interact with other tariffs?</li>
+          </ul>
+          <p><strong>Changes with policy, date, and scenario.</strong></p>
+        </article>
+
+        <article class="card registry-card">
+          <span class="label green">Systems directory</span>
+          <h3>Authority registry: where the tariff travels</h3>
+          <ul class="plain-list">
+            <li>Which AuthoritySpec name does the software look for?</li>
+            <li>Which <code>rate_*</code> column stores the result?</li>
+            <li>Which <code>net_*</code> column explains its contribution?</li>
+            <li>Does it belong in the baseline panel?</li>
+            <li>What stable ordering and reporting group apply?</li>
+          </ul>
+          <p><strong>Mostly fixed software structure.</strong></p>
+        </article>
+      </div>
+
+      <div class="answer-strip">
+        <div><strong>AuthoritySpec</strong> “Canada pays 50% on these products starting August 19.”</div>
+        <div class="not-equal" aria-label="is not equal to">≠</div>
+        <div><strong>Authority registry</strong>“Store that result in <code>rate_s338</code> and explain it with <code>net_s338</code>.”</div>
+      </div>
+    </section>
+
+    <section id="journey">
+      <h2>How one legal fact becomes a published number</h2>
+      <p class="lede">The registry does not calculate a tariff. It connects the policy description to the common calculation and reporting machinery.</p>
+      <div class="flow" aria-label="Flow from policy source to published output">
+        <div class="flow-step">
+          <div class="step-num">1</div>
+          <h3>Source facts</h3>
+          <p>Law, proclamation, HTS material, and approved policy parameters.</p>
+        </div>
+        <div class="flow-step">
+          <div class="step-num">2</div>
+          <h3>Adapter</h3>
+          <p>Translates differently shaped source material into one common format.</p>
+        </div>
+        <div class="flow-step" style="border-color:#cbb9ef;background:#fbf9ff">
+          <div class="step-num" style="background:var(--purple)">3</div>
+          <h3>AuthoritySpec</h3>
+          <p>The policy instruction: scope, rates, dates, exemptions, interactions.</p>
+        </div>
+        <div class="flow-step" style="border-color:#a9d8ca;background:#f6fcfa">
+          <div class="step-num" style="background:var(--green)">4</div>
+          <h3>Registry lookup</h3>
+          <p>Connects the spec to rate, net, schema, and reporting plumbing.</p>
+        </div>
+        <div class="flow-step">
+          <div class="step-num">5</div>
+          <h3>Rate panel</h3>
+          <p>One product × country table with a column for each authority.</p>
+        </div>
+        <div class="flow-step">
+          <div class="step-num">6</div>
+          <h3>Public outputs</h3>
+          <p>Snapshots, daily rates, country views, product views, and authority views.</p>
+        </div>
+      </div>
+      <div class="callout"><strong>Key control point:</strong> the AuthoritySpec gives the calculator its policy instructions. The registry ensures that the calculated number is carried consistently through the system.</div>
+    </section>
+
+    <section id="structures">
+      <h2>What the two data structures look like</h2>
+      <p class="lede">AuthoritySpec is nested because policy is nested. The registry is flat because it is a directory of software connections.</p>
+
+      <div class="two-up">
+        <article>
+          <span class="label purple">Nested policy object</span>
+          <div class="structure">
+            <div class="tree-row"><div class="tree-key">authority</div><div class="tree-value">The stable policy name, such as <code>section_338</code>.</div></div>
+            <div class="tree-row"><div class="tree-key">active</div><div class="tree-value">Start date and first inactive date.</div></div>
+            <div class="tree-row"><div class="tree-key">stacking</div><div class="tree-value">How this authority combines with others.</div></div>
+            <div class="tree-row"><div class="tree-key">USMCA treatment</div><div class="tree-value">Whether and how origin eligibility matters.</div></div>
+            <div class="tree-row">
+              <div class="tree-key">programs</div>
+              <div class="tree-value">One or more policy programs.
+                <div class="indent">
+                  <div><strong>product scope</strong> — the covered goods</div>
+                  <div><strong>country scope</strong> — the covered economies</div>
+                  <div><strong>rate</strong> — default, country, product, or floor layers</div>
+                  <div><strong>exceptions</strong> — program-specific legal treatment</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article>
+          <span class="label green">One flat registry row</span>
+          <div class="registry-row">
+            <div class="registry-cell"><small>Spec name</small><strong class="mono">section_338</strong></div>
+            <div class="registry-cell"><small>Rate column</small><strong class="mono">rate_s338</strong></div>
+            <div class="registry-cell"><small>Net column</small><strong class="mono">net_s338</strong></div>
+            <div class="registry-cell"><small>Default class</small><strong class="mono">additive</strong></div>
+          </div>
+          <div class="callout success"><strong>Why flat?</strong> Every downstream component needs the same small set of wiring facts. It does not need a second copy of the policy.</div>
+        </article>
+      </div>
+
+      <h3 style="margin-top:30px">Registry fields in manager language</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Registry field</th><th>Plain-English meaning</th><th>Why it exists</th></tr></thead>
+          <tbody>
+            <tr><td><code>spec_authority</code></td><td>The AuthoritySpec name to connect.</td><td>Prevents spelling and mapping differences across files.</td></tr>
+            <tr><td><code>rate_col</code></td><td>Where the calculated statutory rate is stored.</td><td>Gives calculations and saved panels the same column name.</td></tr>
+            <tr><td><code>net_col</code></td><td>Where the authority's effective contribution is explained.</td><td>Lets reports reconcile the total back to its components.</td></tr>
+            <tr><td><code>default_stacking_class</code></td><td>The normal combination rule when the spec does not provide a different one.</td><td>Gives the shared stacker a safe default.</td></tr>
+            <tr><td><code>panel_order</code> / <code>schema_group</code></td><td>Whether and where the column appears in baseline output.</td><td>Keeps published schemas stable and scenario-only columns out of baseline.</td></tr>
+            <tr><td><code>report_bucket</code> / order</td><td>The intended public family and stable calculation order.</td><td>Preserves reporting meaning and floating-point reproducibility.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="example">
+      <h2>Worked example: Canada §338</h2>
+      <p class="lede">Here is the full handoff for one real authority. The example is simplified for readability but follows the live design.</p>
+
+      <div class="example-head">
+        <div class="flag" aria-hidden="true">🍁</div>
+        <div><h3>Section 338 tariff on selected Canadian goods</h3><p>50% additional duty · effective 19 August 2026 · additive stacking</p></div>
+      </div>
+
+      <div class="three-up">
+        <article class="card">
+          <span class="label gold">Input facts</span>
+          <h3>What policy says</h3>
+          <ul class="plain-list">
+            <li>Country: Canada</li>
+            <li>Rate: 50%</li>
+            <li>Products: approved §338 lists</li>
+            <li>Starts: 19 August 2026</li>
+            <li>Stacks additively</li>
+          </ul>
+        </article>
+        <article class="card spec-card">
+          <span class="label purple">AuthoritySpec</span>
+          <h3>Policy becomes structured</h3>
+          <ul class="plain-list">
+            <li><code>authority = section_338</code></li>
+            <li><code>country = 1220</code> (Canada)</li>
+            <li><code>rate = 0.50</code></li>
+            <li><code>active.from = 2026-08-19</code></li>
+            <li><code>stacking = additive</code></li>
+          </ul>
+        </article>
+        <article class="card registry-card">
+          <span class="label green">Registry</span>
+          <h3>Software gets routing instructions</h3>
+          <ul class="plain-list">
+            <li>Read spec: <code>section_338</code></li>
+            <li>Write rate: <code>rate_s338</code></li>
+            <li>Explain net: <code>net_s338</code></li>
+            <li>Keep in baseline panel</li>
+            <li>Report separately as §338</li>
+          </ul>
+        </article>
+      </div>
+
+      <h3 style="margin-top:30px">What changes at the effective date</h3>
+      <div class="timeline">
+        <div class="time-card off">
+          <span class="label">18 August 2026</span>
+          <h3>Not active yet</h3>
+          <p>The §338 spec has no active Canada rate. Covered rows carry <code>rate_s338 = 0</code>.</p>
+        </div>
+        <div class="date-marker">19 AUG<br>policy boundary</div>
+        <div class="time-card on">
+          <span class="label green">19 August 2026</span>
+          <h3>Active</h3>
+          <p>Covered Canadian rows carry <code>rate_s338 = 0.50</code>. Because the rule is additive, <code>net_s338</code> is also 0.50 unless an upstream scope rule excludes the row.</p>
+        </div>
+      </div>
+
+      <div class="callout warning"><strong>Important nuance:</strong> some §338 exclusions are legal scope rules applied before stacking—for example, certain §232 overlaps. The registry does not attempt to restate those legal rules; they remain in reviewable policy code and AuthoritySpec-related logic.</div>
+    </section>
+
+    <section id="stacking">
+      <h2>What “stacking” means</h2>
+      <p class="lede">Stacking answers: when several tariff authorities touch the same product-country row, how much does each contribute to the final additional rate?</p>
+
+      <div class="three-up">
+        <article class="card stack-card primary">
+          <span class="label purple">Primary</span>
+          <h3>§232 metal tariff</h3>
+          <p>The primary metal layer takes the covered share of the product's value.</p>
+          <div class="mini-bars"><span style="width:65%"></span><span style="width:35%"></span></div>
+          <small>Metal share · remaining share</small>
+        </article>
+        <article class="card stack-card split">
+          <span class="label gold">Content split</span>
+          <h3>Reciprocal / §122 style</h3>
+          <p>When §232 is active, this authority applies only to the remaining non-metal share.</p>
+          <div class="mini-bars"><span style="width:65%;opacity:.25"></span><span style="width:35%"></span></div>
+          <small>Displaced share · charged share</small>
+        </article>
+        <article class="card stack-card">
+          <span class="label green">Additive</span>
+          <h3>§338 / standard §301 style</h3>
+          <p>The full authority rate stacks on top when the row is legally in scope.</p>
+          <div class="mini-bars"><span style="width:35%"></span><span style="width:30%"></span><span style="width:35%"></span></div>
+          <small>Existing duties + full additive layer</small>
+        </article>
+      </div>
+
+      <div class="callout"><strong>Division of responsibility:</strong> AuthoritySpec can carry the policy's stacking class. The registry connects that class to the correct rate and net columns and supplies the established default when needed. The stacker performs the arithmetic once.</div>
+    </section>
+
+    <section id="before-after">
+      <h2>What changed in the software</h2>
+      <p class="lede">The model's policy math did not change. The improvement is that shared wiring facts now have one home.</p>
+
+      <div class="before-after">
+        <article class="before">
+          <span class="label" style="color:var(--red);background:#fdebed">Before</span>
+          <h3>Add a new tariff in several places</h3>
+          <div class="list-box">Schema list: add <code>rate_new</code></div>
+          <div class="list-box">Default list: initialize it to zero</div>
+          <div class="list-box">Stacking list: map it to <code>net_new</code></div>
+          <div class="list-box">Daily list: remember its net contribution</div>
+          <p><strong>Risk:</strong> one missed edit could make the tariff disappear from part of the pipeline.</p>
+        </article>
+        <div class="big-arrow" aria-hidden="true">→</div>
+        <article class="after">
+          <span class="label green">After</span>
+          <h3>Register the shared wiring once</h3>
+          <div class="registry-row" style="grid-template-columns:1fr 1fr">
+            <div class="registry-cell"><small>Rate</small><strong class="mono">rate_new</strong></div>
+            <div class="registry-cell"><small>Net</small><strong class="mono">net_new</strong></div>
+            <div class="registry-cell"><small>Spec</small><strong class="mono">new_authority</strong></div>
+            <div class="registry-cell"><small>Class</small><strong class="mono">additive</strong></div>
+          </div>
+          <p>The schema, default filling, stacking skeleton, and net-column census read the shared row.</p>
+        </article>
+      </div>
+
+      <div class="callout warning"><strong>Still deliberate:</strong> a genuinely new legal interaction or a new public reporting concept still requires reviewed code. The registry removes repetitive plumbing; it is not a policy rules engine.</div>
+    </section>
+
+    <section id="safety">
+      <h2>How the design fails safely</h2>
+      <p class="lede">Centralization helps only if bad entries are rejected. The registry is validated when it loads.</p>
+      <div class="two-up">
+        <div class="guard"><div class="guard-icon">⛔</div><div><strong>Duplicate rate or net columns</strong><p>Rejected instead of letting two authorities overwrite or impersonate each other.</p></div></div>
+        <div class="guard"><div class="guard-icon">⛔</div><div><strong>Unknown stacking class</strong><p>Rejected instead of silently choosing an unintended combination rule.</p></div></div>
+        <div class="guard"><div class="guard-icon">⛔</div><div><strong>Broken panel order</strong><p>Rejected so published columns do not drift unpredictably.</p></div></div>
+        <div class="guard"><div class="guard-icon">⛔</div><div><strong>Missing schema placement</strong><p>Rejected for baseline authorities so a live tariff cannot vanish from saved output.</p></div></div>
+      </div>
+      <div class="callout success"><strong>Migration evidence:</strong> 37/37 local test files passed; the production verifier passed 11/11; baseline and <code>new_301</code> matched the sealed reference on all 120 artifacts. The restructuring changed no published numbers.</div>
+    </section>
+
+    <section id="faq">
+      <h2>Questions a PM might ask</h2>
+      <details open>
+        <summary>Is the authority registry an AuthoritySpec?</summary>
+        <p>No. AuthoritySpec is a policy object produced for an authority and date. The registry is a static software directory that connects those objects to common columns and machinery.</p>
+      </details>
+      <details>
+        <summary>Is either one an external configuration file?</summary>
+        <p>No. Both structures are implemented in version-controlled R code. AuthoritySpec may contain facts drawn from HTS material and approved policy parameters, but the registry itself is not a new configuration system.</p>
+      </details>
+      <details>
+        <summary>Why not put everything into one giant object?</summary>
+        <p>Because policy and plumbing change for different reasons. Rates and dates change when policy changes; column wiring changes when the software adds a new authority. Separating them makes each easier to review.</p>
+      </details>
+      <details>
+        <summary>Does registering a tariff make it legally correct?</summary>
+        <p>No. Registration prevents software-wiring omissions. Legal scope, dates, rates, exceptions, and interactions still require policy review and tests.</p>
+      </details>
+      <details>
+        <summary>What should happen when the next tariff arrives?</summary>
+        <p>Create or adapt its AuthoritySpec, add one registry row for shared plumbing, implement any genuinely new policy interaction, add legal examples, and run the full production parity/correctness gates.</p>
+      </details>
+    </section>
+
+    <section class="takeaway">
+      <h2>The management takeaway</h2>
+      <p><strong>AuthoritySpec makes policy explicit.</strong> <strong>The registry makes software wiring consistent.</strong> Together they reduce the chance that a correctly interpreted tariff is implemented in one calculation but forgotten in a schema, scenario, or report.</p>
+    </section>
+  </main>
+
+  <footer>
+    Tariff Rate Tracker · PM architecture guide · 22 July 2026<br>
+    Companion to <span class="mono">src/model/authority_spec.R</span> and <span class="mono">src/model/authority_registry.R</span>.
+  </footer>
+</body>
+</html>

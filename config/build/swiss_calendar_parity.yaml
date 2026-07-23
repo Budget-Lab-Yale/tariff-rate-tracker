@@ -1,0 +1,10 @@
+# Independent rebuild after the migration candidate is accepted and sealed.
+model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker/.validation/swiss-calendar-parity
+policy_params_path: config/policy_params.yaml
+scenarios:
+  - new_301
+use_hts_dates: false
+weight_mode: required
+update_latest: false
+allow_partial: false
+verify: true

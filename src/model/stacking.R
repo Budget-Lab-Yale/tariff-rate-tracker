@@ -1,13 +1,33 @@
 # =============================================================================
 # Stacking Rules — mutual-exclusion tariff stacking and authority decomposition
 # =============================================================================
-# Split from helpers.R. Sourced by helpers.R for backward compatibility.
-# Direct consumers can source this file alone.
+# Sourced by helpers.R and directly by focused consumers.
 
 library(tidyverse)
 
+if (!exists('AUTHORITY_REGISTRY', inherits = TRUE)) {
+  source(here::here('src', 'model', 'authority_registry.R'))
+}
+
 # Stacking Rules
 # =============================================================================
+
+#' Ensure optional columns exist, optionally replacing NAs.
+#'
+#' This belongs to the stacking layer: its only production consumers are the
+#' wide stacker and net decomposition. Defining it
+#' here keeps stacking.R directly sourceable instead of depending on a helper
+#' that helpers.R used to define only *after* sourcing this module.
+ensure_cols <- function(df, defaults, fill_na = FALSE) {
+  for (col in names(defaults)) {
+    if (!col %in% names(df)) {
+      df[[col]] <- defaults[[col]]
+    } else if (fill_na) {
+      df[[col]][is.na(df[[col]])] <- defaults[[col]]
+    }
+  }
+  df
+}
 
 #' Apply tariff stacking rules (vectorized)
 #'
@@ -38,8 +58,6 @@ library(tidyverse)
 #' @param df Data frame with rate_232, rate_301, rate_ieepa_recip,
 #'   rate_ieepa_fent, rate_s122, rate_other, metal_share, country columns
 #' @param cty_china Census code for China (default: '5700')
-#' @param stacking_method 'mutual_exclusion' (default, 232/IEEPA mutual exclusion)
-#'   or 'tpc_additive' (all authorities stack additively, matching TPC methodology)
 #' @return df with total_additional and total_rate recomputed
 has_informative_per_type_shares <- function(df) {
   required <- c('steel_share', 'aluminum_share', 'copper_share')
@@ -143,40 +161,17 @@ compute_nonmetal_share <- function(df) {
 # order (301 fourth). 301 is zero off-China and IEEE 0-additions don't change
 # association, so this single order reproduces every historical branch bit-for-bit.
 default_stacking_policy <- function(cty_china = '5700') {
-  list(
-    rate_232         = list(net = 'net_232',         class = 'primary'),
-    rate_ieepa_recip = list(net = 'net_ieepa',       class = 'content_split'),
-    rate_ieepa_fent  = list(net = 'net_fentanyl',    class = 'content_split',
-                            additive_countries = cty_china),
-    rate_301         = list(net = 'net_301',         class = 'additive'),
-    # Section 301, content-split flavor: yields to a 232 like the reciprocal/122
-    # (scaled by nonmetal_share when rate_232 > 0), vs the legacy additive rate_301.
-    # All-zero in baseline until codes are classified into it (A2), so adding it
-    # here contributes 0 to total_additional regardless of position (FP-safe).
-    rate_301_cs      = list(net = 'net_301_cs',      class = 'content_split'),
-    # Section 301 forced-labor (scenario authority): content_split like the
-    # reciprocal/122 (displaced by 232, USMCA-eligible). All-zero / absent in
-    # baseline, so it contributes 0 here regardless of position (0 + x == x is
-    # bit-exact for doubles) — FP-safe, like rate_301_cs above.
-    rate_s301fl      = list(net = 'net_s301fl',      class = 'content_split'),
-    # Section 301 Brazil (BASELINE, live from 2026-07-22 — final action FR Doc
-    # 2026-14542): additive — note 50(a) stacks it on every other duty. The
-    # note-50(a)(vi) §232 interaction is a FULL per-article exclusion applied as
-    # a SCOPE MASK in apply_section301_brazil (the column is already 0 on every
-    # §232-scope row), NOT a content_split displacement here (that was the
-    # June-4 PROPOSED coding, retired with the final action). All-zero before
-    # the turn-on, so position is FP-safe.
-    rate_s301br      = list(net = 'net_s301br',      class = 'additive'),
-    # Section 338 Canada (BASELINE, live from 2026-08-19): additive — note 51(a)
-    # stacks it on every other duty. The note 51(c) §232 interaction is a FULL
-    # per-article exclusion applied as a SCOPE MASK in apply_section338 (the
-    # column is already 0 on every §232-scope row), NOT a content_split
-    # displacement here. All-zero before the turn-on, so position is FP-safe.
-    rate_s338        = list(net = 'net_s338',        class = 'additive'),
-    rate_s122        = list(net = 'net_s122',        class = 'content_split'),
-    rate_section_201 = list(net = 'net_section_201', class = 'additive'),
-    rate_other       = list(net = 'net_other',       class = 'additive')
-  )
+  validate_authority_registry()
+  policy <- list()
+  for (i in seq_len(nrow(AUTHORITY_REGISTRY))) {
+    entry <- AUTHORITY_REGISTRY[i, , drop = FALSE]
+    rule <- list(net = entry$net_col, class = entry$default_stacking_class)
+    if (identical(entry$additive_country_rule, 'china')) {
+      rule$additive_countries <- cty_china
+    }
+    policy[[entry$rate_col]] <- rule
+  }
+  policy
 }
 
 
@@ -205,23 +200,6 @@ default_stacking_policy <- function(cty_china = '5700') {
 #' Invariant (pinned in tests/test_policy_from_specs.R):
 #'   identical(stacking_policy_from_specs(baseline_specs, cty), default_stacking_policy(cty)).
 stacking_policy_from_specs <- function(specs, cty_china = '5700') {
-  # (rate_col, net_*, spec authority, fixed-default class, fixed-default additive_countries)
-  # in the load-bearing order of default_stacking_policy(). auth = NA marks a spec-less
-  # column; dflt_add carries default_stacking_policy()'s built-in additive_countries.
-  skel <- list(
-    list(col = 'rate_232',         net = 'net_232',         auth = 'section_232',      dflt = 'primary',       dflt_add = character(0)),
-    list(col = 'rate_ieepa_recip', net = 'net_ieepa',       auth = 'ieepa_reciprocal', dflt = 'content_split', dflt_add = character(0)),
-    list(col = 'rate_ieepa_fent',  net = 'net_fentanyl',    auth = 'ieepa_fentanyl',   dflt = 'content_split', dflt_add = cty_china),
-    list(col = 'rate_301',         net = 'net_301',         auth = 'section_301',      dflt = 'additive',      dflt_add = character(0)),
-    list(col = 'rate_301_cs',      net = 'net_301_cs',      auth = NA_character_,      dflt = 'content_split', dflt_add = character(0)),
-    list(col = 'rate_s301fl',      net = 'net_s301fl',      auth = 'section_301_forced_labor', dflt = 'content_split', dflt_add = character(0)),
-    list(col = 'rate_s301br',      net = 'net_s301br',      auth = 'section_301_brazil', dflt = 'additive',      dflt_add = character(0)),
-    list(col = 'rate_s338',        net = 'net_s338',        auth = 'section_338',      dflt = 'additive',      dflt_add = character(0)),
-    list(col = 'rate_s122',        net = 'net_s122',        auth = 'section_122',      dflt = 'content_split', dflt_add = character(0)),
-    list(col = 'rate_section_201', net = 'net_section_201', auth = 'section_201',      dflt = 'additive',      dflt_add = character(0)),
-    list(col = 'rate_other',       net = 'net_other',       auth = 'other',            dflt = 'additive',      dflt_add = character(0))
-  )
-
   map_class <- function(sc) {
     if (length(sc) != 1 || is.na(sc)) return(NA_character_)
     if (sc %in% c('primary_metal', 'primary_full', 'primary')) return('primary')
@@ -229,24 +207,27 @@ stacking_policy_from_specs <- function(specs, cty_china = '5700') {
   }
 
   policy <- list()
-  for (e in skel) {
-    spec <- if (is.na(e$auth)) NULL else specs[[e$auth]]
+  for (i in seq_len(nrow(AUTHORITY_REGISTRY))) {
+    e <- AUTHORITY_REGISTRY[i, , drop = FALSE]
+    auth <- e$spec_authority
+    dflt_add <- if (identical(e$additive_country_rule, 'china')) cty_china else character(0)
+    spec <- if (is.na(auth)) NULL else specs[[auth]]
     if (is.null(spec)) {
       # spec-less column (rate_301_cs) or an absent authority -> the fixed default
-      cls      <- e$dflt
-      add_ctry <- e$dflt_add
+      cls      <- e$default_stacking_class
+      add_ctry <- dflt_add
     } else {
       cls <- map_class(spec$stacking$class %||% NA_character_)
-      if (is.na(cls)) cls <- e$dflt
+      if (is.na(cls)) cls <- e$default_stacking_class
       exc <- spec$stacking$exceptions
       add_ctry <- if (length(exc)) {
         as.character(names(exc)[vapply(exc, function(v) identical(as.character(v), 'additive'),
                                        logical(1))])
       } else character(0)
     }
-    entry <- list(net = e$net, class = cls)
+    entry <- list(net = e$net_col, class = cls)
     if (length(add_ctry)) entry$additive_countries <- add_ctry
-    policy[[e$col]] <- entry
+    policy[[e$rate_col]] <- entry
   }
   policy
 }
@@ -275,40 +256,18 @@ compute_stacking_contributions <- function(df, policy) {
 }
 
 
-apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutual_exclusion',
-                                 stacking_policy = NULL) {
+apply_stacking_rules <- function(df, cty_china = '5700', stacking_policy = NULL) {
   # Ensure optional columns exist and have no NAs
   df <- ensure_cols(df, list(rate_s122 = 0, rate_s301br = 0, rate_s338 = 0, rate_section_201 = 0, metal_share = 1.0),
                     fill_na = TRUE)
 
-  # TPC additive: all authorities stack with no mutual exclusion.
-  # TPC confirmed (March 2026) they mostly agree with mutual exclusion between
-  # 232 and IEEPA. Retained for sensitivity analysis, not as a TPC match. Note
-  # that in the default 'mutual_exclusion' branch below, the content-based split
-  # applies uniformly: copper and derivatives both get the 232 rate on metal
-  # content and IEEPA/fent/s122 on the complement — there is no copper-specific
-  # carve-out for full-rate fentanyl. CA/MX fentanyl on pure-copper heading
-  # products ends up at roughly fent * (1 - copper_share).
-  if (stacking_method == 'tpc_additive') {
-    # Sum EVERY rate authority the policy skeleton carries (stacking_policy_from_specs),
-    # not a hand-listed subset — rate_301_cs and rate_s301fl were previously omitted,
-    # making the additive total asymmetric with the mutual_exclusion branch. Coalesce
-    # any absent column to 0 (matching compute_stacking_contributions' guard).
-    rate_cols <- c('rate_232', 'rate_ieepa_recip', 'rate_ieepa_fent', 'rate_301',
-                   'rate_301_cs', 'rate_s301fl', 'rate_s301br', 'rate_s338',
-                   'rate_s122', 'rate_section_201', 'rate_other')
-    for (rc in rate_cols) if (!rc %in% names(df)) df[[rc]] <- 0
-    return(
-      df %>%
-        mutate(
-          total_additional = rate_232 + rate_ieepa_recip + rate_ieepa_fent +
-            rate_301 + rate_301_cs + rate_s301fl + rate_s301br + rate_s338 +
-            rate_s122 + rate_section_201 + rate_other,
-          total_rate = base_rate + total_additional
-        )
-    )
-  }
-
+  # Mutual-exclusion stacking: 232 takes the metal content; content-split
+  # authorities (IEEPA reciprocal / fentanyl / s122) apply to the non-metal
+  # complement. The content-based split applies uniformly: copper and
+  # derivatives both get the 232 rate on metal content and IEEPA/fent/s122 on
+  # the complement — there is no copper-specific carve-out for full-rate
+  # fentanyl. CA/MX fentanyl on pure-copper heading products ends up at roughly
+  # fent * (1 - copper_share).
   policy <- stacking_policy %||% default_stacking_policy(cty_china)
   df <- compute_nonmetal_share(df)
   df <- compute_stacking_contributions(df, policy)
@@ -335,35 +294,15 @@ apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutu
 #' @param df Data frame with rate_232, rate_301, rate_ieepa_recip,
 #'   rate_ieepa_fent, rate_s122, rate_section_201, rate_other, metal_share, country columns
 #' @param cty_china Census code for China (default: '5700')
-#' @param stacking_method 'mutual_exclusion' (default) or 'tpc_additive'
 #' @return df with net_232, net_ieepa, net_fentanyl, net_301, net_s122,
 #'   net_section_201, net_other added
 compute_net_authority_contributions <- function(df, cty_china = '5700',
-                                                stacking_method = 'mutual_exclusion',
                                                 stacking_policy = NULL) {
   # Ensure optional columns exist (backwards compat with old snapshots). Insert-only,
   # no de-NA — preserving this path's historical behavior (fill_na defaults FALSE).
   df <- ensure_cols(df, list(rate_s122 = 0, rate_s301br = 0, rate_s338 = 0,
                              rate_section_201 = 0, rate_other = 0,
                              metal_share = 1.0))
-
-  # TPC additive: all authorities contribute their full rate (no mutual exclusion)
-  if (stacking_method == 'tpc_additive') {
-    return(
-      df %>%
-        mutate(
-          net_232 = rate_232,
-          net_ieepa = rate_ieepa_recip,
-          net_fentanyl = rate_ieepa_fent,
-          net_301 = rate_301,
-          net_s301br = rate_s301br,
-          net_s338 = rate_s338,
-          net_s122 = rate_s122,
-          net_section_201 = rate_section_201,
-          net_other = rate_other
-        )
-    )
-  }
 
   policy <- stacking_policy %||% default_stacking_policy(cty_china)
   df <- compute_nonmetal_share(df)

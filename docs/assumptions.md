@@ -205,7 +205,11 @@ Phase classification determines stacking behavior — country_eo rates stack add
 
 **Source:** Federal Register (90 FR 59281) and Executive Order 14346. The conditional expiry logic and finalization flag are implementation assumptions for handling a potentially lapsing agreement — not encoded in HTS JSON.
 
-**Implementation:** `config/policy_params.yaml` (`swiss_framework` block), `src/pipeline/06_calculate_rates.R`.
+**Implementation:** `config/policy_params.yaml` (`swiss_framework` block),
+`src/model/authority_adapter.R`, `src/pipeline/06_calculate_rates.R`, and
+`src/model/timeline.R`. Snapshots retain the underlying reciprocal rate, floor,
+and framework dates. A `bnd_2026-04-01` snapshot owns the first post-expiry day;
+daily reports and point queries read that snapshot without editing its rates.
 
 ---
 
@@ -341,4 +345,4 @@ Validity windows are read **per revision from each archive's own heading text** 
 
 **Zero rate-number change:** adding the flag leaves `base_rate` and all computed rates byte-identical (verified on rev_9). Value-weighted exposure share is deferred to `src/diagnostics.R` (next cluster build).
 
-**Implementation:** `classify_rate_type()` / `read_products_cache()` in `src/core/helpers.R`; `type_stack` in `src/pipeline/04_parse_products.R`; base-rate join + `EXPLICIT_SET_COLUMNS` in `src/pipeline/06_calculate_rates.R`; `add_blanket_pairs()` in `src/model/rate_schema.R`; `compute_revision_quality()` in `src/io/quality_report.R`; `export_statutory_rates()` in `tools/generate_etrs_config.R`.
+**Implementation:** `classify_rate_type()` / `read_products_cache()` in `src/core/helpers.R`; `type_stack` in `src/pipeline/04_parse_products.R`; `build_rate_grid()` in `src/model/rate_schema.R`; `compute_revision_quality()` in `src/io/quality_report.R`; `export_statutory_rates()` in `tools/generate_etrs_config.R`.

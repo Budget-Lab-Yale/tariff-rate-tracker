@@ -54,44 +54,7 @@ jobs:
       - name: Run preflight
         run: Rscript src/preflight.R
 
-      - name: Run daily-series smoke tests
-        run: Rscript tests/run_tests_daily_series.R
-
-      - name: Run weights-resolution tests
-        run: Rscript tests/run_tests_weights_resolution.R
-
-      - name: Run annex-parser tests
-        run: Rscript tests/run_tests_annex_parser.R
-
-      - name: Run rate-calculation tests
-        run: Rscript tests/test_rate_calculation.R
-
-      - name: Run Section 338 Canada tests
-        run: Rscript tests/test_s338.R
-
-      - name: Run scenario-registry tests
-        run: Rscript tests/test_scenario_registry.R
-
-      - name: Run 484(f) crosswalk parser tests
-        # Pure grammar — no pdftools, arrow, or build data required.
-        run: Rscript tests/test_484f_parser.R
-
-      - name: Run 484(f) crosswalk coverage tests
-        # Archive-coverage validator over synthesized fixtures — needs jsonlite,
-        # no pdftools/arrow/build data.
-        run: Rscript tests/test_484f_coverage.R
-
-      - name: Run 484(f) weight-mapper tests
-        # Pure versioned-identity mapper over synthetic fixtures — no arrow,
-        # no build data.
-        run: Rscript tests/test_crosswalk_mapper.R
-
-      - name: Run daily per-interval weight tests
-        # Provider contract, interval weight context, make_interval_weights_fn,
-        # and the fingerprinted daily-part cache (schema v2). Tempfile fixtures,
-        # no arrow / no build data.
-        run: Rscript tests/test_daily_interval_weights.R
-
-      # NOTE: tests/test_publish_snapshots.R covers the manifest revision +
-      # 484(f) weights provenance block but needs arrow (parquet), which CI
-      # intentionally omits — it runs via Slurm (see the job scripts).
+      - name: Run all discovered tests
+        # Each file runs in its own R process. Tests requiring optional
+        # heavyweight packages (currently Arrow) are reported as skipped.
+        run: Rscript tests/run_all_tests.R

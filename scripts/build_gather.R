@@ -94,8 +94,7 @@ if (!file.exists(timeline_path)) {
        ' — run scripts/list_revisions.R before build_gather.R', call. = FALSE)
 }
 rev_dates <- readRDS(timeline_path) %>%
-  mutate(effective_date = as.Date(effective_date),
-         tpc_date = as.Date(tpc_date))
+  mutate(effective_date = as.Date(effective_date))
 
 # --- Scenario reuse: hydrate the isolated output_dir from the baseline build ---
 # Symlink the baseline REAL-revision snapshots + parse caches into the scenario

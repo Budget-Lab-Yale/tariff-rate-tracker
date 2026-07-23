@@ -261,9 +261,8 @@ don't advance either the η measurement or the claiming-behavior calibration.
 **Infrastructure / engineering**
 - Build unification Phases 1/3/4 (destinations-as-config; array-by-default;
   fold alternatives).
-- Alternatives unification Step 5 (cluster parity gate, delete deprecated
-  `build_rebuild_alt_registry()`), `SCENARIO_SPECS` migration,
-  `publish_git`/`publish_vintage` read `meta.publish`, collapse kind taxonomy.
+- Scenario publication metadata (`publish_git`/`publish_vintage` reading
+  `meta.publish`) and possible kind-taxonomy consolidation.
 - Stale-sibling numeric rate-inheritance fix (~1,100 pairs on rev_9; parity-
   gated — make `type_stack`'s robust reset drive `rate_stack` too; needs a
   full-build golden diff). *The exposure flag already surfaces these cells.*

@@ -1,0 +1,36 @@
+[
+  {
+    "htsno": "7208.10.00.00",
+    "indent": "0",
+    "description": "Synthetic flat-rolled steel product",
+    "superior": null,
+    "units": ["kg"],
+    "general": "5%",
+    "special": "",
+    "other": "20%",
+    "footnotes": [
+      {
+        "columns": ["general"],
+        "value": "See 9903.80.01.",
+        "type": "endnote"
+      }
+    ],
+    "quotaQuantity": null,
+    "additionalDuties": null,
+    "addiitionalDuties": null
+  },
+  {
+    "htsno": "9903.80.01",
+    "indent": "0",
+    "description": "Iron or steel products, except products of exempt countries",
+    "superior": null,
+    "units": [],
+    "general": "+25%",
+    "special": "",
+    "other": "",
+    "footnotes": [],
+    "quotaQuantity": null,
+    "additionalDuties": null,
+    "addiitionalDuties": null
+  }
+]

@@ -5,9 +5,8 @@
 # The AuthoritySpec migration (docs/authority_spec.md) re-plumbs the calculator
 # and parallelizes the build. None of it is allowed to change the NUMBERS the
 # pipeline produces (until scenarios are deliberately applied). This module is
-# the safety net: it compares a candidate build's outputs against a reference
-# build — the latest published vintage (<model_data_root>/latest) — and reports
-# any number that drifted beyond tolerance.
+# the safety net: it compares two series published through the model_data
+# interface and reports any number that drifted beyond tolerance.
 #
 # Why tolerance, not byte-identity: refactors and parallelism reorder
 # floating-point operations, which perturbs the last few bits even when the
@@ -15,8 +14,9 @@
 # this comparator keys on natural keys and compares per column class.
 #
 # Design:
-#   - Compare by KEY, not row position. A full_join surfaces rows missing from
-#     the candidate AND extra rows in the candidate as first-class violations.
+#   - Compare by KEY, not row position. A compact key index surfaces rows
+#     missing from the candidate AND extra rows in the candidate without
+#     materializing a second copy of a multi-million-row table.
 #   - Tolerance per COLUMN CLASS (rates vs shares vs import-weighted ETRs differ
 #     by orders of magnitude); see PARITY_TOL / classify_parity_column().
 #   - NA-vs-NA is a pass; NA-vs-value is a violation (catches a column silently
@@ -27,7 +27,9 @@
 #   assert_parity(result)                             -> invisible / stop()
 #   format_parity_report(result, max_show)            -> character
 #   compare_parity_files(actual_path, reference_path, kind)
-#   PARITY_ARTIFACTS                                  -> per-artifact key/glob registry
+#   resolve_model_data_series(root)                   -> strict published-series root
+#   list_parity_artifacts(root, kind)                 -> relative-path keyed files
+#   PARITY_ARTIFACTS                                  -> per-artifact key registry
 #
 # Dependencies: dplyr + tibble (tidyverse). No model data required — unit
 # testable on synthetic fixtures (see tests/test_parity.R).
@@ -92,17 +94,18 @@ classify_parity_column <- function(col) {
   eq
 }
 
-# Columns the build omits under GATHER_ARGS="--unweighted" — the import-weighted
-# ETR / weight aggregates (weighted_etr*, the per-authority etr_* columns,
-# *_imports_b). The harness gates the rate panel + the UNWEIGHTED daily
-# means/counts; the weighted-ETR engine is intentionally un-gated (see the
-# PARITY_ARTIFACTS NOTE). So a reference (built weighted) carrying these columns while
-# the candidate (--unweighted) omits them is EXPECTED, not drift — such a
-# reference-only column is skipped, not a schema violation. (Any other reference-only
-# column is still real drift; and a weighted column PRESENT in both is still
-# value-compared, with the etr tolerance.)
-.parity_is_ungated_weighted_col <- function(col) {
-  grepl('^weighted_etr|^etr_|_imports_b$', col)
+# Build one exact, compact value per natural key. Published snapshots use two
+# fixed-width digit fields, so their pair fits exactly in an IEEE double
+# (< 2^53). This avoids allocating millions of pasted strings. Other artifact
+# keys are small and use a separator that cannot occur in the published fields.
+.parity_key_vector <- function(x, key_cols) {
+  if (identical(key_cols, c('hts10', 'country'))) {
+    hts <- suppressWarnings(as.double(x[['hts10']]))
+    country <- suppressWarnings(as.double(x[['country']]))
+    if (!anyNA(hts) && !anyNA(country)) return(hts * 10000 + country)
+  }
+  do.call(paste, c(lapply(key_cols, function(k) as.character(x[[k]])),
+                   sep = '\x1f'))
 }
 
 # ---- core comparator --------------------------------------------------------
@@ -113,9 +116,12 @@ classify_parity_column <- function(col) {
 #' @param reference  data.frame/tibble — frozen reference
 #' @param key_cols character — the natural key (must be present in both)
 #' @param label   character — artifact name for the report
+#' @param ignore_cols character — explicitly approved metadata columns to omit
 #' @return list(label, pass, n_rows_actual, n_rows_reference, n_rows_common,
 #'              n_violations, violations = tibble)
-compare_parity <- function(actual, reference, key_cols, label = 'artifact') {
+compare_parity <- function(actual, reference, key_cols, label = 'artifact',
+                           ignore_cols = character(),
+                           allow_extra_cols = character()) {
   stopifnot(is.data.frame(actual), is.data.frame(reference))
   missing_a <- setdiff(key_cols, names(actual))
   missing_g <- setdiff(key_cols, names(reference))
@@ -126,77 +132,121 @@ compare_parity <- function(actual, reference, key_cols, label = 'artifact') {
   }
 
   violations <- list()
+  violation_groups <- list()
+  n_violations_total <- 0L
+  n_violation_details <- 0L
+  max_violation_details <- 100L
+  record_violation_group <- function(kind, column, n) {
+    violation_groups[[length(violation_groups) + 1L]] <<- tibble(
+      kind = kind, column = column, n = as.double(n))
+  }
   add_v <- function(kind, column, key, actual_val, reference_val, abs_err = NA_real_, rel_err = NA_real_) {
+    n_violations_total <<- n_violations_total + 1L
+    record_violation_group(kind, column, 1L)
+    if (n_violation_details >= max_violation_details) return(invisible(NULL))
     violations[[length(violations) + 1]] <<- tibble(
       label = label, kind = kind, column = column, key = key,
       actual = as.character(actual_val), reference = as.character(reference_val),
       abs_err = abs_err, rel_err = rel_err
     )
+    n_violation_details <<- n_violation_details + 1L
+    invisible(NULL)
+  }
+  add_v_batch <- function(kind, column, key, actual_val = NA, reference_val = NA,
+                          abs_err = NA_real_, rel_err = NA_real_) {
+    n <- max(length(key), length(actual_val), length(reference_val),
+             length(abs_err), length(rel_err))
+    if (n == 0L) return(invisible(NULL))
+    n_violations_total <<- n_violations_total + n
+    record_violation_group(kind, column, n)
+    keep_n <- min(n, max_violation_details - n_violation_details)
+    if (keep_n <= 0L) return(invisible(NULL))
+    take <- seq_len(keep_n)
+    recycle <- function(x) rep_len(x, n)[take]
+    violations[[length(violations) + 1L]] <<- tibble(
+      label = rep(label, keep_n), kind = rep(kind, keep_n),
+      column = rep(column, keep_n), key = as.character(recycle(key)),
+      actual = as.character(recycle(actual_val)),
+      reference = as.character(recycle(reference_val)),
+      abs_err = as.double(recycle(abs_err)), rel_err = as.double(recycle(rel_err))
+    )
+    n_violation_details <<- n_violation_details + keep_n
+    invisible(NULL)
   }
 
   # ---- schema diff (value columns present in only one side) ----
+  # ignore_cols opts a column out of VALUE comparison only. Candidate-only
+  # columns remain schema drift unless a migration gate names them explicitly.
   val_cols_a <- setdiff(names(actual), key_cols)
   val_cols_g <- setdiff(names(reference), key_cols)
-  only_actual <- setdiff(val_cols_a, val_cols_g)
+  only_actual <- setdiff(setdiff(val_cols_a, val_cols_g), allow_extra_cols)
   only_reference <- setdiff(val_cols_g, val_cols_a)
-  # Skip the un-gated import-weighted ETR/weight columns the --unweighted candidate
-  # legitimately omits (see .parity_is_ungated_weighted_col); flag every OTHER
-  # reference-only column as a real schema violation.
-  skipped_ungated <- only_reference[.parity_is_ungated_weighted_col(only_reference)]
-  only_reference     <- setdiff(only_reference, skipped_ungated)
   for (col in only_reference) add_v('schema_missing_column', col, NA_character_, NA, NA)
   for (col in only_actual) add_v('schema_extra_column', col, NA_character_, NA, NA)
-  shared_cols <- intersect(val_cols_a, val_cols_g)
+  shared_cols <- setdiff(intersect(val_cols_a, val_cols_g), ignore_cols)
 
-  # ---- row presence (keyed full join) ----
-  a <- actual;  a$`.in_actual` <- TRUE
-  g <- reference;  g$`.in_reference` <- TRUE
-  joined <- dplyr::full_join(a, g, by = key_cols, suffix = c('.actual', '.reference'))
-  in_a <- !is.na(joined$`.in_actual`)
-  in_g <- !is.na(joined$`.in_reference`)
-  common <- in_a & in_g
+  # ---- row presence + alignment by natural key -----------------------------
+  # Matching one compact key vector is dramatically cheaper than full_join()
+  # on every value column. It also handles the intentional row-order change
+  # made by the one-grid refactor.
+  actual_key <- .parity_key_vector(actual, key_cols)
+  reference_key <- .parity_key_vector(reference, key_cols)
+  if (anyDuplicated(actual_key)) stop('[', label, '] duplicate key in actual')
+  if (anyDuplicated(reference_key)) stop('[', label, '] duplicate key in reference')
 
-  key_str <- function(rows) {
-    do.call(paste, c(lapply(key_cols, function(k) as.character(joined[[k]][rows])), sep = ' | '))
+  reference_idx <- if (identical(actual_key, reference_key)) {
+    seq_along(actual_key)
+  } else {
+    match(actual_key, reference_key)
   }
-  if (any(in_a & !in_g)) {
-    ks <- key_str(in_a & !in_g)
-    for (k in ks) add_v('row_extra', NA_character_, k, NA, NA)
+  actual_idx <- match(reference_key, actual_key)
+  common_actual <- which(!is.na(reference_idx))
+  common_reference <- reference_idx[common_actual]
+
+  key_str <- function(x, rows) {
+    do.call(paste, c(lapply(key_cols, function(k) as.character(x[[k]][rows])),
+                     sep = ' | '))
   }
-  if (any(in_g & !in_a)) {
-    ks <- key_str(in_g & !in_a)
-    for (k in ks) add_v('row_missing', NA_character_, k, NA, NA)
+  extra <- which(is.na(reference_idx))
+  missing <- which(is.na(actual_idx))
+  if (length(extra)) {
+    add_v_batch('row_extra', NA_character_, key_str(actual, extra))
+  }
+  if (length(missing)) {
+    add_v_batch('row_missing', NA_character_, key_str(reference, missing))
   }
 
   # ---- value comparison on common rows ----
-  common_idx <- which(common)
-  if (length(common_idx) > 0) {
-    ck <- key_str(common)  # one key string per common row, aligned to common_idx
+  if (length(common_actual) > 0) {
+    actual_is_complete <- length(common_actual) == nrow(actual)
+    reference_is_identity <- actual_is_complete &&
+      length(common_reference) == nrow(reference) &&
+      identical(common_reference, seq_len(nrow(reference)))
     for (col in shared_cols) {
-      ca <- joined[[paste0(col, '.actual')]]
-      cg <- joined[[paste0(col, '.reference')]]
-      if (is.null(ca) || is.null(cg)) {            # column was a key on one side / absent post-join
-        next
-      }
-      av <- ca[common_idx]; gv <- cg[common_idx]
+      av <- if (actual_is_complete) actual[[col]] else actual[[col]][common_actual]
+      gv <- if (reference_is_identity) reference[[col]] else reference[[col]][common_reference]
       if (is.list(av) || is.list(gv)) next          # skip list-columns (none expected in panels)
+      # Refactors normally preserve values exactly. Let C's vector equality
+      # take that fast path before allocating tolerance/error vectors.
+      if (identical(av, gv)) next
       numeric_col <- is.numeric(av) && is.numeric(gv)
       if (numeric_col) {
         cls <- classify_parity_column(col)
         ok <- .parity_within_tol_numeric(av, gv, cls)
         bad <- which(!ok)
         if (length(bad)) {
+          ck <- key_str(actual, common_actual[bad])
           abs_err <- abs(av[bad] - gv[bad])
           rel_err <- abs_err / pmax(abs(gv[bad]), 1e-300)
-          for (j in seq_along(bad)) {
-            b <- bad[j]
-            add_v('value_mismatch', col, ck[b], av[b], gv[b], abs_err[j], rel_err[j])
-          }
+          add_v_batch('value_mismatch', col, ck, av[bad], gv[bad], abs_err, rel_err)
         }
       } else {
         ok <- .parity_exact_equal(av, gv)
         bad <- which(!ok)
-        for (b in bad) add_v('value_mismatch', col, ck[b], av[b], gv[b])
+        if (length(bad)) {
+          ck <- key_str(actual, common_actual[bad])
+          add_v_batch('value_mismatch', col, ck, av[bad], gv[bad])
+        }
       }
     }
   }
@@ -205,16 +255,24 @@ compare_parity <- function(actual, reference, key_cols, label = 'artifact') {
     tibble(label = character(), kind = character(), column = character(),
            key = character(), actual = character(), reference = character(),
            abs_err = double(), rel_err = double())
+  violation_summary <- if (length(violation_groups)) {
+    dplyr::bind_rows(violation_groups) %>%
+      group_by(kind, column) %>%
+      summarise(n = sum(n), .groups = 'drop') %>%
+      arrange(desc(n), kind, column)
+  } else {
+    tibble(kind = character(), column = character(), n = double())
+  }
 
   list(
     label = label,
-    pass = nrow(viol_tbl) == 0,
+    pass = n_violations_total == 0L,
     n_rows_actual = nrow(actual),
     n_rows_reference = nrow(reference),
-    n_rows_common = length(common_idx),
-    n_violations = nrow(viol_tbl),
-    skipped_ungated_columns = skipped_ungated,
-    violations = viol_tbl
+    n_rows_common = length(common_actual),
+    n_violations = n_violations_total,
+    violations = viol_tbl,
+    violation_summary = violation_summary
   )
 }
 
@@ -252,34 +310,80 @@ format_parity_report <- function(result, max_show = 40) {
 
 # ---- artifact registry + file dispatch --------------------------------------
 
-# Maps an artifact kind to its file glob and natural key. run_parity_check.R
-# uses this to locate and compare each artifact; key_cols are intersected with
-# the columns actually present so a schema tweak degrades gracefully.
+# A published series is exactly <series>/{snapshots,daily}. A caller may pass
+# either that directory directly or a vintage root containing <root>/actual.
+# No working-repository, flat-file, or legacy "golden" layouts are accepted.
+resolve_model_data_series <- function(root) {
+  if (is.null(root) || length(root) != 1L || !nzchar(root)) {
+    stop('model_data series root must be one non-empty path', call. = FALSE)
+  }
+  root <- normalizePath(root, mustWork = TRUE)
+  direct <- dir.exists(file.path(root, 'snapshots')) &&
+    dir.exists(file.path(root, 'daily'))
+  actual <- dir.exists(file.path(root, 'actual', 'snapshots')) &&
+    dir.exists(file.path(root, 'actual', 'daily'))
+  if (direct) return(root)
+  if (actual) return(file.path(root, 'actual'))
+  stop(
+    'not a published model_data series or vintage: ', root,
+    '\nExpected <root>/{snapshots,daily} or <root>/actual/{snapshots,daily}.',
+    call. = FALSE
+  )
+}
+
+# Maps an artifact kind to its published section, exact filename, and natural
+# key. Snapshots are paired by their hive-partition relative path, so every
+# valid_from=.../rates.parquet remains distinct.
 PARITY_ARTIFACTS <- list(
-  timeseries  = list(glob = 'rate_timeseries.rds',     key_cols = c('hts10', 'country', 'revision')),
-  snapshot    = list(glob = 'snapshot_*.rds',          key_cols = c('hts10', 'country', 'revision')),
+  snapshot    = list(section = 'snapshots', filename = 'rates.parquet',
+                     recursive = TRUE, key_cols = c('hts10', 'country')),
   # daily_overall and daily_by_authority are WIDE (one row per date; authorities
   # live in columns), so both key on `date` alone.
-  daily_overall      = list(glob = 'daily_overall*.csv',      key_cols = c('date')),
-  daily_by_authority = list(glob = 'daily_by_authority*.csv', key_cols = c('date')),
-  daily_by_country   = list(glob = 'daily_by_country*.csv',   key_cols = c('date', 'country')),
-  daily_by_category  = list(glob = 'daily_by_category*.csv',  key_cols = c('date', 'gtap_code'))
-  # NOTE: the removed legacy weighted-ETR/TPC-overlay engine is intentionally not
-  # gated here. The harness gates the consumed artifacts: the rate panel
-  # (snapshot/timeseries) + the daily series.
+  daily_overall      = list(section = 'daily', filename = 'daily_overall.csv',
+                            recursive = FALSE, key_cols = c('date')),
+  daily_by_authority = list(section = 'daily', filename = 'daily_by_authority.csv',
+                            recursive = FALSE, key_cols = c('date')),
+  daily_by_country   = list(section = 'daily', filename = 'daily_by_country.csv',
+                            recursive = FALSE, key_cols = c('date', 'country')),
+  daily_by_category  = list(section = 'daily', filename = 'daily_by_category.csv',
+                            recursive = FALSE, key_cols = c('date', 'gtap_code')),
+  daily_by_hs        = list(section = 'daily', filename = 'daily_by_hs.csv',
+                            recursive = FALSE, key_cols = c('date', 'category_code'))
 )
 
-#' Read a parity artifact (.rds or .csv) into a tibble.
+#' List one kind of artifact, named by path relative to its published section.
+list_parity_artifacts <- function(series_root, kind) {
+  spec <- PARITY_ARTIFACTS[[kind]]
+  if (is.null(spec)) stop('Unknown parity artifact kind: ', kind, call. = FALSE)
+  series_root <- resolve_model_data_series(series_root)
+  section_dir <- file.path(series_root, spec$section)
+  files <- list.files(section_dir, recursive = isTRUE(spec$recursive),
+                      full.names = TRUE, include.dirs = FALSE)
+  files <- files[basename(files) == spec$filename]
+  prefix <- paste0(normalizePath(section_dir, mustWork = TRUE), .Platform$file.sep)
+  rel <- substring(normalizePath(files, mustWork = TRUE), nchar(prefix) + 1L)
+  if (anyDuplicated(rel)) stop('duplicate artifact relative path(s) for ', kind, call. = FALSE)
+  stats::setNames(files, rel)
+}
+
+#' Read a published parity artifact (.parquet or .csv) into a tibble.
 read_parity_artifact <- function(path) {
   ext <- tolower(tools::file_ext(path))
-  if (ext == 'rds') return(tibble::as_tibble(readRDS(path)))
+  if (ext == 'parquet') {
+    if (!requireNamespace('arrow', quietly = TRUE)) {
+      stop('arrow is required to compare published parquet snapshots', call. = FALSE)
+    }
+    return(tibble::as_tibble(arrow::read_parquet(path)))
+  }
   if (ext == 'csv') return(suppressMessages(readr::read_csv(path, show_col_types = FALSE)))
   stop('Unsupported parity artifact extension: ', path)
 }
 
 #' Compare two artifact files of a known kind. Keys are taken from
 #' PARITY_ARTIFACTS[[kind]] and intersected with present columns.
-compare_parity_files <- function(actual_path, reference_path, kind, label = NULL) {
+compare_parity_files <- function(actual_path, reference_path, kind, label = NULL,
+                                 ignore_cols = character(),
+                                 allow_extra_cols = character()) {
   spec <- PARITY_ARTIFACTS[[kind]]
   if (is.null(spec)) stop('Unknown parity artifact kind: ', kind)
   actual <- read_parity_artifact(actual_path)
@@ -290,7 +394,9 @@ compare_parity_files <- function(actual_path, reference_path, kind, label = NULL
                  kind, paste(spec$key_cols, collapse = ', ')))
   }
   compare_parity(actual, reference, key_cols,
-                 label = label %||% paste0(kind, ':', basename(actual_path)))
+                 label = label %||% paste0(kind, ':', basename(actual_path)),
+                 ignore_cols = ignore_cols,
+                 allow_extra_cols = allow_extra_cols)
 }
 
 # Local null-coalesce so this module is standalone (helpers.R may not be sourced).

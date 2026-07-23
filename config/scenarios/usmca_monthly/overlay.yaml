@@ -1,7 +1,6 @@
 # Alternative: USMCA raw monthly utilization shares (time-varying; walks back
 # from the revision's effective_date month to the most recent available file).
-# Migrated from build_rebuild_alt_registry() — the closure set mode <- 'monthly'
-# and removed `year` (year: ~ deletes the baseline key in the deep merge; the
+# `year: ~` deletes the baseline key in the deep merge; the
 # monthly loader derives year/month from effective_date and only falls back to
 # a configured year when present).
 usmca_shares:

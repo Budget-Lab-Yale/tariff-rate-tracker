@@ -38,9 +38,7 @@ Rscript src/pipeline/00_build_timeseries.R --alternatives no_301,metal_flat    #
 Rscript src/pipeline/00_build_timeseries.R --alternatives counterfactuals     # all kind=counterfactual
 ```
 
-Legacy spellings `--with-alternatives` (== `--alternatives alternatives`) and
-`--rebuild-alts <list>` still work — the blog pipeline passes them — but new
-scripts should use `--alternatives`. Outputs land in `output/scenarios/<name>/`.
+Outputs land in `output/scenarios/<name>/`.
 Full named series (`forced_labor`, `new_301`, kind=scenario) still build via
 `TARIFF_SCENARIO=<name>`, not through `--alternatives`.
 

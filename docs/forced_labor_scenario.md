@@ -29,8 +29,8 @@ config carries the block (so it's absent in baseline) and is **date-gated** to i
 `effective_date` — so it's dormant before 2026-07-24 and in every pre-date synthetic
 mint, and `rate_s301fl` is dropped from those panels (baseline stays byte-identical,
 no `RATE_SCHEMA` change, no golden re-freeze). The 2026-07-24 turn-on is materialized
-by `boundary_overrides: ['2026-07-24']` → `build_boundary_mints` (empty-ops mint; the
-date-gate fires). Because the gate is by **date**, later empty-ops mints
+by the baseline boundary calendar—it is also the first day after §122 expires—so
+the scenario does not copy `boundary_overrides`. Because the gate is by **date**, later empty-ops mints
 (`bnd_2026-11-10` cranes/chassis) and the pharma `sched_` mint also carry it.
 
 ## How to RUN it
@@ -77,8 +77,7 @@ golden were never touched, so it's a quick daily regen.
 
 - `tests/test_forced_labor_scenario.R` — 31/31 (deep-merge, overlay load, two-tier
   by_country, date-gate, stacking-policy invariant).
-- `test_policy_from_specs`, `test_resolved_programs` (updated 8→9 authorities),
-  `test_stacking`, `test_scenario_ops` — green.
+- `test_policy_from_specs` (updated 8→9 authorities) and `test_stacking` — green.
 - All 60 economies map to the correct census codes (verified individually).
 
 ## Caveats / open items

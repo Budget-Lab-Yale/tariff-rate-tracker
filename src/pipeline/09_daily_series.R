@@ -13,7 +13,7 @@
 #   build_daily_aggregates(ts, date_range, imports, policy_params) - daily ETRs
 #   expand_to_daily(ts, date_range, countries, products) - on-demand expansion
 #   run_daily_series(ts, imports, policy_params) - full pipeline wrapper
-#   run_alternative_series(imports, pp, rebuild) - alternative daily series
+#   run_alternative_series(alternatives, imports) - alternative daily series
 #   build_alternative_timeseries(pp_override, variant, imports) - rebuild variant
 #
 # Usage:
@@ -38,8 +38,9 @@ library(jsonlite)
 
 #' Shared per-revision preamble for the compute_agg_* helpers.
 #'
-#' Clips an already-filtered revision slice to its active sub-interval
-#' (expiry zeroing), then applies stacking. The stacking policy is NOT uniform
+#' Prepares an already-filtered revision slice, then applies stacking. Policy
+#' changes are already represented by minted snapshot intervals. The stacking
+#' policy is NOT uniform
 #' across the aggregates, so it is selected explicitly — a single shared rule
 #' here would silently change behavior:
 #'   "conditional" — stack only if rate_s122/rate_ieepa_recip present (overall)
@@ -49,20 +50,18 @@ library(jsonlite)
 #'                   (authority)
 #'
 #' @param rev_data Revision slice (already filtered, and joined where needed)
-#' @param sub_start Sub-interval start passed to apply_expiry_zeroing
-#' @param policy_params Policy params list
-#' @param stacking_method Stacking method passed through to apply_stacking_rules
+#' @param sub_start Deprecated compatibility argument; ignored.
+#' @param policy_params Deprecated compatibility argument; ignored.
 #' @param stacking One of "always", "conditional", "none"
-#' @return rev_data after expiry zeroing and (mode-dependent) stacking
+#' @return rev_data after (mode-dependent) stacking. NB: expiry handling now
+#'   lives in the minted-boundary calendar (discover_boundaries), not here.
 prepare_interval_data <- function(rev_data, sub_start, policy_params,
-                                  stacking_method,
                                   stacking = c('always', 'conditional', 'none')) {
   stacking <- match.arg(stacking)
-  rev_data <- apply_expiry_zeroing(rev_data, sub_start, policy_params)
   if (stacking == 'always' ||
       (stacking == 'conditional' &&
        any(c('rate_s122', 'rate_ieepa_recip') %in% names(rev_data)))) {
-    rev_data <- apply_stacking_rules(rev_data, stacking_method = stacking_method)
+    rev_data <- apply_stacking_rules(rev_data)
   }
   rev_data
 }
@@ -77,45 +76,17 @@ prepare_interval_data <- function(rev_data, sub_start, policy_params,
 #' on goods that actually enter duty-free — overstating the rate. So rate
 #' aggregation must use the STORED total_rate, NOT a re-derivation.
 #'
-#' The ONE exception is a LIVE mid-interval expiry zeroing (the Swiss framework for
-#' CH/LI after its expiry — s122 moved to boundary minting, so only Swiss remains):
-#' there the stored total_rate is stale, so re-derive ONLY the rows the expiry
-#' actually changes, leaving every other row on its authoritative stored rate.
-#'
-#' @return rev_data with stored total_rate/total_additional, except expiry-affected
-#'   rows re-derived. NB: the authority decomposition uses prepare_interval_data +
+#' @return rev_data with stored total_rate/total_additional. NB: the authority
+#'   decomposition uses prepare_interval_data +
 #'   compute_net_authority_contributions for the per-authority split, then scales
 #'   those contributions to this stored total_additional (see compute_agg_authority)
 #'   so its parts stay on the same effective basis as weighted_etr — otherwise the
 #'   etr_base residual mixes bases and goes negative on FTA/USMCA duty-free goods.
-prepare_interval_data_effective <- function(rev_data, sub_start, policy_params,
-                                            stacking_method) {
+prepare_interval_data_effective <- function(rev_data, sub_start, policy_params) {
   if (is.null(rev_data) || nrow(rev_data) == 0) return(rev_data)
-  # The stored total_rate/total_additional reflect the CANONICAL build stacking
+  # The stored total_rate/total_additional reflect the canonical build stacking
   # (mutual_exclusion) AND the effective, exemption-reduced rates. They are the
-  # authoritative rates for that method. For an ALTERNATIVE stacking method the
-  # caller explicitly wants a re-derivation (a different combination of the same
-  # components), so fall back to the full re-stack. (That alternative view re-uses
-  # base_rate and so cannot reproduce the stored exemption reductions — an accepted
-  # limitation of the non-canonical stacking, which the daily default never uses.)
-  if (!identical(stacking_method, 'mutual_exclusion')) {
-    return(prepare_interval_data(rev_data, sub_start, policy_params, stacking_method,
-                                 stacking = 'always'))
-  }
-  if (is.null(policy_params)) return(rev_data)
-  zeroed <- apply_expiry_zeroing(rev_data, sub_start, policy_params)
-  comp <- intersect(c('rate_232', 'rate_301', 'rate_301_cs', 'rate_s301br',
-                      'rate_ieepa_recip', 'rate_ieepa_fent', 'rate_s122',
-                      'rate_s338', 'rate_section_201', 'rate_other'),
-                    names(rev_data))
-  changed <- rep(FALSE, nrow(rev_data))
-  for (cc in comp) changed <- changed | (abs(zeroed[[cc]] - rev_data[[cc]]) > 1e-12)
-  if (any(changed)) {
-    rr <- apply_stacking_rules(zeroed[changed, , drop = FALSE],
-                               stacking_method = stacking_method)
-    rev_data$total_rate[changed] <- rr$total_rate
-    rev_data$total_additional[changed] <- rr$total_additional
-  }
+  # authoritative rates, so effective aggregation uses them as-is (no re-stack).
   rev_data
 }
 
@@ -219,6 +190,61 @@ classify_hs10 <- function(hs10) {
   code
 }
 
+#' Aggregate effective rates by one or more dimensions.
+#'
+#' Shared kernel for the country, GTAP-sector, and Budget-Lab-HS outputs. Those
+#' outputs differ only in their grouping columns, denominator table, and whether
+#' "products present" means rows (country) or distinct HTS10s (categories).
+#'
+#' @param data Effective interval panel.
+#' @param groups Character vector of grouping columns.
+#' @param n_products_total Product universe size for all-pairs means.
+#' @param present_mode Either "rows" or "distinct_products".
+#' @param include_pair_count Include n_pairs_present (category outputs).
+#' @return One unweighted aggregate row per group.
+aggregate_rate_groups <- function(data, groups, n_products_total,
+                                  present_mode = c('rows', 'distinct_products'),
+                                  include_pair_count = FALSE) {
+  present_mode <- match.arg(present_mode)
+  out <- data %>%
+    group_by(across(all_of(groups))) %>%
+    summarise(
+      mean_additional_exposed = mean(total_additional),
+      mean_total_exposed = mean(total_rate),
+      mean_additional_all_pairs = sum(total_additional) / n_products_total,
+      mean_total_all_pairs = sum(total_rate) / n_products_total,
+      n_products_present = if (present_mode == 'rows') n() else n_distinct(hts10),
+      n_pairs_present = n(),
+      .groups = 'drop'
+    )
+  if (!include_pair_count) out$n_pairs_present <- NULL
+  out
+}
+
+#' Add a weighted ETR to a grouped interval aggregate.
+#'
+#' @param weighted_data Effective panel joined to import weights.
+#' @param groups Character vector of grouping columns.
+#' @param denominators Per-group total-import denominator table.
+#' @param denominator_col Name of its numeric denominator column.
+#' @return Group keys plus weighted_etr.
+aggregate_weighted_groups <- function(weighted_data, groups, denominators,
+                                      denominator_col) {
+  weighted_data %>%
+    group_by(across(all_of(groups))) %>%
+    summarise(
+      tariffed_imports = sum(imports),
+      weighted_numerator = sum(total_rate * imports),
+      .groups = 'drop'
+    ) %>%
+    left_join(denominators, by = groups) %>%
+    mutate(
+      .denominator = coalesce(.data[[denominator_col]], tariffed_imports),
+      weighted_etr = weighted_numerator / .denominator
+    ) %>%
+    select(all_of(groups), weighted_etr)
+}
+
 #' Build daily aggregate statistics
 #'
 #' Since rates only change at revision boundaries, computes one aggregate per
@@ -247,7 +273,6 @@ classify_hs10 <- function(hs10) {
 build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
                                    imports_fn = NULL,
                                    policy_params = NULL,
-                                   stacking_method = 'mutual_exclusion',
                                    hts_as_of_dates = NULL) {
 
   stopifnot(
@@ -288,7 +313,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   }
 
   # --- GTAP category crosswalk (HS10 → GTAP sector) ---
-  # Used by compute_agg_category to produce by_category aggregates. If the file
+  # Used by the grouped aggregation kernel to produce by_category aggregates. If the file
   # is missing the by-category aggregation is skipped silently — keeps the
   # aggregator backwards-compatible. Crosswalk schema: hs10, hs6_code,
   # gtap_code, description (note: 'hs10' here is the same 10-digit code the
@@ -310,7 +335,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     }
     # Note: ts/ts_weighted are NOT joined to gtap_xwalk upfront — at full
     # build size (~195M rows) the materialized join OOMs at the coalesce
-    # step. compute_agg_category does the join per revision instead.
+    # step. add_aggregate_dimensions() does the join per revision instead.
   }
 
   # --- Interval-local weight context ----------------------------------------
@@ -386,13 +411,10 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   # China code for net authority decomposition
   CTY_CHINA <- if (!is.null(policy_params)) policy_params$CTY_CHINA %||% '5700' else '5700'
 
-  # --- Policy expiry split points (Section 122, Swiss framework, etc.) ---
-  # Uses shared helpers from helpers.R to detect all finalized=false overrides
-
-  # Helper: compute aggregates for one revision interval (or sub-interval)
-  compute_agg_overall <- function(rev_ts, rev_ts_w, wctx, revision, valid_from, valid_until, sub_start = valid_from) {
-    rev_data <- prepare_interval_data_effective(rev_ts,
-                                                sub_start, policy_params, stacking_method)
+  # Helpers consume already-prepared interval data. The revision loop prepares
+  # the effective panel once per segment, then every rollup shares it.
+  compute_agg_overall <- function(rev_data, wt_data, wctx,
+                                  revision, valid_from, valid_until) {
     n_products <- n_distinct(rev_data$hts10)
     n_countries <- n_distinct(rev_data$country)
     n_pairs <- nrow(rev_data)
@@ -412,8 +434,6 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
       n_all_pairs = n_all_pairs
     )
     if (has_weights) {
-      wt_data <- prepare_interval_data_effective(rev_ts_w,
-                                                 sub_start, policy_params, stacking_method)
       if (nrow(wt_data) > 0) {
         row$weighted_etr <- sum(wt_data$total_rate * wt_data$imports) / wctx$total_imports
         row$weighted_etr_additional <- sum(wt_data$total_additional * wt_data$imports) / wctx$total_imports
@@ -429,43 +449,28 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     return(row)
   }
 
-  compute_agg_country <- function(rev_ts, rev_ts_w, wctx, revision, valid_from, valid_until, sub_start = valid_from) {
-    rev_data <- prepare_interval_data_effective(rev_ts,
-                                                sub_start, policy_params, stacking_method)
+  compute_agg_grouped <- function(rev_data, wt_data, wctx,
+                                  revision, valid_from, valid_until,
+                                  groups, denominators, denominator_col,
+                                  present_mode = 'distinct_products',
+                                  include_pair_count = TRUE) {
     n_products_rev <- n_distinct(rev_data$hts10)
-    row <- rev_data %>%
-      group_by(country) %>%
-      summarise(
-        mean_additional_exposed = mean(total_additional),
-        mean_total_exposed = mean(total_rate),
-        mean_additional_all_pairs = sum(total_additional) / n_products_rev,
-        mean_total_all_pairs = sum(total_rate) / n_products_rev,
-        n_products_present = n(),
-        .groups = 'drop'
-      ) %>%
+    row <- aggregate_rate_groups(
+      rev_data, groups, n_products_rev,
+      present_mode = present_mode,
+      include_pair_count = include_pair_count
+    ) %>%
       mutate(
         revision = revision, valid_from = valid_from, valid_until = valid_until,
         n_products_total = n_products_rev
       )
     if (has_weights) {
-      wt_data <- prepare_interval_data_effective(rev_ts_w,
-                                                 sub_start, policy_params, stacking_method)
-      wt_country <- wt_data %>%
-        group_by(country) %>%
-        summarise(
-          tariffed_imports = sum(imports),
-          weighted_numerator = sum(total_rate * imports),
-          .groups = 'drop'
-        ) %>%
-        left_join(wctx$country_total_imp, by = 'country') %>%
-        mutate(
-          country_total_imports = coalesce(country_total_imports, tariffed_imports),
-          weighted_etr = weighted_numerator / country_total_imports
-        ) %>%
-        select(country, weighted_etr)
-      row <- row %>% left_join(wt_country, by = 'country')
+      weighted <- aggregate_weighted_groups(
+        wt_data, groups, denominators, denominator_col
+      )
+      row <- row %>% left_join(weighted, by = groups)
     }
-    return(row)
+    row
   }
 
   # Scale the re-derived per-authority contributions to the STORED effective
@@ -476,14 +481,11 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   # is the effective, exemption-reduced additional. Scaling by their ratio makes
   # Σ authorities == weighted effective additional, so etr_base (= weighted_etr −
   # Σ authorities) collapses to the weighted effective BASE (>= 0) instead of a
-  # mixed-basis residual that goes negative on FTA/USMCA duty-free goods. Canonical
-  # (mutual_exclusion) stacking only; the tpc_additive view re-derives weighted_etr
-  # too, so it stays self-consistent without scaling.
-  auth_net_cols <- c('net_232', 'net_301', 'net_301_cs', 'net_s301br',
-                     'net_s301fl', 'net_ieepa', 'net_fentanyl', 'net_s122',
-                     'net_s338', 'net_section_201', 'net_other')
+  # mixed-basis residual that goes negative on FTA/USMCA duty-free goods.
+  # Keep the historical summation order (floating-point load-bearing), but take
+  # the complete net-column census from the shared authority registry.
+  auth_net_cols <- authority_report_net_columns()
   scale_net_to_effective <- function(net_df, eff_additional) {
-    if (!identical(stacking_method, 'mutual_exclusion')) return(net_df)
     cols <- intersect(auth_net_cols, names(net_df))
     rederived <- Reduce(`+`, net_df[cols])
     f <- ifelse(rederived > 1e-12, pmax(eff_additional, 0) / rederived, 0)
@@ -491,31 +493,49 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     net_df
   }
 
-  compute_agg_authority <- function(rev_ts, rev_ts_w, wctx, revision, valid_from, valid_until, sub_start = valid_from) {
-    rev_data <- prepare_interval_data(rev_ts,
-                                      sub_start, policy_params, stacking_method,
-                                      stacking = 'none')
+  # Fail-closed reconciliation: the hand-written mean_<bucket> / etr_<bucket>
+  # columns MUST reproduce the registry's report_bucket grouping exactly (same
+  # columns, same summation order). This is what keeps `report_bucket` load-
+  # bearing: a NEW authority added to AUTHORITY_REGISTRY that isn't also wired
+  # into a bucket below stops the build here, instead of silently vanishing from
+  # the by-authority decomposition (its net contribution would otherwise leave
+  # the reported parts short of total_additional with no error).
+  .verify_report_buckets <- function(row, net_df, prefix, value_of) {
+    buckets <- authority_report_buckets()
+    expected <- paste0(prefix, names(buckets))
+    reported <- grep(paste0('^', prefix), names(row), value = TRUE)
+    if (!setequal(reported, expected)) {
+      stop('by-authority ', prefix, '* columns out of sync with the authority ',
+           'registry: missing=[', paste(setdiff(expected, reported), collapse = ','),
+           '] extra=[', paste(setdiff(reported, expected), collapse = ','), ']',
+           call. = FALSE)
+    }
+    for (b in names(buckets)) {
+      lhs <- row[[paste0(prefix, b)]]
+      rhs <- value_of(buckets[[b]])
+      if (!is.finite(lhs) || !is.finite(rhs) || abs(lhs - rhs) > 1e-9) {
+        stop('by-authority ', prefix, b, ' (', lhs, ') disagrees with the registry ',
+             'grouping {', paste(buckets[[b]], collapse = ','), '} (', rhs, ')',
+             call. = FALSE)
+      }
+    }
+    invisible(TRUE)
+  }
 
+  compute_agg_authority <- function(rev_data, eff_data, wt_data, eff_wt, wctx,
+                                    revision, valid_from, valid_until) {
     # Use shared net authority decomposition from helpers.R
-    net_data <- compute_net_authority_contributions(rev_data, cty_china = CTY_CHINA,
-                                                     stacking_method = stacking_method)
-    # A2: content-split 301 (net_301_cs) is reported UNDER Section 301 here, so the
-    # daily decomposition needs no new column — byte-identical in baseline, where
-    # net_301_cs = 0. Guard the tpc_additive path, which omits net_301_cs.
-    if (!'net_301_cs' %in% names(net_data)) net_data$net_301_cs <- 0
-    # net_s338 is guarded the same way (the tpc_additive path of older snapshots
-    # may omit it; the canonical policy path always carries it).
-    if (!'net_s338' %in% names(net_data)) net_data$net_s338 <- 0
-    # net_s301br likewise (baseline since the 2026-07-20 Brazil final action).
-    if (!'net_s301br' %in% names(net_data)) net_data$net_s301br <- 0
-    # net_s301fl is the forced-labor §301 (scenario-only: new_301 / forced_labor).
-    # Zero in baseline; guarded like net_301_cs / net_s338 for the tpc_additive path.
-    if (!'net_s301fl' %in% names(net_data)) net_data$net_s301fl <- 0
+    net_data <- compute_net_authority_contributions(rev_data, cty_china = CTY_CHINA)
+    # Zero-fill any registry authority column the decomposition omits. The
+    # scenario-only net_s301fl is absent in baseline, and content-split 301
+    # (net_301_cs) is reported UNDER Section 301, so this is byte-identical to
+    # the previous per-column guards in baseline (those columns = 0). Driving the
+    # census off the registry means a NEW authority is carried automatically
+    # rather than silently dropped.
+    for (nc in auth_net_cols) if (!nc %in% names(net_data)) net_data[[nc]] <- 0
     # Reduce to the effective additional (same authoritative basis as weighted_etr).
-    # prepare_interval_data_effective preserves rev_ts row order, so total_additional
+    # Effective preparation preserves row order, so total_additional
     # aligns positionally with net_data.
-    eff_data <- prepare_interval_data_effective(rev_ts, sub_start, policy_params,
-                                                stacking_method)
     net_data <- scale_net_to_effective(net_data, eff_data$total_additional)
 
     row <- tibble(
@@ -538,19 +558,13 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
       mean_section_201 = mean(net_data$net_section_201),
       mean_other = mean(net_data$net_other)
     )
+    .verify_report_buckets(row, net_data, 'mean_',
+                           function(cols) mean(Reduce(`+`, net_data[cols])))
     if (has_weights) {
-      wt_data <- prepare_interval_data(rev_ts_w,
-                                       sub_start, policy_params, stacking_method,
-                                       stacking = 'none')
       if (nrow(wt_data) > 0) {
-        wt_net <- compute_net_authority_contributions(wt_data, cty_china = CTY_CHINA,
-                                                      stacking_method = stacking_method)
-        if (!'net_301_cs' %in% names(wt_net)) wt_net$net_301_cs <- 0
-        if (!'net_s338' %in% names(wt_net)) wt_net$net_s338 <- 0
-        if (!'net_s301br' %in% names(wt_net)) wt_net$net_s301br <- 0
-        if (!'net_s301fl' %in% names(wt_net)) wt_net$net_s301fl <- 0
-        eff_wt <- prepare_interval_data_effective(rev_ts_w, sub_start, policy_params,
-                                                  stacking_method)
+        wt_net <- compute_net_authority_contributions(wt_data, cty_china = CTY_CHINA)
+        for (nc in auth_net_cols) if (!nc %in% names(wt_net)) wt_net[[nc]] <- 0
+        # eff_wt is prepared once per segment by the caller and passed in.
         wt_net <- scale_net_to_effective(wt_net, eff_wt$total_additional)
         row$etr_232 <- sum(wt_net$net_232 * wt_net$imports) / wctx$total_imports
         row$etr_301 <- sum((wt_net$net_301 + wt_net$net_301_cs + wt_net$net_s301fl) * wt_net$imports) / wctx$total_imports
@@ -561,6 +575,8 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
         row$etr_s338 <- sum(wt_net$net_s338 * wt_net$imports) / wctx$total_imports
         row$etr_section_201 <- sum(wt_net$net_section_201 * wt_net$imports) / wctx$total_imports
         row$etr_other <- sum(wt_net$net_other * wt_net$imports) / wctx$total_imports
+        .verify_report_buckets(row, wt_net, 'etr_',
+                               function(cols) sum(Reduce(`+`, wt_net[cols]) * wt_net$imports) / wctx$total_imports)
       } else {
         row$etr_232 <- row$etr_301 <- row$etr_s301br <- row$etr_ieepa <- row$etr_fentanyl <- 0
         row$etr_s122 <- row$etr_s338 <- row$etr_section_201 <- row$etr_other <- 0
@@ -569,118 +585,20 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     return(row)
   }
 
-  compute_agg_category <- function(rev_ts, rev_ts_w, wctx, revision, valid_from, valid_until, sub_start = valid_from) {
-    rev_data <- prepare_interval_data_effective(
-      rev_ts %>%
+  # --- Per-revision aggregates ---
+  # Every mid-revision policy change is already a minted snapshot interval.
+
+  add_aggregate_dimensions <- function(df) {
+    df <- df %>% mutate(category_code = classify_hs10(hts10))
+    if (has_categories) {
+      df <- df %>%
         mutate(hs6 = substr(hts10, 1, 6)) %>%
         left_join(gtap_xwalk, by = 'hs6') %>%
-        mutate(gtap_code = coalesce(gtap_code, 'unmapped')),
-      sub_start, policy_params, stacking_method)
-    n_products_rev <- n_distinct(rev_data$hts10)
-    row <- rev_data %>%
-      group_by(gtap_code) %>%
-      summarise(
-        mean_additional_exposed = mean(total_additional),
-        mean_total_exposed = mean(total_rate),
-        mean_additional_all_pairs = sum(total_additional) / n_products_rev,
-        mean_total_all_pairs = sum(total_rate) / n_products_rev,
-        n_products_present = n_distinct(hts10),
-        n_pairs_present = n(),
-        .groups = 'drop'
-      ) %>%
-      mutate(
-        revision = revision, valid_from = valid_from, valid_until = valid_until,
-        n_products_total = n_products_rev
-      )
-    if (has_weights) {
-      wt_data <- prepare_interval_data_effective(
-        rev_ts_w %>%
-          mutate(hs6 = substr(hts10, 1, 6)) %>%
-          left_join(gtap_xwalk, by = 'hs6') %>%
-          mutate(gtap_code = coalesce(gtap_code, 'unmapped')),
-        sub_start, policy_params, stacking_method)
-      wt_sector <- wt_data %>%
-        group_by(gtap_code) %>%
-        summarise(
-          tariffed_imports = sum(imports),
-          weighted_numerator = sum(total_rate * imports),
-          .groups = 'drop'
-        ) %>%
-        left_join(wctx$sector_total_imports, by = 'gtap_code') %>%
-        mutate(
-          sector_total_imports = coalesce(sector_total_imports, tariffed_imports),
-          weighted_etr = weighted_numerator / sector_total_imports
-        ) %>%
-        select(gtap_code, weighted_etr)
-      row <- row %>% left_join(wt_sector, by = 'gtap_code')
+        mutate(gtap_code = coalesce(gtap_code, 'unmapped'))
     }
-    return(row)
+    df
   }
 
-  # by_hs mirrors compute_agg_category exactly, but the grouping key is the
-  # Budget Lab HS category_code derived from the product hts10 (no crosswalk
-  # join) and the weighted-ETR denominator is category_total_imports. Same
-  # import-weight base and weighting method as by_category / overall.
-  compute_agg_hs <- function(rev_ts, rev_ts_w, wctx, revision, valid_from, valid_until, sub_start = valid_from) {
-    rev_data <- prepare_interval_data_effective(
-      rev_ts %>% mutate(category_code = classify_hs10(hts10)),
-      sub_start, policy_params, stacking_method)
-    n_products_rev <- n_distinct(rev_data$hts10)
-    row <- rev_data %>%
-      group_by(category_code) %>%
-      summarise(
-        mean_additional_exposed = mean(total_additional),
-        mean_total_exposed = mean(total_rate),
-        mean_additional_all_pairs = sum(total_additional) / n_products_rev,
-        mean_total_all_pairs = sum(total_rate) / n_products_rev,
-        n_products_present = n_distinct(hts10),
-        n_pairs_present = n(),
-        .groups = 'drop'
-      ) %>%
-      mutate(
-        revision = revision, valid_from = valid_from, valid_until = valid_until,
-        n_products_total = n_products_rev
-      )
-    if (has_weights) {
-      wt_data <- prepare_interval_data_effective(
-        rev_ts_w %>% mutate(category_code = classify_hs10(hts10)),
-        sub_start, policy_params, stacking_method)
-      wt_cat <- wt_data %>%
-        group_by(category_code) %>%
-        summarise(
-          tariffed_imports = sum(imports),
-          weighted_numerator = sum(total_rate * imports),
-          .groups = 'drop'
-        ) %>%
-        left_join(wctx$category_total_imports, by = 'category_code') %>%
-        mutate(
-          category_total_imports = coalesce(category_total_imports, tariffed_imports),
-          weighted_etr = weighted_numerator / category_total_imports
-        ) %>%
-        select(category_code, weighted_etr)
-      row <- row %>% left_join(wt_cat, by = 'category_code')
-    }
-    return(row)
-  }
-
-  # --- Per-revision aggregates (with generic expiry splitting) ---
-  # Phase 3c: the unified splitter (src/model/timeline.R) owns interval splitting, fed the
-  # EXPIRY boundaries (SECTION_122 / SWISS) — the schedule boundaries that fall
-  # strictly INSIDE a revision interval on the baseline grid (intervals are
-  # gapless/exclusive, valid_until = next_rev - 1, so every revision-dated policy
-  # event sits on an edge, not inside). This is the sole interval splitter here —
-  # the old get_expiry_split_points path was retired in Phase 1b after its splits
-  # were verified identical on the REAL grid (tests/test_timeline_realdata.R).
-  #
-  # collect_schedule_boundaries() is the comprehensive collector (invalidation +
-  # expiries + spec active windows). It is NOT fed here because the real-data test
-  # surfaced that IEEPA invalidation (policy_params) precedes its revision row
-  # (2026_rev_4) by 4 days, i.e. it lands mid-interval in 2026_rev_3 — feeding it
-  # would add a split AND, to be correct, needs invalidation zeroing wired. That is
-  # a behavior/model change (and a modeling question: 02-20 vs 02-24), deliberately
-  # OUT of this parity refactor and flagged for a follow-up. The collector is
-  # validated and ready for that fix + for scenario effective_from dates.
-  exp_bounds <- expiry_boundaries(policy_params)
   # Single pass over revision intervals: `ts` (and `ts_weighted`) is filtered to
   # each revision ONCE and reused by all four aggregators across every
   # sub-interval — previously each aggregator re-scanned the full ~195M-row table
@@ -695,7 +613,9 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     rev_id      <- rev_intervals$revision[ri]
     valid_from  <- rev_intervals$valid_from[ri]
     valid_until <- rev_intervals$valid_until[ri]
-    rev_ts   <- ts %>% filter(revision == rev_id)
+    rev_ts <- ts %>%
+      filter(revision == rev_id) %>%
+      add_aggregate_dimensions()
 
     # Resolve this revision's weight context + weighted slice ONCE (reused by
     # every aggregator across every sub-interval; sub-intervals differ only by
@@ -724,27 +644,57 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
           list(fingerprint = iw$fingerprint, stats = iw$stats)
       } else {
         wctx <- wctx_static
-        rev_ts_w <- ts_weighted %>% filter(revision == rev_id)
+        rev_ts_w <- ts_weighted %>%
+          filter(revision == rev_id) %>%
+          add_aggregate_dimensions()
       }
     }
 
-    starts_inner <- timeline_split_points(valid_from, valid_until, exp_bounds)
-    if (length(starts_inner) == 0) {
-      starts <- valid_from; ends <- valid_until
-    } else {
-      starts <- c(valid_from, starts_inner)
-      ends   <- c(starts_inner - 1, valid_until)
-    }
+    starts <- valid_from
+    ends <- valid_until
     for (k in seq_along(starts)) {
       s <- starts[k]; e <- ends[k]
       seg_i <- seg_i + 1L
-      ov[[seg_i]] <- compute_agg_overall(rev_ts, rev_ts_w, wctx, rev_id, s, e, sub_start = s)
-      ct[[seg_i]] <- compute_agg_country(rev_ts, rev_ts_w, wctx, rev_id, s, e, sub_start = s)
-      au[[seg_i]] <- compute_agg_authority(rev_ts, rev_ts_w, wctx, rev_id, s, e, sub_start = s)
-      if (has_categories) {
-        ca[[seg_i]] <- compute_agg_category(rev_ts, rev_ts_w, wctx, rev_id, s, e, sub_start = s)
+      eff_data <- prepare_interval_data_effective(
+        rev_ts, s, policy_params
+      )
+      raw_data <- prepare_interval_data(
+        rev_ts, s, policy_params, stacking = 'none'
+      )
+      eff_wt <- raw_wt <- NULL
+      if (has_weights) {
+        eff_wt <- prepare_interval_data_effective(
+          rev_ts_w, s, policy_params
+        )
+        raw_wt <- prepare_interval_data(
+          rev_ts_w, s, policy_params, stacking = 'none'
+        )
       }
-      hs[[seg_i]] <- compute_agg_hs(rev_ts, rev_ts_w, wctx, rev_id, s, e, sub_start = s)
+
+      ov[[seg_i]] <- compute_agg_overall(
+        eff_data, eff_wt, wctx, rev_id, s, e
+      )
+      ct[[seg_i]] <- compute_agg_grouped(
+        eff_data, eff_wt, wctx, rev_id, s, e,
+        groups = 'country', denominators = wctx$country_total_imp,
+        denominator_col = 'country_total_imports',
+        present_mode = 'rows', include_pair_count = FALSE
+      )
+      au[[seg_i]] <- compute_agg_authority(
+        raw_data, eff_data, raw_wt, eff_wt, wctx, rev_id, s, e
+      )
+      if (has_categories) {
+        ca[[seg_i]] <- compute_agg_grouped(
+          eff_data, eff_wt, wctx, rev_id, s, e,
+          groups = 'gtap_code', denominators = wctx$sector_total_imports,
+          denominator_col = 'sector_total_imports'
+        )
+      }
+      hs[[seg_i]] <- compute_agg_grouped(
+        eff_data, eff_wt, wctx, rev_id, s, e,
+        groups = 'category_code', denominators = wctx$category_total_imports,
+        denominator_col = 'category_total_imports'
+      )
     }
   }
   agg_overall <- bind_rows(ov)
@@ -770,14 +720,6 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
                                     etr_section_201 + etr_other)
       ) %>%
       select(-weighted_etr)
-  }
-
-  # Log any expiry splits that occurred
-  if (!is.null(policy_params)) {
-    adjustments <- collect_expiry_adjustments(policy_params)
-    for (adj in adjustments) {
-      message('  ', adj$label, ' expiry split at ', adj$expiry_date)
-    }
   }
 
   # --- Expand revision-level aggregates to daily ---
@@ -839,8 +781,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
 #' @param date_range Length-2 Date vector (start, end)
 #' @param countries Character vector of country codes to include
 #' @param products Character vector of HTS10 codes to include
-#' @param policy_params Optional policy params list. If supplied, applies the
-#'   same post-interval expiry adjustments used by export_daily_slice().
+#' @param policy_params Deprecated compatibility argument; ignored.
 #' @return Tibble with one row per date x product x country
 expand_to_daily <- function(ts, date_range, countries, products, policy_params = NULL) {
   date_range <- as.Date(date_range)
@@ -887,7 +828,7 @@ expand_to_daily <- function(ts, date_range, countries, products, policy_params =
 #'
 #' Extracts product-country-date level data from the interval-encoded timeseries
 #' for a specified date range, with optional country/product filters.
-#' Applies post-interval adjustments (Section 122 expiry, Swiss framework expiry).
+#' Policy changes are already represented by minted snapshot intervals.
 #'
 #' Safety: requires either explicit filters OR full_export = TRUE to prevent
 #' accidental full expansion (~4.5M rows/revision x 730 days).
@@ -896,7 +837,7 @@ expand_to_daily <- function(ts, date_range, countries, products, policy_params =
 #' @param date_range Length-2 Date vector (start, end)
 #' @param countries Optional character vector of country codes
 #' @param products Optional character vector of HTS10 codes (or prefixes)
-#' @param policy_params Policy params list (for post-interval adjustments)
+#' @param policy_params Deprecated compatibility argument; ignored.
 #' @param output_path Output file path (.csv or .parquet). NULL = return only.
 #' @param full_export Set TRUE to export without filters (safety override)
 #' @param columns Optional character vector of columns to include in output.
@@ -936,43 +877,12 @@ export_daily_slice <- function(ts, date_range, countries = NULL, products = NULL
   subset <- subset %>%
     filter(valid_until >= date_range[1], valid_from <= date_range[2])
 
-  # Collect expiry split points across the full date range
-  split_dates <- if (!is.null(policy_params)) {
-    adjustments <- collect_expiry_adjustments(policy_params)
-    exp_dates <- map(adjustments, ~ as.Date(.$expiry_date))
-    exp_dates <- exp_dates[exp_dates >= date_range[1] & exp_dates <= date_range[2]]
-    sort(unique(as.Date(unlist(exp_dates), origin = '1970-01-01')))
-  } else {
-    as.Date(character())
-  }
-
-  # Expand intervals to daily, applying expiry adjustments per sub-interval
+  # Expand the already authoritative snapshot intervals to daily rows.
   calendar <- tibble(date = seq(date_range[1], date_range[2], by = 'day'))
 
   expanded <- subset %>%
     cross_join(calendar) %>%
     filter(date >= valid_from, date <= valid_until)
-
-  # Apply post-interval adjustments (bulk by date partitions)
-  if (length(split_dates) > 0 && nrow(expanded) > 0) {
-    # Partition rows and apply zeroing to rows past each expiry
-    for (adj in collect_expiry_adjustments(policy_params)) {
-      exp <- as.Date(adj$expiry_date)
-      if (adj$column %in% names(expanded)) {
-        if (!is.null(adj$countries)) {
-          expanded <- expanded %>%
-            mutate(!!adj$column := if_else(
-              date > exp & country %in% adj$countries, 0, .data[[adj$column]]))
-        } else {
-          expanded <- expanded %>%
-            mutate(!!adj$column := if_else(date > exp, 0, .data[[adj$column]]))
-        }
-      }
-    }
-    # Recompute totals (pass cty_china from policy_params for correct stacking)
-    cty_china <- if (!is.null(policy_params)) policy_params$CTY_CHINA %||% '5700' else '5700'
-    expanded <- apply_stacking_rules(expanded, cty_china = cty_china)
-  }
 
   # Select output columns
   default_columns <- c('date', 'hts10', 'country', 'base_rate',
@@ -1407,8 +1317,7 @@ DAILY_PART_SCHEMA_VERSION <- 5L
 write_daily_part_for_snapshot <- function(snapshot, revision, valid_from, valid_until,
                                           output_dir, imports = NULL,
                                           imports_fn = NULL, hts_as_of_date = NULL,
-                                          policy_params = NULL,
-                                          stacking_method = 'mutual_exclusion') {
+                                          policy_params = NULL) {
   if (!is.null(imports) && !is.null(imports_fn)) {
     stop('write_daily_part_for_snapshot: pass at most one of imports / imports_fn.',
          call. = FALSE)
@@ -1432,7 +1341,6 @@ write_daily_part_for_snapshot <- function(snapshot, revision, valid_from, valid_
   daily <- suppressMessages(
     build_daily_aggregates(snapshot, imports = imports, imports_fn = imports_fn,
                            policy_params = policy_params,
-                           stacking_method = stacking_method,
                            hts_as_of_dates = hts_as_of_dates)
   )
 
@@ -1885,14 +1793,11 @@ aggregate_snapshots_per_revision <- function(snapshot_dir, rev_intervals,
 }
 
 
-#' Build alternative timeseries with modified policy params (rebuild variant)
+#' Build an alternative timeseries through the shared revision builder.
 #'
-#' Re-runs the full rate calculation loop (all revisions) with a modified
-#' policy_params list, then builds daily aggregates. This is slow — only
-#' called when --with-alternatives is passed.
-#'
-#' Temporarily overrides the module-level .pp in 06_calculate_rates.R's
-#' environment, then restores it.
+#' Re-runs every revision with modified policy inputs, using the same
+#' build_revision_snapshot() function as the baseline, then builds daily
+#' aggregates. This is slow and runs only for requested alternatives.
 #'
 #' @param pp_override Modified policy_params list
 #' @param variant_name Character variant name
@@ -1905,33 +1810,17 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
                                           archive_dir = here('data', 'hts_archives'),
                                           revision_dates_path = here('config', 'revision_dates.csv'),
                                           census_codes_path = here('resources', 'census_codes.csv'),
-                                          policy_params = NULL,
                                           snapshot_out_dir = NULL,
                                           allow_partial = FALSE) {
 
   message('\n  Building alternative timeseries: ', variant_name)
 
-  # Ensure pipeline components are sourced (needed for standalone use)
-  if (!exists('calculate_rates_for_revision', mode = 'function')) {
-    source(here('src', 'pipeline', '03_parse_chapter99.R'))
-    source(here('src', 'pipeline', '04_parse_products.R'))
-    source(here('src', 'pipeline', '05_parse_policy_params.R'))
-    source(here('src', 'pipeline', '06_calculate_rates.R'))
-    source(here('src', 'model', 'authority_spec.R'))
-    source(here('src', 'model', 'authority_adapter.R'))
+  # Resolve the declared calculation graph for standalone callers. The loader is
+  # idempotent, so normal build callers pay no repeated-source cost.
+  if (!exists('tariff_load_bundle', mode = 'function')) {
+    source(here('src', 'core', 'module_loader.R'))
   }
-  # Ensure the AuthoritySpec adapter is present even when the pipeline above was
-  # already sourced by the caller (the `if` block only fires for standalone use).
-  if (!exists('build_authority_specs', mode = 'function')) {
-    source(here('src', 'model', 'authority_spec.R'))
-    source(here('src', 'model', 'authority_adapter.R'))
-  }
-
-  # Save original .pp and swap in override
-  calc_env <- environment(calculate_rates_for_revision)
-  original_pp <- calc_env$.pp
-  calc_env$.pp <- pp_override
-  on.exit(calc_env$.pp <- original_pp, add = TRUE)
+  tariff_load_bundle('calculation', environment(build_alternative_timeseries))
 
   # Load revision dates and country codes
   rev_dates <- load_revision_dates(revision_dates_path)
@@ -1962,34 +1851,17 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
     eff_date <- rev_info$effective_date
 
     tryCatch({
-      json_path <- resolve_json_path(rev_id, archive_dir)
-      hts_raw <- fromJSON(json_path, simplifyDataFrame = FALSE)
-      ch99_data <- parse_chapter99(json_path)
-      products <- parse_products(json_path)
-      ieepa_rates <- extract_ieepa_rates(hts_raw, country_lookup, effective_date = eff_date)
-      fentanyl_rates <- extract_ieepa_fentanyl_rates(hts_raw, country_lookup, effective_date = eff_date)
-      s232_rates <- extract_section232_rates(filter_active_ch99(ch99_data, as.Date(eff_date)),
-                                             effective_date = eff_date, policy_params = pp_override)
-      usmca <- extract_usmca_eligibility(hts_raw)
-
-      # Phase 6f: AuthoritySpec path always on (specs = authoritative input).
-      specs <- build_authority_specs(
-        products, ch99_data, ieepa_rates, usmca,
-        countries, rev_id, eff_date,
-        s232_rates = s232_rates, fentanyl_rates = fentanyl_rates,
-        policy_params = policy_params %||% pp_override
+      build_revision_snapshot(
+        rev_id = rev_id,
+        eff_date = eff_date,
+        archive_dir = archive_dir,
+        output_dir = tmp_dir,
+        country_lookup = country_lookup,
+        countries = countries,
+        census_codes = census_codes,
+        pp_build = pp_override
       )
-
-      rates <- calculate_rates_for_revision(
-        products, ch99_data, usmca,
-        countries, rev_id, eff_date,
-        specs = specs,
-        policy_params = policy_params %||% pp_override
-      )
-      saveRDS(rates, file.path(tmp_dir, paste0('snapshot_', rev_id, '.rds')))
       n_saved <- n_saved + 1L
-      rm(rates, hts_raw, ch99_data, products, ieepa_rates,
-         fentanyl_rates, s232_rates, usmca, specs)
       gc()
     }, error = function(e) {
       message('    SKIP ', rev_id, ': ', conditionMessage(e))
@@ -2052,114 +1924,30 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
 }
 
 
-#' Build the rebuild-alternatives registry — DEPRECATED
-#'
-#' Superseded by the declarative config/scenarios registry
-#' (src/model/scenario_registry.R + per-scenario overlay.yaml); no production caller
-#' remains. Kept ONLY so tests/test_scenario_registry.R can assert that each
-#' migrated overlay produces the same policy_params as the historical closure.
-#' DELETE this function (and that test's parity section) once the cluster
-#' golden-diff gate confirms the migrated alternatives reproduce
-#' output/alternative/*.csv (alternatives-unification Step 5, todo.md).
-#'
-#' @param pp Base policy_params (typically load_policy_params())
-#' @return List of spec records: list(variant, pp_override)
-build_rebuild_alt_registry <- function(pp) {
-  list(
-    # USMCA 2025 annual average (time-invariant counterfactual)
-    list(variant = 'usmca_annual', pp_override = local({
-      x <- pp
-      x$USMCA_SHARES$year <- 2025
-      x$USMCA_SHARES$mode <- 'annual'
-      x
-    })),
-    # USMCA raw monthly shares (time-varying; tracks effective_date month,
-    # falls back to most recent available monthly file when newer files
-    # haven't been published yet).
-    list(variant = 'usmca_monthly', pp_override = local({
-      x <- pp
-      x$USMCA_SHARES$mode <- 'monthly'
-      x$USMCA_SHARES$year <- NULL
-      x
-    })),
-    # USMCA 2024 shares (pre-tariff steady-state)
-    list(variant = 'usmca_2024', pp_override = local({
-      x <- pp
-      x$USMCA_SHARES$year <- 2024
-      x$USMCA_SHARES$mode <- 'annual'
-      x
-    })),
-    # USMCA fixed latest month (Dec 2025 — post-behavioral-shift equilibrium)
-    list(variant = 'usmca_dec2025', pp_override = local({
-      x <- pp
-      x$USMCA_SHARES$mode <- 'fixed_month'
-      x$USMCA_SHARES$year <- 2025
-      x$USMCA_SHARES$month <- 12
-      x
-    })),
-    # Flat 100% metal content (upper bound: all derivative value is metal)
-    list(variant = 'metal_flat', pp_override = local({
-      x <- pp
-      x$metal_content$method <- 'flat'
-      x$metal_content$flat_share <- 1.0
-      x
-    })),
-    # Nonzero duty-free treatment (sensitivity: exclude 0% MFN from IEEPA)
-    list(variant = 'dutyfree_nonzero', pp_override = local({
-      x <- pp
-      x$ieepa_duty_free_treatment <- 'nonzero_base_only'
-      x
-    })),
-    # Subdivision (r) calibration mid-point — sensitivity scenario for the
-    # auto-parts certification + FTA-exempt fix. 0.5 / 0.5 mid-point: half of
-    # EU/JP/KR subdiv-r imports filed under 9903.94.45/.55/.65 (15% floor),
-    # half of KR subdiv-r imports FTA-qualifying under KORUS (rate_232 = 0).
-    # See docs/s232/subdivision_r_calibration.md.
-    list(variant = 'subdivision_r_mid', pp_override = local({
-      x <- pp
-      x$auto_parts_subdivision_r$certified_share <- 0.5
-      x$auto_parts_subdivision_r$fta_exempt_shares$KR <- 0.5
-      x
-    }))
-  )
-}
-
-
 #' Run all alternative daily series
 #'
-#' Alternatives unification (todo.md Phase 4): every runnable variant is a
-#' named folder under config/scenarios/<name>/ (kind: alternative or
+#' Every runnable variant is a named folder under config/scenarios/<name>/
+#' (kind: alternative or
 #' counterfactual; see src/model/scenario_registry.R). Each requested name becomes
 #' one alt_runner() spec whose pp_override is load_policy_params(scenario =
 #' name) — the same overlay merge the main build applies under TARIFF_SCENARIO
 #' — and runs a full per-revision recalc + daily aggregation to
 #' output/scenarios/<name>/.
 #'
-#' Selection: `alternatives` is the canonical selector ('all', 'alternatives',
+#' Selection: `alternatives` is the selector ('all', 'alternatives',
 #' 'counterfactuals', or a comma-list of names; see
-#' resolve_alternatives_selector()). The legacy rebuild/rebuild_alts arguments
-#' (--with-alternatives / --rebuild-alts) map onto it — rebuild = TRUE alone
-#' means the 'alternatives' kind, matching the historical 7-variant set — so
-#' existing wrappers (incl. the blog pipeline) keep working unchanged. Unknown
-#' names now FAIL LOUD (Phase-0 policy) instead of being silently dropped.
+#' resolve_alternatives_selector()). Unknown names fail loud.
 #'
 #' When alt_workers > 1, variants are dispatched concurrently via alt_runner()
 #' in src/core/parallel.R. Default alt_workers = 1 preserves serial behavior.
 #'
+#' @param alternatives Scenario selector from --alternatives
 #' @param imports Import weights tibble (or NULL)
-#' @param policy_params Baseline policy params (kept for API compatibility;
-#'   per-variant params load from the registry)
-#' @param rebuild Legacy flag (--with-alternatives); TRUE = kind 'alternative'
-#' @param rebuild_alts Legacy character vector (--rebuild-alts) of names
-#' @param alternatives Canonical selector (--alternatives); overrides legacy
 #' @param alt_workers Concurrent workers for alternatives (>= 1)
 #' @param use_policy_dates Date mode passed into each variant's
 #'   load_policy_params(); MUST match the main build
 #' @return Invisible NULL
-run_alternative_series <- function(imports = NULL, policy_params = NULL,
-                                    rebuild = FALSE,
-                                    rebuild_alts = NULL,
-                                    alternatives = NULL,
+run_alternative_series <- function(alternatives, imports = NULL,
                                     alt_workers = 1L,
                                     use_policy_dates = TRUE) {
 
@@ -2167,21 +1955,11 @@ run_alternative_series <- function(imports = NULL, policy_params = NULL,
   message('ALTERNATIVE DAILY SERIES')
   message(strrep('=', 70))
 
-  # --- Resolve which scenarios to run ---
-  if (is.null(alternatives) && rebuild) {
-    alternatives <- if (!is.null(rebuild_alts)) {
-      paste(rebuild_alts, collapse = ',')
-    } else {
-      'alternatives'
-    }
-  }
   alt_names <- resolve_alternatives_selector(alternatives)
 
   if (length(alt_names) == 0L) {
-    message('No alternatives requested (pass --alternatives <names|all|',
-            'alternatives|counterfactuals>).')
-    message(strrep('=', 70), '\n')
-    return(invisible(NULL))
+    stop('run_alternative_series: alternatives must select at least one ',
+         'registered alternative or counterfactual')
   }
 
   if (is.null(imports)) imports <- load_import_weights()
@@ -2189,9 +1967,10 @@ run_alternative_series <- function(imports = NULL, policy_params = NULL,
   alt_specs <- build_scenario_alt_specs(alt_names,
                                         use_policy_dates = use_policy_dates)
 
-  if (!exists('alt_runner', mode = 'function')) {
-    source(here('src', 'core', 'parallel.R'))
+  if (!exists('tariff_load_module', mode = 'function')) {
+    source(here('src', 'core', 'module_loader.R'))
   }
+  tariff_load_module('parallel', environment(run_alternative_series))
 
   alt_workers <- max(1L, as.integer(alt_workers))
   message(sprintf(

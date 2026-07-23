@@ -5,13 +5,9 @@
 # Covers:
 #   1. list_scenarios() — registry completeness, kinds, meta validation
 #   2. resolve_alternatives_selector() — selector expansion + fail-loud
-#   3. Migration parity — each config/scenarios/<name>/overlay.yaml produces
-#      the same effective policy_params as the historical pp_override closure
-#      in build_rebuild_alt_registry() (delete that function + section 3 here
-#      once the cluster golden diff passes; see todo.md Phase 4 Step 5)
-#   4. apply_authority_disables() — the counterfactual kill-switch
-#   5. Counterfactual overlays — disabled_authorities round-trips through
-#      load_policy_params(scenario = ...) and validates against authority_columns
+#   3. apply_counterfactual_inputs() — pre-calculation authority removal
+#   4. Counterfactual overlays — disabled_authorities round-trips through
+#      load_policy_params(scenario = ...)
 #
 # Usage:
 #   Rscript tests/test_scenario_registry.R
@@ -24,7 +20,6 @@ suppressPackageStartupMessages({
   library(yaml)
 })
 source(here('src', 'core', 'helpers.R'))
-source(here('src', 'pipeline', '09_daily_series.R'))
 
 pass_count <- 0
 fail_count <- 0
@@ -97,6 +92,27 @@ run_test('invalid kind fails loud', {
   expect_error(list_scenarios(d), 'kind must be one of')
 })
 
+run_test('unknown meta.yaml key fails loud', {
+  d <- tempfile('scenarios_')
+  dir.create(file.path(d, 'badmeta'), recursive = TRUE)
+  writeLines(c('kind: alternative', "description: 'x'", 'publish: false',
+               'publsh: true'), file.path(d, 'badmeta', 'meta.yaml'))
+  expect_error(list_scenarios(d), 'unknown key.*publsh')
+})
+
+run_test('new_301 declares forced_labor inheritance', {
+  row <- registry[registry$name == 'new_301', ]
+  stopifnot(nrow(row) == 1, row$extends == 'forced_labor')
+})
+
+run_test('every tracked scenario overlay resolves against the strict schema', {
+  names_to_load <- setdiff(registry$name, 'actual')
+  resolved <- lapply(names_to_load, function(nm) {
+    suppressMessages(load_policy_params(scenario = nm))
+  })
+  stopifnot(length(resolved) == length(names_to_load))
+})
+
 # =============================================================================
 # 2. Selector
 # =============================================================================
@@ -104,10 +120,6 @@ message('\n--- resolve_alternatives_selector() ---')
 
 run_test("'alternatives' expands to exactly the historical 7-variant set", {
   stopifnot(setequal(resolve_alternatives_selector('alternatives'), ALTERNATIVES))
-})
-
-run_test("'rebuild' is an alias for 'alternatives'", {
-  stopifnot(setequal(resolve_alternatives_selector('rebuild'), ALTERNATIVES))
 })
 
 run_test("'counterfactuals' expands to the 7 counterfactuals", {
@@ -124,11 +136,8 @@ run_test('comma-list selects by name, deduplicated', {
   stopifnot(setequal(got, c('metal_flat', 'usmca_2024')))
 })
 
-run_test('NULL / none resolve to empty', {
-  stopifnot(
-    length(resolve_alternatives_selector(NULL)) == 0,
-    length(resolve_alternatives_selector('none')) == 0
-  )
+run_test('NULL resolves to empty', {
+  stopifnot(length(resolve_alternatives_selector(NULL)) == 0)
 })
 
 run_test('unknown name fails loud', {
@@ -139,123 +148,77 @@ run_test('kind=scenario names are rejected with the TARIFF_SCENARIO pointer', {
   expect_error(resolve_alternatives_selector('forced_labor'), 'TARIFF_SCENARIO')
 })
 
-# =============================================================================
-# 3. Migration parity: overlay-built pp == historical closure pp
-# =============================================================================
-message('\n--- migration parity (overlay vs build_rebuild_alt_registry) ---')
-
 pp_base <- load_policy_params()
-legacy <- build_rebuild_alt_registry(pp_base)
-legacy_by_name <- setNames(legacy, vapply(legacy, `[[`, character(1), 'variant'))
-
-# Raw config keys the overlays legitimately rewrite but the legacy closures
-# left at baseline (closures edited the unpacked convenience fields instead).
-# Effective behavior flows through the unpacked fields, compared separately.
-RAW_KEYS_REWRITTEN <- c('usmca_shares')
-
 strip_keys <- function(pp, keys) { pp[setdiff(names(pp), keys)] }
 
-# Compare two lists field-by-field over the union of their names. Treats an
-# ABSENT field and a present-but-NULL field as equal (both read as NULL via $
-# and %||%, which is how every consumer accesses them), and integer/double
-# scalars of equal value as equal (yaml parses `year: 2025` as 2025L where the
-# legacy closures assigned the double 2025; consumers paste/derive from it, and
-# the integer is the safer typing for the loader's sprintf('%d', ...)).
-fields_equivalent <- function(a, b) {
-  for (f in union(names(a), names(b))) {
-    av <- a[[f]]; bv <- b[[f]]
-    same <- identical(av, bv) ||
-      (is.numeric(av) && is.numeric(bv) &&
-         identical(as.numeric(av), as.numeric(bv)))
-    if (!same) {
-      stop('field mismatch: ', f,
-           ' (legacy: ', paste(deparse(av), collapse = ' '),
-           ' vs overlay: ', paste(deparse(bv), collapse = ' '), ')')
-    }
-  }
-  invisible(TRUE)
-}
-
-for (variant in names(legacy_by_name)) {
-  run_test(paste0('parity: ', variant), {
-    pp_old <- legacy_by_name[[variant]]$pp_override
-    pp_new <- load_policy_params(scenario = variant)
-
-    # Effective USMCA settings must match field-by-field
-    fields_equivalent(pp_old$USMCA_SHARES, pp_new$USMCA_SHARES)
-
-    # Everything else must be identical apart from the rewritten raw keys
-    rest_old <- strip_keys(pp_old, c(RAW_KEYS_REWRITTEN, 'USMCA_SHARES'))
-    rest_new <- strip_keys(pp_new, c(RAW_KEYS_REWRITTEN, 'USMCA_SHARES'))
-    stopifnot('non-USMCA params differ' = identical(rest_old, rest_new))
-  })
-}
-
-run_test('parity: registry covers every legacy variant (none orphaned)', {
-  stopifnot(setequal(names(legacy_by_name), ALTERNATIVES))
-})
-
 # =============================================================================
-# 4. apply_authority_disables()
+# 3. Counterfactuals change parsed inputs before calculation
 # =============================================================================
-message('\n--- apply_authority_disables() ---')
+message('\n--- apply_counterfactual_inputs() ---')
 
-auth_cols <- pp_base$AUTHORITY_COLUMNS
-
-fixture <- tibble(
-  hts10 = c('0101210010', '8471500100'),
-  country = c('5700', '1220'),
-  rate_232 = c(0.25, 0.50),
-  rate_301 = c(0.25, 0),
-  rate_301_cs = c(0, 0),
-  rate_ieepa_recip = c(0.10, 0.10),
-  rate_ieepa_fent = c(0.20, 0),
-  rate_s122 = c(0.10, 0.10),
-  rate_other = c(0, 0)
+ch99_fixture <- tibble(
+  ch99_code = c('9903.80.01', '9903.88.15', '9903.03.01',
+                '9903.02.09', '9903.01.20', '9903.10.01'),
+  authority = c('section_232', 'section_301', 'section_122',
+                'ieepa_reciprocal', 'other', 'other'),
+  rate = c(.25, .25, .10, .10, .20, .05)
 )
+ieepa_fixture <- tibble(ch99_code = '9903.02.09', rate = .10)
+attr(ieepa_fixture, 'universal_baseline') <- .10
+fentanyl_fixture <- tibble(ch99_code = '9903.01.20', rate = .20)
 
 run_test('empty / NULL disabled is a no-op (baseline invariant)', {
-  stopifnot(
-    identical(apply_authority_disables(fixture, NULL, auth_cols), fixture),
-    identical(apply_authority_disables(fixture, character(0), auth_cols), fixture)
+  out <- apply_counterfactual_inputs(
+    ch99_fixture, ieepa_fixture, fentanyl_fixture, pp_base
   )
+  stopifnot(identical(out$ch99_data, ch99_fixture))
+  stopifnot(identical(out$ieepa_rates, ieepa_fixture))
+  stopifnot(identical(out$fentanyl_rates, fentanyl_fixture))
+  stopifnot(length(out$policy_params$SCENARIO_DISABLED_AUTHORITIES_APPLIED) == 0)
 })
 
-run_test('single authority zeroes exactly its column', {
-  out <- apply_authority_disables(fixture, 'section_301', auth_cols)
-  stopifnot(
-    all(out$rate_301 == 0),
-    identical(out$rate_232, fixture$rate_232),
-    identical(out$rate_ieepa_recip, fixture$rate_ieepa_recip),
-    identical(out$rate_s122, fixture$rate_s122)
+run_test('no_232 removes §232 inputs but leaves IEEPA and §301 intact', {
+  pp <- pp_base; pp$disabled_authorities <- 'section_232'
+  out <- apply_counterfactual_inputs(
+    ch99_fixture, ieepa_fixture, fentanyl_fixture, pp
   )
+  stopifnot(!'9903.80.01' %in% out$ch99_data$ch99_code)
+  stopifnot(all(c('9903.88.15', '9903.02.09') %in% out$ch99_data$ch99_code))
+  stopifnot(identical(out$ieepa_rates, ieepa_fixture))
+  stopifnot(is.null(out$policy_params$S232_ANNEXES))
+  stopifnot(identical(out$policy_params$section_232_headings, list()))
 })
 
-run_test('multi-authority (pre_2025 set) zeroes all three columns', {
-  out <- apply_authority_disables(
-    fixture, c('ieepa_reciprocal', 'ieepa_fentanyl', 'section_122'), auth_cols)
-  stopifnot(
-    all(out$rate_ieepa_recip == 0),
-    all(out$rate_ieepa_fent == 0),
-    all(out$rate_s122 == 0),
-    identical(out$rate_232, fixture$rate_232),
-    identical(out$rate_301, fixture$rate_301)
+run_test('no_ieepa removes both extracted inputs and their Ch99 rows', {
+  pp <- pp_base
+  pp$disabled_authorities <- c('ieepa_reciprocal', 'ieepa_fentanyl')
+  out <- apply_counterfactual_inputs(
+    ch99_fixture, ieepa_fixture, fentanyl_fixture, pp
   )
+  stopifnot(nrow(out$ieepa_rates) == 0, nrow(out$fentanyl_rates) == 0)
+  stopifnot(!any(c('9903.02.09', '9903.01.20') %in% out$ch99_data$ch99_code))
+  stopifnot('9903.80.01' %in% out$ch99_data$ch99_code)
 })
 
 run_test('unknown authority name fails loud', {
-  expect_error(apply_authority_disables(fixture, 'section_999', auth_cols),
-               'unknown authority')
+  pp <- pp_base; pp$disabled_authorities <- 'section_999'
+  expect_error(
+    apply_counterfactual_inputs(ch99_fixture, ieepa_fixture, fentanyl_fixture, pp),
+    'unsupported authority'
+  )
 })
 
-run_test('mapped column missing from rates fails loud', {
-  expect_error(
-    apply_authority_disables(fixture %>% select(-rate_s122), 'section_122', auth_cols),
-    'missing from rates')
+run_test('calculator guard rejects a counterfactual that bypasses input removal', {
+  pp <- pp_base; pp$disabled_authorities <- 'section_301'
+  expect_error(assert_counterfactual_inputs_applied(pp), 'before calculation')
+  out <- apply_counterfactual_inputs(
+    ch99_fixture, ieepa_fixture, fentanyl_fixture, pp
+  )
+  stopifnot(isTRUE(assert_counterfactual_inputs_applied(out$policy_params)))
 })
 
 # =============================================================================
-# 5. Counterfactual overlays round-trip through load_policy_params()
+# 4. Counterfactual overlays round-trip through load_policy_params()
 # =============================================================================
 message('\n--- counterfactual overlays ---')
 
@@ -275,17 +238,17 @@ expected_disables <- list(
 )
 
 for (nm in names(expected_disables)) {
-  run_test(paste0('overlay ', nm, ': disabled_authorities matches the legacy definition'), {
+  run_test(paste0('overlay ', nm, ': disabled_authorities matches its definition'), {
     pp <- load_policy_params(scenario = nm)
     got <- unlist(pp$disabled_authorities)
     stopifnot(
       setequal(got, expected_disables[[nm]]),
-      all(got %in% names(pp$AUTHORITY_COLUMNS))
+      all(got %in% SCENARIO_INPUT_AUTHORITIES)
     )
   })
 }
 
-run_test('baseline has no disabled_authorities (kill-switch is overlay-only)', {
+run_test('baseline has no disabled_authorities (input removal is scenario-only)', {
   stopifnot(is.null(pp_base$disabled_authorities))
 })
 
@@ -295,7 +258,7 @@ run_test('counterfactual pp differs from baseline ONLY in disabled_authorities',
 })
 
 # =============================================================================
-# 6. sgept_exemptions scenario (2026-06-10): SGEPT-calibrated §232 annex knobs
+# 5. sgept_exemptions scenario (2026-06-10): SGEPT-calibrated §232 annex knobs
 # =============================================================================
 message('\n--- sgept_exemptions overlay ---')
 

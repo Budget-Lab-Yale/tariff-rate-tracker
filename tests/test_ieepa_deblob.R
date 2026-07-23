@@ -29,10 +29,12 @@ get_country_constants <- function(pp) list(
 filter_active_ch99       <- function(ch99_data, effective_date) ch99_data
 compute_heading_gates    <- function(specs, s232_rates) list()
 extract_section122_rates <- function(ch99_data) list(s122_rate = 0.10, has_s122 = TRUE)
+extract_section_201_rates <- function(ch99_data, policy_params = NULL)
+  list(s201_rates = NULL, has_s201 = FALSE, solar_rate = 0)
 is_232_exempt            <- function(census_code, exempt_list) isTRUE(census_code %in% exempt_list)
 # Pass-1.5: build_authority_specs now bakes the IEEPA floor exempt set onto the
 # spec via load_revision_floor_exemptions (data_loaders.R, not sourced here).
-load_revision_floor_exemptions <- function(revision_id)
+load_revision_floor_exemptions <- function(revision_id, effective_date = NULL)
   tibble::tibble(hts8 = character(), country_group = character())
 source(here('src', 'model', 'authority_adapter.R'))
 
@@ -189,6 +191,9 @@ check(isTRUE(all.equal(unname(bc['4280']), 0.10)) && bt['4280'] == 'surcharge',
       'Germany below floor: 0.10 stays surcharge (NOT overridden)')
 check(isTRUE(all.equal(unname(bc['4419']), 0.15)) && bt['4419'] == 'floor',
       'Switzerland in-window: 0.39 -> 0.15 floor')
+check(isTRUE(all.equal(unname(recip_in$by_country_underlying['4419']), 0.39)) &&
+        recip_in$by_country_underlying_type['4419'] == 'surcharge',
+      'Switzerland in-window preserves its 0.39 underlying surcharge')
 check(isTRUE(all.equal(unname(bc['7777']), 0.30)) && bt['7777'] == 'surcharge',
       'phase2 supersedes phase1: 7777 = 0.30 (phase1 0.10 dropped)')
 check(is.na(unname(beoc['7600'])) && isTRUE(all.equal(unname(beo['7600']), 0)),
@@ -198,6 +203,8 @@ cat('\n--- Switzerland out-of-window is NOT overridden ---\n')
 check(isTRUE(all.equal(unname(recip_out$by_country['4419']), 0.39)) &&
         recip_out$by_country_type['4419'] == 'surcharge',
       'Switzerland out-of-window: 0.39 surcharge (no floor override)')
+check(recip_out$by_country['4419'] == recip_out$by_country_underlying['4419'],
+      'post-expiry applied and underlying Swiss rates agree')
 
 cat('\n--- carve-out + baseline metadata ---\n')
 check(identical(recip_in$exclude, c('1220', '2010')),

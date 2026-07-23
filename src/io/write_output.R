@@ -51,11 +51,10 @@
 library(jsonlite)
 library(here)
 
-source(here('src', 'io', 'output_paths.R'))   # Phase 5 layout helpers (actual/ + scenarios/)
-source(here('src', 'model', 'rate_schema.R'))    # enforce_rate_schema + build_rev_intervals (loads tidyverse)
-source(here('src', 'model', 'revisions.R'))      # load_revision_dates
-source(here('src', 'model', 'policy_params.R'))  # load_policy_params -> SERIES_HORIZON_END + load_local_paths
-source(here('src', 'io', 'build_panel_import_weights.R'))  # forward-mapped HS10 x country import weights
+if (!exists('tariff_load_dependencies', mode = 'function')) {
+  source(here('src', 'core', 'module_loader.R'))
+}
+tariff_load_dependencies('write_output', environment())
 
 
 # Model-data interface root — read from config (config/local_paths.yaml:

@@ -1,5 +1,5 @@
 # Alternative: USMCA utilization fixed at the December 2025 monthly file
-# (post-behavioral-shift equilibrium). Migrated from build_rebuild_alt_registry().
+# (post-behavioral-shift equilibrium).
 usmca_shares:
   mode: 'fixed_month'
   year: 2025

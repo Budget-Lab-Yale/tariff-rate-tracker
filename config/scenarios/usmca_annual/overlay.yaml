@@ -1,6 +1,4 @@
 # Alternative: USMCA 2025 annual-average utilization shares (time-invariant).
-# Migrated from build_rebuild_alt_registry() (09_daily_series.R) — the closure
-# set USMCA_SHARES$year <- 2025; USMCA_SHARES$mode <- 'annual'.
 usmca_shares:
   mode: 'annual'
   year: 2025

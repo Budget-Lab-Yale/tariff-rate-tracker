@@ -37,7 +37,7 @@ src/
   04_parse_products.R        Parses HTS10 products (base MFN rate, Ch99 footnote refs).
   05_parse_policy_params.R   Extracts IEEPA / fentanyl / §232 / USMCA params from the JSON.
   06_calculate_rates.R       Core engine: calculate_rates_for_revision() — the stacked rate panel.
-  07_validate_tpc.R          Optional TPC benchmark comparison (no-op without TPC data).
+  revision_snapshot.R        Shared per-revision build unit used by baseline and scenarios.
   09_daily_series.R          Daily aggregates + weighted ETR + alternative-series runner.
 ```
 
@@ -46,14 +46,15 @@ src/
 ```
   authority_spec.R     The AuthoritySpec datatype + validation (docs/authority_spec.md).
   authority_adapter.R  build_authority_specs(): parser outputs -> uniform spec set.
+  authority_registry.R Shared R-code rate/net/spec/schema/reporting metadata per authority.
   stacking.R           Mutual-exclusion stacking rules + authority decomposition.
   rate_schema.R        Canonical rate_* columns, schema enforcement, authority classifier.
+  scenario_inputs.R    Removes disabled-authority inputs before scenario calculation.
   policy_params.R      YAML config loader, country constants, scenario overlay deep-merge.
   data_loaders.R       Resource-file loaders (232 derivatives/annex, USMCA, metal, fentanyl).
   revisions.R          Revision-id parsing, JSON path resolution, archive/release naming.
   scenario_registry.R  Registry of config/scenarios/<name>/ (alternatives + counterfactuals).
   timeline.R           Schedule-boundary splitter.  STATUS: PARTIALLY WIRED (see note below).
-  resolved_programs.R  Long-form resolved-program table.  STATUS: PROTOTYPE, default-off.
 ```
 
 ## I/O and output
@@ -68,9 +69,9 @@ src/
 ## Core / infrastructure
 
 ```
-  helpers.R            Facade: sources policy_params, revisions, stacking, resolved_programs,
-                       timeline, rate_schema, data_loaders, output_paths, scenario_registry,
-                       and defines low-level HTS/rate utilities. Sourcing it grants the full set.
+  module_loader.R      Explicit module dependency graph + core/calculation/daily/build bundles.
+  helpers.R            Backward-compatible facade resolved through the module graph; also defines
+                       low-level HTS/rate utilities.
   logging.R            init_logging() + log_info/warn/error.
   parallel.R           Parallel build scaffolding (--parallel / --alt-workers).
   parity.R             Tolerance comparator used by the parity-gated refactor harness.
@@ -80,6 +81,10 @@ src/
   install_dependencies.R Package installer. Entry point.
   quality_report.R     Post-build schema/anomaly diagnostics. Entry point.
 ```
+
+Production entrypoints request bundles from `module_loader.R`; they do not infer
+dependencies from source order or from whether a function happens to exist. See
+[`internal_modules.md`](internal_modules.md) for the dependency contract.
 
 ## Manual tools (run by hand; not part of a routine build)
 
@@ -117,6 +122,9 @@ HTS JSON archives
   05_parse_policy_params --> ieepa_rates, fentanyl_rates, s232_rates, usmca
        |
        v
+  revision_snapshot   -->  one shared baseline/scenario build route
+       |
+       v
   authority_adapter   -->  authority_spec_set  (uniform per-authority specs)
        |
        v
@@ -135,36 +143,32 @@ HTS JSON archives
 that does `source(here('src', 'core', 'helpers.R'))` gets the full function set. Files
 that only need a slice can source a module directly:
 
-- `policy_params.R`, `stacking.R`, `rate_schema.R`, `output_paths.R`,
+- `policy_params.R`, `authority_registry.R`, `output_paths.R`,
   `scenario_registry.R`, `timeline.R` — no internal dependencies.
+- `stacking.R`, `rate_schema.R` — depend on `authority_registry.R` (and source it
+  themselves when loaded directly).
 - `revisions.R`, `data_loaders.R` — depend on `policy_params.R`.
-- `resolved_programs.R` — depends on `stacking.R`.
 - `authority_adapter.R` — depends on `authority_spec.R` and `policy_params.R`.
 
-## Coexisting mechanisms (known complexity)
+## Core mechanisms
 
 Reviewers will notice two places worth understanding:
 
-1. **Schedule-boundary splitting (settled).** `timeline.R` is the single
-   interval splitter on both sides: the build side mints synthetic boundary
-   snapshots via `discover_boundaries()` / `build_boundary_mints()` (called from
-   `00`), and the downstream daily series (`09_daily_series.R`) splits intervals
-   via `timeline_split_points()` fed `expiry_boundaries()`. The legacy
-   `get_expiry_split_points()` splitter has been **retired** (Phase 1b); its
-   last-live-day convention is subsumed by the canonical first-day-of-new-state
-   boundary (`E -> E+1`). What remains downstream is `apply_expiry_zeroing()`,
-   which is **not a splitter** — it zeros the `SECTION_122` / `SWISS` rate
-   columns past expiry, and stays downstream **by design**: the SWISS revert
-   forces CH/LI reciprocal to 0 (the pre-floor surcharge isn't stored in the
-   snapshot), which a recompute/mint would *not* reproduce. The two are kept
-   disjoint (`discover_boundaries()` subtracts `expiry_boundaries()`); the
-   `test_mint_equals_zeroing.R` guard enforces that mutual exclusion, and
-   `test_boundary_discovery.R` / `test_timeline_realdata.R` pin the geometry.
+1. **Schedule boundaries (settled).** `timeline.R` is the single source of
+   interval edges. The build mints synthetic snapshots through
+   `discover_boundaries()` / `build_boundary_mints()` (called from `00`), using
+   the canonical first-day-of-new-state convention (`E -> E+1` for expiries).
+   Daily series and point queries consume those intervals directly. The Swiss
+   snapshot fields preserve the underlying reciprocal rate, temporary floor,
+   and dates, so its expiry recomputes correctly without a downstream editor.
+   `test_mint_equals_zeroing.R`, `test_boundary_discovery.R`, and
+   `test_timeline_realdata.R` pin the transition and geometry.
 
-2. **Stacking representation.** Production uses the fast wide
-   `apply_stacking_rules()` (`stacking.R`). `resolved_programs.R` is a
-   bit-identical long-form alternative, default-off behind
-   `use_resolved_stacking()`, kept for the scenario-mutation model.
+2. **Rate-table identity (settled).** `build_rate_grid()` creates the complete
+   product × country table once at the start of calculation. Every authority
+   mutates columns on that table, and the calculator asserts the natural key and
+   row count before return. There are no per-program row builders or alternate
+   stacking representations.
 
 ## How to add a new tariff authority
 
@@ -173,8 +177,8 @@ Reviewers will notice two places worth understanding:
    rates + country applicability.
 2. **Adapt** (`authority_adapter.R`): map the new rates into an `AuthoritySpec`.
 3. **Calculate** (`06_calculate_rates.R`): add a numbered step in
-   `calculate_rates_for_revision()` that applies the rate and adds new
-   product-country pairs (`add_blanket_pairs()`, `relationship = 'many-to-one'`).
+   `calculate_rates_for_revision()` that mutates the authority column on the
+   existing canonical product-country table. Policy programs must not add rows.
 4. **Stack** (`stacking.R`): if it interacts with mutual-exclusion rules, update
    `apply_stacking_rules()` and `compute_net_authority_contributions()`.
 5. **Schema** (`rate_schema.R`): add any new `rate_*` column to `RATE_SCHEMA`
@@ -183,17 +187,19 @@ Reviewers will notice two places worth understanding:
 
 ## Test infrastructure
 
-Tests use `stopifnot()` assertions, synthetic fixtures, no external framework.
-The CI smoke job (`.github/workflows/ci.yml`) runs, after opting out of weighted
-outputs:
+Tests use `stopifnot()` assertions and synthetic fixtures. The CI smoke job
+(`.github/workflows/ci.yml`) discovers every test file and runs each in an
+isolated R process, after opting out of weighted outputs:
 
 ```bash
 Rscript src/preflight.R
-Rscript tests/run_tests_daily_series.R        # daily series, expiry, decomposition, schema, annex
-Rscript tests/run_tests_weights_resolution.R  # weight resolution
-Rscript tests/run_tests_annex_parser.R        # §232 annex parser
-Rscript tests/test_rate_calculation.R         # rate engine, extraction, stacking, invariants
+Rscript tests/run_all_tests.R
 ```
+
+Optional-package tests are reported as skipped with the missing package name;
+tests that pass while skipping artifact-dependent assertions are marked
+`PASS*` and listed in the summary. They are never silently omitted from
+discovery. Pass `--list` to print the exact discovered file set.
 
 Refactors that must not change numbers (e.g. the in-progress migrations above)
 are gated by the parity harness: `parity.R` + `scripts/submit_plank*` /

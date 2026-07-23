@@ -119,8 +119,6 @@ section_232_headings:
     usmca_exempt: true
   copper:
     products_file: 'resources/s232_copper_products.csv'  # Authoritative: US Note 36(b), 80 HTS8 prefixes
-    prefixes: ['7406', '7407', '7408', '7409', '7410', '7411', '7412', '7413',
-               '7415', '7418', '7419', '8544']  # Fallback if products_file missing
     default_rate: 0.50    # 9903.78.01: 50% upon value of copper content (June 2025 proclamation)
     usmca_exempt: false
   softwood:
@@ -171,7 +169,6 @@ section_232_headings:
   semiconductors:
     products_file: 'resources/s232_semi_products.csv'
     qualifying_shares_file: 'resources/semi_qualifying_shares.csv'
-    prefixes: ['847150', '847180', '847330']  # fallback
     default_rate: 0.25
     usmca_exempt: false
     end_use_exemption_share: 0.0   # uncalibrated, see todo.md Phase 5
@@ -187,7 +184,6 @@ section_232_headings:
   # explicit full-value entry per docs/archive/counterfactual_generality_ground_truth.md).
   pharmaceuticals:
     products_file: 'resources/s232_pharma_products.csv'
-    prefixes: ['30']  # fallback only if the Annex I resource is unavailable
     # Tariff-ETRs current-law treatment (2026-04-06 scenario, Sept. 29 layer):
     # a tiny default rate activates the heading; target_total below supplies the
     # effective 100%/15% floors, while the UK uses an MFN + 10% surcharge.
@@ -441,18 +437,6 @@ swiss_framework:
   finalized: false
   countries: ['4419', '4411']   # Switzerland, Liechtenstein
 
-# --- Authority name to rate column mapping ---
-authority_columns:
-  section_232:      rate_232
-  section_301:      rate_301
-  section_301_content_split: rate_301_cs
-  ieepa_reciprocal: rate_ieepa_recip
-  ieepa_fentanyl:   rate_ieepa_fent
-  section_122:      rate_s122
-  section_338:      rate_s338
-  section_301_brazil: rate_s301br
-  other:            rate_other
-
 # --- Section 301 content-split classification (A2) ---
 # Ch99 codes listed here ride rate_301_cs (content_split: yields to a 232 like the
 # reciprocal/122, and is USMCA-eligible) instead of the legacy-additive rate_301.
@@ -558,35 +542,6 @@ weighted_etr:
       label: Nov 2025
     - date: '2026-02-25'
       label: Current
-  tpc_name_fixes:
-    christmas island: '6024'
-    "cote d'ivoire": '7480'
-    "côte d`ivoire": '7480'
-    "curaçao": '2777'
-    curacao: '2777'
-    "czechia (czech republic)": '4351'
-    "democratic republic of the congo": '7660'
-    "eswatini (swaziland)": '7950'
-    "falkland islands": '3720'
-    "gaza strip": '5082'
-    germany: '4280'
-    "heard and mcdonald islands": '6029'
-    laos: '5530'
-    macau: '5660'
-    moldova: '4641'
-    "myanmar (burma)": '5460'
-    "north korea": '5790'
-    "republic of the congo": '7630'
-    samoa: '6150'
-    "são tomé and príncipe": '7644'
-    "sao tome and principe": '7644'
-    "south korea": '5800'
-    syria: '5020'
-    tanzania: '7830'
-    "vatican city": '4752'
-    "west bank": '5083'
-    yemen: '5210'
-
 # --- Section 301 product lists (blanket coverage) ---
 # Products covered by 301 are defined by US Note 20/21/31 product lists,
 # NOT by individual product footnotes. Sourced from USITC "China Tariffs"
@@ -730,17 +685,6 @@ ch98_value_basis:
 # Product lists sourced from Tariff-ETRs config (US Note 2 subdivisions).
 fentanyl_carveouts:
   resource_file: 'resources/fentanyl_carveout_products.csv'
-
-# --- Countries excluded from TPC validation ---
-# These countries have legitimate IEEPA entries in the HTS JSON, but TPC
-# doesn't model them. Excluded from validation comparisons to avoid
-# false-positive discrepancies (~95K product-country pairs).
-tpc_excluded_countries:
-  - '5020'   # Syria
-  - '4641'   # Moldova
-  - '5530'   # Laos
-  - '3720'   # Falkland Islands
-  - '7660'   # DR Congo
 
 # --- USMCA utilization shares ---
 # Product-level USMCA utilization rates from USITC DataWeb (SPI S/S+).
@@ -915,6 +859,10 @@ section_338:
 # granularity limit as the FL annex).
 section_301_brazil:
   effective_date: '2026-07-22'
+  # FALLBACK ONLY. Source of truth is HTS heading 9903.05.01 ("+25%", codified
+  # 2026 HTS rev_12+), read by extract_section301_brazil_rates(). This literal is
+  # used only when that heading is absent/unparseable in a snapshot's ch99
+  # (pre-rev_12, or a 2026-07-22 boundary mint built before rev_12 is ingested).
   rate: 0.25
   country: '3510'                                    # Brazil census code
   # Note 50(a)(ii)+(iii): unconditional exclusions (875 hts8) — fully exempt.

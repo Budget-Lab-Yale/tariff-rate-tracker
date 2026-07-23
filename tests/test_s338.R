@@ -5,7 +5,7 @@
 # adapter builder (.build_section_338: date-gate, additive, usmca 'none'),
 # the stacking-policy invariant, the calculator step (apply_section338: +50%
 # on covered Canada rows, §232 full-scope exclusion mask, GN6 utilization
-# scaling with the measured -> HS2 mean -> 0 fallback, pair seeding), and
+# scaling with the measured -> HS2 mean -> 0 fallback; grid rows fixed), and
 # boundary discovery of the bnd_2026-08-19 mint. Synthetic in-memory fixtures
 # for the calc checks; repo resource files for list integrity.
 #
@@ -68,7 +68,7 @@ bc <- spec_on$programs[[1]]$rate$by_country
 ok(isTRUE(all.equal(unname(bc[CA]), 0.50)) && length(bc) == 1, 'rate$by_country = Canada 0.50 only')
 ok(identical(spec_on$programs[[1]]$country_scope$include, CA), 'country_scope = Canada')
 bc_pre <- .rate_get(spec_pre$programs[[1]]$rate, 'by_country')
-ok(.rate_is_hollow(bc_pre) || length(bc_pre) == 0, 'pre-08-19 revision: hollow (date-gated)')
+ok(is.null(bc_pre) || length(bc_pre) == 0, 'pre-08-19 revision: hollow (date-gated)')
 ok(length(spec_pre$programs[[1]]$country_scope$include) == 0, 'pre-08-19: empty country scope')
 ep <- spec_on$programs[[1]]$exempt_products
 ok(length(ep$gn6_hts8) == 554, 'spec carries the 554-code GN6 set')
@@ -117,19 +117,22 @@ products <- tibble(
             '8529901620',    # mv list, GN6 measured
             '8517620000',    # mv list, GN6 unmeasured (HS2-85 mean)
             '9403200011',    # mv list, GN6 unmeasured (no HS2-94 measurement)
-            '2203000060'),   # beer (alcohol list) — NOT in rates: seeding check
+            '2203000060'),   # beer (alcohol list) — on the grid, zero rates: coverage check
   base_rate = 0)
 
+# The one-grid build materializes every pair before authority steps run, so
+# the beer row (2203000060 x CA) is PRESENT with zero rates — the retired
+# sparse-table seeder is not needed and apply_section338 never adds rows.
 rates <- tibble(
   hts10   = c('2208303000', '2208303000', '0402100500', '4413000000',
               '7203100000', '7801100000', '3303003000', '7326200000',
-              '8529901620', '8517620000', '9403200011'),
-  country = c(CA, '5700', CA, CA, CA, CA, CA, CA, CA, CA, CA),
+              '8529901620', '8517620000', '9403200011', '2203000060'),
+  country = c(CA, '5700', CA, CA, CA, CA, CA, CA, CA, CA, CA, CA),
   base_rate = 0,
-  rate_232           = c(0, 0, 0, 0,    0.25, 0,          0, 0.25, 0, 0, 0),
-  statutory_rate_232 = c(0, 0, 0, 0,    0.25, 0,          0, 0.25, 0, 0, 0),
-  s232_annex = c(NA, NA, NA, NA, NA, 'annex_1b', 'annex_2', NA, NA, NA, NA),
-  heading_program = c(FALSE, FALSE, FALSE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE),
+  rate_232           = c(0, 0, 0, 0,    0.25, 0,          0, 0.25, 0, 0, 0, 0),
+  statutory_rate_232 = c(0, 0, 0, 0,    0.25, 0,          0, 0.25, 0, 0, 0, 0),
+  s232_annex = c(NA, NA, NA, NA, NA, 'annex_1b', 'annex_2', NA, NA, NA, NA, NA),
+  heading_program = c(FALSE, FALSE, FALSE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE),
   rate_301 = 0, rate_301_cs = 0, rate_ieepa_recip = 0, rate_ieepa_fent = 0,
   rate_s122 = 0, rate_section_201 = 0, rate_other = 0)
 
@@ -150,8 +153,8 @@ ok(isTRUE(all.equal(g('7326200000', CA), 0)), 'uncovered product -> 0 (positive 
 ok(isTRUE(all.equal(g('8529901620', CA), 0.50 * 0.60)), 'GN6 measured (8529.90.16, share .40) -> 0.30')
 ok(isTRUE(all.equal(g('8517620000', CA), 0.50)), 'GN6 unmeasured (8517.62.00) -> share 0 -> full 0.50 (no HS2-mean pooling from ch85 sibling)')
 ok(isTRUE(all.equal(g('9403200011', CA), 0.50)), 'GN6 unmeasured, no measurement -> share 0 -> full 0.50 (NOT §122\'s full exemption)')
-ok(isTRUE(all.equal(g('2203000060', CA), 0.50)), 'missing covered Canada pair seeded at 0.50')
-ok(length(g('2203000060', '5700')) == 0, 'no non-Canada pairs seeded')
+ok(isTRUE(all.equal(g('2203000060', CA), 0.50)), 'covered beer pair on the complete grid charged 0.50')
+ok(length(g('2203000060', '5700')) == 0, 'no rows added for non-Canada pairs (grid is fixed)')
 
 # Pre-turn-on spec: all-zero column persists (RATE_SCHEMA member, never dropped)
 out_pre <- suppressMessages(apply_section338(rates, list(section_338 = spec_pre),

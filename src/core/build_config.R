@@ -41,6 +41,18 @@ load_build_config <- function(path, repo_root = here()) {
   if (!file.exists(path)) stop('build config not found: ', path, call. = FALSE)
   cfg <- yaml::read_yaml(path)
 
+  # A misspelled key (e.g. `policy_params:` for `policy_params_path:`) would
+  # otherwise be silently ignored and the default silently used instead.
+  known_keys <- c('model_data_root', 'policy_params_path', 'scenarios',
+                  'use_hts_dates', 'weight_mode', 'update_latest',
+                  'allow_partial', 'verify')
+  unknown <- setdiff(names(cfg), known_keys)
+  if (length(unknown) > 0) {
+    stop('build config ', path, ' has unknown key(s): ',
+         paste(unknown, collapse = ', '),
+         '. Known keys: ', paste(known_keys, collapse = ', '), call. = FALSE)
+  }
+
   mdr <- if (!is.null(cfg$model_data_root) && nzchar(cfg$model_data_root)) {
     cfg$model_data_root
   } else .local_model_data_root(repo_root)

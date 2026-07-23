@@ -33,6 +33,8 @@ get_country_constants <- function(pp) list(
 filter_active_ch99       <- function(ch99_data, effective_date) ch99_data
 compute_heading_gates    <- function(specs, s232_rates) list()
 extract_section122_rates <- function(ch99_data) list(s122_rate = 0.10, has_s122 = TRUE)
+extract_section_201_rates <- function(ch99_data, policy_params = NULL)
+  list(s201_rates = NULL, has_s201 = FALSE, solar_rate = 0)
 is_232_exempt            <- function(census_code, exempt_list) isTRUE(census_code %in% exempt_list)
 # A recognizable sentinel: the floor relocation is a straight passthrough of
 # load_revision_floor_exemptions() (data_loaders.R), so we assert the baking

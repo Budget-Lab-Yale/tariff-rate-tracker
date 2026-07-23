@@ -1,0 +1,8 @@
+# Temporary external validation build for the completed common policy format.
+model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker/.validation/item3-common-policy
+policy_params_path: config/policy_params.yaml
+scenarios:
+  - new_301
+weight_mode: required
+update_latest: false
+verify: true

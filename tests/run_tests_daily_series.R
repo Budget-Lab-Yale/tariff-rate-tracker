@@ -37,6 +37,16 @@ source(here('src', 'pipeline', '09_daily_series.R'))
                         policy_params = pp)
 }
 
+.derivative_specs <- function(steel_rate = 0, aluminum_rate = 0,
+                              steel_enabled = FALSE, aluminum_enabled = FALSE) {
+  list(section_232 = list(programs = list(
+    list(id = 'steel_derivatives', rate = list(default = steel_rate),
+         active = list(enabled = steel_enabled)),
+    list(id = 'aluminum_derivatives', rate = list(default = aluminum_rate),
+         active = list(enabled = aluminum_enabled))
+  )))
+}
+
 run_artifact_tests <- '--with-artifacts' %in% commandArgs(trailingOnly = TRUE)
 
 pass_count <- 0
@@ -131,6 +141,30 @@ make_minted_s122_ts <- function(horizon_end = as.Date('2026-12-31')) {
     mutate(revision = 'bnd_2026-07-24', rate_s122 = 0,
            effective_date = as.Date('2026-07-24'),
            valid_from = as.Date('2026-07-24'), valid_until = horizon_end) %>%
+    apply_stacking_rules()
+  bind_rows(pre, post)
+}
+
+make_minted_swiss_ts <- function(horizon_end = as.Date('2026-12-31')) {
+  common <- tibble(
+    hts10 = '7208100000', country = '4419', base_rate = 0,
+    statutory_base_rate = 0, rate_232 = 0, rate_301 = 0,
+    rate_ieepa_fent = 0, rate_s122 = 0, rate_section_201 = 0, rate_other = 0,
+    swiss_underlying_rate_ieepa_recip = 0.31,
+    swiss_framework_floor_rate = 0.15,
+    swiss_framework_effective_date = as.Date('2025-11-14'),
+    swiss_framework_expiry_date = as.Date('2026-03-31'),
+    metal_share = 0, usmca_eligible = FALSE
+  )
+  pre <- common %>%
+    mutate(revision = 'swiss_floor', rate_ieepa_recip = 0.15,
+           effective_date = as.Date('2025-11-14'),
+           valid_from = as.Date('2025-11-14'), valid_until = as.Date('2026-03-31')) %>%
+    apply_stacking_rules()
+  post <- common %>%
+    mutate(revision = 'bnd_2026-04-01', rate_ieepa_recip = 0.31,
+           effective_date = as.Date('2026-04-01'),
+           valid_from = as.Date('2026-04-01'), valid_until = horizon_end) %>%
     apply_stacking_rules()
   bind_rows(pre, post)
 }
@@ -233,14 +267,6 @@ run_test('net authorities sum to total_additional', {
   stopifnot(max_residual < 1e-10)
 })
 
-run_test('decomposition works with tpc_additive mode', {
-  ts <- make_test_ts()
-  net <- compute_net_authority_contributions(ts, stacking_method = 'tpc_additive')
-  stopifnot('net_section_201' %in% names(net))
-  stopifnot(all(net$net_section_201 == net$rate_section_201))
-})
-
-
 # =============================================================================
 # Test 5: rate_section_201 preserved by enforce_rate_schema()
 # =============================================================================
@@ -283,54 +309,10 @@ run_test('enforce_rate_schema fills missing rate_section_201 with 0', {
 
 
 # =============================================================================
-# Test 6: Expiry split points
+# Test 6: Calendar-owned expiries
 # =============================================================================
 
-message('\n--- Test 6: Generic expiry split points ---')
-
-run_test('split points detected for spanning interval — swiss only', {
-  pp <- make_test_policy_params()
-  splits <- timeline_split_points(
-    as.Date('2026-01-01'), as.Date('2026-12-31'), expiry_boundaries(pp))
-  # Swiss (expiry 2026-03-31 -> first-dead-day boundary 2026-04-01) still splits
-  # within an interval — it is NOT minted.
-  stopifnot(as.Date('2026-04-01') %in% splits)
-  # s122 (expiry 2026-07-23 -> 2026-07-24) is no longer a within-interval split:
-  # it moved to the mint mechanism (2026-06-25), so it leaves expiry_boundaries().
-  stopifnot(!(as.Date('2026-07-24') %in% splits))
-})
-
-run_test('no split points for interval before all expiries', {
-  pp <- make_test_policy_params()
-  splits <- timeline_split_points(
-    as.Date('2026-01-01'), as.Date('2026-03-01'), expiry_boundaries(pp))
-  stopifnot(length(splits) == 0)
-})
-
-run_test('apply_expiry_zeroing zeros swiss reciprocal after expiry, leaves s122', {
-  pp <- make_test_policy_params()
-  # A Swiss (CH) row carrying both a floored reciprocal rate and an s122 rate.
-  ch <- tibble(hts10 = '7208100000', country = '4419',
-               base_rate = 0, statutory_base_rate = 0,
-               rate_232 = 0, rate_301 = 0,
-               rate_ieepa_recip = 0.15, rate_ieepa_fent = 0,
-               rate_s122 = 0.10, rate_section_201 = 0, rate_other = 0,
-               metal_share = 0, usmca_eligible = FALSE,
-               revision = 'rev_b', effective_date = as.Date('2026-06-01'),
-               valid_from = as.Date('2026-06-01'),
-               valid_until = as.Date('2026-12-31')) %>%
-    apply_stacking_rules()
-  adjusted <- apply_expiry_zeroing(ch, as.Date('2026-04-01'), pp)
-  stopifnot(all(adjusted$rate_ieepa_recip == 0))   # swiss reciprocal zeroed past 2026-03-31
-  stopifnot(all(adjusted$rate_s122 == 0.10))        # s122 untouched (moved to minting)
-})
-
-
-# =============================================================================
-# Test 6b: Expiry boundary edge cases
-# =============================================================================
-
-message('\n--- Test 6b: Expiry boundary edge cases ---')
+message('\n--- Test 6: Calendar-owned expiries ---')
 
 run_test('s122 active on exact expiry date', {
   ts <- make_test_ts()
@@ -349,41 +331,25 @@ run_test('s122 zero on first day after expiry (from mint boundary)', {
 })
 
 run_test('swiss framework active on exact expiry date', {
-  ts <- make_test_ts()
+  ts <- make_minted_swiss_ts()
   pp <- make_test_policy_params()
-  # Swiss framework expires 2026-03-31. On expiry date it should still apply.
   on_expiry <- get_rates_at_date(ts, '2026-03-31', policy_params = pp)
-  swiss <- on_expiry %>% filter(country %in% pp$SWISS_FRAMEWORK$countries)
-  # Swiss countries should have IEEPA rate overridden (framework active)
-  # We just verify the function runs without error on boundary
-  stopifnot(nrow(on_expiry) > 0)
+  stopifnot(nrow(on_expiry) == 1, on_expiry$rate_ieepa_recip == 0.15)
 })
 
-run_test('swiss split lands on first-dead-day boundary; s122 does not split', {
+run_test('swiss underlying surcharge resumes from minted first-dead-day snapshot', {
+  ts <- make_minted_swiss_ts()
   pp <- make_test_policy_params()
-  # Swiss expiry 2026-03-31 -> first-dead-day boundary 2026-04-01 splits within (vf, vu].
-  swiss_splits <- timeline_split_points(
-    as.Date('2026-03-31'), as.Date('2026-04-15'), expiry_boundaries(pp))
-  stopifnot(as.Date('2026-04-01') %in% swiss_splits)
-  # s122 (minted, 2026-06-25) is not a split point even on an interval that straddles it.
-  s122_splits <- timeline_split_points(
-    as.Date('2026-07-23'), as.Date('2026-08-01'), expiry_boundaries(pp))
-  stopifnot(!(as.Date('2026-07-24') %in% s122_splits))
+  after <- get_rates_at_date(ts, '2026-04-01', policy_params = pp)
+  stopifnot(nrow(after) == 1, after$revision == 'bnd_2026-04-01')
+  stopifnot(after$rate_ieepa_recip == 0.31, after$total_additional == 0.31)
+  stopifnot(after$rate_ieepa_recip == after$swiss_underlying_rate_ieepa_recip)
 })
 
-run_test('split points empty when interval starts after all expiries', {
-  pp <- make_test_policy_params()
-  splits <- timeline_split_points(
-    as.Date('2026-08-01'), as.Date('2026-12-31'), expiry_boundaries(pp))
-  stopifnot(length(splits) == 0)
-})
-
-run_test('apply_expiry_zeroing keeps s122 on exact expiry date', {
-  ts <- make_test_ts() %>% filter(revision == 'rev_b') %>% head(4)
-  pp <- make_test_policy_params()
-  # On the expiry date itself, s122 should NOT be zeroed
-  adjusted <- apply_expiry_zeroing(ts, as.Date('2026-07-23'), pp)
-  stopifnot(any(adjusted$rate_s122 > 0))
+run_test('daily and point paths do not expose post-calculation expiry editors', {
+  stopifnot(!exists('collect_expiry_adjustments', mode = 'function'))
+  stopifnot(!exists('apply_expiry_zeroing', mode = 'function'))
+  stopifnot(!exists('apply_post_interval_adjustments_point', mode = 'function'))
 })
 
 
@@ -478,107 +444,6 @@ run_test('date_range after all revisions returns empty', {
   ts <- make_test_ts(horizon_end = as.Date('2026-06-30'))
   result <- build_daily_aggregates(ts, date_range = c(as.Date('2027-01-01'), as.Date('2027-12-31')))
   stopifnot(nrow(result$daily_overall) == 0)
-})
-
-
-# =============================================================================
-# Test 9: Stacking method survives through build_daily_aggregates
-# =============================================================================
-
-message('\n--- Test 9: Stacking method passthrough ---')
-
-run_test('tpc_additive produces different totals than mutual_exclusion', {
-  # Build a fixture where stacking method matters: a 232 product with IEEPA recip
-  ts_stack <- expand_grid(
-    hts10 = '7208100000',
-    country = '4280',  # non-China
-    revision = 'rev_a'
-  ) %>%
-    mutate(
-      base_rate = 0.05,
-      statutory_base_rate = 0.05,
-      rate_232 = 0.50,
-      rate_301 = 0,
-      rate_ieepa_recip = 0.15,
-      rate_ieepa_fent = 0,
-      rate_s122 = 0.10,
-      rate_section_201 = 0,
-      rate_other = 0,
-      metal_share = 1.0,
-      usmca_eligible = FALSE,
-      valid_from = as.Date('2026-01-01'),
-      valid_until = as.Date('2026-01-10')
-    ) %>%
-    apply_stacking_rules()
-
-  me <- build_daily_aggregates(ts_stack, stacking_method = 'mutual_exclusion')
-  tpc <- build_daily_aggregates(ts_stack, stacking_method = 'tpc_additive')
-
-  # With mutual exclusion on full-metal 232: recip*0 + s122*0 = only 232
-  # With tpc_additive: 232 + recip + s122 — should be higher
-  stopifnot(nrow(me$daily_overall) > 0)
-  stopifnot(nrow(tpc$daily_overall) > 0)
-  stopifnot(tpc$daily_overall$mean_additional_exposed[1] > me$daily_overall$mean_additional_exposed[1])
-})
-
-run_test('tpc_additive authority decomposition reflects additive stacking', {
-  ts_stack <- tibble(
-    hts10 = '7208100000', country = '4280', revision = 'rev_a',
-    base_rate = 0.05, statutory_base_rate = 0.05,
-    rate_232 = 0.50, rate_301 = 0, rate_ieepa_recip = 0.15,
-    rate_ieepa_fent = 0.10, rate_s122 = 0.10, rate_section_201 = 0,
-    rate_other = 0, metal_share = 1.0, usmca_eligible = FALSE,
-    valid_from = as.Date('2026-01-01'), valid_until = as.Date('2026-01-05')
-  ) %>% apply_stacking_rules()
-
-  tpc <- build_daily_aggregates(ts_stack, stacking_method = 'tpc_additive')
-  # In additive mode, authority decomposition should show full recip + fent + s122
-  stopifnot(nrow(tpc$daily_by_authority) > 0)
-  stopifnot(tpc$daily_by_authority$mean_ieepa[1] == 0.15)
-  stopifnot(tpc$daily_by_authority$mean_fentanyl[1] == 0.10)
-  stopifnot(tpc$daily_by_authority$mean_s122[1] == 0.10)
-})
-
-run_test('tpc_additive total equals raw sum of all authorities', {
-  # Create a 232 product with multiple overlapping authorities
-  ts_add <- tibble(
-    hts10 = '7208100000', country = '4280', revision = 'rev_a',
-    base_rate = 0.05, statutory_base_rate = 0.05,
-    rate_232 = 0.50, rate_301 = 0, rate_ieepa_recip = 0.15,
-    rate_ieepa_fent = 0.10, rate_s122 = 0.10, rate_section_201 = 0.02,
-    rate_other = 0, metal_share = 1.0, usmca_eligible = FALSE,
-    valid_from = as.Date('2026-01-01'), valid_until = as.Date('2026-01-02')
-  ) %>% apply_stacking_rules(stacking_method = 'tpc_additive')
-
-  # In additive mode, total_additional should be the literal sum of all rate columns
-  expected_total <- 0.50 + 0.15 + 0.10 + 0.10 + 0.02  # = 0.87
-  actual_total <- ts_add$total_additional[1]
-  stopifnot(abs(actual_total - expected_total) < 1e-10)
-  stopifnot(abs(ts_add$total_rate[1] - (0.05 + expected_total)) < 1e-10)
-})
-
-run_test('tpc_additive vs mutual_exclusion: known numeric difference on 232 product', {
-  # For a pure-metal 232 product (metal_share=1.0, non-China):
-  # mutual_exclusion: total_additional = rate_232 only (recip/s122 scaled by nonmetal=0)
-  # tpc_additive: total_additional = rate_232 + rate_ieepa_recip + rate_s122
-  ts_me <- tibble(
-    hts10 = '7208100000', country = '4280', revision = 'rev_a',
-    base_rate = 0.05, statutory_base_rate = 0.05,
-    rate_232 = 0.50, rate_301 = 0, rate_ieepa_recip = 0.15,
-    rate_ieepa_fent = 0, rate_s122 = 0.10, rate_section_201 = 0,
-    rate_other = 0, metal_share = 1.0, usmca_eligible = FALSE,
-    valid_from = as.Date('2026-01-01'), valid_until = as.Date('2026-01-02')
-  )
-
-  me_result <- apply_stacking_rules(ts_me, stacking_method = 'mutual_exclusion')
-  tpc_result <- apply_stacking_rules(ts_me, stacking_method = 'tpc_additive')
-
-  # ME: only 232 contributes (nonmetal_share = 0)
-  stopifnot(abs(me_result$total_additional[1] - 0.50) < 1e-10)
-  # TPC additive: 232 + recip + s122 = 0.75
-  stopifnot(abs(tpc_result$total_additional[1] - 0.75) < 1e-10)
-  # Difference should be exactly 0.25
-  stopifnot(abs(tpc_result$total_additional[1] - me_result$total_additional[1] - 0.25) < 1e-10)
 })
 
 
@@ -1335,23 +1200,15 @@ run_test('flat 100 derivative keeps full 232 rate through derivative scaling and
     hts10 = c('8407901000', '7208100000'),
     base_rate = c(0, 0)
   )
-  ch99_data <- tibble(ch99_code = '9903.81.91')
-  s232_rates <- list(
-    has_232 = TRUE,
-    aluminum_derivative_exempt = character(0),
-    aluminum_derivative_rate = 0,
-    steel_derivative_exempt = character(0),
-    steel_derivative_rate = 0.50
-  )
   pp_flat <- load_policy_params()
   pp_flat$metal_content$method <- 'flat'
   pp_flat$metal_content$flat_share <- 1.0
 
+  specs <- .derivative_specs(steel_rate = 0.50, steel_enabled = TRUE)
   scaled <- apply_232_derivatives(
     rates,
     products,
-    ch99_data,
-    s232_rates,
+    specs,
     countries = '4280',
     heading_products = character(0),
     policy_params = pp_flat,
@@ -1392,22 +1249,14 @@ run_test('BEA-unmatched derivative falls back to aggregate share, not zero', {
     total_rate = 0
   )
   products <- tibble(hts10 = '8483905020', base_rate = 0)
-  ch99_data <- tibble(ch99_code = '9903.85.08')
-  s232_rates <- list(
-    has_232 = TRUE,
-    aluminum_derivative_exempt = character(0),
-    aluminum_derivative_rate = 0.25,
-    steel_derivative_exempt = character(0),
-    steel_derivative_rate = 0.50
-  )
   pp_bea <- load_policy_params()
   pp_bea$metal_content$method <- 'bea'
 
+  specs <- .derivative_specs(aluminum_rate = 0.25, aluminum_enabled = TRUE)
   scaled <- apply_232_derivatives(
     rates,
     products,
-    ch99_data,
-    s232_rates,
+    specs,
     countries = '5880',
     heading_products = character(0),
     policy_params = pp_bea,

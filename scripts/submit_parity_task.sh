@@ -4,7 +4,7 @@
 #
 # Launched by scripts/submit_plank3_parity.sh as a Slurm array (one task per
 # manifest row). Each task runs run_parity_task.R for its 0-based array index
-# and writes output/<results-dir>/task_<index>.tsv; the summary job
+# and writes <external-results-dir>/task_<index>.tsv; the summary job
 # (submit_parity_summary.sh) reduces those into one gate result.
 #
 # Expects (exported by the orchestrator):
@@ -14,7 +14,7 @@
 # Not meant to be submitted directly — use submit_plank3_parity.sh.
 
 #SBATCH --job-name=parity-task
-#SBATCH --time=00:30:00
+#SBATCH --time=01:30:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=2
@@ -39,9 +39,13 @@ module load R/4.4.2-gfbf-2024a
 : "${PARITY_MANIFEST:?PARITY_MANIFEST must be exported by the orchestrator}"
 : "${PARITY_RESULTS_DIR:?PARITY_RESULTS_DIR must be exported by the orchestrator}"
 INDEX="${SLURM_ARRAY_TASK_ID:?this script must run as a Slurm array task}"
+IGNORE_COLUMNS="${PARITY_IGNORE_COLUMNS:-}"
+ALLOW_EXTRA_COLUMNS="${PARITY_ALLOW_EXTRA_COLUMNS:-}"
 
 echo "parity task: index=$INDEX manifest=$PARITY_MANIFEST results=$PARITY_RESULTS_DIR"
 Rscript scripts/run_parity_task.R \
   --manifest "$PARITY_MANIFEST" \
   --index "$INDEX" \
-  --results-dir "$PARITY_RESULTS_DIR"
+  --results-dir "$PARITY_RESULTS_DIR" \
+  --ignore-columns "$IGNORE_COLUMNS" \
+  --allow-extra-columns "$ALLOW_EXTRA_COLUMNS"
