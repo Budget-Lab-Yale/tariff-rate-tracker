@@ -763,19 +763,6 @@ run_test('schema columns appear first', {
 
 message('\n--- Test 10: Stacking rules ---')
 
-run_test('tpc_additive stacks all authorities', {
-  df <- tibble(
-    hts10 = '7208100000', country = '5700',
-    base_rate = 0, rate_232 = 0.25, rate_301 = 0.25,
-    rate_ieepa_recip = 0.34, rate_ieepa_fent = 0.20,
-    rate_s122 = 0.10, rate_section_201 = 0, rate_other = 0,
-    metal_share = 1.0
-  )
-  result <- apply_stacking_rules(df, cty_china = '5700', stacking_method = 'tpc_additive')
-  expected <- 0.25 + 0.25 + 0.34 + 0.20 + 0.10
-  stopifnot(abs(result$total_additional - expected) < 1e-10)
-})
-
 run_test('mutual exclusion: 232 product with metal_share=1 gets no IEEPA', {
   df <- tibble(
     hts10 = '7208100000', country = '4280',

@@ -3,17 +3,15 @@
 # =============================================================================
 #
 # Fetches HTS revision release dates from the USITC REST API and updates
-# config/revision_dates.csv. Manually-curated columns (tpc_date,
-# policy_event, tpc_policy_revision) are preserved on merge.
+# config/revision_dates.csv. Manually-curated columns (policy_event) are
+# preserved on merge.
 #
 # API: https://hts.usitc.gov/reststop/releaseList
 #
 # Output: config/revision_dates.csv with columns:
 #   - revision: Revision identifier (e.g., 'basic', 'rev_1', '2026_basic')
 #   - effective_date: Date the revision took effect (from releaseStartDate)
-#   - tpc_date: Matching TPC validation date (manually curated)
 #   - policy_event: Description of the policy change (manually curated)
-#   - tpc_policy_revision: TPC policy revision mapping (manually curated)
 #
 # Usage:
 #   Rscript src/pipeline/01_scrape_revision_dates.R           # update CSV
@@ -180,9 +178,7 @@ update_revision_dates <- function(csv_path, api_releases, dry_run = FALSE) {
   new_rows <- new_revs %>%
     select(revision, effective_date) %>%
     mutate(
-      tpc_date = NA_character_,
       policy_event = paste0('[REVIEW] added ', Sys.Date(), ' — effective_date is publication date, not policy date'),
-      tpc_policy_revision = NA_character_,
       needs_review = 'TRUE'
     )
   updated <- bind_rows(existing, new_rows) %>%
@@ -394,7 +390,6 @@ if (sys.nframe() == 0) {
   message('\n=== Revision Date Summary ===')
   message('Total revisions: ', nrow(dates))
   message('With JSON: ', length(available))
-  message('With TPC date: ', sum(!is.na(dates$tpc_date)))
 
   if (dry_run) message('\n[DRY RUN mode — no files were modified]')
 }

@@ -57,7 +57,6 @@
 #     ch99_rev_32.rds             # cached parse (for incremental start)
 #     products_rev_32.rds
 #     rate_timeseries.rds         # final combined long-format
-#     validation_rev_6.rds        # TPC comparison at rev_6
 #
 # =============================================================================
 
@@ -104,9 +103,7 @@ tariff_load_bundle('build', environment())
 #' @return rev_dates with one row appended per minted boundary (unchanged if none).
 build_boundary_mints <- function(rev_dates, boundaries, pp_build, output_dir,
                                  country_lookup, countries, census_codes,
-                                 archive_dir = 'data/hts_archives',
-                                 stacking_method = 'mutual_exclusion',
-                                 tpc_path = NULL) {
+                                 archive_dir = 'data/hts_archives') {
   if (is.null(boundaries) || nrow(boundaries) == 0) return(rev_dates)
 
   message('\n', strrep('=', 60))
@@ -141,12 +138,11 @@ build_boundary_mints <- function(rev_dates, boundaries, pp_build, output_dir,
     message('  [bnd] ', bid, ' = owner ', owner, ' stamped at ', D,
             ' (', src, ')')
     build_revision_snapshot(
-      rev_id = bid, eff_date = D, tpc_date = NA,
+      rev_id = bid, eff_date = D,
       archive_rev_id = owner,
       archive_dir = archive_dir, output_dir = output_dir,
       country_lookup = country_lookup, countries = countries,
-      census_codes = census_codes, pp_build = pp_build,
-      stacking_method = stacking_method, tpc_path = tpc_path
+      census_codes = census_codes, pp_build = pp_build
     )
     new_rows[[k]] <- tibble(revision = bid, effective_date = D)
   }
@@ -198,25 +194,23 @@ build_array_revision_timeline <- function(rev_dates, pp_build,
       transmute(
         revision,
         effective_date = as.Date(date),
-        tpc_date = as.Date(NA),
         archive_rev_id = owner_rev,
         source = 'boundary'
       )
   } else {
     tibble(
       revision = character(), effective_date = as.Date(character()),
-      tpc_date = as.Date(character()), archive_rev_id = character(),
+      archive_rev_id = character(),
       source = character()
     )
   }
 
   out <- bind_rows(
-    real %>% select(any_of(c('revision', 'effective_date', 'tpc_date')),
+    real %>% select(any_of(c('revision', 'effective_date')),
                     archive_rev_id, source),
     bnd
   ) %>%
-    mutate(effective_date = as.Date(effective_date),
-           tpc_date = as.Date(tpc_date)) %>%
+    mutate(effective_date = as.Date(effective_date)) %>%
     arrange(effective_date, revision)
 
   dup <- out$revision[duplicated(out$revision)]
@@ -458,7 +452,6 @@ assemble_timeseries <- function(output_dir, rev_dates, pp_build,
 #' @param output_dir Directory for time series outputs
 #' @param revision_dates_path Path to revision_dates.csv
 #' @param census_codes_path Path to census_codes.csv
-#' @param tpc_path Path to TPC validation data; defaults to local_paths config
 #' @param scenario Scenario name (default: 'baseline')
 #' @param start_from NULL for full backfill; revision ID for incremental
 #' @param allow_partial If TRUE, assemble the panel even when some attempted
@@ -470,10 +463,8 @@ build_full_timeseries <- function(
   output_dir = 'data/timeseries',
   revision_dates_path = 'config/revision_dates.csv',
   census_codes_path = 'resources/census_codes.csv',
-  tpc_path = NULL,
   scenario = 'baseline',
   start_from = NULL,
-  stacking_method = 'mutual_exclusion',
   use_policy_dates = TRUE,
   parallel_cfg = NULL,
   allow_partial = FALSE
@@ -499,9 +490,6 @@ build_full_timeseries <- function(
 
   # ---- Setup ----
   ensure_dir(output_dir)
-  if (is.null(tpc_path)) {
-    tpc_path <- load_local_paths()$tpc_benchmark
-  }
 
   # Load revision dates
   rev_dates <- load_revision_dates(revision_dates_path,
@@ -589,7 +577,6 @@ build_full_timeseries <- function(
     rev_id <- revisions_to_process[i]
     rev_info <- rev_dates %>% filter(revision == rev_id)
     eff_date <- rev_info$effective_date
-    tpc_date <- rev_info$tpc_date
 
     cli::cli_progress_update()
 
@@ -603,11 +590,10 @@ build_full_timeseries <- function(
     tryCatch({
       # Build this revision's snapshot (parse -> extract -> calc -> save).
       res <- build_revision_snapshot(
-        rev_id = rev_id, eff_date = eff_date, tpc_date = tpc_date,
+        rev_id = rev_id, eff_date = eff_date,
         archive_dir = archive_dir, output_dir = output_dir,
         country_lookup = country_lookup, countries = countries,
-        census_codes = census_codes, pp_build = pp_build,
-        stacking_method = stacking_method, tpc_path = tpc_path
+        census_codes = census_codes, pp_build = pp_build
       )
       ch99_data <- res$ch99_data
       products  <- res$products
@@ -679,8 +665,7 @@ build_full_timeseries <- function(
   rev_dates <- build_boundary_mints(
     rev_dates, boundaries, pp_build, output_dir,
     country_lookup = country_lookup, countries = countries,
-    census_codes = census_codes, archive_dir = archive_dir,
-    stacking_method = stacking_method, tpc_path = tpc_path)
+    census_codes = census_codes, archive_dir = archive_dir)
 
   # ---- Bind snapshots -> timeseries (+ intervals, parquet, metadata) ----
   # Reconcile the revisions this run attempted (revisions_to_process — already

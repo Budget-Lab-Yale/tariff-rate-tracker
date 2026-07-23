@@ -17,7 +17,6 @@ The repo is designed to run in progressively richer modes depending on what loca
 |---|---|---|
 | `core_plus_weights` (default) | core + import weights at `data/weights/hs10_by_country_gtap_<year>_con.rds` (or path set in `config/local_paths.yaml`) | per-revision rate snapshots + weighted daily fields + quality report |
 | `core` (opt-in via `--unweighted` or `weight_mode: unweighted`) | repo resources, config files, HTS JSON archives, required R packages | per-revision rate snapshots, unweighted daily outputs, quality report |
-| `compare_tpc` | core + TPC benchmark CSV | comparison outputs against TPC |
 | `compare_etrs` | core + Tariff-ETRs repo path | one-off validation script (`scripts/archive/compare_etrs.R`); not part of the production flow |
 | `generate_etrs_config` | core (built timeseries) | ETRs-compatible config: `statutory_rates.csv.gz` + `other_params.yaml` per revision date |
 
@@ -81,7 +80,7 @@ Or pass `--unweighted` to a single build invocation.
 
 ### 3b. Configure other optional local paths
 
-For TPC validation or Tariff-ETRs comparison, create `config/local_paths.yaml`
+For Tariff-ETRs comparison or path overrides, create `config/local_paths.yaml`
 from the example and set whichever paths you have:
 
 ```bash
@@ -89,7 +88,6 @@ copy config\\local_paths.yaml.example config\\local_paths.yaml
 ```
 
 - `import_weights` — override the auto-detected weight file
-- `tpc_benchmark` — TPC validation input
 - `tariff_etrs_repo` — Tariff-ETRs cross-repo comparison
 - `weight_mode` — `required` (default) or `unweighted` (opt out)
 
@@ -169,18 +167,16 @@ Pass `--with-artifacts` to include the heavier artifact-dependent integration ch
 
 | Input | Path | Status | Role |
 |---|---|---|---|
-| TPC benchmark | local path via `config/local_paths.yaml` | private/local | validation only |
 | Tariff-ETRs repo | local path via `config/local_paths.yaml` | optional/local | comparison only |
 | Chapter 99 PDFs | `data/us_notes/*.pdf` | auto-download via `scrape_us_notes.R`; hash-checked by `01_scrape_revision_dates.R` | regenerate resource files from US Notes |
 
 ## What runs without what
 
-| Scenario | Build runs? | Rate snapshots | Daily aggregates | By-category aggregates | TPC comparison |
-|---|---|---|---|---|---|
-| No weights, default `weight_mode: required` | Yes — pre-run auto-builds weights (~15-20 min one-time) | Yes | weighted | weighted | No |
-| No weights, `--unweighted` (or `weight_mode: unweighted`) | Yes | Yes | unweighted only | unweighted only | No |
-| Weights + no TPC (default) | Yes | Yes | weighted | weighted | No |
-| Weights + TPC | Yes | Yes | weighted | weighted | Yes |
+| Scenario | Build runs? | Rate snapshots | Daily aggregates | By-category aggregates |
+|---|---|---|---|---|
+| No weights, default `weight_mode: required` | Yes — pre-run auto-builds weights (~15-20 min one-time) | Yes | weighted | weighted |
+| No weights, `--unweighted` (or `weight_mode: unweighted`) | Yes | Yes | unweighted only | unweighted only |
+| Weights (default) | Yes | Yes | weighted | weighted |
 
 ## Expected outputs
 
@@ -228,12 +224,11 @@ Rscript src/pipeline/00_build_timeseries.R --alternatives counterfactuals   # al
 
 ## Comparison workflows
 
-TPC and Tariff-ETRs are comparison tools, not production inputs — they were used
-for one-off validation and benchmarking, not to construct the production series.
-The comparison scripts have been retired to `scripts/archive/`:
+Tariff-ETRs comparison is a benchmarking tool, not a production input — used for
+one-off validation, not to construct the production series. The comparison
+script has been retired to `scripts/archive/`:
 
 ```bash
-Rscript scripts/archive/run_comparisons.R --tpc     # TPC benchmark comparison
 Rscript scripts/archive/compare_etrs.R              # Tariff-ETRs comparison (needs tariff_etrs_repo in config/local_paths.yaml)
 ```
 
@@ -386,7 +381,6 @@ published only through the internal per-interval snapshot layout.
 
 - If `preflight.R` reports missing packages, run `tools/install_dependencies.R --all`.
 - If the pre-run import-weights auto-build fails (Census URL change, network issues), run `src/io/build_import_weights.R` manually with override flags or set `weight_mode: unweighted` (see [docs/weights.md](weights.md)).
-- If benchmark comparisons are skipped, confirm the configured TPC path exists.
 - If no HTS JSON archives are found, run `src/pipeline/02_download_hts.R`.
 
 ## Querying built data

@@ -11,13 +11,11 @@
 #' revision-scoped snapshot and parse caches.
 #'
 #' @return list(rates, ch99_data, products, snapshot_path, n_rates)
-build_revision_snapshot <- function(rev_id, eff_date, tpc_date = NA,
+build_revision_snapshot <- function(rev_id, eff_date,
                                     archive_dir = 'data/hts_archives',
                                     output_dir = 'data/timeseries',
                                     country_lookup, countries, census_codes,
                                     pp_build,
-                                    stacking_method = 'mutual_exclusion',
-                                    tpc_path = NULL,
                                     archive_rev_id = rev_id) {
   dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 
@@ -65,7 +63,6 @@ build_revision_snapshot <- function(rev_id, eff_date, tpc_date = NA,
     products, ch99_data, usmca,
     countries, rev_id, eff_date,
     specs = specs,
-    stacking_method = stacking_method,
     policy_params = pp_effective
   )
 
@@ -73,23 +70,6 @@ build_revision_snapshot <- function(rev_id, eff_date, tpc_date = NA,
   saveRDS(rates, snapshot_path)
   saveRDS(ch99_data, file.path(output_dir, paste0('ch99_', rev_id, '.rds')))
   saveRDS(products, file.path(output_dir, paste0('products_', rev_id, '.rds')))
-
-  if (!is.na(tpc_date) && !is.null(tpc_path) && file.exists(tpc_path)) {
-    message('  Running TPC validation for date: ', tpc_date)
-    tryCatch({
-      validation <- validate_revision_against_tpc(
-        revision_rates = rates,
-        tpc_path = tpc_path,
-        tpc_date = tpc_date,
-        census_codes = census_codes
-      )
-      saveRDS(validation,
-              file.path(output_dir, paste0('validation_', rev_id, '.rds')))
-      message('  TPC match rate: ', round(validation$match_rate * 100, 1), '%')
-    }, error = function(e) {
-      message('  TPC validation failed: ', conditionMessage(e))
-    })
-  }
 
   if (nrow(rates) > 0) {
     ieepa_summary <- rates %>%

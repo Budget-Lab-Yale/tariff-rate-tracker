@@ -48,11 +48,6 @@ weight_mode: required
 #            codes fall out of the join; kept only for A/B and regression.
 weight_method: 484f
 
-# TPC benchmark data (CSV with HTS10 x country tariff rates).
-# Required by: src/07_validate_tpc.R, ETR comparison overlay.
-# Without this: TPC comparison skipped; core tariff series unaffected.
-tpc_benchmark: data/tpc/tariff_by_flow_day.csv
-
 # Tariff-ETRs repo location (for cross-repo comparison only).
 # Required by: src/compare_etrs.R.
 # Without this: comparison skipped; core build unaffected.

@@ -542,35 +542,6 @@ weighted_etr:
       label: Nov 2025
     - date: '2026-02-25'
       label: Current
-  tpc_name_fixes:
-    christmas island: '6024'
-    "cote d'ivoire": '7480'
-    "côte d`ivoire": '7480'
-    "curaçao": '2777'
-    curacao: '2777'
-    "czechia (czech republic)": '4351'
-    "democratic republic of the congo": '7660'
-    "eswatini (swaziland)": '7950'
-    "falkland islands": '3720'
-    "gaza strip": '5082'
-    germany: '4280'
-    "heard and mcdonald islands": '6029'
-    laos: '5530'
-    macau: '5660'
-    moldova: '4641'
-    "myanmar (burma)": '5460'
-    "north korea": '5790'
-    "republic of the congo": '7630'
-    samoa: '6150'
-    "são tomé and príncipe": '7644'
-    "sao tome and principe": '7644'
-    "south korea": '5800'
-    syria: '5020'
-    tanzania: '7830'
-    "vatican city": '4752'
-    "west bank": '5083'
-    yemen: '5210'
-
 # --- Section 301 product lists (blanket coverage) ---
 # Products covered by 301 are defined by US Note 20/21/31 product lists,
 # NOT by individual product footnotes. Sourced from USITC "China Tariffs"
@@ -714,17 +685,6 @@ ch98_value_basis:
 # Product lists sourced from Tariff-ETRs config (US Note 2 subdivisions).
 fentanyl_carveouts:
   resource_file: 'resources/fentanyl_carveout_products.csv'
-
-# --- Countries excluded from TPC validation ---
-# These countries have legitimate IEEPA entries in the HTS JSON, but TPC
-# doesn't model them. Excluded from validation comparisons to avoid
-# false-positive discrepancies (~95K product-country pairs).
-tpc_excluded_countries:
-  - '5020'   # Syria
-  - '4641'   # Moldova
-  - '5530'   # Laos
-  - '3720'   # Falkland Islands
-  - '7660'   # DR Congo
 
 # --- USMCA utilization shares ---
 # Product-level USMCA utilization rates from USITC DataWeb (SPI S/S+).

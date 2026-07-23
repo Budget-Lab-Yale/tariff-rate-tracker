@@ -52,7 +52,6 @@ library(tidyverse)
 #' @param countries Vector of country codes
 #' @return Tibble with rates
 calculate_rates_fast <- function(products, ch99_data, countries,
-                                 stacking_method = 'mutual_exclusion',
                                  iso_to_census = NULL, cty_china = '5700') {
   message('Calculating rates (fast mode)...')
 
@@ -211,7 +210,7 @@ calculate_rates_fast <- function(products, ch99_data, countries,
   message('  Canonical product-country grid: ', nrow(rates_wide))
 
   # Apply stacking rules (vectorized, from helpers.R)
-  rates_final <- apply_stacking_rules(rates_wide, cty_china, stacking_method = stacking_method)
+  rates_final <- apply_stacking_rules(rates_wide, cty_china)
 
   return(rates_final)
 }
@@ -1363,7 +1362,6 @@ calculate_rates_for_revision <- function(
   products, ch99_data, usmca,
   countries, revision_id, effective_date,
   specs,
-  stacking_method = 'mutual_exclusion',
   policy_params = NULL
 ) {
   message('Calculating rates for revision: ', revision_id, ' (', effective_date, ')')
@@ -1402,7 +1400,6 @@ calculate_rates_for_revision <- function(
   #    This captures 232, 301, fentanyl, other — but NOT IEEPA reciprocal,
   #    which is a blanket tariff not referenced via product footnotes.
   rates <- calculate_rates_fast(products, ch99_data, countries,
-                                stacking_method = stacking_method,
                                 iso_to_census = ISO_TO_CENSUS,
                                 cty_china = CTY_CHINA)
 
@@ -3459,7 +3456,6 @@ calculate_rates_for_revision <- function(
   # 8. Re-apply the single production stacking path with updated policy rates.
   rates <- apply_stacking_rules(
     rates, CTY_CHINA,
-    stacking_method = stacking_method,
     stacking_policy = stacking_policy_from_specs(specs, CTY_CHINA)
   )
 

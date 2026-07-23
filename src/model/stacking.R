@@ -58,8 +58,6 @@ ensure_cols <- function(df, defaults, fill_na = FALSE) {
 #' @param df Data frame with rate_232, rate_301, rate_ieepa_recip,
 #'   rate_ieepa_fent, rate_s122, rate_other, metal_share, country columns
 #' @param cty_china Census code for China (default: '5700')
-#' @param stacking_method 'mutual_exclusion' (default, 232/IEEPA mutual exclusion)
-#'   or 'tpc_additive' (all authorities stack additively, matching TPC methodology)
 #' @return df with total_additional and total_rate recomputed
 has_informative_per_type_shares <- function(df) {
   required <- c('steel_share', 'aluminum_share', 'copper_share')
@@ -258,32 +256,18 @@ compute_stacking_contributions <- function(df, policy) {
 }
 
 
-apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutual_exclusion',
-                                 stacking_policy = NULL) {
+apply_stacking_rules <- function(df, cty_china = '5700', stacking_policy = NULL) {
   # Ensure optional columns exist and have no NAs
   df <- ensure_cols(df, list(rate_s122 = 0, rate_s301br = 0, rate_s338 = 0, rate_section_201 = 0, metal_share = 1.0),
                     fill_na = TRUE)
 
-  # TPC additive: all authorities stack with no mutual exclusion.
-  # TPC confirmed (March 2026) they mostly agree with mutual exclusion between
-  # 232 and IEEPA. Retained for sensitivity analysis, not as a TPC match. Note
-  # that in the default 'mutual_exclusion' branch below, the content-based split
-  # applies uniformly: copper and derivatives both get the 232 rate on metal
-  # content and IEEPA/fent/s122 on the complement — there is no copper-specific
-  # carve-out for full-rate fentanyl. CA/MX fentanyl on pure-copper heading
-  # products ends up at roughly fent * (1 - copper_share).
-  if (stacking_method == 'tpc_additive') {
-    # Sum EVERY rate authority the policy skeleton carries (stacking_policy_from_specs),
-    # not a hand-listed subset — rate_301_cs and rate_s301fl were previously omitted,
-    # making the additive total asymmetric with the mutual_exclusion branch. Coalesce
-    # any absent column to 0 (matching compute_stacking_contributions' guard).
-    rate_cols <- AUTHORITY_REGISTRY$rate_col
-    for (rc in rate_cols) if (!rc %in% names(df)) df[[rc]] <- 0
-    df$total_additional <- Reduce(`+`, lapply(rate_cols, function(col) df[[col]]))
-    df$total_rate <- df$base_rate + df$total_additional
-    return(df)
-  }
-
+  # Mutual-exclusion stacking: 232 takes the metal content; content-split
+  # authorities (IEEPA reciprocal / fentanyl / s122) apply to the non-metal
+  # complement. The content-based split applies uniformly: copper and
+  # derivatives both get the 232 rate on metal content and IEEPA/fent/s122 on
+  # the complement — there is no copper-specific carve-out for full-rate
+  # fentanyl. CA/MX fentanyl on pure-copper heading products ends up at roughly
+  # fent * (1 - copper_share).
   policy <- stacking_policy %||% default_stacking_policy(cty_china)
   df <- compute_nonmetal_share(df)
   df <- compute_stacking_contributions(df, policy)
@@ -310,35 +294,15 @@ apply_stacking_rules <- function(df, cty_china = '5700', stacking_method = 'mutu
 #' @param df Data frame with rate_232, rate_301, rate_ieepa_recip,
 #'   rate_ieepa_fent, rate_s122, rate_section_201, rate_other, metal_share, country columns
 #' @param cty_china Census code for China (default: '5700')
-#' @param stacking_method 'mutual_exclusion' (default) or 'tpc_additive'
 #' @return df with net_232, net_ieepa, net_fentanyl, net_301, net_s122,
 #'   net_section_201, net_other added
 compute_net_authority_contributions <- function(df, cty_china = '5700',
-                                                stacking_method = 'mutual_exclusion',
                                                 stacking_policy = NULL) {
   # Ensure optional columns exist (backwards compat with old snapshots). Insert-only,
   # no de-NA — preserving this path's historical behavior (fill_na defaults FALSE).
   df <- ensure_cols(df, list(rate_s122 = 0, rate_s301br = 0, rate_s338 = 0,
                              rate_section_201 = 0, rate_other = 0,
                              metal_share = 1.0))
-
-  # TPC additive: all authorities contribute their full rate (no mutual exclusion)
-  if (stacking_method == 'tpc_additive') {
-    return(
-      df %>%
-        mutate(
-          net_232 = rate_232,
-          net_ieepa = rate_ieepa_recip,
-          net_fentanyl = rate_ieepa_fent,
-          net_301 = rate_301,
-          net_s301br = rate_s301br,
-          net_s338 = rate_s338,
-          net_s122 = rate_s122,
-          net_section_201 = rate_section_201,
-          net_other = rate_other
-        )
-    )
-  }
 
   policy <- stacking_policy %||% default_stacking_policy(cty_china)
   df <- compute_nonmetal_share(df)

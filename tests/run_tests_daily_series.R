@@ -267,14 +267,6 @@ run_test('net authorities sum to total_additional', {
   stopifnot(max_residual < 1e-10)
 })
 
-run_test('decomposition works with tpc_additive mode', {
-  ts <- make_test_ts()
-  net <- compute_net_authority_contributions(ts, stacking_method = 'tpc_additive')
-  stopifnot('net_section_201' %in% names(net))
-  stopifnot(all(net$net_section_201 == net$rate_section_201))
-})
-
-
 # =============================================================================
 # Test 5: rate_section_201 preserved by enforce_rate_schema()
 # =============================================================================
@@ -452,107 +444,6 @@ run_test('date_range after all revisions returns empty', {
   ts <- make_test_ts(horizon_end = as.Date('2026-06-30'))
   result <- build_daily_aggregates(ts, date_range = c(as.Date('2027-01-01'), as.Date('2027-12-31')))
   stopifnot(nrow(result$daily_overall) == 0)
-})
-
-
-# =============================================================================
-# Test 9: Stacking method survives through build_daily_aggregates
-# =============================================================================
-
-message('\n--- Test 9: Stacking method passthrough ---')
-
-run_test('tpc_additive produces different totals than mutual_exclusion', {
-  # Build a fixture where stacking method matters: a 232 product with IEEPA recip
-  ts_stack <- expand_grid(
-    hts10 = '7208100000',
-    country = '4280',  # non-China
-    revision = 'rev_a'
-  ) %>%
-    mutate(
-      base_rate = 0.05,
-      statutory_base_rate = 0.05,
-      rate_232 = 0.50,
-      rate_301 = 0,
-      rate_ieepa_recip = 0.15,
-      rate_ieepa_fent = 0,
-      rate_s122 = 0.10,
-      rate_section_201 = 0,
-      rate_other = 0,
-      metal_share = 1.0,
-      usmca_eligible = FALSE,
-      valid_from = as.Date('2026-01-01'),
-      valid_until = as.Date('2026-01-10')
-    ) %>%
-    apply_stacking_rules()
-
-  me <- build_daily_aggregates(ts_stack, stacking_method = 'mutual_exclusion')
-  tpc <- build_daily_aggregates(ts_stack, stacking_method = 'tpc_additive')
-
-  # With mutual exclusion on full-metal 232: recip*0 + s122*0 = only 232
-  # With tpc_additive: 232 + recip + s122 — should be higher
-  stopifnot(nrow(me$daily_overall) > 0)
-  stopifnot(nrow(tpc$daily_overall) > 0)
-  stopifnot(tpc$daily_overall$mean_additional_exposed[1] > me$daily_overall$mean_additional_exposed[1])
-})
-
-run_test('tpc_additive authority decomposition reflects additive stacking', {
-  ts_stack <- tibble(
-    hts10 = '7208100000', country = '4280', revision = 'rev_a',
-    base_rate = 0.05, statutory_base_rate = 0.05,
-    rate_232 = 0.50, rate_301 = 0, rate_ieepa_recip = 0.15,
-    rate_ieepa_fent = 0.10, rate_s122 = 0.10, rate_section_201 = 0,
-    rate_other = 0, metal_share = 1.0, usmca_eligible = FALSE,
-    valid_from = as.Date('2026-01-01'), valid_until = as.Date('2026-01-05')
-  ) %>% apply_stacking_rules()
-
-  tpc <- build_daily_aggregates(ts_stack, stacking_method = 'tpc_additive')
-  # In additive mode, authority decomposition should show full recip + fent + s122
-  stopifnot(nrow(tpc$daily_by_authority) > 0)
-  stopifnot(tpc$daily_by_authority$mean_ieepa[1] == 0.15)
-  stopifnot(tpc$daily_by_authority$mean_fentanyl[1] == 0.10)
-  stopifnot(tpc$daily_by_authority$mean_s122[1] == 0.10)
-})
-
-run_test('tpc_additive total equals raw sum of all authorities', {
-  # Create a 232 product with multiple overlapping authorities
-  ts_add <- tibble(
-    hts10 = '7208100000', country = '4280', revision = 'rev_a',
-    base_rate = 0.05, statutory_base_rate = 0.05,
-    rate_232 = 0.50, rate_301 = 0, rate_ieepa_recip = 0.15,
-    rate_ieepa_fent = 0.10, rate_s122 = 0.10, rate_section_201 = 0.02,
-    rate_other = 0, metal_share = 1.0, usmca_eligible = FALSE,
-    valid_from = as.Date('2026-01-01'), valid_until = as.Date('2026-01-02')
-  ) %>% apply_stacking_rules(stacking_method = 'tpc_additive')
-
-  # In additive mode, total_additional should be the literal sum of all rate columns
-  expected_total <- 0.50 + 0.15 + 0.10 + 0.10 + 0.02  # = 0.87
-  actual_total <- ts_add$total_additional[1]
-  stopifnot(abs(actual_total - expected_total) < 1e-10)
-  stopifnot(abs(ts_add$total_rate[1] - (0.05 + expected_total)) < 1e-10)
-})
-
-run_test('tpc_additive vs mutual_exclusion: known numeric difference on 232 product', {
-  # For a pure-metal 232 product (metal_share=1.0, non-China):
-  # mutual_exclusion: total_additional = rate_232 only (recip/s122 scaled by nonmetal=0)
-  # tpc_additive: total_additional = rate_232 + rate_ieepa_recip + rate_s122
-  ts_me <- tibble(
-    hts10 = '7208100000', country = '4280', revision = 'rev_a',
-    base_rate = 0.05, statutory_base_rate = 0.05,
-    rate_232 = 0.50, rate_301 = 0, rate_ieepa_recip = 0.15,
-    rate_ieepa_fent = 0, rate_s122 = 0.10, rate_section_201 = 0,
-    rate_other = 0, metal_share = 1.0, usmca_eligible = FALSE,
-    valid_from = as.Date('2026-01-01'), valid_until = as.Date('2026-01-02')
-  )
-
-  me_result <- apply_stacking_rules(ts_me, stacking_method = 'mutual_exclusion')
-  tpc_result <- apply_stacking_rules(ts_me, stacking_method = 'tpc_additive')
-
-  # ME: only 232 contributes (nonmetal_share = 0)
-  stopifnot(abs(me_result$total_additional[1] - 0.50) < 1e-10)
-  # TPC additive: 232 + recip + s122 = 0.75
-  stopifnot(abs(tpc_result$total_additional[1] - 0.75) < 1e-10)
-  # Difference should be exactly 0.25
-  stopifnot(abs(tpc_result$total_additional[1] - me_result$total_additional[1] - 0.25) < 1e-10)
 })
 
 

@@ -2,9 +2,9 @@
 # stacking unit tests (Phase 3a — policy-driven stacking)
 # =============================================================================
 # Pure-logic checks for src/model/stacking.R. Confirms the data-driven stacking policy
-# reproduces the historical mutual-exclusion branches, that the fentanyl
-# content-split-except-China wrinkle is now DATA (a per-country class override),
-# and that tpc_additive is unchanged. No model data.
+# reproduces the historical mutual-exclusion branches and that the fentanyl
+# content-split-except-China wrinkle is now DATA (a per-country class override).
+# No model data.
 # Usage: Rscript tests/test_stacking.R
 # =============================================================================
 
@@ -68,9 +68,5 @@ cat('\n--- passing the default policy explicitly == not passing one ---\n')
 check(identical(apply_stacking_rules(df, cty_china = CHINA),
                 apply_stacking_rules(df, cty_china = CHINA, stacking_policy = default_stacking_policy(CHINA))),
       'explicit default policy is a no-op vs implicit')
-
-cat('\n--- tpc_additive unchanged (full additive, no mutual exclusion) ---\n')
-tpc <- apply_stacking_rules(df, cty_china = CHINA, stacking_method = 'tpc_additive')
-check(near(tpc$total_additional[1], 0.25 + 0.10 + 0.20 + 0.075 + 0.05), 'tpc sums all rates flat')
 
 cat(sprintf('\nALL %d STACKING ASSERTIONS PASSED\n', pass))

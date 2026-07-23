@@ -66,8 +66,7 @@ init_logging(
 
 rev_dates <- load_revision_dates(use_policy_dates = use_policy_dates)
 timeline <- readRDS(timeline_path) %>%
-  mutate(effective_date = as.Date(effective_date),
-         tpc_date = as.Date(tpc_date))
+  mutate(effective_date = as.Date(effective_date))
 ri <- timeline %>% filter(revision == rev_id)
 if (nrow(ri) == 0) stop('unknown revision id: ', rev_id, call. = FALSE)
 
@@ -76,16 +75,14 @@ census_codes   <- read_csv(here('resources', 'census_codes.csv'),
                            col_types = cols(.default = col_character()))
 countries      <- census_codes$Code
 country_lookup <- build_country_lookup(here('resources', 'census_codes.csv'))
-tpc_path       <- load_local_paths()$tpc_benchmark
 
 message('Building revision ', rev_id, ' (effective ', ri$effective_date, ') on ', Sys.info()[['nodename']])
 res <- build_revision_snapshot(
-  rev_id = rev_id, eff_date = ri$effective_date, tpc_date = ri$tpc_date,
+  rev_id = rev_id, eff_date = ri$effective_date,
   archive_rev_id = ri$archive_rev_id,
   archive_dir = archive_dir, output_dir = output_dir,
   country_lookup = country_lookup, countries = countries,
-  census_codes = census_codes, pp_build = pp_build,
-  stacking_method = 'mutual_exclusion', tpc_path = tpc_path
+  census_codes = census_codes, pp_build = pp_build
 )
 message('OK: ', rev_id, ' -> ', res$snapshot_path, ' (', res$n_rates, ' rows)')
 
@@ -122,8 +119,7 @@ if (!nzchar(Sys.getenv('TARIFF_SKIP_DAILY_PARTS'))) {
   if (!is.null(plan)) {
     common <- list(snapshot = res$rates, revision = rev_id,
                    valid_from = valid_from, valid_until = valid_until,
-                   output_dir = output_dir, policy_params = pp_build,
-                   stacking_method = 'mutual_exclusion')
+                   output_dir = output_dir, policy_params = pp_build)
     if (identical(plan$weight_mode, 'unweighted')) {
       do.call(write_daily_part_for_snapshot, common)
     } else if (identical(plan$weight_method, 'static')) {

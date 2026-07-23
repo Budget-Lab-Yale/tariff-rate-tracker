@@ -52,18 +52,16 @@ library(jsonlite)
 #' @param rev_data Revision slice (already filtered, and joined where needed)
 #' @param sub_start Deprecated compatibility argument; ignored.
 #' @param policy_params Deprecated compatibility argument; ignored.
-#' @param stacking_method Stacking method passed through to apply_stacking_rules
 #' @param stacking One of "always", "conditional", "none"
 #' @return rev_data after (mode-dependent) stacking. NB: expiry handling now
 #'   lives in the minted-boundary calendar (discover_boundaries), not here.
 prepare_interval_data <- function(rev_data, sub_start, policy_params,
-                                  stacking_method,
                                   stacking = c('always', 'conditional', 'none')) {
   stacking <- match.arg(stacking)
   if (stacking == 'always' ||
       (stacking == 'conditional' &&
        any(c('rate_s122', 'rate_ieepa_recip') %in% names(rev_data)))) {
-    rev_data <- apply_stacking_rules(rev_data, stacking_method = stacking_method)
+    rev_data <- apply_stacking_rules(rev_data)
   }
   rev_data
 }
@@ -84,20 +82,11 @@ prepare_interval_data <- function(rev_data, sub_start, policy_params,
 #'   those contributions to this stored total_additional (see compute_agg_authority)
 #'   so its parts stay on the same effective basis as weighted_etr — otherwise the
 #'   etr_base residual mixes bases and goes negative on FTA/USMCA duty-free goods.
-prepare_interval_data_effective <- function(rev_data, sub_start, policy_params,
-                                            stacking_method) {
+prepare_interval_data_effective <- function(rev_data, sub_start, policy_params) {
   if (is.null(rev_data) || nrow(rev_data) == 0) return(rev_data)
-  # The stored total_rate/total_additional reflect the CANONICAL build stacking
+  # The stored total_rate/total_additional reflect the canonical build stacking
   # (mutual_exclusion) AND the effective, exemption-reduced rates. They are the
-  # authoritative rates for that method. For an ALTERNATIVE stacking method the
-  # caller explicitly wants a re-derivation (a different combination of the same
-  # components), so fall back to the full re-stack. (That alternative view re-uses
-  # base_rate and so cannot reproduce the stored exemption reductions — an accepted
-  # limitation of the non-canonical stacking, which the daily default never uses.)
-  if (!identical(stacking_method, 'mutual_exclusion')) {
-    return(prepare_interval_data(rev_data, sub_start, policy_params, stacking_method,
-                                 stacking = 'always'))
-  }
+  # authoritative rates, so effective aggregation uses them as-is (no re-stack).
   rev_data
 }
 
@@ -284,7 +273,6 @@ aggregate_weighted_groups <- function(weighted_data, groups, denominators,
 build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
                                    imports_fn = NULL,
                                    policy_params = NULL,
-                                   stacking_method = 'mutual_exclusion',
                                    hts_as_of_dates = NULL) {
 
   stopifnot(
@@ -493,14 +481,11 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   # is the effective, exemption-reduced additional. Scaling by their ratio makes
   # Σ authorities == weighted effective additional, so etr_base (= weighted_etr −
   # Σ authorities) collapses to the weighted effective BASE (>= 0) instead of a
-  # mixed-basis residual that goes negative on FTA/USMCA duty-free goods. Canonical
-  # (mutual_exclusion) stacking only; the tpc_additive view re-derives weighted_etr
-  # too, so it stays self-consistent without scaling.
+  # mixed-basis residual that goes negative on FTA/USMCA duty-free goods.
   # Keep the historical summation order (floating-point load-bearing), but take
   # the complete net-column census from the shared authority registry.
   auth_net_cols <- authority_report_net_columns()
   scale_net_to_effective <- function(net_df, eff_additional) {
-    if (!identical(stacking_method, 'mutual_exclusion')) return(net_df)
     cols <- intersect(auth_net_cols, names(net_df))
     rederived <- Reduce(`+`, net_df[cols])
     f <- ifelse(rederived > 1e-12, pmax(eff_additional, 0) / rederived, 0)
@@ -540,15 +525,13 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   compute_agg_authority <- function(rev_data, eff_data, wt_data, eff_wt, wctx,
                                     revision, valid_from, valid_until) {
     # Use shared net authority decomposition from helpers.R
-    net_data <- compute_net_authority_contributions(rev_data, cty_china = CTY_CHINA,
-                                                     stacking_method = stacking_method)
+    net_data <- compute_net_authority_contributions(rev_data, cty_china = CTY_CHINA)
     # Zero-fill any registry authority column the decomposition omits. The
-    # tpc_additive path drops net_301_cs / net_s301fl, and the scenario-only
-    # net_s301fl is absent in baseline; content-split 301 (net_301_cs) is
-    # reported UNDER Section 301, so this is byte-identical to the previous
-    # per-column guards in baseline (those columns = 0). Driving the census off
-    # the registry means a NEW authority is carried automatically rather than
-    # silently dropped.
+    # scenario-only net_s301fl is absent in baseline, and content-split 301
+    # (net_301_cs) is reported UNDER Section 301, so this is byte-identical to
+    # the previous per-column guards in baseline (those columns = 0). Driving the
+    # census off the registry means a NEW authority is carried automatically
+    # rather than silently dropped.
     for (nc in auth_net_cols) if (!nc %in% names(net_data)) net_data[[nc]] <- 0
     # Reduce to the effective additional (same authoritative basis as weighted_etr).
     # Effective preparation preserves row order, so total_additional
@@ -579,8 +562,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
                            function(cols) mean(Reduce(`+`, net_data[cols])))
     if (has_weights) {
       if (nrow(wt_data) > 0) {
-        wt_net <- compute_net_authority_contributions(wt_data, cty_china = CTY_CHINA,
-                                                      stacking_method = stacking_method)
+        wt_net <- compute_net_authority_contributions(wt_data, cty_china = CTY_CHINA)
         for (nc in auth_net_cols) if (!nc %in% names(wt_net)) wt_net[[nc]] <- 0
         # eff_wt is prepared once per segment by the caller and passed in.
         wt_net <- scale_net_to_effective(wt_net, eff_wt$total_additional)
@@ -674,18 +656,18 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
       s <- starts[k]; e <- ends[k]
       seg_i <- seg_i + 1L
       eff_data <- prepare_interval_data_effective(
-        rev_ts, s, policy_params, stacking_method
+        rev_ts, s, policy_params
       )
       raw_data <- prepare_interval_data(
-        rev_ts, s, policy_params, stacking_method, stacking = 'none'
+        rev_ts, s, policy_params, stacking = 'none'
       )
       eff_wt <- raw_wt <- NULL
       if (has_weights) {
         eff_wt <- prepare_interval_data_effective(
-          rev_ts_w, s, policy_params, stacking_method
+          rev_ts_w, s, policy_params
         )
         raw_wt <- prepare_interval_data(
-          rev_ts_w, s, policy_params, stacking_method, stacking = 'none'
+          rev_ts_w, s, policy_params, stacking = 'none'
         )
       }
 
@@ -1335,8 +1317,7 @@ DAILY_PART_SCHEMA_VERSION <- 5L
 write_daily_part_for_snapshot <- function(snapshot, revision, valid_from, valid_until,
                                           output_dir, imports = NULL,
                                           imports_fn = NULL, hts_as_of_date = NULL,
-                                          policy_params = NULL,
-                                          stacking_method = 'mutual_exclusion') {
+                                          policy_params = NULL) {
   if (!is.null(imports) && !is.null(imports_fn)) {
     stop('write_daily_part_for_snapshot: pass at most one of imports / imports_fn.',
          call. = FALSE)
@@ -1360,7 +1341,6 @@ write_daily_part_for_snapshot <- function(snapshot, revision, valid_from, valid_
   daily <- suppressMessages(
     build_daily_aggregates(snapshot, imports = imports, imports_fn = imports_fn,
                            policy_params = policy_params,
-                           stacking_method = stacking_method,
                            hts_as_of_dates = hts_as_of_dates)
   )
 
@@ -1874,7 +1854,6 @@ build_alternative_timeseries <- function(pp_override, variant_name, imports = NU
       build_revision_snapshot(
         rev_id = rev_id,
         eff_date = eff_date,
-        tpc_date = NA,
         archive_dir = archive_dir,
         output_dir = tmp_dir,
         country_lookup = country_lookup,

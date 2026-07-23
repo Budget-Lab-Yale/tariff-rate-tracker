@@ -37,7 +37,6 @@ src/
   04_parse_products.R        Parses HTS10 products (base MFN rate, Ch99 footnote refs).
   05_parse_policy_params.R   Extracts IEEPA / fentanyl / §232 / USMCA params from the JSON.
   06_calculate_rates.R       Core engine: calculate_rates_for_revision() — the stacked rate panel.
-  07_validate_tpc.R          Optional TPC benchmark comparison (no-op without TPC data).
   revision_snapshot.R        Shared per-revision build unit used by baseline and scenarios.
   09_daily_series.R          Daily aggregates + weighted ETR + alternative-series runner.
 ```

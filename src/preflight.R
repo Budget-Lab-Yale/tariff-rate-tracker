@@ -260,15 +260,6 @@ if (sys.nframe() == 0) {
     }
   }
 
-  # TPC benchmark
-  tpc <- lp$tpc_benchmark
-  if (is.null(tpc)) {
-    cat('  [--] tpc_benchmark: not configured (TPC validation skipped)\n')
-  } else {
-    tpc_path <- if (startsWith(tpc, '/') || grepl('^[A-Za-z]:', tpc)) tpc else file.path(base_dir, tpc)
-    exists <- file.exists(tpc_path)
-    cat(sprintf('  [%s] tpc_benchmark: %s\n', if (exists) 'OK' else '--', tpc))
-  }
 
   # Tariff-ETRs repo
   etrs <- lp$tariff_etrs_repo

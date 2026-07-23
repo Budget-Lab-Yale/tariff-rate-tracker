@@ -74,7 +74,7 @@ build_chapter99_url <- function(release_name) {
 #'   effective_date where populated. This uses legal policy dates instead of
 #'   HTS revision dates. Set FALSE or pass --use-hts-dates to use raw HTS dates.
 #'   See docs/policy_timing.md for details on which revisions are affected.
-#' @return Tibble with revision, effective_date, tpc_date
+#' @return Tibble with revision, effective_date
 load_revision_dates <- function(csv_path = here('config', 'revision_dates.csv'),
                                 use_policy_dates = TRUE) {
   if (!file.exists(csv_path)) {
@@ -88,9 +88,7 @@ load_revision_dates <- function(csv_path = here('config', 'revision_dates.csv'),
     revision = col_character(),
     effective_date = col_date(),
     policy_effective_date = col_date(),
-    tpc_date = col_date(),
-    policy_event = col_character(),
-    tpc_policy_revision = col_character()
+    policy_event = col_character()
   ))
 
   # Validate
@@ -132,7 +130,6 @@ load_revision_dates <- function(csv_path = here('config', 'revision_dates.csv'),
 
   message('Loaded ', nrow(dates), ' revision dates from ', csv_path)
   message('  Date range: ', min(dates$effective_date), ' to ', max(dates$effective_date))
-  message('  TPC validation dates: ', sum(!is.na(dates$tpc_date)))
 
   return(dates)
 }

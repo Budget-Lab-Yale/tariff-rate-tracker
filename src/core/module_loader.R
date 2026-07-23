@@ -107,14 +107,10 @@ TARIFF_MODULES <- list(
     file = 'src/pipeline/06_calculate_rates.R',
     depends = c('helpers', 'authority_spec', 'stacking')
   ),
-  validate_tpc = list(
-    file = 'src/pipeline/07_validate_tpc.R',
-    depends = 'helpers'
-  ),
   revision_snapshot = list(
     file = 'src/pipeline/revision_snapshot.R',
     depends = c('parse_chapter99', 'parse_products', 'parse_policy_params',
-                'authority_adapter', 'calculate_rates', 'validate_tpc')
+                'authority_adapter', 'calculate_rates')
   ),
   daily_series = list(
     file = 'src/pipeline/09_daily_series.R',
