@@ -1,0 +1,12 @@
+# Counterfactual: remove the Section 301 FORCED-LABOR action before calculation.
+# The USTR final action (signed 2026-07-23, effective 2026-07-24) is BASELINE law
+# (config/policy_params.yaml -> section_301_forced_labor), so the actual series
+# carries the added duty on 60 economies from the turn-on. This overlay disables
+# that authority (rate_s301fl stays 0 everywhere), holding every other authority
+# fixed — the "world without today's forced-labor §301" counterpart. Diff
+#   actual  vs  no_fl_301
+# to isolate the marginal effect of the forced-labor action. §122 still sunsets
+# on 2026-07-23 here (its baseline expiry) — so this is the "nothing steps into
+# the §122 slot" world. For the "§122 regime continues instead" comparison, see
+# no_fl_301_keep_s122.
+disabled_authorities: [section_301_forced_labor]
