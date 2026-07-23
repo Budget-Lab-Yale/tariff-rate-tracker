@@ -859,6 +859,10 @@ section_338:
 # granularity limit as the FL annex).
 section_301_brazil:
   effective_date: '2026-07-22'
+  # FALLBACK ONLY. Source of truth is HTS heading 9903.05.01 ("+25%", codified
+  # 2026 HTS rev_12+), read by extract_section301_brazil_rates(). This literal is
+  # used only when that heading is absent/unparseable in a snapshot's ch99
+  # (pre-rev_12, or a 2026-07-22 boundary mint built before rev_12 is ingested).
   rate: 0.25
   country: '3510'                                    # Brazil census code
   # Note 50(a)(ii)+(iii): unconditional exclusions (875 hts8) — fully exempt.

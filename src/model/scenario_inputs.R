@@ -51,8 +51,8 @@ apply_counterfactual_inputs <- function(ch99_data, ieepa_rates = NULL,
 
   drop_authorities <- intersect(
     disabled,
-    c('section_232', 'section_301', 'ieepa_reciprocal', 'section_122',
-      'section_338', 'other')
+    c('section_232', 'section_301', 'section_301_brazil', 'ieepa_reciprocal',
+      'section_122', 'section_338', 'other')
   )
   drop_codes <- character(0)
   if ('ieepa_reciprocal' %in% disabled && !is.null(ieepa_rates) &&
@@ -103,8 +103,9 @@ apply_counterfactual_inputs <- function(ch99_data, ieepa_rates = NULL,
     policy_params$section_338 <- NULL
   }
   if ('section_301_brazil' %in% disabled) {
-    # Purely config-driven (no Ch99 offset in any archive) — the adapter
-    # builds the authority only when this block is present.
+    # Charging/exemption headings (9903.05.01-.09, codified by 2026 HTS rev_12)
+    # are removed from ch99_data via classify_authority above; the authority
+    # itself is built from this config block, so remove it too.
     policy_params$section_301_brazil <- NULL
   }
 

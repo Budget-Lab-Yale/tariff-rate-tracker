@@ -86,6 +86,21 @@ ok(is_authority_spec(spec_on), 'valid authority_spec object')
 ok(is.null(.build_section_301_brazil(list(), countries, as.Date('2026-08-01'))),
    'absent config block -> NULL (defensive)')
 
+cat('\n== rate source: HTS 9903.05.01 primary, config fallback (2026 HTS rev_12) ==\n')
+# HTS is the source of truth for the +25%. A synthetic ch99 carrying 9903.05.01
+# at a DELIBERATELY different rate must win over the config literal; absence of
+# the heading must fall back to config (pre-rev_12 snapshots / early mints).
+ch99_hts  <- tibble(ch99_code = '9903.05.01', rate = 0.30)
+ch99_none <- tibble(ch99_code = '9903.88.01', rate = 0.10)   # no Brazil heading
+spec_hts <- .build_section_301_brazil(pp, countries, as.Date('2026-07-22'), ch99_hts)
+spec_fb  <- .build_section_301_brazil(pp, countries, as.Date('2026-07-22'), ch99_none)
+ok(isTRUE(all.equal(unname(spec_hts$programs[[1]]$rate$by_country[BR]), 0.30)),
+   'HTS 9903.05.01 rate (0.30) overrides the config literal (0.25)')
+ok(isTRUE(all.equal(unname(spec_fb$programs[[1]]$rate$by_country[BR]), 0.25)),
+   'no 9903.05.01 in ch99 -> config fallback (0.25)')
+ok(isTRUE(all.equal(unname(spec_on$programs[[1]]$rate$by_country[BR]), 0.25)),
+   'ch99_data = NULL (default) -> config rate, unchanged from pre-rev_12 behavior')
+
 cat('\n== stacking policy ==\n')
 pol <- default_stacking_policy('5700')
 ok(identical(pol$rate_s301br, list(net = 'net_s301br', class = 'additive')),

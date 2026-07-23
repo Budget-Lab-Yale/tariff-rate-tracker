@@ -323,6 +323,18 @@ classify_authority <- function(ch99_code) {
     return('section_301')
   }
 
+  # Section 301 Brazil (USTR final action FR 2026-14542, eff. 2026-07-22):
+  # charging heading 9903.05.01 (+25%) + companion exemption headings
+  # 9903.05.02-.09 (U.S. note 50). Codified by 2026 HTS rev_12. Route here so the
+  # heading lands in the section_301_brazil bucket instead of falling through to
+  # 'other'; the +25% is read off 9903.05.01 by extract_section301_brazil_rates()
+  # (the §122 pattern). The exemption headings .02-.09 carry no parseable rate
+  # ("duty provided in the applicable subheading" -> NA) and contribute nothing;
+  # their product scope comes from the FR-annex side-data lists regardless.
+  if (middle == 5) {
+    return('section_301_brazil')
+  }
+
   # IEEPA reciprocal: 9903.90 (China surcharges) + 9903.93/95/96
   if (middle == 90 || (middle >= 93 && middle <= 96 && middle != 94)) {
     return('ieepa_reciprocal')

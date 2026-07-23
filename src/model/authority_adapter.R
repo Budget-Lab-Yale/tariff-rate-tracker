@@ -457,8 +457,13 @@ build_s301_tiers <- function(ch99_data, effective_date, pp) {
 # on ALL goods of Brazil (census 3510) via heading 9903.05.01 / U.S. note 50,
 # EXCEPT the note-50(a)(ii)-(v) exclusion lists (hts8; 875 unconditional fully
 # exempt + 546 aircraft-use / 705 pharma-use scaled by utilization shares). The block
-# lives in baseline config/policy_params.yaml — no HTS archive carries the
-# 9903.05.0x headings yet, so it is params+side-data fed (the §338 pattern).
+# lives in baseline config/policy_params.yaml. The RATE is read from the HTS
+# (heading 9903.05.01 "+25%", codified in 2026 HTS rev_12 onward) via
+# extract_section301_brazil_rates() — the §122 pattern — with the config `rate`
+# demoted to a FALLBACK used only when the heading is absent/unparseable (any
+# pre-rev_12 snapshot, or a 2026-07-22 boundary mint built before rev_12 is
+# ingested). The exemption product lists stay FR-annex side-data: the HTS JSON
+# export carries the rate lines but not the U.S.-note-50 product tables.
 # stacking 'additive' (note 50(a): in addition to every other ch-99 duty, incl.
 # the scenario forced-labor §301 — neither notice carves out the other). The
 # note-50(a)(vi) §232 interaction is a FULL per-article exclusion implemented as
@@ -468,14 +473,24 @@ build_s301_tiers <- function(ch99_data, effective_date, pp) {
 # usmca 'none' (Brazil isn't USMCA). DATE-GATED to >= effective_date exactly
 # like the §338 builder: hollow in every pre-07-22 revision and synthetic mint,
 # live on the bnd_2026-07-22 mint and every later revision.
-.build_section_301_brazil <- function(pp, countries, effective_date) {
+.build_section_301_brazil <- function(pp, countries, effective_date, ch99_data = NULL) {
   cfg <- pp$section_301_brazil
   if (is.null(cfg)) return(NULL)
   eff <- if (!is.null(cfg$effective_date)) as.Date(cfg$effective_date) else as.Date(NA)
   active_now <- is.na(eff) || as.Date(effective_date) >= eff
   rate_layer <- list()
   if (active_now) {
-    rate <- as.numeric(cfg$rate %||% 0.25)
+    # HTS is the source of truth for the rate: read +25% off heading 9903.05.01
+    # (2026 HTS rev_12+). Fall back to the config literal only when the heading
+    # is absent/unparseable in this snapshot's ch99 (pre-rev_12, or a boundary
+    # mint built before rev_12 is ingested) — see extract_section301_brazil_rates.
+    cfg_rate <- as.numeric(cfg$rate %||% 0.25)
+    rate <- cfg_rate
+    if (!is.null(ch99_data)) {
+      hts <- extract_section301_brazil_rates(
+        filter_active_ch99(ch99_data, as.Date(effective_date)))
+      if (isTRUE(hts$has_s301br)) rate <- hts$s301br_rate
+    }
     ctry <- as.character(cfg$country %||% '3510')          # Brazil census code
     bc <- stats::setNames(rep(rate, length(ctry)), ctry)
     bc <- bc[intersect(names(bc), as.character(countries))]  # only economies the model knows
@@ -1068,8 +1083,9 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
   # the config block ships in baseline config/policy_params.yaml, so the
   # authority (and its rate_s301br column, a RATE_SCHEMA member) exists in every
   # build. Date-gated, additive + usmca 'none'; the §232 full-article exclusion
-  # is a calc-side scope mask. See .build_section_301_brazil.
-  section_301_brazil <- .build_section_301_brazil(pp, countries, effective_date)
+  # is a calc-side scope mask. The +25% rate is read from HTS heading 9903.05.01
+  # (rev_12+) with the config rate as fallback. See .build_section_301_brazil.
+  section_301_brazil <- .build_section_301_brazil(pp, countries, effective_date, ch99_data)
 
   # --- section_338 — Canada +50% over positive lists (BASELINE) ---------------
   # Signed law: the config block ships in baseline config/policy_params.yaml, so

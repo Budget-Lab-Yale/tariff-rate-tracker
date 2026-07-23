@@ -1137,6 +1137,41 @@ extract_section122_rates <- function(ch99_data) {
 }
 
 
+#' Extract the Section 301 Brazil additional-duty rate from Chapter 99 data
+#'
+#' The USTR final action (FR 2026-14542, effective 2026-07-22) is codified in the
+#' 2026 HTS from rev_12 onward as heading 9903.05.01 ("... articles the product of
+#' Brazil ... The duty provided in the applicable subheading + 25%"). This reads
+#' the +25% straight off that heading, the same HTS-as-source-of-truth pattern as
+#' extract_section122_rates(). The companion exemption headings 9903.05.02-.09
+#' carry no parseable rate and are handled by the FR-annex product lists instead.
+#'
+#' Returns has_s301br = FALSE (rate 0) when the heading is absent — i.e. any
+#' snapshot predating rev_12. The adapter treats this as "fall back to the config
+#' rate" rather than "Brazil is off", so pre-codification snapshots and the
+#' 2026-07-22 boundary mint keep working whether or not rev_12 is ingested.
+#'
+#' @param ch99_data Tibble of parsed Chapter 99 entries
+#' @return list(s301br_rate, has_s301br)
+extract_section301_brazil_rates <- function(ch99_data) {
+  message('Extracting Section 301 Brazil rate...')
+
+  # Charging heading 9903.05.01 (the +25% catch-all; .02-.09 are exemptions).
+  s301br_entries <- ch99_data %>%
+    filter(grepl('^9903\\.05\\.01$', ch99_code), !is.na(rate))
+
+  if (nrow(s301br_entries) == 0) {
+    message('  No Section 301 Brazil entry (9903.05.01) found')
+    return(list(s301br_rate = 0, has_s301br = FALSE))
+  }
+
+  s301br_rate <- max(s301br_entries$rate)
+  message('  Section 301 Brazil rate (9903.05.01): ', round(s301br_rate * 100), '%')
+
+  return(list(s301br_rate = s301br_rate, has_s301br = TRUE))
+}
+
+
 #' Extract Section 201 (safeguard) rates from Chapter 99 data
 #'
 #' Section 201 is a safeguard tariff under Trade Act of 1974 Section 201.

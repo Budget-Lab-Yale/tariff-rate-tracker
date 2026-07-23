@@ -194,9 +194,11 @@ calculate_rates_fast <- function(products, ch99_data, countries,
       rate_s338 = rate_section_338
     )
 
-  # rate_301_cs (content-split 301 flavor) and rate_s301br (Brazil §301,
-  # config-fed — no HTS archive carries the 9903.05.0x headings) have no
-  # upstream Ch99 producer.
+  # rate_301_cs (content-split 301 flavor) and rate_s301br (Brazil §301) have no
+  # producer in this generic Ch99→rates pivot: 9903.05.0x is a country-wide charge
+  # heading that no product line footnote-references, so it never attaches here.
+  # rate_s301br is applied downstream by apply_section301_brazil() from the
+  # section_301_brazil spec, whose rate is read off HTS 9903.05.01 (rev_12+).
   rates_wide$rate_301_cs <- 0
   rates_wide$rate_s301br <- 0
 

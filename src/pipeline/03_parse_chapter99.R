@@ -64,6 +64,17 @@ parse_countries <- function(description) {
     return(list(type = 'specific', countries = countries, exempt = character(0)))
   }
 
+  # Section 301 Brazil (heading 9903.05.01, 2026 HTS rev_12+): "articles the
+  # product of Brazil". MUST come before the "except ... heading" branch below —
+  # 9903.05.01's text opens "Except for products described in headings
+  # 9903.05.02-9903.05.09, articles the product of Brazil ...", and Brazil is not
+  # among the country names that branch recognizes, so it would otherwise be
+  # mis-scoped to 'all'. The rate itself is read by extract_section301_brazil_
+  # rates(); this scope only keeps the ch99 table honest for diagnostics.
+  if (str_detect(desc_lower, 'product of brazil')) {
+    return(list(type = 'specific', countries = c('BR'), exempt = character(0)))
+  }
+
   # Check for "except" clauses that reference HTS headings, not countries.
   # e.g., "Except for derivative iron or steel products described in headings 9903.81.89..."
   # These are blanket rates — the "except" carves out other HTS codes, not countries.
