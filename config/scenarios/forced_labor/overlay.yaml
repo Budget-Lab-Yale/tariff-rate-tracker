@@ -41,5 +41,11 @@ section_301_forced_labor:
                  '5650', '5700', '5800', '5820', '5880', '6021', '6141', '7140',
                  '7210', '7250', '7290', '7530', '7620', '7910']
 
-# Its 2026-07-24 activation is already a baseline boundary because it is also the
-# first day after §122 expires. No scenario-specific boundary override is needed.
+# Its 2026-07-24 activation coincides with a boundary the BASELINE already mints
+# as a CURATED OVERRIDE (config/policy_params.yaml boundary_overrides), so no
+# scenario-specific override is needed. NB: the §122 sunset does NOT auto-generate
+# this date — discover_boundaries() excludes rate-bearing expiries (§122 is 10%),
+# so 2026-07-24 exists only because it is listed explicitly. Do not drop it from
+# baseline's overrides assuming the expiry regenerates it, or this turn-on will
+# silently slip to the next mint. See src/model/timeline.R + memory
+# [[s122-snapshot-timing-gap]].

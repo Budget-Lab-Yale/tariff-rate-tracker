@@ -602,9 +602,12 @@ and every consumer in lockstep (migration step 5 below).
 
 ## Implementation requirements surfaced in review
 
-Three things the schema implies but the current code does not yet support:
+Three things the schema implies. **(2) and (3) have since landed** — with the
+one-canonical-grid refactor and the unified minted-boundary calendar,
+respectively; **(1) remains open** (tracked as the scheduled-activations /
+past-`base:` gap):
 
-1. **Per-revision spec persistence (for `base: <date>`).** `policy_params.yaml` is
+1. **(OPEN) Per-revision spec persistence (for `base: <date>`).** `policy_params.yaml` is
    *current-only* — it is not versioned as "what we knew on 2026-02-24" (IEEPA
    invalidation date, s122 expiry, Swiss/Annex settings, horizon all live in the
    single current file). A past pin would otherwise leak *today's* future knowledge
@@ -621,7 +624,7 @@ Three things the schema implies but the current code does not yet support:
    JSON.) Without this, "past base" is reproducible only by `git checkout`, not by scenario
    config.
 
-2. **One canonical product-country grid.** `build_rate_grid()` creates the full
+2. **(DONE) One canonical product-country grid.** `build_rate_grid()` creates the full
    product-country universe once. Authorities mutate their own rate and metadata columns;
    none may add rows or create an intermediate per-program panel. The final invariant checks
    the exact Cartesian row count and unique `(hts10, country)` key before stacking.
@@ -634,7 +637,7 @@ Three things the schema implies but the current code does not yet support:
    persisted as snapshot *extras* (formalizing today's per-type-share extras), or *replaces*
    that downstream decomposition — and say which.
 
-3. **A unified timeline splitter.** The synthetic-revision builder must collect **all**
+3. **(DONE) A unified timeline splitter.** The synthetic-revision builder must collect **all**
    schedule boundaries into one splitter — `active.from` / `active.until`, scenario
    `effective_from`, the horizon, and **every `effective_date`-keyed gate**. The calculator-internal
    gates are easy to miss because they are not "expiries": annex activation (`06:1906`),

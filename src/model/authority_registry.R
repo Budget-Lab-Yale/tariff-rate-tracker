@@ -114,4 +114,16 @@ authority_report_net_columns <- function(registry = AUTHORITY_REGISTRY) {
 }
 
 
+# report_bucket -> the net columns folded into that reported authority, in the
+# canonical report_sum_order. This is the single source of truth the daily
+# by-authority decomposition reconciles against (see compute_agg_authority in
+# 09_daily_series.R), which is what keeps `report_bucket` load-bearing rather
+# than merely descriptive.
+authority_report_buckets <- function(registry = AUTHORITY_REGISTRY) {
+  validate_authority_registry(registry)
+  reg <- registry[order(registry$report_sum_order), , drop = FALSE]
+  split(reg$net_col, factor(reg$report_bucket, levels = unique(reg$report_bucket)))
+}
+
+
 validate_authority_registry()

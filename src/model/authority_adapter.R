@@ -15,7 +15,12 @@
 # and the CSV cache). Production callers load the module, not an ordered list.
 # =============================================================================
 
-source(here::here('src', 'core', 'csv_cache.R'))
+# csv_cache is a declared dependency (module_loader.R) for production callers;
+# this guarded fallback covers direct/standalone sourcing without re-sourcing it
+# into globalenv when the module loader already placed it in the target env.
+if (!exists('read_csv_cached', mode = 'function')) {
+  source(here::here('src', 'core', 'csv_cache.R'))
+}
 
 # ---- Section 301: resolve both blanket tiers into programs ------------------
 #

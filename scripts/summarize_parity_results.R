@@ -108,10 +108,15 @@ if (length(ignored)) {
 }
 allowed_cols <- nonempty_result_values(task_results$allowed_extra_cols)
 if (length(allowed_cols)) {
-  cat('  NOTE: allowed candidate-only column(s): ', paste(allowed_cols, collapse = ' | '), '\n', sep = '')
+  cat('  NOTE: allowed candidate-only column(s): ', paste(allowed_cols, collapse = ' | '),
+      ' — this is NOT a clean pass; adding a column is schema drift and the ',
+      'allowance must be justified in the run notes (a genuinely wrong new ',
+      'column would pass under this waiver).\n', sep = '')
 }
 if (length(allow_extra_files)) {
-  cat('  NOTE: allowed candidate-only artifact(s): ', paste(allow_extra_files, collapse = ' | '), '\n', sep = '')
+  cat('  NOTE: allowed candidate-only artifact(s): ', paste(allow_extra_files, collapse = ' | '),
+      ' — this is NOT a clean pass; the new artifact went uncompared and the ',
+      'allowance must be justified in the run notes.\n', sep = '')
 }
 
 if (overall_fail || passed_tasks != expected_tasks) {

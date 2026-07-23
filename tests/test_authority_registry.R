@@ -42,6 +42,16 @@ check(identical(authority_report_net_columns(),
                   'net_s338', 'net_section_201', 'net_other')),
       'daily decomposition preserves its historical floating-point sum order')
 
+buckets <- authority_report_buckets()
+check(identical(names(buckets),
+                c('232', '301', 's301br', 'ieepa', 'fentanyl', 's122',
+                  's338', 'section_201', 'other')),
+      'report buckets are ordered by report_sum_order')
+check(identical(buckets[['301']], c('net_301', 'net_301_cs', 'net_s301fl')),
+      'Section 301 bucket folds content-split + forced-labor flavors, in order')
+check(setequal(unlist(buckets), authority_report_net_columns()),
+      'report buckets partition exactly the reported net-column census')
+
 policy <- default_stacking_policy('5700')
 check(identical(names(policy), AUTHORITY_REGISTRY$rate_col),
       'default stacking policy covers registry entries in registry order')

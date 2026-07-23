@@ -43,6 +43,18 @@ check(after_expiry$by_country[[ch]] == 0.31 &&
 check(on_expiry$by_country_underlying[[ch]] == 0.31,
       'active-floor state preserves the underlying rate')
 
+# --- Regime guard (fail-closed) ----------------------------------------------
+# The calendar recompute reproduces the model's HISTORICAL post-expiry number
+# for CH/LI (0) only because IEEPA is ALREADY invalidated by the Swiss expiry:
+# with IEEPA void, the recomputed underlying surcharge is 0, matching the old
+# downstream zeroing. If a future edit moves the invalidation date PAST the
+# Swiss expiry, the recompute would instead restore a live surcharge (the 0.31
+# above) where the model previously published 0 — a real, silent number change.
+# Pin the ordering so that divergence cannot land without tripping this test.
+check(!is.null(pp$IEEPA_INVALIDATION_DATE) &&
+        as.Date(pp$IEEPA_INVALIDATION_DATE) <= swiss_boundary,
+      'IEEPA invalidation precedes the Swiss expiry mint (recompute stays == historical zeroing)')
+
 rd <- load_revision_dates(use_policy_dates = TRUE)
 b <- discover_boundaries(rd, here('data', 'timeseries'), pp,
                          overrides = pp$BOUNDARY_OVERRIDES,

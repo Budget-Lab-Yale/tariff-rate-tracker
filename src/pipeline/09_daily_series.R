@@ -54,7 +54,8 @@ library(jsonlite)
 #' @param policy_params Deprecated compatibility argument; ignored.
 #' @param stacking_method Stacking method passed through to apply_stacking_rules
 #' @param stacking One of "always", "conditional", "none"
-#' @return rev_data after expiry zeroing and (mode-dependent) stacking
+#' @return rev_data after (mode-dependent) stacking. NB: expiry handling now
+#'   lives in the minted-boundary calendar (discover_boundaries), not here.
 prepare_interval_data <- function(rev_data, sub_start, policy_params,
                                   stacking_method,
                                   stacking = c('always', 'conditional', 'none')) {
@@ -507,23 +508,48 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     net_df
   }
 
+  # Fail-closed reconciliation: the hand-written mean_<bucket> / etr_<bucket>
+  # columns MUST reproduce the registry's report_bucket grouping exactly (same
+  # columns, same summation order). This is what keeps `report_bucket` load-
+  # bearing: a NEW authority added to AUTHORITY_REGISTRY that isn't also wired
+  # into a bucket below stops the build here, instead of silently vanishing from
+  # the by-authority decomposition (its net contribution would otherwise leave
+  # the reported parts short of total_additional with no error).
+  .verify_report_buckets <- function(row, net_df, prefix, value_of) {
+    buckets <- authority_report_buckets()
+    expected <- paste0(prefix, names(buckets))
+    reported <- grep(paste0('^', prefix), names(row), value = TRUE)
+    if (!setequal(reported, expected)) {
+      stop('by-authority ', prefix, '* columns out of sync with the authority ',
+           'registry: missing=[', paste(setdiff(expected, reported), collapse = ','),
+           '] extra=[', paste(setdiff(reported, expected), collapse = ','), ']',
+           call. = FALSE)
+    }
+    for (b in names(buckets)) {
+      lhs <- row[[paste0(prefix, b)]]
+      rhs <- value_of(buckets[[b]])
+      if (!is.finite(lhs) || !is.finite(rhs) || abs(lhs - rhs) > 1e-9) {
+        stop('by-authority ', prefix, b, ' (', lhs, ') disagrees with the registry ',
+             'grouping {', paste(buckets[[b]], collapse = ','), '} (', rhs, ')',
+             call. = FALSE)
+      }
+    }
+    invisible(TRUE)
+  }
+
   compute_agg_authority <- function(rev_data, eff_data, wt_data, eff_wt, wctx,
                                     revision, valid_from, valid_until) {
     # Use shared net authority decomposition from helpers.R
     net_data <- compute_net_authority_contributions(rev_data, cty_china = CTY_CHINA,
                                                      stacking_method = stacking_method)
-    # A2: content-split 301 (net_301_cs) is reported UNDER Section 301 here, so the
-    # daily decomposition needs no new column — byte-identical in baseline, where
-    # net_301_cs = 0. Guard the tpc_additive path, which omits net_301_cs.
-    if (!'net_301_cs' %in% names(net_data)) net_data$net_301_cs <- 0
-    # net_s338 is guarded the same way (the tpc_additive path of older snapshots
-    # may omit it; the canonical policy path always carries it).
-    if (!'net_s338' %in% names(net_data)) net_data$net_s338 <- 0
-    # net_s301br likewise (baseline since the 2026-07-20 Brazil final action).
-    if (!'net_s301br' %in% names(net_data)) net_data$net_s301br <- 0
-    # net_s301fl is the forced-labor §301 (scenario-only: new_301 / forced_labor).
-    # Zero in baseline; guarded like net_301_cs / net_s338 for the tpc_additive path.
-    if (!'net_s301fl' %in% names(net_data)) net_data$net_s301fl <- 0
+    # Zero-fill any registry authority column the decomposition omits. The
+    # tpc_additive path drops net_301_cs / net_s301fl, and the scenario-only
+    # net_s301fl is absent in baseline; content-split 301 (net_301_cs) is
+    # reported UNDER Section 301, so this is byte-identical to the previous
+    # per-column guards in baseline (those columns = 0). Driving the census off
+    # the registry means a NEW authority is carried automatically rather than
+    # silently dropped.
+    for (nc in auth_net_cols) if (!nc %in% names(net_data)) net_data[[nc]] <- 0
     # Reduce to the effective additional (same authoritative basis as weighted_etr).
     # Effective preparation preserves row order, so total_additional
     # aligns positionally with net_data.
@@ -549,14 +575,13 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
       mean_section_201 = mean(net_data$net_section_201),
       mean_other = mean(net_data$net_other)
     )
+    .verify_report_buckets(row, net_data, 'mean_',
+                           function(cols) mean(Reduce(`+`, net_data[cols])))
     if (has_weights) {
       if (nrow(wt_data) > 0) {
         wt_net <- compute_net_authority_contributions(wt_data, cty_china = CTY_CHINA,
                                                       stacking_method = stacking_method)
-        if (!'net_301_cs' %in% names(wt_net)) wt_net$net_301_cs <- 0
-        if (!'net_s338' %in% names(wt_net)) wt_net$net_s338 <- 0
-        if (!'net_s301br' %in% names(wt_net)) wt_net$net_s301br <- 0
-        if (!'net_s301fl' %in% names(wt_net)) wt_net$net_s301fl <- 0
+        for (nc in auth_net_cols) if (!nc %in% names(wt_net)) wt_net[[nc]] <- 0
         # eff_wt is prepared once per segment by the caller and passed in.
         wt_net <- scale_net_to_effective(wt_net, eff_wt$total_additional)
         row$etr_232 <- sum(wt_net$net_232 * wt_net$imports) / wctx$total_imports
@@ -568,6 +593,8 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
         row$etr_s338 <- sum(wt_net$net_s338 * wt_net$imports) / wctx$total_imports
         row$etr_section_201 <- sum(wt_net$net_section_201 * wt_net$imports) / wctx$total_imports
         row$etr_other <- sum(wt_net$net_other * wt_net$imports) / wctx$total_imports
+        .verify_report_buckets(row, wt_net, 'etr_',
+                               function(cols) sum(Reduce(`+`, wt_net[cols]) * wt_net$imports) / wctx$total_imports)
       } else {
         row$etr_232 <- row$etr_301 <- row$etr_s301br <- row$etr_ieepa <- row$etr_fentanyl <- 0
         row$etr_s122 <- row$etr_s338 <- row$etr_section_201 <- row$etr_other <- 0
