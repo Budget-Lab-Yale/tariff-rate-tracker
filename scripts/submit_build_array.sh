@@ -112,27 +112,47 @@ OUT_DIR="$VINTAGE_DIR"                            # all series write into the on
 assert_external "$OUT_DIR" TARIFF_OUTPUT_DIR
 mkdir -p "$LOG_DIR"
 
-for series in "${SERIES_LIST[@]}"; do
-  if [ "$series" = "actual" ]; then
-    SCEN=""; TS_DIR="$SCRATCH"
-  else
-    SCEN="$series"; TS_DIR="$SCRATCH/$series"
-  fi
-  RL="$SCRATCH/revlist_${series}.txt"
-  RT="$SCRATCH/timeline_${series}.rds"
-  assert_external "$TS_DIR" "TARIFF_TS_DIR[$series]"
-  mkdir -p "$TS_DIR"
+series_scen() { [ "$1" = "actual" ] && echo "" || echo "$1"; }
+series_ts_dir() { [ "$1" = "actual" ] && echo "$SCRATCH" || echo "$SCRATCH/$1"; }
 
-  echo "--- [$series] list revisions (sbatch --wait) ---"
-  # The per-archive ch99 scan in discover_boundaries() runs in parallel over the
-  # ~89 archives (parallel::mclapply, fork-based) — give the job cores + tell it
-  # how many via TARIFF_LIST_CORES. Output is byte-identical to the serial scan.
-  LIST_CORES=8
+# ---- Phase A: list-revisions for ALL series, IN PARALLEL ---------------------
+# Each series' list-revs is independent (isolated REVLIST/REV_TIMELINE under the
+# scratch) and exists only to size that series' array. Nothing couples them, so
+# run them concurrently instead of one-at-a-time: background each `sbatch --wait`
+# and wait for all. This collapses the serial per-series stairstep (N x ~list-revs
+# wall-clock) into a single bar (~one list-revs). `sbatch --wait` exits with the
+# JOB's code, so a failed list-revs (e.g. OOM) is caught here and fails loud
+# instead of silently dropping that series. The per-archive ch99 scan inside each
+# is itself parallel (parallel::mclapply, TARIFF_LIST_CORES); output is
+# byte-identical to the serial scan.
+LIST_CORES=8
+declare -A LR_PID
+for series in "${SERIES_LIST[@]}"; do
+  SCEN="$(series_scen "$series")"
+  RL="$SCRATCH/revlist_${series}.txt"; RT="$SCRATCH/timeline_${series}.rds"
+  echo "--- [$series] list revisions (parallel) ---"
   TARIFF_SCENARIO="$SCEN" TARIFF_POLICY_PARAMS="$POLICY_PARAMS_PATH" REVLIST="$RL" REV_TIMELINE="$RT" \
   TARIFF_LIST_CORES="$LIST_CORES" \
     sbatch --wait --job-name="lr-$series" --time=00:15:00 --nodes=1 --ntasks=1 --cpus-per-task="$LIST_CORES" --mem=16G \
       --output="$HOME/slurm-logs/lr-$series-%j.out" --error="$HOME/slurm-logs/lr-$series-%j.err" --chdir="$REPO" \
-      --wrap="$MODLOAD; Rscript scripts/list_revisions.R$LIST_ARGS" >/dev/null
+      --wrap="$MODLOAD; Rscript scripts/list_revisions.R$LIST_ARGS" >/dev/null &
+  LR_PID[$series]=$!
+done
+LR_FAIL=0
+for series in "${SERIES_LIST[@]}"; do
+  if ! wait "${LR_PID[$series]}"; then
+    echo "ERROR: list-revisions failed for series '$series' (see $HOME/slurm-logs/lr-$series-*.err)" >&2
+    LR_FAIL=1
+  fi
+done
+[ "$LR_FAIL" = "0" ] || exit 1
+
+# ---- Phase B: array build + gather per series (arrays fan out concurrently) --
+for series in "${SERIES_LIST[@]}"; do
+  SCEN="$(series_scen "$series")"; TS_DIR="$(series_ts_dir "$series")"
+  RL="$SCRATCH/revlist_${series}.txt"; RT="$SCRATCH/timeline_${series}.rds"
+  assert_external "$TS_DIR" "TARIFF_TS_DIR[$series]"
+  mkdir -p "$TS_DIR"
   N=$(grep -c . "$RL" || true)
   [ "${N:-0}" -ge 1 ] || { echo "ERROR: no revisions for series '$series' in $RL" >&2; exit 1; }
   echo "    $series: $N revisions ($(head -1 "$RL") .. $(tail -1 "$RL"))"
