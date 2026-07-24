@@ -1395,8 +1395,13 @@ run_test('UK annex deal applies correctly', {
 })
 
 run_test('Russia annex exporter-country surcharge applies to aluminum only', {
+  # 3004909244 = FR 2025-15819 derivative line (aluminum+steel) with NO annex-map
+  # row -> classifies annex_1b via the derivative inference arm. The previous
+  # fixture (2106909971) only reached annex_1b through the pre-585ce25
+  # HS8-truncation over-inclusion; the FR lists nothing but .9993/.9994/.9998
+  # under 21069099, so it now correctly classifies NA.
   products <- tibble(
-    hts10 = c('7601100000', '2106909971', '7208100000'),
+    hts10 = c('7601100000', '3004909244', '7208100000'),
     base_rate = c(0.00, 0.05, 0.00),
     n_ch99_refs = 0L,
     ch99_refs = list(character(0), character(0), character(0))
@@ -1431,11 +1436,11 @@ run_test('Russia annex exporter-country surcharge applies to aluminum only', {
   stopifnot(rates$s232_annex[rates$hts10 == '7601100000' & rates$country == '4621'] == 'annex_1a')
   stopifnot(abs(rates$rate_232[rates$hts10 == '7601100000' & rates$country == '4621'] - 2.0) < 1e-8)
 
-  stopifnot(rates$s232_annex[rates$hts10 == '2106909971' & rates$country == '4621'] == 'annex_1b')
-  stopifnot(abs(rates$rate_232[rates$hts10 == '2106909971' & rates$country == '4621'] - 2.0) < 1e-8)
+  stopifnot(rates$s232_annex[rates$hts10 == '3004909244' & rates$country == '4621'] == 'annex_1b')
+  stopifnot(abs(rates$rate_232[rates$hts10 == '3004909244' & rates$country == '4621'] - 2.0) < 1e-8)
 
   stopifnot(abs(rates$rate_232[rates$hts10 == '7601100000' & rates$country == '4280'] - 0.50) < 1e-8)
-  stopifnot(abs(rates$rate_232[rates$hts10 == '2106909971' & rates$country == '4280'] - 0.25) < 1e-8)
+  stopifnot(abs(rates$rate_232[rates$hts10 == '3004909244' & rates$country == '4280'] - 0.25) < 1e-8)
 
   stopifnot(rates$s232_annex[rates$hts10 == '7208100000' & rates$country == '4621'] == 'annex_1a')
   stopifnot(abs(rates$rate_232[rates$hts10 == '7208100000' & rates$country == '4621'] - 0.50) < 1e-8)

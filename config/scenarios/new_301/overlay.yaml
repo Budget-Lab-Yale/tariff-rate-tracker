@@ -1,5 +1,5 @@
 # Scenario: new_301
 #
 # The Brazil §301 action is now baseline law. The remaining proposed "new 301"
-# content is exactly the forced_labor scenario, inherited through meta.yaml.
+# Both names are now empty compatibility aliases for ACTUAL.
 # Keep this overlay empty until new_301 intentionally diverges from that parent.

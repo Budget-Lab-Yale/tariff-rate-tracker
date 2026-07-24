@@ -31,6 +31,7 @@ suppressMessages({
   source(here('src', 'pipeline', '09_daily_series.R'))
   source(here('src', 'io', 'build_import_weights.R'))
   source(here('src', 'io', 'build_panel_import_weights.R'))
+  source(here('src', 'io', 'quality_report.R'))   # write_quality_part_for_snapshot
 })
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -86,19 +87,22 @@ res <- build_revision_snapshot(
 )
 message('OK: ', rev_id, ' -> ', res$snapshot_path, ' (', res$n_rates, ' rows)')
 
+# This revision's validity interval — shared by the daily and quality part
+# writers below. Gather re-derives the authoritative intervals from the final
+# snapshot set and rejects any part stamped differently.
+timeline_ordered <- timeline %>% arrange(effective_date, revision)
+idx <- match(rev_id, timeline_ordered$revision)
+horizon_end <- as.Date(pp_build$SERIES_HORIZON_END %||% Sys.Date())
+valid_from <- as.Date(ri$effective_date)
+valid_until <- if (!is.na(idx) && idx < nrow(timeline_ordered)) {
+  as.Date(timeline_ordered$effective_date[idx + 1L]) - 1
+} else {
+  horizon_end
+}
+
 # Precompute the per-revision daily aggregate part while the snapshot is still
 # live in memory. Gather validates the part's mode + interval before using it.
 if (!nzchar(Sys.getenv('TARIFF_SKIP_DAILY_PARTS'))) {
-  timeline_ordered <- timeline %>% arrange(effective_date, revision)
-  idx <- match(rev_id, timeline_ordered$revision)
-  horizon_end <- as.Date(pp_build$SERIES_HORIZON_END %||% Sys.Date())
-  valid_from <- as.Date(ri$effective_date)
-  valid_until <- if (!is.na(idx) && idx < nrow(timeline_ordered)) {
-    as.Date(timeline_ordered$effective_date[idx + 1L]) - 1
-  } else {
-    horizon_end
-  }
-
   # Resolve this revision's weight plan (weight_mode / weight_method from config;
   # --unweighted forces the opt-out). For the 484f method the interval's weights
   # are mapped from the 2024 base onto THIS revision's panel at its RAW
@@ -130,4 +134,16 @@ if (!nzchar(Sys.getenv('TARIFF_SKIP_DAILY_PARTS'))) {
                              hts_as_of_date = plan$hts_as_of_dates[[rev_id]])))
     }
   }
+}
+
+# Precompute the per-revision quality part (NA counts, revision-quality row,
+# annex check, non-China-§301 rows) while the snapshot is in memory, so the
+# gather's quality report reduces small parts instead of re-reading every
+# snapshot serially. Weight-independent; gather validates interval + mtime and
+# falls back to streaming when a part is missing or stale.
+if (!nzchar(Sys.getenv('TARIFF_SKIP_QUALITY_PARTS'))) {
+  write_quality_part_for_snapshot(
+    snapshot = res$rates, revision = rev_id,
+    valid_from = valid_from, valid_until = valid_until,
+    output_dir = output_dir, policy_params = pp_build)
 }

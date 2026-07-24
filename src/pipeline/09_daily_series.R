@@ -527,11 +527,10 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     # Use shared net authority decomposition from helpers.R
     net_data <- compute_net_authority_contributions(rev_data, cty_china = CTY_CHINA)
     # Zero-fill any registry authority column the decomposition omits. The
-    # scenario-only net_s301fl is absent in baseline, and content-split 301
-    # (net_301_cs) is reported UNDER Section 301, so this is byte-identical to
-    # the previous per-column guards in baseline (those columns = 0). Driving the
-    # census off the registry means a NEW authority is carried automatically
-    # rather than silently dropped.
+    # net_s301fl and content-split 301 (net_301_cs) are reported UNDER Section
+    # 301. Zero-filling keeps older/pre-authority inputs readable, and driving
+    # the census off the registry means a new authority is carried rather than
+    # silently dropped.
     for (nc in auth_net_cols) if (!nc %in% names(net_data)) net_data[[nc]] <- 0
     # Reduce to the effective additional (same authoritative basis as weighted_etr).
     # Effective preparation preserves row order, so total_additional
@@ -545,7 +544,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
       mean_232 = mean(net_data$net_232),
       # The Brazil §301 (net_s301br) is reported as its OWN column, not folded
       # under mean_301 — it is a distinct baseline authority (FR 2026-14542).
-      # Forced-labor §301 (net_s301fl, scenario-only) is a §301 flavor and is
+      # Forced-labor §301 (net_s301fl, baseline final action) is a §301 flavor and is
       # reported UNDER Section 301 — folded into mean_301 exactly like the
       # content-split net_301_cs, NOT given its own bucket. (Brazil §301 stays
       # separate as mean_s301br: a distinct baseline authority, FR 2026-14542.)
@@ -1304,7 +1303,7 @@ daily_part_path <- function(snapshot_dir, revision) {
 # v4 adds the Section 301 Brazil decomposition (mean_s301br / etr_s301br, FR
 # 2026-14542 baseline promotion) and folds etr_s301br into the etr_base
 # residual — same mixed-gather hazard as v3, so v3 parts are rejected.
-# v5 folds forced-labor §301 (net_s301fl, scenario-only: new_301 / forced_labor)
+# v5 folds forced-labor §301 (net_s301fl, now baseline final action)
 # into Section 301 (mean_301 / etr_301), the same way net_301_cs is folded — it
 # is a §301 flavor, not its own bucket. v4 omitted net_s301fl from the authority
 # decomposition entirely, so the whole forced-labor contribution leaked into

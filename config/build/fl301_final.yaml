@@ -1,0 +1,30 @@
+# Build-run config: the Section 301 FORCED-LABOR final action (current law,
+# effective 2026-07-24) + two counterfactuals, for the paired regime comparison.
+#   bash scripts/submit_build_array.sh --config config/build/fl301_final.yaml
+#
+# Forced-labor §301 is now a BASELINE authority (config/policy_params.yaml →
+# section_301_forced_labor), so the always-built `actual` series carries it =
+# the §301 regime. Two counterfactuals hold everything else at current law:
+#   * no_fl_301           — remove forced-labor §301, let §122 lapse 2026-07-23
+#                           (the "neither blanket" world).
+#   * no_fl_301_keep_s122 — remove forced-labor §301 AND keep §122 permanent
+#                           (finalized) — the "§122 regime" instead of §301.
+# Diff, on daily_overall / daily_by_authority / daily_by_country:
+#   <vintage>/actual                        (§301 regime)
+#   <vintage>/scenarios/no_fl_301           (neither)
+#   <vintage>/scenarios/no_fl_301_keep_s122 (§122 regime)
+# Weighted so the import-weighted ETR contrast is available. Does NOT move
+# `latest` — this is a branch build pending review/merge; repoint after merge.
+
+model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker
+policy_params_path: config/policy_params.yaml
+
+scenarios:
+  - no_fl_301
+  - no_fl_301_keep_s122
+
+use_hts_dates: false
+weight_mode: required       # weighted — import-weighted ETR contrast
+update_latest: false        # comparison/branch build — do NOT repoint production latest
+allow_partial: false
+verify: true                # finalize runs scripts/verify_build.R against the vintage

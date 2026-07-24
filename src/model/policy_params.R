@@ -41,14 +41,6 @@ library(here)
 .scenario_overlay_extensions <- function() {
   list(
     disabled_authorities = character(),
-    section_301_forced_labor = list(
-      effective_date = '',
-      rate_10 = 0,
-      rate_12_5 = 0,
-      exempt_products = '',
-      tier_10pct = character(),
-      tier_12_5pct = character()
-    ),
     # Optional fields documented in policy_params.yaml but intentionally absent
     # from the active baseline configuration.
     usmca_shares = list(month = 0L),

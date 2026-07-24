@@ -7,7 +7,7 @@
 
 SCENARIO_INPUT_AUTHORITIES <- c(
   'section_232', 'section_301', 'section_301_content_split',
-  'section_301_brazil', 'section_338',
+  'section_301_brazil', 'section_301_forced_labor', 'section_338',
   'ieepa_reciprocal', 'ieepa_fentanyl', 'section_122', 'other'
 )
 
@@ -107,6 +107,13 @@ apply_counterfactual_inputs <- function(ch99_data, ieepa_rates = NULL,
     # are removed from ch99_data via classify_authority above; the authority
     # itself is built from this config block, so remove it too.
     policy_params$section_301_brazil <- NULL
+  }
+  if ('section_301_forced_labor' %in% disabled) {
+    # Forced-labor §301 is purely config-driven (its 9903.05.20-.84 headings are
+    # not in any HTS archive yet), so removing the config block is sufficient:
+    # .build_section_301_forced_labor then returns NULL and rate_s301fl stays 0
+    # everywhere. Used by the no_fl_301 / no_fl_301_keep_s122 counterfactuals.
+    policy_params$section_301_forced_labor <- NULL
   }
 
   policy_params$SCENARIO_DISABLED_AUTHORITIES_APPLIED <- disabled

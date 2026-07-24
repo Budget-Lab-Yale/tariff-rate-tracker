@@ -194,13 +194,15 @@ calculate_rates_fast <- function(products, ch99_data, countries,
       rate_s338 = rate_section_338
     )
 
-  # rate_301_cs (content-split 301 flavor) and rate_s301br (Brazil §301) have no
+  # rate_301_cs (content-split 301 flavor), rate_s301br (Brazil §301), and
+  # rate_s301fl (forced-labor §301) have no
   # producer in this generic Ch99→rates pivot: 9903.05.0x is a country-wide charge
   # heading that no product line footnote-references, so it never attaches here.
   # rate_s301br is applied downstream by apply_section301_brazil() from the
   # section_301_brazil spec, whose rate is read off HTS 9903.05.01 (rev_12+).
   rates_wide$rate_301_cs <- 0
   rates_wide$rate_s301br <- 0
+  rates_wide$rate_s301fl <- 0
 
   # Create the complete product x country table exactly once. All policy
   # programs below mutate this table; none is allowed to add rows.
@@ -896,38 +898,119 @@ apply_section122 <- function(rates, specs, pp, products, effective_date) {
   rates
 }
 
-# --- Step 6b-fl: Section 301 forced-labor duties (scenario) ------------------
+# §232 FULL per-article scope mask, shared by the three chapter-99 authorities
+# whose notes each impose a full exclusion on goods already in §232 scope:
+# forced-labor §301 (note 52(f)), Brazil §301 (note 50(a)(vi)), and §338
+# (note 51(c)). A row is in scope when it carries a §232 duty
+# (statutory_rate_232 > 0), sits in an IN-SCOPE annex tier (1a/1b/1c/3 —
+# annex_2 is REMOVED from §232 scope, so it is NOT excluded and still pays;
+# see the s338 beer 2203.00.00 case, codex cross-check 2026-07-20), or is a
+# heading_program row. Single definition so a future §232 scope change lands
+# in one place, not three.
+.s232_in_scope <- function(rates) {
+  ANNEX_IN_SCOPE <- c('annex_1a', 'annex_1b', 'annex_1c', 'annex_3')
+  stat232 <- if ('statutory_rate_232' %in% names(rates)) {
+    coalesce(rates$statutory_rate_232, 0)
+  } else coalesce(rates$rate_232, 0)
+  annex232 <- if ('s232_annex' %in% names(rates)) {
+    rates$s232_annex %in% ANNEX_IN_SCOPE
+  } else FALSE
+  headprog <- if ('heading_program' %in% names(rates)) {
+    coalesce(rates$heading_program, FALSE)
+  } else FALSE
+  stat232 > 0 | annex232 | headprog
+}
+
+# --- Step 6b-fl: Section 301 forced-labor duties (baseline) ------------------
 apply_section301_forced_labor <- function(rates, specs, countries) {
-  # 6b-fl. Apply Section 301 forced-labor duties (SCENARIO authority).
-  #     Per-country two tiers (10% / 12.5%) on ALL products of the in-scope
-  #     economies EXCEPT the Annex A exclusion list (hts8). Stacks like the
-  #     reciprocal/§122 — content_split (displaced by §232) + USMCA-eligible
-  #     (applied in step 7 + apply_stacking_rules). The authority is built only
-  #     when the merged config carries `section_301_forced_labor`
-  #     (config/scenarios/forced_labor/) AND is DATE-GATED to >= effective_date,
-  #     so by_country is empty in baseline / pre-turn-on revisions and rate_s301fl
-  #     stays all-zero; the all-zero column is DROPPED before return (see end of
-  #     function), keeping baseline byte-identical with no RATE_SCHEMA change.
+  # Final action, effective 2026-07-24. Flat 10%/12.5% origins and 10%/12.5%
+  # net-of-MFN origins apply to all products except the common and country annex
+  # rules. Note 52(f) fully excludes §232-scope articles. Canada/Mexico USMCA
+  # and preference-conditional textile rules are adjusted later with the
+  # model's utilization shares.
   fl_spec <- specs[['section_301_forced_labor']]
   fl_by_country <- if (is.null(fl_spec)) numeric(0) else {
     bc <- .rate_get(fl_spec$programs[[1]]$rate, 'by_country')
     if (is.null(bc)) numeric(0) else bc
   }
-  rates$rate_s301fl <- 0   # present for the USMCA step; dropped at end if all-zero
+  rates$rate_s301fl <- 0
+  rates$s301fl_fta_exempt <- FALSE
+  rates$s301fl_post_cap <- 0
+  rates$s301fl_cap_eligible <- FALSE
+  rates$s301fl_exempt_factor <- 1
   if (length(fl_by_country) > 0) {
-    fl_exempt_hts8 <- fl_spec$programs[[1]]$exempt_products$hts8 %||% character(0)
+    rate_types <- .rate_get(fl_spec$programs[[1]]$rate, 'by_country_type') %||%
+      setNames(rep('surcharge', length(fl_by_country)), names(fl_by_country))
+    ex <- fl_spec$programs[[1]]$exempt_products %||% list()
+    common_full <- ex$hts_code %||% character(0)
+    common_air <- ex$aircraft_hts_code %||% character(0)
+    common_pharma <- ex$pharma_hts_code %||% character(0)
+    country_rules <- ex$country_rules %||% tibble(
+      country = character(), hts_code = character(), condition = character())
+    post_cap_countries <- ex$post_preference_cap_countries %||% character(0)
     fl_scope <- intersect(names(fl_by_country), countries)
+
+    h8 <- substr(rates$hts10, 1, 8)
+    code_hit <- function(codes) {
+      codes <- unique(as.character(codes))
+      h8 %in% codes[nchar(codes) == 8] |
+        rates$hts10 %in% codes[nchar(codes) == 10]
+    }
+    rule_hit <- function(condition) {
+      rr <- country_rules %>% filter(.data$condition %in% condition)
+      key8 <- paste(rr$country[nchar(rr$hts_code) == 8],
+                    rr$hts_code[nchar(rr$hts_code) == 8], sep = '|')
+      key10 <- paste(rr$country[nchar(rr$hts_code) == 10],
+                     rr$hts_code[nchar(rr$hts_code) == 10], sep = '|')
+      paste(rates$country, h8, sep = '|') %in% key8 |
+        paste(rates$country, rates$hts10, sep = '|') %in% key10
+    }
+
+    # Full §232-scope exclusion, matching note 52(f) (shared .s232_in_scope).
+    in_232_scope <- .s232_in_scope(rates)
+
+    common_full_hit <- code_hit(common_full)
+    country_full_hit <- rule_hit('full')
+    country_fta_hit <- rule_hit('fta')
+    patent_hit <- rates$hts10 %in% (ex$patented_pharma_hts10 %||% character(0))
+    covered <- !common_full_hit & !country_full_hit & !patent_hit & !in_232_scope
+
     fl_tbl <- tibble(country = names(fl_by_country),
-                     .fl_rate = unname(as.numeric(fl_by_country)))
+                     .fl_target = unname(as.numeric(fl_by_country)),
+                     .fl_type = unname(rate_types[names(fl_by_country)]))
     rates <- rates %>%
       left_join(fl_tbl, by = 'country', relationship = 'many-to-one') %>%
-      mutate(rate_s301fl = if_else(
-        !is.na(.fl_rate) & !(substr(hts10, 1, 8) %in% fl_exempt_hts8),
-        .fl_rate, 0)) %>%
-      select(-.fl_rate)
-    message('  Section 301 forced labor: 10%/12.5% on ', sum(rates$rate_s301fl > 0),
+      mutate(
+        s301fl_cap_eligible = !is.na(.fl_target) & covered,
+        rate_s301fl = case_when(
+          !s301fl_cap_eligible ~ 0,
+          .fl_type == 'floor' ~ pmax(.fl_target - base_rate, 0),
+          TRUE ~ .fl_target
+        ),
+        s301fl_fta_exempt = country_fta_hit & s301fl_cap_eligible,
+        s301fl_post_cap = if_else(
+          country %in% post_cap_countries & .fl_type == 'floor' &
+            s301fl_cap_eligible, .fl_target, 0)
+      ) %>%
+      select(-.fl_target, -.fl_type)
+
+    # End-use conditional common/country exemptions use calibrated utilization
+    # shares; country-specific full/FTA rules already took precedence above.
+    air_hit <- code_hit(common_air) | rule_hit('aircraft')
+    pharma_hit <- code_hit(common_pharma) | rule_hit('pharma')
+    factor <- case_when(
+      air_hit ~ 1 - as.numeric(ex$aircraft_share %||% 0.90),
+      pharma_hit ~ 1 - as.numeric(ex$pharma_share %||% 0.50),
+      TRUE ~ 1
+    )
+    rates$s301fl_exempt_factor <- factor
+    rates$rate_s301fl <- rates$rate_s301fl * factor
+
+    message('  Section 301 forced labor final action: duty on ',
+            sum(rates$rate_s301fl > 0),
             ' product-country pairs across ', length(fl_scope), ' economies (',
-            length(fl_exempt_hts8), ' Annex A HTS8 exempt)')
+            length(common_full), ' common full/Ex codes; ',
+            nrow(country_rules), ' country-rule rows; §232 scope excluded)')
   }
 
   rates
@@ -941,7 +1024,7 @@ apply_section301_brazil <- function(rates, specs, products, countries) {
   #     authority — signed law — hand-fed from policy params + side-data list
   #     (no HTS archive carries the 9903.05.0x headings yet; §338 pattern).
   #     Stacks ADDITIVELY (note 50(a): in addition to every other ch-99 duty,
-  #     incl. the scenario forced-labor §301 — neither notice carves out the
+  #     incl. baseline forced-labor §301 — neither notice carves out the
   #     other) via stacking class 'additive'; usmca 'none' (Brazil isn't USMCA).
   #     Three in-scope reductions:
   #       * the note-50(a)(ii)+(iii) UNCONDITIONAL exclusions (875 hts8,
@@ -965,10 +1048,11 @@ apply_section301_brazil <- function(rates, specs, products, countries) {
   #         enumerates steel/alu/copper + derivatives, PV/LT + parts, MHD +
   #         parts, wood and semiconductor headings; patented pharma joins via
   #         Annex I Part B effective 2026-07-31 — BEFORE the model's
-  #         pharma-§232 turn-on (2026-09-29), so the heading_program arm
-  #         (which tags pharma rows only from that date) reproduces the legal
-  #         timeline exactly: no pharma-§232 duty is collectible in the
-  #         07-22..09-29 window either way.
+  #         pharma-§232 turn-on (2026-09-29), so it rides an explicit
+  #         date-gated hts10 list (br_patent_hit below; the FL note-52(f)(8)
+  #         treatment), NOT the heading_program arm: the §301 duty on those
+  #         articles legally stops 07-31 even though the §232 duty only
+  #         starts 09-29.
   #     rate_s301br is a RATE_SCHEMA column: it persists all-zero in pre-07-22
   #     revisions (baseline column, like rate_s338 — unlike the scenario
   #     rate_s301fl). Runs after the §232 PRIMARY steps, next to 6b-338 — the
@@ -990,20 +1074,15 @@ apply_section301_brazil <- function(rates, specs, products, countries) {
     br_pharma_share  <- as.numeric(br_ex$pharma_share %||% 0)
     br_scope <- intersect(names(br_by_country), countries)
 
-    # §232 scope mask over EXISTING rows (note 50(a)(vi)); same mask as
-    # apply_section338 (note 51(c)) — see that docstring for the annex-tier
-    # rationale (annex_2 articles are REMOVED from §232 scope and still pay).
-    BR_ANNEX_IN_SCOPE <- c('annex_1a', 'annex_1b', 'annex_1c', 'annex_3')
-    stat232  <- if ('statutory_rate_232' %in% names(rates)) {
-      coalesce(rates$statutory_rate_232, 0)
-    } else coalesce(rates$rate_232, 0)
-    annex232 <- if ('s232_annex' %in% names(rates)) {
-      rates$s232_annex %in% BR_ANNEX_IN_SCOPE
-    } else FALSE
-    headprog <- if ('heading_program' %in% names(rates)) {
-      coalesce(rates$heading_program, FALSE)
-    } else FALSE
-    in_232_scope <- stat232 > 0 | annex232 | headprog
+    # §232 scope mask over EXISTING rows (note 50(a)(vi)); shared .s232_in_scope
+    # — see its docstring for the annex-tier rationale (annex_2 articles are
+    # REMOVED from §232 scope and still pay). Patented pharma joins the (a)(vi)
+    # exclusion via Annex I Part B effective 2026-07-31 — BEFORE the pharma-§232
+    # turn-on (2026-09-29) tags those rows heading_program — so the adapter
+    # supplies a date-gated explicit hts10 list (same treatment as FL note
+    # 52(f)(8)); the two arms overlap harmlessly from 09-29.
+    in_232_scope <- .s232_in_scope(rates)
+    br_patent_hit <- rates$hts10 %in% (br_ex$patented_pharma_hts10 %||% character(0))
 
     br_tbl <- tibble(country = names(br_by_country),
                      .br_rate = unname(as.numeric(br_by_country)))
@@ -1011,7 +1090,7 @@ apply_section301_brazil <- function(rates, specs, products, countries) {
       left_join(br_tbl, by = 'country', relationship = 'many-to-one') %>%
       mutate(rate_s301br = if_else(
         !is.na(.br_rate) & !(substr(hts10, 1, 8) %in% br_exempt_hts8) &
-          !in_232_scope,
+          !in_232_scope & !br_patent_hit,
         .br_rate, 0)) %>%
       select(-.br_rate)
 
@@ -1072,7 +1151,7 @@ apply_section338 <- function(rates, specs, products, countries) {
   #         so an unmeasured one is treated as fully dutiable, not interpolated
   #         from the aircraft-heavy §122 chapter mean.
   #     rate_s338 is a RATE_SCHEMA column: it persists all-zero in pre-08-19
-  #     revisions (baseline column, unlike the scenario s301fl/br columns).
+  #     revisions, like the baseline s301fl/s301br columns.
   s338_spec <- specs[['section_338']]
   s338_by_country <- if (is.null(s338_spec)) numeric(0) else {
     bc <- .rate_get(s338_spec$programs[[1]]$rate, 'by_country')
@@ -1122,23 +1201,12 @@ apply_section338 <- function(rates, specs, products, countries) {
         select(hts10, gn6_factor)
     }
 
-    # §232 scope mask over EXISTING rows (note 51(c)); see docstring. The annex
-    # arm is TIER-SCOPED: annex_2 = REMOVED from §232 scope (statutory 0, not
-    # "provided for" in the 9903.82 headings note 51(c)(1) cites), so those
-    # articles still pay s338 — 54 covered Canada lines incl. beer 2203.00.00,
-    # which the alcohol proclamation lists explicitly. A bare !is.na(s232_annex)
-    # arm wrongly exempted them (caught in the codex cross-check 2026-07-20).
-    S338_ANNEX_IN_SCOPE <- c('annex_1a', 'annex_1b', 'annex_1c', 'annex_3')
-    stat232  <- if ('statutory_rate_232' %in% names(rates)) {
-      coalesce(rates$statutory_rate_232, 0)
-    } else coalesce(rates$rate_232, 0)
-    annex232 <- if ('s232_annex' %in% names(rates)) {
-      rates$s232_annex %in% S338_ANNEX_IN_SCOPE
-    } else FALSE
-    headprog <- if ('heading_program' %in% names(rates)) {
-      coalesce(rates$heading_program, FALSE)
-    } else FALSE
-    in_232_scope <- stat232 > 0 | annex232 | headprog
+    # §232 scope mask over EXISTING rows (note 51(c)); shared .s232_in_scope —
+    # its TIER-SCOPED annex arm (annex_2 = removed from §232 scope, still pays
+    # s338: 54 covered Canada lines incl. beer 2203.00.00, which the alcohol
+    # proclamation lists explicitly; a bare !is.na(s232_annex) arm wrongly
+    # exempted them, caught in the codex cross-check 2026-07-20).
+    in_232_scope <- .s232_in_scope(rates)
 
     s338_tbl <- tibble(country = names(s338_by_country),
                        .s338_rate = unname(as.numeric(s338_by_country)))
@@ -2992,13 +3060,33 @@ calculate_rates_for_revision <- function(
           exclude_usmca & country %in% usmca_countries,
           0, exemption_share
         ),
-        base_rate = base_rate * (1 - exemption_share)
+        base_rate = base_rate * (1 - exemption_share),
+        # Note 52 preference-conditional textile/apparel exemptions (CAFTA-DR
+        # and Jordan FTA), proxied by the existing HS2×country claim share.
+        rate_s301fl = if_else(
+          s301fl_fta_exempt,
+          rate_s301fl * (1 - exemption_share),
+          rate_s301fl
+        )
       ) %>%
       select(-hs2, -exemption_share)
 
     n_adjusted <- sum(rates$base_rate < rates$statutory_base_rate)
     message('  MFN exemption shares: adjusted base_rate for ', n_adjusted,
             ' product-country pairs')
+
+    # South Korea may use a properly claimed column-1 Special rate when
+    # computing its 12.5%-total cap. Recompute that origin against the model's
+    # post-preference base. Other net-MFN origins remain tied to column-1
+    # General and therefore retain their pre-adjustment statutory calculation.
+    fl_post_cap <- rates$s301fl_post_cap > 0 &
+      rates$s301fl_cap_eligible &
+      substr(rates$hts10, 1, 2) != '98'
+    if (any(fl_post_cap)) {
+      rates$rate_s301fl[fl_post_cap] <- pmax(
+        rates$s301fl_post_cap[fl_post_cap] - rates$base_rate[fl_post_cap], 0
+      ) * rates$s301fl_exempt_factor[fl_post_cap]
+    }
 
     # 6d. Recompute IEEPA floor deduction against post-MFN base_rate.
     # Only for rows originally computed as floor-type (ieepa_type == 'floor').
@@ -3224,7 +3312,7 @@ calculate_rates_for_revision <- function(
           # in. A re-scope scenario (301 -> CA/MX) then receives USMCA preference.
           rate_301 = rate_301 * (1 - usmca_share),
           rate_301_cs = rate_301_cs * (1 - usmca_share),
-          # Forced-labor §301 (scenario, usmca_treatment='eligible'): USMCA-compliant
+          # Forced-labor §301 (baseline, usmca_treatment='eligible'): USMCA-compliant
           # CA/MX goods are exempt. rate_s301fl is 0 on CA/MX in baseline (column all-
           # zero) so this is a no-op there. The FRN exempts USMCA-COMPLIANT goods
           # outright; the share path approximates that via (1 - usmca_share).
@@ -3284,7 +3372,7 @@ calculate_rates_for_revision <- function(
             country %in% c(CTY_CANADA, CTY_MEXICO) & usmca_eligible,
             0, rate_301_cs
           ),
-          # Forced-labor §301 (scenario): USMCA-compliant CA/MX exempt (binary).
+          # Forced-labor §301 (baseline): USMCA-compliant CA/MX exempt (binary).
           rate_s301fl = if_else(
             country %in% c(CTY_CANADA, CTY_MEXICO) & usmca_eligible,
             0, rate_s301fl
@@ -3468,20 +3556,15 @@ calculate_rates_for_revision <- function(
       effective_date = as.Date(effective_date)
     )
 
+  rates <- rates %>%
+    select(-s301fl_fta_exempt, -s301fl_post_cap, -s301fl_cap_eligible,
+           -s301fl_exempt_factor)
+
   # 9b. Enforce canonical schema
   rates <- enforce_rate_schema(rates)
 
-  # Forced-labor §301 is a SCENARIO-scoped extra column (not in RATE_SCHEMA). Drop
-  # it when it carries no duty — baseline and every pre-turn-on revision — so those
-  # panels are byte-identical to the pre-scenario schema (no new all-zero column,
-  # no reference re-freeze). Kept (non-zero) only in revisions where forced-labor is live.
-  if ('rate_s301fl' %in% names(rates) && all(rates$rate_s301fl == 0)) {
-    rates$rate_s301fl <- NULL
-    if ('statutory_rate_s301fl' %in% names(rates)) rates$statutory_rate_s301fl <- NULL
-  }
-  # Brazil §301 is BASELINE (RATE_SCHEMA proper) since the final action: unlike
-  # rate_s301fl above it is NEVER dropped — it persists all-zero in pre-07-22
-  # revisions, exactly like rate_s338.
+  # Forced-labor §301 is baseline current law, so rate_s301fl remains a canonical
+  # all-zero column before 2026-07-24, like rate_s301br and rate_s338.
 
   expected_rows <- nrow(products) * length(countries)
   if (nrow(rates) != expected_rows || anyDuplicated(rates[c('hts10', 'country')])) {

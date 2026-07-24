@@ -27,15 +27,16 @@ check(identical(
 
 check(identical(
   AUTHORITY_RATE_COLUMNS,
-  c('rate_232', 'rate_301', 'rate_301_cs', 'rate_s301br', 'rate_ieepa_recip',
-    'rate_ieepa_fent', 'rate_s122', 'rate_s338', 'rate_section_201', 'rate_other')
-), 'canonical panel order remains byte-for-byte stable')
+  c('rate_232', 'rate_301', 'rate_301_cs', 'rate_s301br', 'rate_s301fl',
+    'rate_ieepa_recip', 'rate_ieepa_fent', 'rate_s122', 'rate_s338',
+    'rate_section_201', 'rate_other')
+), 'canonical panel includes baseline forced-labor authority')
 
 panel <- authority_panel_registry()
 check(all(panel$rate_col %in% RATE_SCHEMA),
       'every baseline authority rate appears in RATE_SCHEMA')
-check(!('rate_s301fl' %in% RATE_SCHEMA),
-      'scenario-only forced-labor rate stays out of the baseline schema')
+check('rate_s301fl' %in% RATE_SCHEMA,
+      'forced-labor final-action rate is in the baseline schema')
 check(identical(authority_report_net_columns(),
                 c('net_232', 'net_301', 'net_301_cs', 'net_s301br',
                   'net_s301fl', 'net_ieepa', 'net_fentanyl', 'net_s122',

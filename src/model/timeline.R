@@ -193,21 +193,31 @@ discover_boundaries <- function(rev_dates, snapshot_dir = NULL, policy_params = 
   #     (its archive carries the gated entry AND its interval contains the date),
   #     which is exactly the "owner-archive carries the entry" requirement: an
   #     offset interior to a LATER revision whose archive lacks it is NOT emitted.
-  for (i in seq_len(nrow(intervals))) {
+  # The per-revision archive parse (parse_chapter99 on a gz JSON, ~7s each over
+  # ~89 archives) dominates this scan and is independent per revision, so run it
+  # in parallel. `scan_one` reads ONE revision's ch99 and returns its interior
+  # ch99/expiry boundary records; mclapply preserves input order and the records
+  # are appended through add_rec in that order, so the timeline is byte-identical
+  # to the old serial loop. Cores from TARIFF_LIST_CORES (else detectCores()-1);
+  # mc.cores=1 falls back to a plain serial lapply. Fork-based -> Linux/macOS
+  # (the build nodes); returns records instead of `<<-` mutation (fork-safe).
+  scan_one <- function(i) {
     rev_id <- intervals$revision[i]
+    vf <- intervals$valid_from[i]; vu <- intervals$valid_until[i]
     ch99 <- if (!is.null(archive_dir)) {
       tryCatch(parse_chapter99(resolve_json_path(rev_id, archive_dir)),
                error = function(e) NULL)
     } else {
       ch99_p <- file.path(snapshot_dir, paste0('ch99_', rev_id, '.rds'))
-      if (!file.exists(ch99_p)) next
+      if (!file.exists(ch99_p)) return(list())
       tryCatch(readRDS(ch99_p), error = function(e) NULL)
     }
-    if (is.null(ch99) || !'effective_date_offset' %in% names(ch99)) next
+    if (is.null(ch99) || !'effective_date_offset' %in% names(ch99)) return(list())
+    out <- list()
     offs <- unique(ch99$effective_date_offset)
     offs <- offs[!is.na(offs)]
-    offs <- offs[offs > intervals$valid_from[i] & offs <= intervals$valid_until[i]]
-    for (o in offs) add_rec(o, rev_id, paste0('ch99:', rev_id))
+    offs <- offs[offs > vf & offs <= vu]
+    for (o in offs) out[[length(out) + 1L]] <- list(o, rev_id, paste0('ch99:', rev_id))
 
     # Expiry mirror: a rate-less heading active at the revision's effective_date
     # whose window ENDS interior to the interval changes state on expiry + 1
@@ -218,9 +228,24 @@ discover_boundaries <- function(rev_dates, snapshot_dir = NULL, policy_params = 
     if ('expiry_date_offset' %in% names(ch99)) {
       exps <- unique(ch99$expiry_date_offset[is.na(ch99$rate)])
       exps <- exps[!is.na(exps)] + 1L
-      exps <- exps[exps > intervals$valid_from[i] & exps <= intervals$valid_until[i]]
-      for (o in exps) add_rec(o, rev_id, paste0('ch99_expiry:', rev_id))
+      exps <- exps[exps > vf & exps <= vu]
+      for (o in exps) out[[length(out) + 1L]] <- list(o, rev_id, paste0('ch99_expiry:', rev_id))
     }
+    out
+  }
+  n_cores <- suppressWarnings(as.integer(Sys.getenv('TARIFF_LIST_CORES', '')))
+  if (is.na(n_cores) || n_cores < 1L) n_cores <- max(1L, parallel::detectCores() - 1L)
+  per_rev <- if (n_cores > 1L) {
+    parallel::mclapply(seq_len(nrow(intervals)), scan_one, mc.cores = n_cores)
+  } else {
+    lapply(seq_len(nrow(intervals)), scan_one)
+  }
+  for (rl in per_rev) {
+    if (inherits(rl, 'try-error') || is.null(rl)) {
+      stop('discover_boundaries: a parallel revision scan failed: ',
+           if (inherits(rl, 'try-error')) conditionMessage(attr(rl, 'condition')) else 'NULL result')
+    }
+    for (r in rl) add_rec(r[[1]], r[[2]], r[[3]])
   }
 
   # (b) Config boundaries the calculator re-resolves on recompute.

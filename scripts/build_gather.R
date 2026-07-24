@@ -106,7 +106,7 @@ if (!is_baseline &&
   real_revs <- rev_dates$revision[!grepl('^(sched_|bnd_)', rev_dates$revision)]
   linked <- 0L
   for (rev in real_revs) {
-    for (pat in c('snapshot_', 'ch99_', 'products_', 'delta_', 'daily_part_')) {
+    for (pat in c('snapshot_', 'ch99_', 'products_', 'delta_', 'daily_part_', 'quality_part_')) {
       src <- file.path(baseline_dir, paste0(pat, rev, '.rds'))
       dst <- file.path(output_dir, paste0(pat, rev, '.rds'))
       if (file.exists(src) && !file.exists(dst)) {

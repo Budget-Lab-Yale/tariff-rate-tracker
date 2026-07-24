@@ -1,0 +1,15 @@
+# Counterfactual: the "§122 regime" instead of the "§301 regime".
+# Two changes vs ACTUAL, both before calculation:
+#   1. Disable the Section 301 forced-labor action (rate_s301fl = 0 everywhere).
+#   2. Keep the Section 122 10% blanket PERMANENT — `finalized: true` tells the
+#      calculator Congress extended it, so its 150-day statutory sunset gate
+#      (06_calculate_rates.R: "gate on expiry unless finalized") is skipped and
+#      §122 stays active through the horizon instead of expiring 2026-07-23.
+# Everything else is held fixed. This gives the clean side-by-side:
+#   actual            = §301 regime (§122 sunsets, forced-labor §301 takes over)
+#   no_fl_301_keep_s122 = §122 regime (§122 continues, no forced-labor §301)
+# so readers can compare the two blanket-tariff regimes directly. (See also
+# no_fl_301, which removes §301 and lets §122 lapse — the "neither" world.)
+disabled_authorities: [section_301_forced_labor]
+section_122:
+  finalized: true

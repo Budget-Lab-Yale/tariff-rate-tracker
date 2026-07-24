@@ -23,7 +23,7 @@ AUTHORITY_REGISTRY <- data.frame(
   ),
   default_stacking_class = c(
     'primary', 'content_split', 'content_split', 'additive',
-    'content_split', 'content_split', 'additive', 'additive',
+    'content_split', 'additive', 'additive', 'additive',
     'content_split', 'additive', 'additive'
   ),
   additive_country_rule = c(
@@ -35,12 +35,10 @@ AUTHORITY_REGISTRY <- data.frame(
     's122', 'section_201', 'other'
   ),
   report_sum_order = c(1L, 6L, 7L, 2L, 3L, 5L, 4L, 9L, 8L, 10L, 11L),
-  # NA means scenario-only: carried by stacking when present, but not persisted
-  # as a baseline column in the canonical rate panel.
-  panel_order = c(1L, 5L, 6L, 2L, 3L, NA, 4L, 8L, 7L, 9L, 10L),
+  panel_order = c(1L, 6L, 7L, 2L, 3L, 5L, 4L, 9L, 8L, 10L, 11L),
   schema_group = c(
     'pre_swiss', 'pre_swiss', 'pre_swiss', 'pre_swiss', 'pre_swiss',
-    NA, 'pre_swiss', 'post_swiss', 'post_swiss', 'post_swiss', 'post_swiss'
+    'pre_swiss', 'pre_swiss', 'post_swiss', 'post_swiss', 'post_swiss', 'post_swiss'
   ),
   stringsAsFactors = FALSE
 )

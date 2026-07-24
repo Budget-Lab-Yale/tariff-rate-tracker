@@ -1,7 +1,12 @@
 # Section 301 forced-labor action — source of record for the Annex A exemption list
 
+> **Historical preliminary source.** USTR's July 23, 2026 final action
+> superseded this notice and `resources/s301fl_exempt_products.csv`. The live
+> ACTUAL implementation uses the final resources documented in
+> `docs/forced_labor_scenario.md`.
+
 Provenance for `resources/s301fl_exempt_products.csv` (the Annex A product
-exclusions consumed by the `forced_labor` / `new_301` scenario; see
+exclusions formerly consumed by the `forced_labor` / `new_301` scenario; see
 `docs/forced_labor_scenario.md`).
 
 ## Source
