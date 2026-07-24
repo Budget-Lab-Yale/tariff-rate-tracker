@@ -63,6 +63,12 @@ Verified with `classify_s232_annex()`: `3004909244 → annex_1b` (kept),
 
 ## Expected build impact (from the 2026-07-24 panel, before rebuild)
 
+**Actual (build 2026-07-24-08): −0.8pp overall.** The −0.98pp below was a
+static estimate (removed base × its §232 rate); it ignores displacement — the
+freed base gets backfilled by IEEPA-reciprocal/§122 on the full customs value
+once §232 no longer claims (the metal share of) those rows, which claws back
+~0.2pp.
+
 - **Overall US effective rate: ≈ −0.98pp** (removes ~$145B of spurious §232
   base carrying an avg 21%).
 - Largest per-country reductions (pp): Hungary −8.9, Switzerland −5.3,
