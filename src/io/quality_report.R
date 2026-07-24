@@ -444,10 +444,34 @@ build_quality_inputs_streaming <- function(snapshot_dir, rev_dates, pp = NULL) {
     }
   }
 
+  red <- reduce_quality_schema(na_by_snap, nrow_by_snap)
+
+  list(
+    schema          = red$schema,
+    rev_quality     = bind_rows(rq) %>% arrange(effective_date),
+    annex_anomalies = bind_rows(annex),
+    non_china_301   = bind_rows(nonchina),
+    n_rows          = red$total_rows,
+    n_revisions     = n
+  )
+}
+
+
+#' Union-account per-snapshot NA counts into the check_schema() tibble.
+#'
+#' A column absent from a snapshot contributes nrow(snap) NAs, exactly as
+#' bind_rows() would fill it — so the reduced schema matches check_schema() on
+#' the bound monolith. Shared by build_quality_inputs_streaming() and
+#' load_quality_parts_if_complete() so the two paths cannot drift.
+#'
+#' @param na_by_snap  list of named per-column NA-count vectors, one per snapshot
+#' @param nrow_by_snap integer vector of per-snapshot row counts
+#' @return list(schema = <check_schema tibble>, total_rows = <sum of rows>)
+reduce_quality_schema <- function(na_by_snap, nrow_by_snap) {
   total_rows <- sum(nrow_by_snap)
   all_cols <- unique(unlist(lapply(na_by_snap, names)))
   n_na <- setNames(numeric(length(all_cols)), all_cols)
-  for (i in seq_len(n)) {
+  for (i in seq_along(na_by_snap)) {
     present <- names(na_by_snap[[i]])
     n_na[present] <- n_na[present] + na_by_snap[[i]][present]
     absent <- setdiff(all_cols, present)
@@ -471,13 +495,149 @@ build_quality_inputs_streaming <- function(snapshot_dir, rev_dates, pp = NULL) {
     ) %>% mutate(pct_na = round(n_na / n_rows * 100, 2), status = 'extra'))
   } else schema_expected
 
+  list(schema = schema, total_rows = total_rows)
+}
+
+
+# =============================================================================
+# Per-revision quality parts (array-task precompute; mirrors daily_part_)
+# =============================================================================
+# The gather's streaming quality pass re-reads every snapshot serially — the
+# dominant serial cost of the gather. Each array task instead writes a tiny
+# quality_part_<rev>.rds while its snapshot is in memory; the gather reduces
+# the parts and only falls back to streaming when a part is missing/stale.
+# Quality is weight-independent, so unlike daily parts there is no weight
+# fingerprint — validity is (schema version, revision, interval, mtime).
+
+QUALITY_PART_SCHEMA_VERSION <- 1L
+
+quality_part_path <- function(snapshot_dir, revision) {
+  file.path(snapshot_dir, paste0('quality_part_', revision, '.rds'))
+}
+
+
+#' Write one revision's quality part from the in-memory snapshot.
+#'
+#' Mirrors the per-snapshot body of build_quality_inputs_streaming() exactly:
+#' enforce_rate_schema, stamp the interval BEFORE the NA scan (the interval
+#' columns' NA counts must match the streaming path), then the per-snapshot
+#' NA counts / row count / revision-quality row / annex check / non-China-§301
+#' filter. Everything cross-revision (union schema accounting, detect_anomalies,
+#' check_authority_timeline) stays gather-side.
+write_quality_part_for_snapshot <- function(snapshot, revision, valid_from,
+                                            valid_until, output_dir,
+                                            policy_params = NULL) {
+  snap <- enforce_rate_schema(snapshot)
+  snap$valid_from  <- as.Date(valid_from)
+  snap$valid_until <- as.Date(valid_until)
+
+  cty_china <- if (!is.null(policy_params)) policy_params$CTY_CHINA %||% '5700' else '5700'
+  non_china <- NULL
+  if (all(c('rate_301', 'country') %in% names(snap))) {
+    nc <- snap %>% filter(country != cty_china & rate_301 > 0)
+    if (nrow(nc) > 0) non_china <- nc
+  }
+
+  part <- list(
+    schema_version = QUALITY_PART_SCHEMA_VERSION,
+    metadata = list(
+      revision = revision,
+      valid_from = as.Date(valid_from),
+      valid_until = as.Date(valid_until),
+      n_snapshot_rows = nrow(snap),
+      columns = names(snap),
+      created_at = Sys.time()
+    ),
+    na_counts       = vapply(names(snap), function(col) sum(is.na(snap[[col]])), numeric(1)),
+    n_rows          = nrow(snap),
+    rev_quality     = compute_revision_quality(snap),
+    annex_anomalies = check_annex_classification(snap, policy_params),
+    non_china_301   = non_china
+  )
+  path <- quality_part_path(output_dir, revision)
+  saveRDS(part, path)
+  message('  Wrote quality part: ', path)
+  invisible(path)
+}
+
+
+#' Reduce precomputed quality parts to the streaming-equivalent inputs list.
+#'
+#' Returns NULL (caller falls back to build_quality_inputs_streaming) when any
+#' part is missing, older than its snapshot, unreadable, the wrong schema
+#' version, or stamped with a different interval than the authoritative
+#' rev_dates-derived one — and, stricter than the daily loader, when any
+#' snapshot on disk is not covered by rev_dates (quality exists to catch
+#' exactly that kind of stray artifact; streaming includes it, so parts must
+#' not silently exclude it).
+load_quality_parts_if_complete <- function(snapshot_dir, rev_dates, pp = NULL) {
+  snaps <- list.files(snapshot_dir, pattern = '^snapshot_.*\\.rds$')
+  if (length(snaps) == 0) stop('No snapshots found in ', snapshot_dir)
+  rev_ids <- sub('^snapshot_(.*)\\.rds$', '\\1', snaps)
+  stray <- setdiff(rev_ids, rev_dates$revision)
+  if (length(stray)) {
+    message('Quality part cache unusable: snapshot(s) not in rev_dates: ',
+            paste(stray, collapse = ', '))
+    return(NULL)
+  }
+
+  # The same authoritative intervals build_quality_inputs_streaming() stamps.
+  horizon_end <- as.Date(pp$SERIES_HORIZON_END %||% Sys.Date())
+  rev_intervals <- rev_dates %>%
+    filter(revision %in% rev_ids) %>%
+    arrange(effective_date) %>%
+    mutate(valid_from  = effective_date,
+           valid_until = lead(effective_date) - 1,
+           valid_until = if_else(is.na(valid_until), horizon_end, valid_until)) %>%
+    select(revision, valid_from, valid_until)
+
+  parts <- vector('list', nrow(rev_intervals))
+  for (i in seq_len(nrow(rev_intervals))) {
+    row <- rev_intervals[i, ]
+    path <- quality_part_path(snapshot_dir, row$revision)
+    snapshot_path <- file.path(snapshot_dir, paste0('snapshot_', row$revision, '.rds'))
+    if (!file.exists(path)) {
+      message('Quality part cache incomplete: missing ', basename(path))
+      return(NULL)
+    }
+    if (file.info(path)$mtime < file.info(snapshot_path)$mtime) {
+      message('Quality part cache stale for ', row$revision, ' (part older than snapshot)')
+      return(NULL)
+    }
+    part <- tryCatch(readRDS(path), error = function(e) {
+      message('Quality part cache unreadable: ', basename(path), ': ', conditionMessage(e))
+      NULL
+    })
+    if (is.null(part) || !is.list(part) || is.null(part$metadata)) return(NULL)
+    if (!identical(as.integer(part$schema_version %||% 1L), QUALITY_PART_SCHEMA_VERSION)) {
+      message('Quality part cache stale for ', row$revision, ' (schema v',
+              part$schema_version %||% 1L, ' != v', QUALITY_PART_SCHEMA_VERSION, ')')
+      return(NULL)
+    }
+    meta <- part$metadata
+    valid <- identical(as.character(meta$revision), as.character(row$revision)) &&
+      identical(as.Date(meta$valid_from), as.Date(row$valid_from)) &&
+      identical(as.Date(meta$valid_until), as.Date(row$valid_until))
+    if (!valid) {
+      message('Quality part cache stale for ', row$revision,
+              ' (expected interval ', row$valid_from, '..', row$valid_until, ')')
+      return(NULL)
+    }
+    parts[[i]] <- part
+  }
+
+  message('Using ', length(parts), ' precomputed quality part(s) from ', snapshot_dir)
+  na_by_snap   <- lapply(parts, `[[`, 'na_counts')
+  nrow_by_snap <- vapply(parts, function(p) as.integer(p$n_rows), integer(1))
+  red <- reduce_quality_schema(na_by_snap, nrow_by_snap)
+
   list(
-    schema          = schema,
-    rev_quality     = bind_rows(rq) %>% arrange(effective_date),
-    annex_anomalies = bind_rows(annex),
-    non_china_301   = bind_rows(nonchina),
-    n_rows          = total_rows,
-    n_revisions     = n
+    schema          = red$schema,
+    rev_quality     = bind_rows(lapply(parts, `[[`, 'rev_quality')) %>% arrange(effective_date),
+    annex_anomalies = bind_rows(lapply(parts, `[[`, 'annex_anomalies')),
+    non_china_301   = bind_rows(lapply(parts, `[[`, 'non_china_301')),
+    n_rows          = red$total_rows,
+    n_revisions     = length(parts)
   )
 }
 
@@ -510,9 +670,18 @@ run_quality_report <- function(
   # Both produce the same {schema, rev_quality, annex_anomalies, non_china_301}.
   if (!is.null(snapshot_dir)) {
     if (is.null(rev_dates)) rev_dates <- load_revision_dates()
-    inputs <- build_quality_inputs_streaming(snapshot_dir, rev_dates, pp)
-    message('Loaded ', inputs$n_revisions, ' revision snapshots (streaming; no combined panel), ',
-            inputs$n_rows, ' rows total')
+    # Prefer the array-precomputed quality parts; fall back to streaming the
+    # snapshots (identical inputs, just serial) when any part is missing/stale.
+    inputs <- load_quality_parts_if_complete(snapshot_dir, rev_dates, pp)
+    if (!is.null(inputs)) {
+      message('Loaded ', inputs$n_revisions, ' precomputed quality part(s) (no snapshot re-read), ',
+              inputs$n_rows, ' rows total')
+    } else {
+      message('Quality parts unavailable — falling back to snapshot streaming')
+      inputs <- build_quality_inputs_streaming(snapshot_dir, rev_dates, pp)
+      message('Loaded ', inputs$n_revisions, ' revision snapshots (streaming; no combined panel), ',
+              inputs$n_rows, ' rows total')
+    }
   } else {
     if (is.null(ts)) {
       if (!file.exists(timeseries_path)) {

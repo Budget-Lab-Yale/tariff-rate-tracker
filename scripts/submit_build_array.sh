@@ -9,7 +9,7 @@
 # The build writes its outputs STRAIGHT INTO the vintage: the gather lands
 # daily/quality under <model_data_root>/<vintage>/{actual,scenarios/<name>}/
 # directly — no staging mirror, no copy. The only transient files are the per-
-# revision rds caches (snapshot_/ch99_/products_/daily_part_) + logs, which live
+# revision rds caches (snapshot_/ch99_/products_/daily_part_/quality_part_) + logs, which live
 # under <model_data_root>/.work/<vintage>/ and are removed by the finalize step.
 # The repository working tree is NEVER written to.
 #
