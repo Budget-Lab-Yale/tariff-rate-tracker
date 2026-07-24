@@ -28,9 +28,12 @@ Rebuild them from a `pdftotext -layout` rendering of the USTR notice with
 
 The model treats full and `Ex` rows as exemptions at the listed HTS granularity.
 Aircraft- and pharmaceutical-use rows are utilization-scaled (90% and 50%
-exempt shares). Country/product preference rules use the model's existing
-HS2-by-country preference-utilization proxy. Canada and Mexico continue through
-the product-level USMCA share machinery.
+exempt shares). Part O textiles carry two legal conditions: unconditional for
+Jordan (note 52(j)(13)(i) — Parts N and O are one full-exemption list), and
+CAFTA-claim-conditional for the six note-52(i) origins (Costa Rica, Dominican
+Republic, El Salvador, Guatemala, Honduras, Nicaragua), which use the model's
+existing HS2-by-country preference-utilization proxy. Canada and Mexico
+continue through the product-level USMCA share machinery.
 
 The final action stacks additively with other tariff authorities, except that
 articles in Section 232 scope are fully excluded under note 52(f). The calculator

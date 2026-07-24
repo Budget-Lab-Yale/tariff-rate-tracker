@@ -414,6 +414,38 @@ build_s301_tiers <- function(ch99_data, effective_date, pp) {
   x[intersect(names(x), as.character(countries))]
 }
 
+# Generic date-windowed hts8 exempt-list loader (the pre-final-action FL loader,
+# kept for the Brazil §301 note-50 lists). Missing file / column => empty.
+.resolve_hts8_list <- function(path, effective_date) {
+  if (is.null(path) || !nzchar(as.character(path))) return(character(0))
+  path <- here(path)
+  if (!file.exists(path)) return(character(0))
+  ex <- readr::read_csv(path, col_types = readr::cols(.default = readr::col_character()))
+  if (!'hts8' %in% names(ex)) return(character(0))
+  rd <- as.Date(effective_date)
+  if ('effective_date_start' %in% names(ex)) {
+    ex <- dplyr::filter(ex, is.na(effective_date_start) | as.Date(effective_date_start) <= rd)
+  }
+  if ('effective_date_end' %in% names(ex)) {
+    ex <- dplyr::filter(ex, is.na(effective_date_end) | as.Date(effective_date_end) >= rd)
+  }
+  unique(as.character(ex$hts8))
+}
+
+# Date-gated patented-pharma hts10 list (note 52(f)(8) / Brazil Annex I Part B:
+# patented pharmaceutical articles join the §232-scope exclusion 2026-07-31,
+# BEFORE the pharma-§232 turn-on 2026-09-29, so the heading_program arm cannot
+# carry it — this explicit list does, in both authorities).
+.resolve_patented_pharma <- function(cfg, effective_date) {
+  pharma_path <- here(cfg$patented_pharma_products %||% 'resources/s232_pharma_products.csv')
+  if (as.Date(effective_date) >=
+        as.Date(cfg$patented_pharma_exempt_date %||% '9999-12-31') &&
+      file.exists(pharma_path)) {
+    p <- read_csv_cached(pharma_path, col_types = readr::cols(.default = readr::col_character()))
+    unique(as.character(p$hts10 %||% character(0)))
+  } else character(0)
+}
+
 # Final Annex II exemption inputs. HTS codes may be eight or ten digits.
 .resolve_s301fl_exempt <- function(cfg, effective_date) {
   common_path <- here(cfg$common_exemptions %||%
@@ -428,13 +460,7 @@ build_s301_tiers <- function(ch99_data, effective_date, pp) {
     tidyr::separate_rows(countries, sep = ';') %>%
     rename(country = countries)
 
-  pharma_path <- here(cfg$patented_pharma_products %||% 'resources/s232_pharma_products.csv')
-  patented_pharma <- if (as.Date(effective_date) >=
-                         as.Date(cfg$patented_pharma_exempt_date %||% '9999-12-31') &&
-                         file.exists(pharma_path)) {
-    p <- read_csv_cached(pharma_path, col_types = readr::cols(.default = readr::col_character()))
-    unique(as.character(p$hts10 %||% character(0)))
-  } else character(0)
+  patented_pharma <- .resolve_patented_pharma(cfg, effective_date)
 
   list(
     hts_code = unique(common$hts_code[common$condition %in% c('full', 'ex')]),
@@ -542,23 +568,25 @@ build_s301_tiers <- function(ch99_data, effective_date, pp) {
       country_scope = list(include = scope),
       rate = rate_layer))
   )
-  # exempt-list loader is generic (reads cfg$exempt_products); reused from the FL
-  # builder for all three note-50 lists. hts8 = the UNCONDITIONAL (a)(ii)+(iii)
-  # exclusions; aircraft/pharma are the USE-conditional (a)(iv)/(v) lists, which
-  # the calculator scales by (1 - share) instead of exempting flat (shares back
-  # out of GTA's published effective rates — see policy_params.yaml).
-  load_list <- function(key) {
-    path <- cfg[[key]]
-    if (is.null(path) || !nzchar(as.character(path))) return(character(0))
-    .resolve_s301fl_exempt(list(exempt_products = path), effective_date)
-  }
+  # Note-50 exempt lists use the generic date-windowed hts8 loader
+  # (.resolve_hts8_list — NOT .resolve_s301fl_exempt, which since the FL final
+  # action returns the Annex-II structure and would silently drop every Brazil
+  # exclusion; regression caught 2026-07-23). hts8 = the UNCONDITIONAL
+  # (a)(ii)+(iii) exclusions; aircraft/pharma are the USE-conditional
+  # (a)(iv)/(v) lists, which the calculator scales by (1 - share) instead of
+  # exempting flat (shares back out of GTA's published effective rates — see
+  # policy_params.yaml). patented_pharma_hts10 = Annex I Part B (eff.
+  # 2026-07-31): patented pharma joins the (a)(vi) §232-scope exclusion BEFORE
+  # the pharma-§232 turn-on (2026-09-29), so it needs this explicit date-gated
+  # list — the heading_program arm only tags pharma rows from 09-29.
   clamp01 <- function(x) pmin(pmax(as.numeric(x %||% 0), 0), 1)
   spec$programs[[1]]$exempt_products <- list(
-    hts8           = .resolve_s301fl_exempt(cfg, effective_date),
-    aircraft_hts8  = load_list('aircraft_products'),
+    hts8           = .resolve_hts8_list(cfg$exempt_products, effective_date),
+    aircraft_hts8  = .resolve_hts8_list(cfg$aircraft_products, effective_date),
     aircraft_share = clamp01(cfg$aircraft_exempt_share),
-    pharma_hts8    = load_list('pharma_products'),
-    pharma_share   = clamp01(cfg$pharma_exempt_share))
+    pharma_hts8    = .resolve_hts8_list(cfg$pharma_products, effective_date),
+    pharma_share   = clamp01(cfg$pharma_exempt_share),
+    patented_pharma_hts10 = .resolve_patented_pharma(cfg, effective_date))
   spec
 }
 

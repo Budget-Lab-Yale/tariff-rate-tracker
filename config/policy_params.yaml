@@ -850,8 +850,10 @@ section_338:
 # `Ex` descriptions are modeled at the containing HTS code. Aircraft- and
 # pharma-use rows use the same 90%/50% utilization approximations as the Brazil
 # final action. Canada/Mexico USMCA exemptions are applied by the existing
-# product-share machinery; the enumerated FTA/CAFTA textile rows use the
-# existing HS2 preference-utilization proxy.
+# product-share machinery. Part O textiles: UNCONDITIONAL for Jordan (note
+# 52(j)(13)(i) — Part N + Part O are one full-exemption list); CAFTA-claim-
+# conditional for the note-52(i) six (CR/DO/SV/GT/HN/NI), proxied by the
+# existing HS2 preference-utilization share.
 # All §232 articles are fully excluded (note 52(f)); this is a scope mask, not a
 # content split. Patented pharma joins that carve-out on 2026-07-31.
 section_301_forced_labor:
@@ -928,6 +930,12 @@ section_301_brazil:
   aircraft_exempt_share: 0.90
   pharma_products: 'resources/s301_brazil_pharma_products.csv'
   pharma_exempt_share: 0.50
+  # Annex I Part B: patented pharmaceutical articles join the note-50(a)(vi)
+  # §232-scope exclusion 2026-07-31 — BEFORE the pharma-§232 turn-on (09-29)
+  # tags those rows heading_program, so an explicit date-gated list carries the
+  # 07-31..09-29 window (same treatment as the FL note-52(f)(8) carve-out).
+  patented_pharma_exempt_date: '2026-07-31'
+  patented_pharma_products: 'resources/s232_pharma_products.csv'
 
 # --- Series time horizon ---
 # End date for timeseries valid_until on the final revision.
@@ -979,7 +987,12 @@ series_horizon:
 # 2026-07-22 is the Brazil §301 turn-on (FR Doc 2026-14542, section_301_brazil
 # above): config-driven, no Ch99 offset (no archive carries 9903.05.0x yet); the
 # adapter's date-gate re-resolves it as-of that date — same pattern as §338.
-boundary_overrides: ['2026-06-08', '2026-07-22', '2026-07-24', '2026-08-19', '2026-09-29']
+# 2026-07-31 is the patented-pharma exclusion turn-on shared by the FL §301
+# (note 52(f)(8), patented_pharma_exempt_date above) and Brazil §301 (Annex I
+# Part B): config-driven, no Ch99 offset; the adapter's date-gate populates
+# patented_pharma_hts10 as-of that date, so an empty-ops mint materializes it —
+# without this mint the carve-out would first appear at bnd_2026-08-19.
+boundary_overrides: ['2026-06-08', '2026-07-22', '2026-07-24', '2026-07-31', '2026-08-19', '2026-09-29']
 
 # --- Validation thresholds ---
 validation_thresholds:

@@ -127,6 +127,34 @@ ok(nrow(ex$country_rules) > 10000, 'country-specific + preference rules expanded
 ok(length(ex$patented_pharma_hts10) > 0, 'post-2026-07-31 patented pharma exclusion loaded')
 ok(validate_spec_set(do.call(authority_spec_set, list(spec_on))) %||% TRUE, 'spec validates')
 
+cat('\n== Part O textile conditions (note 52(i) + 52(j)(13)(i)) ==\n')
+fta_ctys <- unique(ex$country_rules$country[ex$country_rules$condition == 'fta'])
+ok(setequal(fta_ctys, c('2050', '2110', '2150', '2190', '2230', '2470')),
+   'CAFTA fta origins = the note-52(i) six incl. Nicaragua (2190), no Türkiye')
+jo_full <- ex$country_rules %>% filter(country == '5110', condition == 'full')
+ok(nrow(jo_full) == 1889, 'Jordan full list = Part N + Part O (1,889 codes, (j)(13)(i))')
+ok('42021100' %in% jo_full$hts_code, 'Jordan Part O luggage code is unconditional')
+ok(!nrow(ex$country_rules %>% filter(country == '5110', condition == 'fta')),
+   'no fta-conditioned rows remain for Jordan')
+ok('2026-07-31' %in% as.character(pp_base$BOUNDARY_OVERRIDES),
+   'patented-pharma 2026-07-31 boundary mint is in the calendar')
+
+cat('\n== Brazil §301 exempt lists (loader-regression guard) ==\n')
+spec_br <- .build_section_301_brazil(pp_base, countries, as.Date('2026-08-01'))
+br_ex <- spec_br$programs[[1]]$exempt_products
+ok(is.character(br_ex$hts8) && length(br_ex$hts8) == 875,
+   'Brazil unconditional exclusions are a character vector (875 hts8)')
+ok(is.character(br_ex$aircraft_hts8) && length(br_ex$aircraft_hts8) == 546,
+   'Brazil aircraft-use list intact (546 hts8)')
+ok(is.character(br_ex$pharma_hts8) && length(br_ex$pharma_hts8) == 705,
+   'Brazil pharma-use list intact (705 hts8)')
+ok('04090000' %in% br_ex$hts8, 'Brazil honey exclusion matches again')
+ok(length(br_ex$patented_pharma_hts10) > 0,
+   'Brazil patented-pharma exclusion loaded post-2026-07-31')
+br_pre <- .build_section_301_brazil(pp_base, countries, as.Date('2026-07-25'))
+ok(length(br_pre$programs[[1]]$exempt_products$patented_pharma_hts10) == 0,
+   'Brazil patented-pharma exclusion empty before 2026-07-31')
+
 cat('\n== calculator output ==\n')
 plain <- '9999999999'
 common_full <- paste0(ex$hts_code[[1]], ifelse(nchar(ex$hts_code[[1]]) == 8, '00', ''))

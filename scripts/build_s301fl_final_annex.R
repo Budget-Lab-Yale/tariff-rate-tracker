@@ -99,15 +99,26 @@ country_specific <- bind_rows(lapply(names(part_countries), function(p) {
               hts_code, condition)
 }))
 
-# Part O is the notice's enumerated textile/apparel universe. The exemption is
-# preference-conditional: Jordan FTA for Jordan, and CAFTA-DR for the six
-# CAFTA-DR origins in note 52(i). The calculator proxies the claim rate with the
-# existing HS2×country MFN-exemption share.
-preference_origins <- c('2050', '2110', '2150', '2230', '2470', '4890', '5110')
-preference <- annex %>%
-  filter(part == 'O') %>%
-  transmute(countries = paste(preference_origins, collapse = ';'),
-            hts_code, condition = 'fta') %>%
+# Part O is the notice's enumerated textile/apparel universe, with two distinct
+# legal conditions:
+#   * Jordan: UNCONDITIONAL — note 52(j)(13)(i) / heading 9903.06.20 exempts the
+#     full Jordan list outright (Part N + Part O = that one list, 1,889 codes),
+#     with no FTA-claim requirement. Emitted as condition 'full'.
+#   * The six CAFTA-DR origins (note 52(i) / heading 9903.05.95: Costa Rica,
+#     Dominican Republic, El Salvador, Guatemala, Honduras, Nicaragua):
+#     preference-conditional — exempt when entered free of duty under CAFTA-DR.
+#     El Salvador/Guatemala additionally have the enumerated (j)(6)(iii)/
+#     (j)(7)(iii) lists under the same CAFTA-claim condition. The calculator
+#     proxies the claim rate with the existing HS2×country MFN-exemption share.
+#     (2026-07-23 fix: this list previously carried 4890 = Türkiye — a 12.5%
+#     flat economy with no US preference program — instead of 2190 Nicaragua.)
+cafta_origins <- c('2050', '2110', '2150', '2190', '2230', '2470')
+part_o <- annex %>% filter(part == 'O')
+preference <- bind_rows(
+  part_o %>% transmute(countries = paste(cafta_origins, collapse = ';'),
+                       hts_code, condition = 'fta'),
+  part_o %>% transmute(countries = '5110', hts_code, condition = 'full')
+) %>%
   distinct()
 
 country_specific <- bind_rows(country_specific, preference) %>%

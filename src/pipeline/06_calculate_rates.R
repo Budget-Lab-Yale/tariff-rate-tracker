@@ -898,6 +898,29 @@ apply_section122 <- function(rates, specs, pp, products, effective_date) {
   rates
 }
 
+# §232 FULL per-article scope mask, shared by the three chapter-99 authorities
+# whose notes each impose a full exclusion on goods already in §232 scope:
+# forced-labor §301 (note 52(f)), Brazil §301 (note 50(a)(vi)), and §338
+# (note 51(c)). A row is in scope when it carries a §232 duty
+# (statutory_rate_232 > 0), sits in an IN-SCOPE annex tier (1a/1b/1c/3 —
+# annex_2 is REMOVED from §232 scope, so it is NOT excluded and still pays;
+# see the s338 beer 2203.00.00 case, codex cross-check 2026-07-20), or is a
+# heading_program row. Single definition so a future §232 scope change lands
+# in one place, not three.
+.s232_in_scope <- function(rates) {
+  ANNEX_IN_SCOPE <- c('annex_1a', 'annex_1b', 'annex_1c', 'annex_3')
+  stat232 <- if ('statutory_rate_232' %in% names(rates)) {
+    coalesce(rates$statutory_rate_232, 0)
+  } else coalesce(rates$rate_232, 0)
+  annex232 <- if ('s232_annex' %in% names(rates)) {
+    rates$s232_annex %in% ANNEX_IN_SCOPE
+  } else FALSE
+  headprog <- if ('heading_program' %in% names(rates)) {
+    coalesce(rates$heading_program, FALSE)
+  } else FALSE
+  stat232 > 0 | annex232 | headprog
+}
+
 # --- Step 6b-fl: Section 301 forced-labor duties (baseline) ------------------
 apply_section301_forced_labor <- function(rates, specs, countries) {
   # Final action, effective 2026-07-24. Flat 10%/12.5% origins and 10%/12.5%
@@ -943,18 +966,8 @@ apply_section301_forced_labor <- function(rates, specs, countries) {
         paste(rates$country, rates$hts10, sep = '|') %in% key10
     }
 
-    # Full §232-scope exclusion, matching note 52(f).
-    FL_ANNEX_IN_SCOPE <- c('annex_1a', 'annex_1b', 'annex_1c', 'annex_3')
-    stat232 <- if ('statutory_rate_232' %in% names(rates)) {
-      coalesce(rates$statutory_rate_232, 0)
-    } else coalesce(rates$rate_232, 0)
-    annex232 <- if ('s232_annex' %in% names(rates)) {
-      rates$s232_annex %in% FL_ANNEX_IN_SCOPE
-    } else FALSE
-    headprog <- if ('heading_program' %in% names(rates)) {
-      coalesce(rates$heading_program, FALSE)
-    } else FALSE
-    in_232_scope <- stat232 > 0 | annex232 | headprog
+    # Full §232-scope exclusion, matching note 52(f) (shared .s232_in_scope).
+    in_232_scope <- .s232_in_scope(rates)
 
     common_full_hit <- code_hit(common_full)
     country_full_hit <- rule_hit('full')
@@ -1035,10 +1048,11 @@ apply_section301_brazil <- function(rates, specs, products, countries) {
   #         enumerates steel/alu/copper + derivatives, PV/LT + parts, MHD +
   #         parts, wood and semiconductor headings; patented pharma joins via
   #         Annex I Part B effective 2026-07-31 — BEFORE the model's
-  #         pharma-§232 turn-on (2026-09-29), so the heading_program arm
-  #         (which tags pharma rows only from that date) reproduces the legal
-  #         timeline exactly: no pharma-§232 duty is collectible in the
-  #         07-22..09-29 window either way.
+  #         pharma-§232 turn-on (2026-09-29), so it rides an explicit
+  #         date-gated hts10 list (br_patent_hit below; the FL note-52(f)(8)
+  #         treatment), NOT the heading_program arm: the §301 duty on those
+  #         articles legally stops 07-31 even though the §232 duty only
+  #         starts 09-29.
   #     rate_s301br is a RATE_SCHEMA column: it persists all-zero in pre-07-22
   #     revisions (baseline column, like rate_s338 — unlike the scenario
   #     rate_s301fl). Runs after the §232 PRIMARY steps, next to 6b-338 — the
@@ -1060,20 +1074,15 @@ apply_section301_brazil <- function(rates, specs, products, countries) {
     br_pharma_share  <- as.numeric(br_ex$pharma_share %||% 0)
     br_scope <- intersect(names(br_by_country), countries)
 
-    # §232 scope mask over EXISTING rows (note 50(a)(vi)); same mask as
-    # apply_section338 (note 51(c)) — see that docstring for the annex-tier
-    # rationale (annex_2 articles are REMOVED from §232 scope and still pay).
-    BR_ANNEX_IN_SCOPE <- c('annex_1a', 'annex_1b', 'annex_1c', 'annex_3')
-    stat232  <- if ('statutory_rate_232' %in% names(rates)) {
-      coalesce(rates$statutory_rate_232, 0)
-    } else coalesce(rates$rate_232, 0)
-    annex232 <- if ('s232_annex' %in% names(rates)) {
-      rates$s232_annex %in% BR_ANNEX_IN_SCOPE
-    } else FALSE
-    headprog <- if ('heading_program' %in% names(rates)) {
-      coalesce(rates$heading_program, FALSE)
-    } else FALSE
-    in_232_scope <- stat232 > 0 | annex232 | headprog
+    # §232 scope mask over EXISTING rows (note 50(a)(vi)); shared .s232_in_scope
+    # — see its docstring for the annex-tier rationale (annex_2 articles are
+    # REMOVED from §232 scope and still pay). Patented pharma joins the (a)(vi)
+    # exclusion via Annex I Part B effective 2026-07-31 — BEFORE the pharma-§232
+    # turn-on (2026-09-29) tags those rows heading_program — so the adapter
+    # supplies a date-gated explicit hts10 list (same treatment as FL note
+    # 52(f)(8)); the two arms overlap harmlessly from 09-29.
+    in_232_scope <- .s232_in_scope(rates)
+    br_patent_hit <- rates$hts10 %in% (br_ex$patented_pharma_hts10 %||% character(0))
 
     br_tbl <- tibble(country = names(br_by_country),
                      .br_rate = unname(as.numeric(br_by_country)))
@@ -1081,7 +1090,7 @@ apply_section301_brazil <- function(rates, specs, products, countries) {
       left_join(br_tbl, by = 'country', relationship = 'many-to-one') %>%
       mutate(rate_s301br = if_else(
         !is.na(.br_rate) & !(substr(hts10, 1, 8) %in% br_exempt_hts8) &
-          !in_232_scope,
+          !in_232_scope & !br_patent_hit,
         .br_rate, 0)) %>%
       select(-.br_rate)
 
@@ -1192,23 +1201,12 @@ apply_section338 <- function(rates, specs, products, countries) {
         select(hts10, gn6_factor)
     }
 
-    # §232 scope mask over EXISTING rows (note 51(c)); see docstring. The annex
-    # arm is TIER-SCOPED: annex_2 = REMOVED from §232 scope (statutory 0, not
-    # "provided for" in the 9903.82 headings note 51(c)(1) cites), so those
-    # articles still pay s338 — 54 covered Canada lines incl. beer 2203.00.00,
-    # which the alcohol proclamation lists explicitly. A bare !is.na(s232_annex)
-    # arm wrongly exempted them (caught in the codex cross-check 2026-07-20).
-    S338_ANNEX_IN_SCOPE <- c('annex_1a', 'annex_1b', 'annex_1c', 'annex_3')
-    stat232  <- if ('statutory_rate_232' %in% names(rates)) {
-      coalesce(rates$statutory_rate_232, 0)
-    } else coalesce(rates$rate_232, 0)
-    annex232 <- if ('s232_annex' %in% names(rates)) {
-      rates$s232_annex %in% S338_ANNEX_IN_SCOPE
-    } else FALSE
-    headprog <- if ('heading_program' %in% names(rates)) {
-      coalesce(rates$heading_program, FALSE)
-    } else FALSE
-    in_232_scope <- stat232 > 0 | annex232 | headprog
+    # §232 scope mask over EXISTING rows (note 51(c)); shared .s232_in_scope —
+    # its TIER-SCOPED annex arm (annex_2 = removed from §232 scope, still pays
+    # s338: 54 covered Canada lines incl. beer 2203.00.00, which the alcohol
+    # proclamation lists explicitly; a bare !is.na(s232_annex) arm wrongly
+    # exempted them, caught in the codex cross-check 2026-07-20).
+    in_232_scope <- .s232_in_scope(rates)
 
     s338_tbl <- tibble(country = names(s338_by_country),
                        .s338_rate = unname(as.numeric(s338_by_country)))
