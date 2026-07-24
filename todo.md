@@ -122,6 +122,34 @@ Phases 0 + 2 DONE (hygiene; shared verify gate) — details in archive todo.
   golden parity baseline. Do NOT finish the in-process revision-parallel stub.
   Fold rebuild-alternatives into the array config as post-gather work units.
 - [ ] **Phase 4 —** = alternatives unification remaining, next section.
+- [ ] **Gather quality-report collapse-in-node (mirror `daily_part`).** The
+  daily series already collapses per-revision in the array tasks
+  (`write_daily_part_for_snapshot` → `daily_part_<rev>.rds`; gather only binds;
+  204M-row monolith retired). The gather's remaining serial cost is the
+  **quality report**: `build_quality_inputs_streaming`
+  (`src/io/quality_report.R:401-450`) reads all snapshots one at a time in a
+  `for` loop and computes per-snapshot NA scans / row counts / per-revision
+  summaries on one core. Apply the exact `daily_part` pattern:
+  1. Add `write_quality_part_for_snapshot()` in `quality_report.R`; call it from
+     `scripts/build_revision.R` right after the daily part (snapshot already in
+     memory, ~line 89-128) → `quality_part_<rev>.rds`.
+  2. Add `load_quality_parts_if_complete()` mirroring
+     `load_daily_parts_if_complete` (same completeness + fingerprint gate; fail
+     loud on missing/stale). `run_quality_report` binds the parts and runs ONLY
+     the cross-revision reductions (consecutive-rev deltas `:137`, authority
+     coverage `:272-298`, interval/NA-window checks) on the small summaries;
+     keep the streaming path as the explicit serial/non-array fallback.
+  3. Add `quality_part_` to the scratch-file patterns in
+     `submit_build_array.sh` (line 12) and the scenario-reuse symlink loop in
+     `build_gather.R` (line 109).
+  - Quality needs no weights, so no per-task weight-load cost (unlike daily).
+  - (Second lever, measure first) the consecutive-parse **deltas** step is also
+     gather-serial but needs adjacent revisions — don't decompose unless quality
+     alone doesn't recover most of the wall-clock.
+  - Parity-gate via `run_parity_check.R` (array quality outputs == serial within
+    tolerance) + confirm `verify_build.R` NA-interval/quality gates still pass.
+    Code-only, no data migration. Baseline gather wall-clock to capture: build
+    2026-07-24-08 gathers ran ~15 min each (three series concurrent).
 
 ## Alternatives unification (2026-06-10) — remaining
 
