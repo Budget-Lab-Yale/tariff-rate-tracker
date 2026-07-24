@@ -766,17 +766,31 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
     section_232 <- .s232_set_by_country(section_232, 'aluminum',
       .s232_blanket_by_country(s232_rates, pp, countries, effective_date,
                                'aluminum_exempt', 'aluminum_country_overrides', 'aluminum'))
-    .derivative_country_rates <- function(exempt) {
+    .derivative_country_rates <- function(exempt, overrides = NULL) {
       hit <- vapply(countries, function(cty) is_232_exempt(cty, exempt), logical(1))
-      if (!any(hit)) return(NULL)
-      stats::setNames(rep(0, sum(hit)), as.character(countries[hit]))
+      bc <- if (any(hit)) stats::setNames(rep(0, sum(hit)), as.character(countries[hit])) else c()
+      # Country deal caps apply to the DERIVATIVE programs too: the Ch99 deals
+      # range carries explicit derivative entries at the deal rate (UK 25% via
+      # 9903.81.96-.99 steel / 9903.85.13-.15 aluminum, June 2025 structure), so
+      # the overrides parsed from 9903.81.94-99 / 9903.85.12-15 must reach these
+      # programs — primaries-only application overcharged UK outside-chapter
+      # derivatives 50% instead of 25% for 2025-06-04..2026-04-05. Exempt zeros
+      # win over deal rates.
+      for (cty in names(overrides %||% list())) {
+        cty <- as.character(cty)
+        if (!cty %in% names(bc)) bc[[cty]] <- as.numeric(overrides[[cty]])
+      }
+      if (!length(bc)) return(NULL)
+      bc
     }
     section_232 <- .s232_set_by_country(
       section_232, 'steel_derivatives',
-      .derivative_country_rates(s232_rates$steel_derivative_exempt))
+      .derivative_country_rates(s232_rates$steel_derivative_exempt,
+                                s232_rates$steel_country_overrides))
     section_232 <- .s232_set_by_country(
       section_232, 'aluminum_derivatives',
-      .derivative_country_rates(s232_rates$aluminum_derivative_exempt))
+      .derivative_country_rates(s232_rates$aluminum_derivative_exempt,
+                                s232_rates$aluminum_country_overrides))
     # Normalize auto and wood country deals into rate overrides/floors.
     .s232_set_deals <- function(spec, prog_id, layers) {
       pos <- which(vapply(spec$programs, function(p) identical(p$id, prog_id), logical(1)))
