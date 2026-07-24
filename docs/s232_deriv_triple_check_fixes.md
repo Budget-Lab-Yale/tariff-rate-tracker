@@ -107,3 +107,23 @@ successors restore current-law coverage from 2026-01-30/07-01 (notably
 84139190 steel and 8708295160 → successors); metal-blind narrowings remove
 residual spurious base from 2025-03-12 on. Golden-changing: one Slurm rebuild
 + re-freeze.
+
+## Build outcome (vintage 2026-07-24-09 — GOLDEN reference as of 2026-07-24)
+
+Verified (verify_build.R gates + 112/112 tests) and `latest` repointed.
+Measured deltas vs 2026-07-24-08, matching the predictions above:
+
+- Overall: +0.01 to +0.02pp through the pre-annex window (mean +0.014pp
+  2025-03-12..2026-04-05 — (n)-list + beer, displacement-damped, net of the
+  narrowings); +0.023pp on current-law dates (churn successors). Cleanest
+  signature: exactly −0.08pp on 2025-03-07..11 only (the 5-day early-start
+  date fix), flipping to +0.006 on 2025-03-12.
+- UK: −0.35pp from ~Aug 2025 (when the inclusions list built its derivative
+  base) through 2026-04-05; ~0 in the annex era. The 50%→25% fix.
+- Switzerland/Hungary/pharma origins: no movement (the 585ce25 narrowing was
+  not disturbed). Remaining top movers are micro-importers (Kosovo furniture
+  via 9403.20.00, etc.) where one restored line swings a tiny denominator.
+
+This vintage supersedes 2026-07-24-08 as the parity reference ("golden") for
+future candidate builds. Also first build with the quality-part gather
+speedup: gathers 13.5–16 min → 1:38–2:04.
