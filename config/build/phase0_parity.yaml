@@ -1,0 +1,17 @@
+# Phase 0 parity candidate (pre-2025 expansion rails): the window machinery
+# (series_horizon.start_date + load_revision_dates gate + assemble horizon-start
+# guard) must reproduce production latest exactly — the shipped window
+# (2025-01-01) filters nothing from the current grid, so any drift is a defect.
+# Compare with:
+#   Rscript scripts/run_parity_check.R \
+#     --reference /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker/latest \
+#     --candidate /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker/.validation/phase0-parity
+model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker/.validation/phase0-parity
+policy_params_path: config/policy_params.yaml
+scenarios:
+  - new_301
+use_hts_dates: false
+weight_mode: required
+update_latest: false
+allow_partial: false
+verify: true
