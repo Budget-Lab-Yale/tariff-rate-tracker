@@ -287,6 +287,14 @@ load_policy_params <- function(yaml_path = NULL,
   } else {
     params$SERIES_HORIZON_END <- Sys.Date()
   }
+  # Window start (pre-2025 expansion rails): revisions dated earlier are
+  # excluded from the grid by load_revision_dates(). Absent key => NULL => no
+  # start bound (fixture/scenario configs without the key keep today's behavior).
+  params$SERIES_HORIZON_START <- if (!is.null(params$series_horizon$start_date)) {
+    as.Date(params$series_horizon$start_date)
+  } else {
+    NULL
+  }
 
   # Boundary-mint overrides (unified timeline / P2-1): curated extra effective
   # dates fed to discover_boundaries() as a backstop. Empty in baseline.

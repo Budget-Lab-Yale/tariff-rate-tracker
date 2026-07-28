@@ -67,6 +67,52 @@ build_chapter99_url <- function(release_name) {
 }
 
 
+#' Resolve the series-window start date from the active policy params
+#'
+#' Reads series_horizon.start_date from the policy params YAML the current run
+#' builds against (TARIFF_POLICY_PARAMS override honored, matching
+#' load_policy_params()). Read directly rather than via load_policy_params():
+#' this runs on every grid load and needs none of the unpacking, and the build
+#' window belongs to an era's baseline config, not to scenario overlays (each
+#' pre-2025 era gets its own policy_params_path — see
+#' docs/internal/pre2025_expansion_scoping_2026-07-28.md).
+#'
+#' @return Date, or NULL when the key (or file) is absent => no start bound
+series_window_start <- function() {
+  env_path <- Sys.getenv('TARIFF_POLICY_PARAMS', '')
+  yaml_path <- if (nzchar(env_path)) env_path else here('config', 'policy_params.yaml')
+  if (!file.exists(yaml_path)) return(NULL)
+  sh <- tryCatch(yaml::read_yaml(yaml_path)$series_horizon, error = function(e) NULL)
+  if (is.null(sh$start_date)) return(NULL)
+  as.Date(sh$start_date)
+}
+
+
+#' Assert that revisions fall inside the series window
+#'
+#' Belt-and-braces mirror of the load_revision_dates() window filter, used by
+#' assemble_timeseries() so a pre-window snapshot cannot enter the panel even
+#' when the grid was loaded unfiltered (apply_window = FALSE) or assembled from
+#' a foreign rev_dates. Fails loud and names the offenders.
+#'
+#' @param rev_dates Tibble from load_revision_dates()
+#' @param revision_ids Character revision ids about to enter the panel
+#' @param window_start Date lower bound, or NULL to skip the check
+assert_within_series_window <- function(rev_dates, revision_ids, window_start) {
+  if (is.null(window_start)) return(invisible(TRUE))
+  early <- rev_dates %>%
+    filter(revision %in% revision_ids, effective_date < window_start)
+  if (nrow(early) > 0) {
+    stop('assemble_timeseries: ', nrow(early),
+         ' revision(s) fall before series_horizon.start_date (', window_start, '): ',
+         paste(early$revision, collapse = ', '),
+         '. Pre-window revisions must build as their own era/vintage — see ',
+         'docs/internal/pre2025_expansion_scoping_2026-07-28.md.')
+  }
+  invisible(TRUE)
+}
+
+
 #' Load revision dates from config CSV
 #'
 #' @param csv_path Path to revision_dates.csv
@@ -74,9 +120,17 @@ build_chapter99_url <- function(release_name) {
 #'   effective_date where populated. This uses legal policy dates instead of
 #'   HTS revision dates. Set FALSE or pass --use-hts-dates to use raw HTS dates.
 #'   See docs/policy_timing.md for details on which revisions are affected.
+#' @param apply_window If TRUE (default), drop revisions dated before the
+#'   active config's series_horizon.start_date so a backfilled
+#'   revision_dates.csv cannot widen this build's grid. Every grid consumer
+#'   funnels through here; the scraper reconciles the raw CSV and opts out.
+#' @param window_start Explicit window start (Date); default NULL resolves it
+#'   from the active policy params via series_window_start().
 #' @return Tibble with revision, effective_date
 load_revision_dates <- function(csv_path = here('config', 'revision_dates.csv'),
-                                use_policy_dates = TRUE) {
+                                use_policy_dates = TRUE,
+                                apply_window = TRUE,
+                                window_start = NULL) {
   if (!file.exists(csv_path)) {
     stop('Revision dates CSV not found: ', csv_path,
          '\nRun scraper or create manually.')
@@ -127,6 +181,28 @@ load_revision_dates <- function(csv_path = here('config', 'revision_dates.csv'),
 
   # Sort by effective_date
   dates <- dates %>% arrange(effective_date)
+
+  # Series-window gate (pre-2025 expansion rails): applied after the policy-date
+  # swap so the window keys on the same dates the grid is ordered by. With the
+  # shipped config (start 2025-01-01) and the current CSV this drops nothing —
+  # the filter only bites once pre-2025 rows are backfilled.
+  if (apply_window) {
+    if (is.null(window_start)) window_start <- series_window_start()
+    if (!is.null(window_start)) {
+      n_before <- nrow(dates)
+      dates <- dates %>% filter(effective_date >= window_start)
+      n_dropped <- n_before - nrow(dates)
+      if (n_dropped > 0) {
+        message('  Series window: excluded ', n_dropped,
+                ' revision(s) before ', window_start)
+      }
+      if (nrow(dates) == 0) {
+        stop('load_revision_dates: no revisions remain after applying the ',
+             'series window (start ', window_start, '). Check ',
+             'series_horizon.start_date against ', csv_path)
+      }
+    }
+  }
 
   message('Loaded ', nrow(dates), ' revision dates from ', csv_path)
   message('  Date range: ', min(dates$effective_date), ' to ', max(dates$effective_date))

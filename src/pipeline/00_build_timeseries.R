@@ -288,6 +288,14 @@ assemble_timeseries <- function(output_dir, rev_dates, pp_build,
          'files) from ', output_dir, ' or add the revision to revision_dates.csv.')
   }
 
+  # Horizon-start gate (pre-2025 expansion rails, mirror of the end-side guard
+  # below): a snapshot dated before series_horizon.start_date means the window
+  # was bypassed upstream (apply_window = FALSE, or a foreign rev_dates) —
+  # fail loud rather than silently widening the series. When rev_dates came
+  # through the normal windowed load, pre-window snapshots are already caught
+  # by the orphan gate above; this covers the unfiltered paths.
+  assert_within_series_window(rev_dates, revs_on_disk, pp_build$SERIES_HORIZON_START)
+
   # Streaming fill instead of rbindlist. The full panel is ~210M rows x 33
   # cols (~50 GB in memory) after the 2026-06-04 universe expansion; rbindlist
   # requires the list of all snapshots AND the bound result to coexist

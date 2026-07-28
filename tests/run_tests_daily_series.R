@@ -190,6 +190,84 @@ run_test('series_horizon parsed from YAML', {
 
 
 # =============================================================================
+# Test 1b: Series-window gate (pre-2025 expansion rails, Phase 0)
+# =============================================================================
+
+message('\n--- Test 1b: Series window ---')
+
+run_test('shipped config resolves SERIES_HORIZON_START = 2025-01-01', {
+  pp <- load_policy_params()
+  stopifnot(!is.null(pp$SERIES_HORIZON_START))
+  stopifnot(pp$SERIES_HORIZON_START == as.Date('2025-01-01'))
+})
+
+# Synthetic CSV with one pre-window row; written once, shared by the window tests.
+.window_fixture_csv <- function() {
+  path <- tempfile(fileext = '.csv')
+  writeLines(c(
+    'revision,effective_date,policy_effective_date,policy_event',
+    '2016_basic,2016-01-01,NA,Backfill fixture row',
+    'basic,2025-01-01,NA,Baseline',
+    'rev_1,2025-01-27,2025-02-04,Fixture'
+  ), path)
+  path
+}
+
+run_test('window start excludes pre-window revisions, keeps the rest ordered', {
+  dates <- load_revision_dates(.window_fixture_csv(),
+                               window_start = as.Date('2025-01-01'))
+  stopifnot(!'2016_basic' %in% dates$revision)
+  stopifnot(identical(dates$revision, c('basic', 'rev_1')))
+  stopifnot(min(dates$effective_date) >= as.Date('2025-01-01'))
+})
+
+run_test('apply_window = FALSE returns the raw grid', {
+  dates <- load_revision_dates(.window_fixture_csv(), apply_window = FALSE)
+  stopifnot('2016_basic' %in% dates$revision)
+  stopifnot(nrow(dates) == 3)
+})
+
+run_test('window filters on post-swap policy dates', {
+  # rev_1 swaps to 2025-02-04; a window at 2025-02-01 must keep it and drop basic.
+  dates <- load_revision_dates(.window_fixture_csv(), use_policy_dates = TRUE,
+                               window_start = as.Date('2025-02-01'))
+  stopifnot(identical(dates$revision, 'rev_1'))
+})
+
+run_test('window excluding every revision fails loud', {
+  err <- tryCatch({
+    load_revision_dates(.window_fixture_csv(),
+                        window_start = as.Date('2030-01-01'))
+    NULL
+  }, error = function(e) conditionMessage(e))
+  stopifnot(!is.null(err))
+  stopifnot(grepl('no revisions remain', err))
+})
+
+run_test('real grid is identical with and without the shipped window', {
+  windowed <- load_revision_dates()
+  raw <- load_revision_dates(apply_window = FALSE)
+  stopifnot(identical(windowed, raw))
+})
+
+run_test('assert_within_series_window names pre-window offenders', {
+  rd <- tibble(revision = c('2016_basic', 'basic'),
+               effective_date = as.Date(c('2016-01-01', '2025-01-01')))
+  # NULL window => no-op
+  stopifnot(isTRUE(assert_within_series_window(rd, rd$revision, NULL)))
+  # in-window ids pass
+  stopifnot(isTRUE(assert_within_series_window(rd, 'basic', as.Date('2025-01-01'))))
+  err <- tryCatch({
+    assert_within_series_window(rd, rd$revision, as.Date('2025-01-01'))
+    NULL
+  }, error = function(e) conditionMessage(e))
+  stopifnot(!is.null(err))
+  stopifnot(grepl('2016_basic', err))
+  stopifnot(grepl('series_horizon.start_date', err, fixed = TRUE))
+})
+
+
+# =============================================================================
 # Test 2: get_rates_at_date() returns non-empty for future dates
 # =============================================================================
 

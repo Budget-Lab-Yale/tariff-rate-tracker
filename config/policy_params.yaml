@@ -943,6 +943,11 @@ section_301_brazil:
 # The last observed HTS revision is assumed to remain in force through this date,
 # subject to date-bounded policy overrides (Section 122 expiry, Swiss framework).
 series_horizon:
+  # start_date gates the revision grid: load_revision_dates() excludes revisions
+  # dated earlier, so a backfilled revision_dates.csv cannot widen this build.
+  # Pre-2025 eras build as their own vintage with their own policy params — see
+  # docs/internal/pre2025_expansion_scoping_2026-07-28.md (Phase 0).
+  start_date: '2025-01-01'
   end_date: '2026-12-31'
 
 # --- Future tariff activations ("turn-ON" dates) ---
