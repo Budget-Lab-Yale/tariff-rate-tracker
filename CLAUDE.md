@@ -19,8 +19,19 @@ module load R/4.4.2-gfbf-2024a
 
 ## Where to run: local (interactive) vs. Slurm batch
 
-**Interactive sessions are capped at 5 GB RAM** — they OOM on a full build.
-Pick the venue by memory footprint:
+**Interactive sessions default to 5 GB RAM** (`devel` partition,
+`DefMemPerCPU=5120`) — they OOM on a full build, and a Claude Code session
+plus one or two R test processes can crest 5 GB on its own (three sessions
+were OOM-killed at exactly 5.24 GB on 2026-07-28). It's only a default, not a
+partition cap: start Claude sessions with more headroom, e.g.
+
+```bash
+salloc -p devel --mem=16G -t 4:00:00
+```
+
+The 4 h `TIME_LIMIT` is also just the default request (`MaxTime=UNLIMITED`);
+ask for more with `-t` if the session must outlive it. Pick the venue by
+memory footprint:
 
 | Task | Where | Notes |
 |------|-------|-------|
