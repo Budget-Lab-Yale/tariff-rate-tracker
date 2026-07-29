@@ -1400,9 +1400,15 @@ run_test('Russia annex exporter-country surcharge applies to aluminum only', {
   # fixture (2106909971) only reached annex_1b through the pre-585ce25
   # HS8-truncation over-inclusion; the FR lists nothing but .9993/.9994/.9998
   # under 21069099, so it now correctly classifies NA.
+  # Russia (4621) is a column-2 origin (GN 3(b) / PL 117-110), so the product
+  # fixture must carry the parsed column-2 columns — apply_column_2_rates()
+  # fails loud otherwise rather than silently pricing it at column 1. Germany
+  # (4280) is the NTR control. See docs/assumptions.md §20.
   products <- tibble(
     hts10 = c('7601100000', '3004909244', '7208100000'),
     base_rate = c(0.00, 0.05, 0.00),
+    col2_rate = c(0.25, 0.35, 0.20),
+    col2_rate_type = 'ad_valorem',
     n_ch99_refs = 0L,
     ch99_refs = list(character(0), character(0), character(0))
   )
@@ -1431,7 +1437,19 @@ run_test('Russia annex exporter-country surcharge applies to aluminum only', {
     policy_params = pp,
     specs = specs
   ) %>%
-    select(hts10, country, s232_annex, rate_232)
+    select(hts10, country, s232_annex, rate_232, base_rate,
+           statutory_base_rate, base_rate_source)
+
+  # Column 2 lands on Russia and NOT on Germany, and — the point of this test —
+  # the flat §232 surcharges below are untouched by that repointing. Russia also
+  # keeps base_rate == statutory_base_rate: column-2 origins get no preference
+  # scaling in step 6c.
+  ru_rows <- rates %>% filter(country == '4621')
+  de_rows <- rates %>% filter(country == '4280')
+  stopifnot(all(ru_rows$base_rate_source == 'col2_other'))
+  stopifnot(all(de_rows$base_rate_source == 'col1_general'))
+  stopifnot(abs(ru_rows$base_rate[ru_rows$hts10 == '3004909244'] - 0.35) < 1e-8)
+  stopifnot(all(abs(ru_rows$base_rate - ru_rows$statutory_base_rate) < 1e-12))
 
   stopifnot(rates$s232_annex[rates$hts10 == '7601100000' & rates$country == '4621'] == 'annex_1a')
   stopifnot(abs(rates$rate_232[rates$hts10 == '7601100000' & rates$country == '4621'] - 2.0) < 1e-8)

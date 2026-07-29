@@ -1,0 +1,19 @@
+# Column-2 A/B: does charging HTSUS column 2 to the four non-NTR origins
+# (Cuba 2390, North Korea 5790, Russia 4621, Belarus 4622 — GN 3(b) / PL 117-110)
+# move ONLY those origins' base rates, and by the expected magnitude?
+#
+# Compare against the same-commit master vintage at
+#   .../.validation/phase0-parity-master/2026-07-29-09   (master @ c4307e5)
+# which is the commit this branch forks from. Every other origin must be
+# byte-identical; the four column-2 origins should show statutory_base_rate
+# rising from a ~2-4% column-1 mean to a ~25-35% column-2 mean, and a new
+# base_rate_source column ('col1_general' / 'col2_other') on every row.
+#
+# No latest repoint: this is a validation vintage, not a publish.
+model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker/.validation/col2-ab
+policy_params_path: config/policy_params.yaml
+use_hts_dates: false
+weight_mode: required
+update_latest: false
+allow_partial: false
+verify: true

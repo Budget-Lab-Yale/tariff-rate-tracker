@@ -1557,6 +1557,31 @@ apply_column_2_rates <- function(rates, col2_countries, effective_date,
   rates
 }
 
+
+#' Zero the FTA/GSP preference-utilization share on column-2 rows
+#'
+#' The single point at which step 6c's HS2 x country `mfn_exemption_shares`
+#' scaling is withheld from column-2 origins. Losing normal-trade-relations
+#' treatment means losing every preference program, so there is no claim share
+#' to scale a column-2 rate by. The share is also estimated off Census
+#' calculated duty for NTR trade, so applying it here would shave the column-2
+#' rate using OTHER countries' preference behaviour — wrong twice over.
+#'
+#' Zeroing the share (rather than guarding the `base_rate` mutate) is deliberate:
+#' 6c reuses `exemption_share` downstream to scale `rate_s301fl` on
+#' preference-conditional note-52 textile lines, and a non-NTR origin has no FTA
+#' to condition on there either. It also leaves `base_rate ==
+#' statutory_base_rate` on these rows, which is exactly what makes the 6d-6f
+#' post-MFN floor recomputations (all gated on `base_rate < statutory_base_rate`)
+#' no-ops for them.
+#'
+#' @param exemption_share Numeric vector of HS2 x country preference shares
+#' @param base_rate_source Character vector from apply_column_2_rates()
+#' @return `exemption_share` with column-2 rows forced to 0
+zero_exemption_share_for_column_2 <- function(exemption_share, base_rate_source) {
+  dplyr::if_else(base_rate_source == 'col2_other', 0, exemption_share)
+}
+
 calculate_rates_for_revision <- function(
   products, ch99_data, usmca,
   countries, revision_id, effective_date,
@@ -3202,16 +3227,9 @@ calculate_rates_for_revision <- function(
           exclude_usmca & country %in% usmca_countries,
           0, exemption_share
         ),
-        # Skip column-2 origins (step 1c). Losing normal-trade-relations
-        # treatment means losing every preference program, so there is no
-        # FTA/GSP claim share to scale a column-2 rate by. The HS2 x country
-        # share is estimated off Census calculated duty for NTR trade and would
-        # be doubly wrong here — it would shave the column-2 rate using other
-        # countries' preference behaviour. Also keeps `base_rate ==
-        # statutory_base_rate` on these rows, which is what makes every
-        # post-MFN floor recomputation below (6d-6f) a no-op for them.
-        exemption_share = if_else(
-          base_rate_source == 'col2_other', 0, exemption_share
+        # Skip column-2 origins (step 1c) — see the helper's docstring.
+        exemption_share = zero_exemption_share_for_column_2(
+          exemption_share, base_rate_source
         ),
         base_rate = base_rate * (1 - exemption_share),
         # Note 52 preference-conditional textile/apparel exemptions (CAFTA-DR
