@@ -1830,7 +1830,10 @@ if (sys.nframe() == 0) {
 
   # --- Per-revision PDF download ---
   if (do_download_pdfs) {
-    rev_dates <- load_revision_dates(here('config', 'revision_dates.csv'), use_policy_dates = FALSE)
+    # Archive inventory: window-blind, like the scraper — the Ch99 PDFs are
+    # the gap-filler for out-of-window (pre-2025) revisions.
+    rev_dates <- load_revision_dates(here('config', 'revision_dates.csv'), use_policy_dates = FALSE,
+                                     apply_window = FALSE)
     download_all_revision_pdfs(rev_dates$revision, dry_run = dry_run)
 
   # --- Single revision floor exemption parsing ---
@@ -1839,7 +1842,9 @@ if (sys.nframe() == 0) {
 
   # --- All revisions floor exemption parsing ---
   } else if (do_all_revisions) {
-    rev_dates <- load_revision_dates(here('config', 'revision_dates.csv'), use_policy_dates = FALSE)
+    # Enumerates every archive on disk — window-blind for the same reason.
+    rev_dates <- load_revision_dates(here('config', 'revision_dates.csv'), use_policy_dates = FALSE,
+                                     apply_window = FALSE)
     parse_all_revision_floor_exemptions(rev_dates$revision, dry_run = dry_run)
 
   # --- Original modes ---

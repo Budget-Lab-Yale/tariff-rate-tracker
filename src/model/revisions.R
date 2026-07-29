@@ -79,10 +79,19 @@ build_chapter99_url <- function(release_name) {
 #'
 #' @return Date, or NULL when the key (or file) is absent => no start bound
 series_window_start <- function() {
-  env_path <- Sys.getenv('TARIFF_POLICY_PARAMS', '')
-  yaml_path <- if (nzchar(env_path)) env_path else here('config', 'policy_params.yaml')
-  if (!file.exists(yaml_path)) return(NULL)
-  sh <- tryCatch(yaml::read_yaml(yaml_path)$series_horizon, error = function(e) NULL)
+  yaml_path <- resolve_policy_params_path()
+  if (!file.exists(yaml_path)) {
+    # A rail that switches itself off is the wrong failure mode: an explicit
+    # TARIFF_POLICY_PARAMS pointing nowhere is a misconfiguration, not a
+    # fixture. Only the default path may be legitimately absent (fresh clone
+    # fixtures). Parse errors propagate for the same reason.
+    if (nzchar(Sys.getenv('TARIFF_POLICY_PARAMS', ''))) {
+      stop('series_window_start: TARIFF_POLICY_PARAMS points at a missing file: ',
+           yaml_path)
+    }
+    return(NULL)
+  }
+  sh <- yaml::read_yaml(yaml_path)$series_horizon
   if (is.null(sh$start_date)) return(NULL)
   as.Date(sh$start_date)
 }
@@ -122,8 +131,13 @@ assert_within_series_window <- function(rev_dates, revision_ids, window_start) {
 #'   See docs/policy_timing.md for details on which revisions are affected.
 #' @param apply_window If TRUE (default), drop revisions dated before the
 #'   active config's series_horizon.start_date so a backfilled
-#'   revision_dates.csv cannot widen this build's grid. Every grid consumer
-#'   funnels through here; the scraper reconciles the raw CSV and opts out.
+#'   revision_dates.csv cannot widen this build's grid. Every consumer that
+#'   feeds a BUILD GRID keeps the default. Raw-CSV reconciliation and
+#'   archive-INVENTORY consumers opt out (apply_window = FALSE): the scraper,
+#'   the archive downloader, the Ch99-PDF/floor-exemption scrapers, the
+#'   revision changelog, and the HTS concordance builder — for those, a
+#'   windowed grid would make out-of-window rows look absent and mis-report
+#'   (or refuse to fetch) inventory the backfill depends on.
 #' @param window_start Explicit window start (Date); default NULL resolves it
 #'   from the active policy params via series_window_start().
 #' @return Tibble with revision, effective_date

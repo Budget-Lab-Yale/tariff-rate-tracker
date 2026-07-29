@@ -289,8 +289,10 @@ build_concordance <- function(archive_dir = here('data', 'hts_archives'),
                               output_path = here('resources', 'hts_concordance.csv'),
                               sim_threshold = 0.7,
                               dry_run = FALSE) {
-  # Load revision order — use HTS release order, not policy dates
-  rev_dates <- load_revision_dates(use_policy_dates = FALSE)
+  # Load revision order — use HTS release order, not policy dates. The
+  # code-identity concordance must span every archive on disk (window-blind):
+  # era backfills need edges ACROSS the window boundary.
+  rev_dates <- load_revision_dates(use_policy_dates = FALSE, apply_window = FALSE)
   all_revisions <- rev_dates$revision
 
   # Filter to revisions we actually have JSON for

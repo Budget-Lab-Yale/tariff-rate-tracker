@@ -2,10 +2,13 @@
 # (series_horizon.start_date + load_revision_dates gate + assemble horizon-start
 # guard) must reproduce production latest exactly — the shipped window
 # (2025-01-01) filters nothing from the current grid, so any drift is a defect.
-# Compare with:
+# Compare with (candidate must be a VINTAGE dir, not this root; include
+# daily_by_hs — it is in the manifest but not in run_parity_check's default
+# artifact list):
 #   Rscript scripts/run_parity_check.R \
 #     --reference /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker/latest \
-#     --candidate /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker/.validation/phase0-parity
+#     --candidate /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker/.validation/phase0-parity/<vintage> \
+#     --artifacts snapshot,daily_overall,daily_by_authority,daily_by_country,daily_by_category,daily_by_hs
 model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker/.validation/phase0-parity
 policy_params_path: config/policy_params.yaml
 scenarios:

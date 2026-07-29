@@ -351,8 +351,13 @@ download_missing_revisions <- function(
   dry_run = FALSE,
   revision_dates_path = 'config/revision_dates.csv'
 ) {
-  # Load expected revisions — use HTS release order for download inventory
-  rev_dates <- load_revision_dates(revision_dates_path, use_policy_dates = FALSE)
+  # Load expected revisions — use HTS release order for download inventory.
+  # Archive inventory is window-blind (apply_window = FALSE): the raw HTS date
+  # view can disagree with the policy-date view the build grid windows on
+  # (retro-dated revisions straddle era boundaries), and an archive skipped
+  # here is silently absent from every later windowed build.
+  rev_dates <- load_revision_dates(revision_dates_path, use_policy_dates = FALSE,
+                                   apply_window = FALSE)
   expected <- rev_dates$revision
 
   # Check local inventory across all years present in expected revisions

@@ -201,8 +201,9 @@ run_test('shipped config resolves SERIES_HORIZON_START = 2025-01-01', {
   stopifnot(pp$SERIES_HORIZON_START == as.Date('2025-01-01'))
 })
 
-# Synthetic CSV with one pre-window row; written once, shared by the window tests.
-.window_fixture_csv <- function() {
+# Synthetic CSV with one pre-window row; written once, shared by the window
+# tests, unlinked at the end of Test 1b.
+.window_fixture_csv <- local({
   path <- tempfile(fileext = '.csv')
   writeLines(c(
     'revision,effective_date,policy_effective_date,policy_event',
@@ -211,10 +212,10 @@ run_test('shipped config resolves SERIES_HORIZON_START = 2025-01-01', {
     'rev_1,2025-01-27,2025-02-04,Fixture'
   ), path)
   path
-}
+})
 
 run_test('window start excludes pre-window revisions, keeps the rest ordered', {
-  dates <- load_revision_dates(.window_fixture_csv(),
+  dates <- load_revision_dates(.window_fixture_csv,
                                window_start = as.Date('2025-01-01'))
   stopifnot(!'2016_basic' %in% dates$revision)
   stopifnot(identical(dates$revision, c('basic', 'rev_1')))
@@ -222,21 +223,21 @@ run_test('window start excludes pre-window revisions, keeps the rest ordered', {
 })
 
 run_test('apply_window = FALSE returns the raw grid', {
-  dates <- load_revision_dates(.window_fixture_csv(), apply_window = FALSE)
+  dates <- load_revision_dates(.window_fixture_csv, apply_window = FALSE)
   stopifnot('2016_basic' %in% dates$revision)
   stopifnot(nrow(dates) == 3)
 })
 
 run_test('window filters on post-swap policy dates', {
   # rev_1 swaps to 2025-02-04; a window at 2025-02-01 must keep it and drop basic.
-  dates <- load_revision_dates(.window_fixture_csv(), use_policy_dates = TRUE,
+  dates <- load_revision_dates(.window_fixture_csv, use_policy_dates = TRUE,
                                window_start = as.Date('2025-02-01'))
   stopifnot(identical(dates$revision, 'rev_1'))
 })
 
 run_test('window excluding every revision fails loud', {
   err <- tryCatch({
-    load_revision_dates(.window_fixture_csv(),
+    load_revision_dates(.window_fixture_csv,
                         window_start = as.Date('2030-01-01'))
     NULL
   }, error = function(e) conditionMessage(e))
@@ -247,7 +248,39 @@ run_test('window excluding every revision fails loud', {
 run_test('real grid is identical with and without the shipped window', {
   windowed <- load_revision_dates()
   raw <- load_revision_dates(apply_window = FALSE)
+  # Diagnosable pieces first, so a failure reads as "rows changed" vs
+  # "attribute drift" (identical() also compares tibble attributes).
+  stopifnot(identical(dim(windowed), dim(raw)))
+  stopifnot(identical(names(windowed), names(raw)))
+  stopifnot(identical(as.data.frame(windowed), as.data.frame(raw)))
   stopifnot(identical(windowed, raw))
+})
+
+run_test('series_window_start honors TARIFF_POLICY_PARAMS and the no-key case', {
+  old_env <- Sys.getenv('TARIFF_POLICY_PARAMS', unset = NA)
+  on.exit(if (is.na(old_env)) Sys.unsetenv('TARIFF_POLICY_PARAMS') else
+            Sys.setenv(TARIFF_POLICY_PARAMS = old_env), add = TRUE)
+
+  # Env-pointed config with a start_date wins
+  y1 <- tempfile(fileext = '.yaml')
+  writeLines(c('series_horizon:', "  start_date: '2016-01-01'"), y1)
+  Sys.setenv(TARIFF_POLICY_PARAMS = y1)
+  stopifnot(series_window_start() == as.Date('2016-01-01'))
+
+  # Config without the key => NULL (no bound)
+  y2 <- tempfile(fileext = '.yaml')
+  writeLines("series_horizon:\n  end_date: '2026-12-31'", y2)
+  Sys.setenv(TARIFF_POLICY_PARAMS = y2)
+  stopifnot(is.null(series_window_start()))
+
+  # Env pointing at a missing file fails CLOSED (rails must not switch
+  # themselves off on a typo'd path)
+  Sys.setenv(TARIFF_POLICY_PARAMS = tempfile(fileext = '.yaml'))
+  err <- tryCatch({ series_window_start(); NULL },
+                  error = function(e) conditionMessage(e))
+  stopifnot(!is.null(err), grepl('missing file', err))
+
+  unlink(c(y1, y2))
 })
 
 run_test('assert_within_series_window names pre-window offenders', {
@@ -265,6 +298,8 @@ run_test('assert_within_series_window names pre-window offenders', {
   stopifnot(grepl('2016_basic', err))
   stopifnot(grepl('series_horizon.start_date', err, fixed = TRUE))
 })
+
+unlink(.window_fixture_csv)
 
 
 # =============================================================================

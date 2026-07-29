@@ -86,7 +86,10 @@ run_changelog <- function() {
   source(here('src', 'pipeline', '03_parse_chapter99.R'))
 
   # ---- Load revision dates ----
-  rev_dates <- load_revision_dates(here('config', 'revision_dates.csv'), use_policy_dates = FALSE)
+  # The changelog is a historical diff over EVERY revision — window-blind so a
+  # build window never silently truncates its left edge.
+  rev_dates <- load_revision_dates(here('config', 'revision_dates.csv'), use_policy_dates = FALSE,
+                                   apply_window = FALSE)
   revisions <- rev_dates$revision
 
   cat('Processing', length(revisions), 'revisions\n')

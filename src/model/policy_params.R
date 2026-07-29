@@ -147,17 +147,26 @@ library(here)
 #'   is merged onto the baseline.
 #' @param scenarios_dir Scenario registry root (overridable for tests).
 #' @return List with raw params plus convenience fields
+#' Resolve the active policy-params YAML path
+#'
+#' TARIFF_POLICY_PARAMS overrides the config path so a fixture can build
+#' against a config variant — e.g. a populated
+#' section_301_content_split_codes — without editing the tracked file. Unset
+#' (the production/gate path) => the canonical config => byte-identical.
+#' Shared by load_policy_params() and series_window_start() so the two cannot
+#' drift on the path contract.
+resolve_policy_params_path <- function() {
+  env_path <- Sys.getenv('TARIFF_POLICY_PARAMS', '')
+  if (nzchar(env_path)) env_path else here('config', 'policy_params.yaml')
+}
+
+
 load_policy_params <- function(yaml_path = NULL,
                                use_policy_dates = TRUE,
                                scenario = NULL,
                                scenarios_dir = here('config', 'scenarios')) {
-  # TARIFF_POLICY_PARAMS overrides the config path so a fixture can build
-  # against a config variant — e.g.
-  # a populated section_301_content_split_codes — without editing the tracked
-  # file. Unset (the production/gate path) => the canonical config => byte-identical.
   if (is.null(yaml_path)) {
-    env_path <- Sys.getenv('TARIFF_POLICY_PARAMS', '')
-    yaml_path <- if (nzchar(env_path)) env_path else here('config', 'policy_params.yaml')
+    yaml_path <- resolve_policy_params_path()
   }
   if (!file.exists(yaml_path)) {
     stop('Policy params YAML not found: ', yaml_path)
@@ -176,6 +185,15 @@ load_policy_params <- function(yaml_path = NULL,
   if (length(scenario) && !is.na(scenario) && nzchar(scenario) && scenario != 'actual') {
     overlay_path <- file.path(scenarios_dir, scenario, 'overlay.yaml')
     overlay <- .resolve_scenario_overlay(scenario, params, scenarios_dir)
+    # The build window belongs to an era's BASELINE config: the grid filter
+    # (series_window_start()) deliberately reads the baseline YAML, so an
+    # overlay that set series_horizon would silently disagree with the grid.
+    # Enforce rather than assume.
+    if (!is.null(overlay$series_horizon)) {
+      stop('Scenario overlay "', scenario, '" sets series_horizon — the build ',
+           'window must come from the era baseline config, not an overlay. ',
+           'See docs/internal/pre2025_expansion_scoping_2026-07-28.md.')
+    }
     if (!is.null(overlay) && length(overlay) > 0) {
       params <- .deep_merge_lists(params, overlay)
       message('  Scenario "', scenario, '": resolved and merged overlay ', overlay_path)
