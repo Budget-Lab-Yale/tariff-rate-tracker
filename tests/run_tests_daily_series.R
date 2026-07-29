@@ -257,30 +257,33 @@ run_test('real grid is identical with and without the shipped window', {
 })
 
 run_test('series_window_start honors TARIFF_POLICY_PARAMS and the no-key case', {
+  # on.exit() cannot restore from inside run_test's promise evaluation —
+  # restore via finally so a failing assertion can't poison later tests'
+  # TARIFF_POLICY_PARAMS resolution.
   old_env <- Sys.getenv('TARIFF_POLICY_PARAMS', unset = NA)
-  on.exit(if (is.na(old_env)) Sys.unsetenv('TARIFF_POLICY_PARAMS') else
-            Sys.setenv(TARIFF_POLICY_PARAMS = old_env), add = TRUE)
+  y1 <- tempfile(fileext = '.yaml'); y2 <- tempfile(fileext = '.yaml')
+  tryCatch({
+    # Env-pointed config with a start_date wins
+    writeLines(c('series_horizon:', "  start_date: '2016-01-01'"), y1)
+    Sys.setenv(TARIFF_POLICY_PARAMS = y1)
+    stopifnot(series_window_start() == as.Date('2016-01-01'))
 
-  # Env-pointed config with a start_date wins
-  y1 <- tempfile(fileext = '.yaml')
-  writeLines(c('series_horizon:', "  start_date: '2016-01-01'"), y1)
-  Sys.setenv(TARIFF_POLICY_PARAMS = y1)
-  stopifnot(series_window_start() == as.Date('2016-01-01'))
+    # Config without the key => NULL (no bound)
+    writeLines("series_horizon:\n  end_date: '2026-12-31'", y2)
+    Sys.setenv(TARIFF_POLICY_PARAMS = y2)
+    stopifnot(is.null(series_window_start()))
 
-  # Config without the key => NULL (no bound)
-  y2 <- tempfile(fileext = '.yaml')
-  writeLines("series_horizon:\n  end_date: '2026-12-31'", y2)
-  Sys.setenv(TARIFF_POLICY_PARAMS = y2)
-  stopifnot(is.null(series_window_start()))
-
-  # Env pointing at a missing file fails CLOSED (rails must not switch
-  # themselves off on a typo'd path)
-  Sys.setenv(TARIFF_POLICY_PARAMS = tempfile(fileext = '.yaml'))
-  err <- tryCatch({ series_window_start(); NULL },
-                  error = function(e) conditionMessage(e))
-  stopifnot(!is.null(err), grepl('missing file', err))
-
-  unlink(c(y1, y2))
+    # Env pointing at a missing file fails CLOSED (rails must not switch
+    # themselves off on a typo'd path)
+    Sys.setenv(TARIFF_POLICY_PARAMS = tempfile(fileext = '.yaml'))
+    err <- tryCatch({ series_window_start(); NULL },
+                    error = function(e) conditionMessage(e))
+    stopifnot(!is.null(err), grepl('missing file', err))
+  }, finally = {
+    if (is.na(old_env)) Sys.unsetenv('TARIFF_POLICY_PARAMS') else
+      Sys.setenv(TARIFF_POLICY_PARAMS = old_env)
+    unlink(c(y1, y2))
+  })
 })
 
 run_test('assert_within_series_window names pre-window offenders', {
