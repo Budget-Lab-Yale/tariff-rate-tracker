@@ -107,12 +107,23 @@ enforce_rate_schema <- function(df) {
 #' that the canonical grid builder applies to freshly product-joined rows.
 #' Centralizing it keeps the two columns defaulting together (0 / 'free').
 #'
-#' @param df A frame carrying `base_rate` (and optionally `base_rate_type`)
-#' @return `df` with `base_rate` NA->0 and (if present) `base_rate_type` NA->'free'
+#' The column-2 pair (`col2_rate` / `col2_rate_type`) gets the SAME treatment
+#' when present: NA -> 0 / 'free'. The S2 convention is identical on both
+#' columns — a specific/compound column-2 duty is numerically 0 but keeps its
+#' honest `specific_or_compound` type so the exposure stays measurable.
+#'
+#' @param df A frame carrying `base_rate` (and optionally the type / col2 columns)
+#' @return `df` with rate columns NA->0 and type columns NA->'free'
 default_base_cols <- function(df) {
   df <- df %>% mutate(base_rate = coalesce(base_rate, 0))
   if ('base_rate_type' %in% names(df)) {
     df <- df %>% mutate(base_rate_type = coalesce(base_rate_type, 'free'))
+  }
+  if ('col2_rate' %in% names(df)) {
+    df <- df %>% mutate(col2_rate = coalesce(col2_rate, 0))
+  }
+  if ('col2_rate_type' %in% names(df)) {
+    df <- df %>% mutate(col2_rate_type = coalesce(col2_rate_type, 'free'))
   }
   df
 }
@@ -143,8 +154,13 @@ build_rate_grid <- function(products, countries, seed_rates = NULL) {
     stop('build_rate_grid: countries must be non-empty, non-missing, and unique', call. = FALSE)
   }
 
+  # col2_rate / col2_rate_type ride along when the product table carries them
+  # (any_of, so pre-col2 fixtures still build). apply_column_2_rates() in
+  # 06_calculate_rates.R consumes and then DROPS them — they are a product
+  # attribute, not a product x country one, so they never reach the panel.
   grid <- products %>%
-    select(hts10, base_rate, any_of('base_rate_type')) %>%
+    select(hts10, base_rate,
+           any_of(c('base_rate_type', 'col2_rate', 'col2_rate_type'))) %>%
     default_base_cols() %>%
     tidyr::expand_grid(country = countries)
 

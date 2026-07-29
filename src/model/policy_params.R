@@ -260,6 +260,43 @@ load_policy_params <- function(yaml_path = NULL,
     params$MFN_EXEMPTION <- list(method = 'none', exclude_usmca_countries = TRUE)
   }
 
+  # Column 2 (non-NTR) origins — HTSUS General Note 3(b).
+  # Resolved to a flat tibble so the calculator can date-gate with one filter.
+  # `effective_date` is NA for the always-column-2 origins (Cuba, North Korea);
+  # the gate in apply_column_2_rates() is
+  #   is.na(effective_date) | revision effective_date >= effective_date.
+  # Fails loud on a malformed entry: a silently-dropped origin would ship that
+  # country at column-1 rates, which is the exact defect this block fixes.
+  params$COLUMN_2_COUNTRIES <- if (!is.null(params$column_2_countries) &&
+                                   length(params$column_2_countries) > 0) {
+    dplyr::bind_rows(map(seq_along(params$column_2_countries), function(i) {
+      entry <- params$column_2_countries[[i]]
+      code <- as.character(entry$country %||% NA_character_)
+      if (length(code) != 1L || is.na(code) || !nzchar(code)) {
+        stop('policy_params: column_2_countries[[', i,
+             ']] has no usable `country` Census code', call. = FALSE)
+      }
+      tibble::tibble(
+        country = code,
+        name = as.character(entry$name %||% code),
+        effective_date = if (is.null(entry$effective_date)) {
+          as.Date(NA)
+        } else {
+          as.Date(entry$effective_date)
+        }
+      )
+    }))
+  } else {
+    tibble::tibble(country = character(), name = character(),
+                   effective_date = as.Date(character()))
+  }
+  if (anyDuplicated(params$COLUMN_2_COUNTRIES$country)) {
+    stop('policy_params: column_2_countries has duplicate Census codes: ',
+         paste(unique(params$COLUMN_2_COUNTRIES$country[
+           duplicated(params$COLUMN_2_COUNTRIES$country)]), collapse = ', '),
+         call. = FALSE)
+  }
+
   # Section 232 country exemptions (TRQ/quota agreements)
   if (!is.null(params$section_232_country_exemptions)) {
     params$S232_COUNTRY_EXEMPTIONS <- map(params$section_232_country_exemptions, function(entry) {

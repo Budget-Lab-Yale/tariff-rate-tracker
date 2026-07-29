@@ -152,17 +152,23 @@ classify_rate_type <- function(rate_string) {
 
 #' Read a cached products_<rev>.rds, failing loud if the parser schema is stale
 #'
-#' The base_rate_type exposure flag was added to parse_products() (2026-07-09).
-#' A pre-flag cache silently omits it, which would poison the incremental build
-#' and any base_rate_type consumer downstream. Rather than degrade quietly, stop
-#' with instructions to regenerate via scripts/refresh_product_caches.R.
+#' The base_rate_type exposure flag was added to parse_products() (2026-07-09)
+#' and the column-2 columns (col2_rate/col2_rate_type) on 2026-07-29. A cache
+#' predating either silently omits the column, which would poison the
+#' incremental build and any consumer downstream — for col2 that means the
+#' non-NTR origins would silently revert to column-1 pricing. Rather than
+#' degrade quietly, stop with instructions to regenerate via
+#' scripts/refresh_product_caches.R.
 #'
 #' @param path Path to a products_<rev>.rds cache
 #' @return The products tibble
 read_products_cache <- function(path) {
   products <- readRDS(path)
-  if (!'base_rate_type' %in% names(products)) {
-    stop('Stale product cache (missing base_rate_type): ', path,
+  required <- c('base_rate_type', 'col2_rate', 'col2_rate_type')
+  missing_cols <- setdiff(required, names(products))
+  if (length(missing_cols) > 0) {
+    stop('Stale product cache (missing ', paste(missing_cols, collapse = ', '),
+         '): ', path,
          '\n  Regenerate with: Rscript scripts/refresh_product_caches.R',
          '\n  (or run a --full build, which re-parses products fresh).')
   }
