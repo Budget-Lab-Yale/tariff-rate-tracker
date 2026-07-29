@@ -9,9 +9,23 @@
 # rising from a ~2-4% column-1 mean to a ~25-35% column-2 mean, and a new
 # base_rate_source column ('col1_general' / 'col2_other') on every row.
 #
+# Run and compare with (candidate must be the VINTAGE dir, not this root;
+# daily_by_hs is in the manifest but not in run_parity_check's default list):
+#   sbatch scripts/submit_build_verify.sh --build-config config/build/col2_ab.yaml
+#   Rscript scripts/run_parity_check.R \
+#     --reference /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker/.validation/phase0-parity-master/2026-07-29-09 \
+#     --candidate /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker/.validation/col2-ab/<vintage> \
+#     --artifacts snapshot,daily_overall,daily_by_authority,daily_by_country,daily_by_category,daily_by_hs
+#
+# `scenarios: new_301` and `weight_mode: required` MATCH the reference vintage's
+# manifest — the parity harness fails closed on any artifact-set change, so a
+# missing scenario would read as a spurious failure rather than a rate delta.
+#
 # No latest repoint: this is a validation vintage, not a publish.
 model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker/.validation/col2-ab
 policy_params_path: config/policy_params.yaml
+scenarios:
+  - new_301
 use_hts_dates: false
 weight_mode: required
 update_latest: false
