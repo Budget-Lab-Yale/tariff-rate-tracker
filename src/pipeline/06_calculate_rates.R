@@ -16,6 +16,8 @@
 #
 # Pipeline steps inside calculate_rates_for_revision():
 #   1. Build the canonical product-country grid; seed footnote rates
+#   1c. Column 2 base rates for non-NTR origins (GN 3(b): CU/KP always,
+#       RU/BY from 2022-04-09) — runs before every authority layer
 #   1b. IEEPA invalidation check (SCOTUS ruling cutoff)
 #   2. IEEPA reciprocal (blanket, country-level)
 #   3. IEEPA fentanyl (blanket, CA/MX/CN)
@@ -1428,6 +1430,133 @@ apply_section301 <- function(rates, specs, pp, ch99_data, products, countries, e
   rates
 }
 
+
+#' Repoint non-NTR origins from column 1 general to HTSUS column 2
+#'
+#' HTSUS General Note 3(b): goods of a country denied normal-trade-relations
+#' treatment are dutiable at the COLUMN 2 rates. Four origins qualify in the
+#' modeled window — Cuba and North Korea always, Russia and Belarus since
+#' PL 117-110 (2022-04-09) — and the tracker priced all four at column 1 until
+#' this step existed.
+#'
+#' What it does, for rows whose country is an ACTIVE column-2 origin at this
+#' revision's effective date:
+#'   * `base_rate`      <- `col2_rate`, coalesced NA -> 0 per the S2 convention
+#'   * `base_rate_type` <- `col2_rate_type`, so the exposure flag describes the
+#'     rate actually being charged (column 2 is far more specific-duty-heavy
+#'     than column 1, so this is where the S2 understatement concentrates)
+#'   * `base_rate_source` <- 'col2_other' (vs 'col1_general' everywhere else)
+#'
+#' PROVENANCE, not a silent swap. `base_rate_source` is a new panel column
+#' carried the same way `base_rate_type` is — an extra column outside
+#' RATE_SCHEMA rather than a schema member — which is the smallest footprint
+#' that still leaves the published panel self-documenting. Without it a
+#' `statutory_base_rate` of 0.35 on a Russian line is indistinguishable from a
+#' column-1 rate, and no consumer could tell which convention produced it.
+#'
+#' WHERE THIS RUNS AND WHY (step 1c, before every authority layer): column 2 IS
+#' the ordinary customs duty for these origins, so every downstream expression
+#' that reads `base_rate` must read the column-2 value. That matters for
+#' MFN-INCLUSIVE floor layers, which are computed as `pmax(floor - base_rate, 0)`:
+#' with the override placed late, a floor would be solved against a ~2%
+#' column-1 base and the resulting total would overshoot the statutory floor.
+#' Solved against the true ~35% column-2 base the floor correctly contributes 0
+#' and the total lands ON the floor. FLAT layers — the Russia 200% aluminum
+#' surcharge (Proc. 10522), annex_1a's 50%, §122, §301 — are arithmetically
+#' independent of `base_rate` and are therefore untouched by construction.
+#'
+#' NOT applied here: the HS2 x country `mfn_exemption_shares` preference scaling
+#' (step 6c). Losing NTR treatment means losing every preference program, so
+#' scaling a column-2 rate by an FTA/GSP claim share would be wrong; 6c reads
+#' `base_rate_source` to skip these rows.
+#'
+#' @param rates Rate frame carrying `country` and (optionally) the col2 columns
+#' @param col2_countries params$COLUMN_2_COUNTRIES (country/name/effective_date)
+#' @param effective_date This revision's HTS effective date
+#' @param usmca_countries CA/MX Census codes, asserted disjoint from col-2
+#' @return `rates` with base_rate/base_rate_type repointed, `base_rate_source`
+#'   set on every row, and the transient col2 columns dropped
+apply_column_2_rates <- function(rates, col2_countries, effective_date,
+                                 usmca_countries = character()) {
+  # Always present, on every row, whether or not any origin is column 2 — a
+  # column that appears only when the overlay fires is not self-documenting.
+  rates$base_rate_source <- 'col1_general'
+
+  if (is.null(col2_countries) || nrow(col2_countries) == 0) {
+    rates$col2_rate <- NULL
+    rates$col2_rate_type <- NULL
+    return(rates)
+  }
+
+  rev_date <- as.Date(effective_date)
+  active <- col2_countries[is.na(col2_countries$effective_date) |
+                             col2_countries$effective_date <= rev_date, ,
+                           drop = FALSE]
+
+  # CA/MX must never be column-2 origins: step 7 scales base_rate by the USMCA
+  # share, and a column-2 origin has no USMCA. Config error, so fail loud.
+  overlap <- intersect(active$country, usmca_countries)
+  if (length(overlap) > 0) {
+    stop('apply_column_2_rates: column_2_countries overlaps the USMCA codes (',
+         paste(overlap, collapse = ', '),
+         ') — USMCA share scaling and column-2 pricing are mutually ',
+         'incompatible. Fix config/policy_params.yaml.', call. = FALSE)
+  }
+
+  if (nrow(active) == 0) {
+    message('  Column 2: no origin active at ', rev_date,
+            ' (', nrow(col2_countries), ' configured)')
+    rates$col2_rate <- NULL
+    rates$col2_rate_type <- NULL
+    return(rates)
+  }
+
+  # A configured origin absent from the country universe is worth surfacing but
+  # is not an error: the Census code may carry no trade in the weights vintage.
+  col2_rows <- rates$country %in% active$country
+  if (!any(col2_rows)) {
+    message('  Column 2: ', nrow(active), ' origin(s) active at ', rev_date,
+            ' but none present in this revision\'s country set')
+    rates$col2_rate <- NULL
+    rates$col2_rate_type <- NULL
+    return(rates)
+  }
+
+  if (!'col2_rate' %in% names(rates)) {
+    stop('apply_column_2_rates: ', sum(col2_rows), ' row(s) belong to an active ',
+         'column-2 origin (', paste(active$country, collapse = ', '),
+         ') but the frame carries no col2_rate column. The product table must ',
+         'come from a parse_products() run that reads the JSON `other` field ',
+         '(regenerate stale caches with scripts/refresh_product_caches.R).',
+         call. = FALSE)
+  }
+
+  # S2 convention: a specific/compound column-2 duty has no ad-valorem number,
+  # so it lands at 0 — but col2_rate_type keeps saying why.
+  rates$base_rate[col2_rows] <- dplyr::coalesce(rates$col2_rate[col2_rows], 0)
+  if ('base_rate_type' %in% names(rates) && 'col2_rate_type' %in% names(rates)) {
+    rates$base_rate_type[col2_rows] <-
+      dplyr::coalesce(rates$col2_rate_type[col2_rows], 'free')
+  }
+  rates$base_rate_source[col2_rows] <- 'col2_other'
+
+  n_spec <- if ('col2_rate_type' %in% names(rates)) {
+    sum(rates$col2_rate_type[col2_rows] == 'specific_or_compound', na.rm = TRUE)
+  } else {
+    NA_integer_
+  }
+  message('  Column 2: repointed ', sum(col2_rows), ' pair(s) for ',
+          nrow(active), ' origin(s) [',
+          paste(active$country, collapse = ', '), '] at ', rev_date,
+          ' | mean base_rate ', round(mean(rates$base_rate[col2_rows]), 4),
+          ' | specific/compound (understated as 0 per S2): ', n_spec)
+
+  # Product attributes, not product x country ones — never reach the panel.
+  rates$col2_rate <- NULL
+  rates$col2_rate_type <- NULL
+  rates
+}
+
 calculate_rates_for_revision <- function(
   products, ch99_data, usmca,
   countries, revision_id, effective_date,
@@ -1472,6 +1601,19 @@ calculate_rates_for_revision <- function(
   rates <- calculate_rates_fast(products, ch99_data, countries,
                                 iso_to_census = ISO_TO_CENSUS,
                                 cty_china = CTY_CHINA)
+
+  # 1c. Repoint non-NTR origins to HTSUS column 2 (GN 3(b)).
+  #     Runs BEFORE every authority layer so that MFN-inclusive floors solve
+  #     against the true ordinary customs duty for these origins; flat
+  #     surcharges (Russia 200% aluminum, annex_1a, §122, §301) are independent
+  #     of base_rate and unaffected. See apply_column_2_rates() for the full
+  #     rationale and docs/assumptions.md §20.
+  rates <- apply_column_2_rates(
+    rates,
+    col2_countries = pp$COLUMN_2_COUNTRIES,
+    effective_date = effective_date,
+    usmca_countries = c(CTY_CANADA, CTY_MEXICO)
+  )
 
   # Persist the Swiss framework inputs on the panel. The applied result remains
   # rate_ieepa_recip; these fields make the temporary floor and the underlying
@@ -3059,6 +3201,17 @@ calculate_rates_for_revision <- function(
         exemption_share = if_else(
           exclude_usmca & country %in% usmca_countries,
           0, exemption_share
+        ),
+        # Skip column-2 origins (step 1c). Losing normal-trade-relations
+        # treatment means losing every preference program, so there is no
+        # FTA/GSP claim share to scale a column-2 rate by. The HS2 x country
+        # share is estimated off Census calculated duty for NTR trade and would
+        # be doubly wrong here — it would shave the column-2 rate using other
+        # countries' preference behaviour. Also keeps `base_rate ==
+        # statutory_base_rate` on these rows, which is what makes every
+        # post-MFN floor recomputation below (6d-6f) a no-op for them.
+        exemption_share = if_else(
+          base_rate_source == 'col2_other', 0, exemption_share
         ),
         base_rate = base_rate * (1 - exemption_share),
         # Note 52 preference-conditional textile/apparel exemptions (CAFTA-DR
