@@ -123,9 +123,12 @@ manifest_is_good <- function(rel_path, store = hts_store_dir(), man = NULL) {
 #' sweep learned this the hard way (spurious non-200s under throttling).
 #'
 #' @return list(ok, status, bytes, url)
-polite_download <- function(url, dest, throttle = 1.5, max_tries = 4,
+polite_download <- function(url, dest, throttle = 1.5, max_tries = 6,
                             timeout_s = 900, quiet = FALSE) {
-  backoff <- c(5, 20, 60)
+  # Wayback 503s freely once a run has pulled a few hundred MB, and recovers
+  # given time — so the tail of the backoff is minutes, not seconds. A run of
+  # ~111 x 8 MB JSON editions is exactly the shape that triggers it.
+  backoff <- c(15, 45, 120, 300, 600)
   for (attempt in seq_len(max_tries)) {
     Sys.sleep(throttle)
     resp <- tryCatch(
