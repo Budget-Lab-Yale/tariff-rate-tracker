@@ -1582,6 +1582,67 @@ zero_exemption_share_for_column_2 <- function(exemption_share, base_rate_source)
   dplyr::if_else(base_rate_source == 'col2_other', 0, exemption_share)
 }
 
+
+#' Exempt GN 3(b) origins from the IEEPA reciprocal tariff (9903.01.29)
+#'
+#' HTS heading 9903.01.29 — "Articles the product of any country identified in
+#' general note 3(b)" — carries `general` empty and `other` = "The duty provided
+#' in the applicable subheading", i.e. NO additional reciprocal duty. The
+#' reciprocal EO excluded the non-NTR origins from the outset: they are already
+#' at column 2 and under sanctions, so the reciprocal schedule never reached
+#' them. The tracker nonetheless charged all four the universal baseline
+#' (measured 8.86% mean / 10% max per origin on the 2025-09-01 panel of vintage
+#' 2026-07-29-09), so this removes a duty that was never owed.
+#'
+#' Why the country set comes from `column_2_countries`: the heading names its
+#' scope by REFERENCE to general note 3(b), which is prose the JSON does not
+#' carry — exactly the gap `column_2_countries` exists to fill. One config
+#' block, two consumers (step 1c prices column 2; step 2b withholds the
+#' reciprocal duty), so the two can never disagree about who is non-NTR.
+#'
+#' Scope limits, deliberately: only `rate_ieepa_recip`. IEEPA *fentanyl* is
+#' CA/MX/CN-only and never reaches these origins; §122 has no GN 3(b) carve-out
+#' in any revision scanned (2025 rev_32, 2026 rev_12), so it continues to apply;
+#' and the §232 GN 3(b) derivative heading 9903.82.12 (25% rather than the
+#' 50% tier, 2026 annex regime) is a SEPARATE, unmodeled item tracked as
+#' follow-up — it needs country-aware annex tier assignment plus the
+#' 9903.82.17 / 9903.85.68 exceptions, which is more than this step should carry.
+#'
+#' Unconditional in time by construction: before the reciprocal program exists
+#' (and after the SCOTUS invalidation) `rate_ieepa_recip` is already 0 for every
+#' row, so zeroing is a no-op there and no separate date gate is needed beyond
+#' the origins' own effective dates.
+#'
+#' @param rates Rate frame carrying `country` and `rate_ieepa_recip`
+#' @param col2_countries params$COLUMN_2_COUNTRIES (country/name/effective_date)
+#' @param effective_date This revision's HTS effective date
+#' @return `rates` with `rate_ieepa_recip` forced to 0 on active GN 3(b) origins
+apply_gn3b_ieepa_exemption <- function(rates, col2_countries, effective_date) {
+  if (is.null(col2_countries) || nrow(col2_countries) == 0) return(rates)
+  if (!'rate_ieepa_recip' %in% names(rates)) return(rates)
+
+  rev_date <- as.Date(effective_date)
+  active <- col2_countries[is.na(col2_countries$effective_date) |
+                             col2_countries$effective_date <= rev_date, ,
+                           drop = FALSE]
+  if (nrow(active) == 0) return(rates)
+
+  gn3b_rows <- rates$country %in% active$country
+  if (!any(gn3b_rows)) return(rates)
+
+  n_charged <- sum(gn3b_rows & rates$rate_ieepa_recip > 0)
+  if (n_charged > 0) {
+    mean_removed <- mean(rates$rate_ieepa_recip[gn3b_rows])
+    rates$rate_ieepa_recip[gn3b_rows] <- 0
+    message('  GN 3(b) IEEPA exemption (9903.01.29): cleared reciprocal duty on ',
+            n_charged, ' of ', sum(gn3b_rows), ' pair(s) for ',
+            nrow(active), ' origin(s) [',
+            paste(active$country, collapse = ', '), '] | mean removed ',
+            round(mean_removed, 4))
+  }
+  rates
+}
+
 calculate_rates_for_revision <- function(
   products, ch99_data, usmca,
   countries, revision_id, effective_date,
@@ -1964,6 +2025,16 @@ calculate_rates_for_revision <- function(
     # No IEEPA in this revision — zero out
     rates <- rates %>% mutate(rate_ieepa_recip = 0)
   }
+
+  # 2b. GN 3(b) origins are exempt from the IEEPA reciprocal tariff
+  #     (heading 9903.01.29, "Articles the product of any country identified in
+  #     general note 3(b)", carrying no additional duty). Same country set as
+  #     step 1c, so the exemption resolves from the same config block.
+  rates <- apply_gn3b_ieepa_exemption(
+    rates,
+    col2_countries = pp$COLUMN_2_COUNTRIES,
+    effective_date = effective_date
+  )
 
   # 3. Apply IEEPA fentanyl/initial rates with product-level carve-outs
   #    9903.01.01-24: Mexico (+25%), Canada (+35%), China (+10%)

@@ -464,3 +464,48 @@ cache fails loud via `read_products_cache()` (regenerate with
 `zero_exemption_share_for_column_2()` in `src/pipeline/06_calculate_rates.R`;
 `default_base_cols()` / `build_rate_grid()` in `src/model/rate_schema.R`.
 Registered as **S10** in `docs/statutory_deviations.md`.
+
+### 20a. GN 3(b) origins are exempt from the IEEPA reciprocal tariff (9903.01.29)
+
+**A second defect on the same country set, found while implementing §20 and
+fixed with it (2026-07-29).** HTS heading **9903.01.29** reads "Articles the
+product of any country identified in general note 3(b)" with an empty `general`
+field and `other` = "The duty provided in the applicable subheading" — i.e. **no
+additional reciprocal duty**. The reciprocal program excluded the non-NTR origins
+from the outset: they were already at column 2 and under sanctions, so the
+reciprocal schedule never reached them.
+
+The tracker charged them anyway. Measured on the 2025-09-01 panel of vintage
+`2026-07-29-09`, all four origins carried a mean `rate_ieepa_recip` of **8.86%**
+(max 10%, the universal baseline) across 20,241 pairs each — roughly **half**
+their reported total rate. Nothing in `src/`, `config/`, or
+`resources/ieepa_exempt_products.csv` referenced 9903.01.29 or GN 3(b) before
+this change.
+
+**Why the same config block resolves it.** The heading defines its scope by
+*reference* to general note 3(b) — prose the JSON does not carry, which is the
+exact gap `column_2_countries` exists to fill. One config block, two consumers:
+step 1c prices column 2, step 2b withholds the reciprocal duty. They cannot
+disagree about who is non-NTR.
+
+**Scope, deliberately narrow.** Only `rate_ieepa_recip` is cleared. IEEPA
+*fentanyl* is CA/MX/CN-only and never reaches these origins. **§122** has no
+GN 3(b) carve-out in any revision scanned (2025 rev_32, 2026 rev_12), so it
+continues to apply to them. No date gate beyond the origins' own effective dates
+is needed: before the reciprocal program exists, and after the SCOTUS
+invalidation, `rate_ieepa_recip` is already 0 on every row.
+
+**Known follow-up — §232 heading 9903.82.12 (NOT fixed here).** From the 2026
+annex regime, "derivative aluminum and steel articles the product of any country
+identified in general note 3(b) … as provided for in subdivisions (c)(ix)–(x) of
+U.S. note 16" carries **+25%**, not the 50% tier those lines otherwise draw.
+Modeling it requires country-aware annex tier assignment plus the
+9903.82.17 / 9903.85.68 exceptions, which is more than a base-rate PR should
+carry. Tracked as the next GN 3(b) item; until then these origins' derivative
+steel/aluminum rate may be **overstated** (Russia's ch76 lines are unaffected in
+practice because the 200% aluminum surcharge, Proc. 10522, `pmax`es over any
+tier). Direction is therefore opposite to §20's understatement.
+
+**Implementation:** `apply_gn3b_ieepa_exemption()` in
+`src/pipeline/06_calculate_rates.R`, called as step 2b immediately after the
+IEEPA reciprocal step.

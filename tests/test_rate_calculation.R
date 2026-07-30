@@ -1929,6 +1929,57 @@ run_test('policy_params resolves the four column-2 origins with verified codes',
 })
 
 
+# --- GN 3(b) IEEPA reciprocal exemption (heading 9903.01.29) -----------------
+
+.gn3b_frame <- function() {
+  tibble(
+    country = c('4621', '2390', '5700', '4280'),   # Russia, Cuba, China, Germany
+    rate_ieepa_recip = c(0.10, 0.10, 0.34, 0.15)
+  )
+}
+.gn3b_cfg <- function() {
+  tibble(country = c('2390', '5790', '4621', '4622'),
+         name = c('Cuba', 'North Korea', 'Russia', 'Belarus'),
+         effective_date = as.Date(c(NA, NA, '2022-04-09', '2022-04-09')))
+}
+
+run_test('GN 3(b) origins lose the IEEPA reciprocal duty; others keep it', {
+  out <- apply_gn3b_ieepa_exemption(.gn3b_frame(), .gn3b_cfg(),
+                                    as.Date('2025-09-01'))
+  stopifnot(out$rate_ieepa_recip[out$country == '4621'] == 0)   # Russia
+  stopifnot(out$rate_ieepa_recip[out$country == '2390'] == 0)   # Cuba
+  # Non-GN-3(b) origins untouched
+  stopifnot(abs(out$rate_ieepa_recip[out$country == '5700'] - 0.34) < 1e-12)
+  stopifnot(abs(out$rate_ieepa_recip[out$country == '4280'] - 0.15) < 1e-12)
+})
+
+run_test('GN 3(b) exemption respects the PL 117-110 effective date', {
+  # Before 2022-04-09 Russia was an NTR partner: reciprocal duty stands (the
+  # program does not exist that early, but the gate must still be date-driven).
+  out <- apply_gn3b_ieepa_exemption(.gn3b_frame(), .gn3b_cfg(),
+                                    as.Date('2022-01-01'))
+  stopifnot(abs(out$rate_ieepa_recip[out$country == '4621'] - 0.10) < 1e-12)
+  stopifnot(out$rate_ieepa_recip[out$country == '2390'] == 0)   # Cuba: always
+})
+
+run_test('GN 3(b) exemption is inert without the column, config, or matches', {
+  # No rate_ieepa_recip column (pre-IEEPA fixture) => unchanged frame
+  f <- tibble(country = c('4621', '5700'))
+  stopifnot(identical(apply_gn3b_ieepa_exemption(f, .gn3b_cfg(),
+                                                 as.Date('2025-09-01')), f))
+  # Empty config => unchanged
+  empty <- tibble(country = character(), name = character(),
+                  effective_date = as.Date(character()))
+  g <- .gn3b_frame()
+  stopifnot(identical(apply_gn3b_ieepa_exemption(g, empty,
+                                                 as.Date('2025-09-01')), g))
+  # No GN 3(b) origin present in the country set => unchanged
+  h <- tibble(country = c('5700', '4280'), rate_ieepa_recip = c(0.34, 0.15))
+  stopifnot(identical(apply_gn3b_ieepa_exemption(h, .gn3b_cfg(),
+                                                 as.Date('2025-09-01')), h))
+})
+
+
 # =============================================================================
 # Summary
 # =============================================================================
