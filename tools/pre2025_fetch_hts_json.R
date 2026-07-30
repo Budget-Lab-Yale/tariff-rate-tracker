@@ -72,6 +72,15 @@ all_caps <- map_dfr(years, function(y) {
 
 if (nrow(all_caps) == 0) stop('CDX returned no JSON captures for any requested year')
 
+# A year that comes back empty is far more likely to be a Wayback 503 that
+# exhausted its retries than a genuine absence — never let it pass silently.
+empty_years <- setdiff(years, unique(all_caps$cdx_year))
+if (length(empty_years) > 0 && !('--allow-empty-years' %in% args)) {
+  stop('CDX returned no JSON captures for year(s): ', paste(empty_years, collapse = ', '),
+       '\nThis is usually a transient Wayback failure. Re-run, or pass ',
+       '--allow-empty-years if the absence is genuine (e.g. 2015).')
+}
+
 files <- all_caps %>%
   count(filename, name = 'n_captures') %>%
   mutate(parsed = map(filename, parse_json_filename)) %>%
