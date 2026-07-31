@@ -287,6 +287,38 @@ method doc `docs/s301_exclusion_calibration.md`.
   land; promote the per-HTS10 line-coverage extension (built dormant,
   scenario `s301_line_coverage`) after full-build parity review.
 
+## Section 301 forced labor — post-codification follow-ups (2026-07-31)
+
+HTS 2026 rev_13 (published 2026-07-28) codified the final action as
+headings 9903.05.20-.84 / U.S. note 52. The action was already modeled as a
+BASELINE authority from the Federal Register notice, and the ingest review
+reconciled all 64 country charging headings against the config tiers with
+ZERO mismatches — so both items below are refinements, not corrections.
+Review: `docs/internal/hts_2026_rev13_review.md`.
+
+- [ ] **Re-source the forced-labor rates from the HTS** (the pattern rev_12
+  applied to Brazil §301: "the +25% now reads off HTS 9903.05.01 via
+  extract_section301_brazil_rates(); config rate demoted to fallback"). The
+  tiers currently come from `section_301_forced_labor.{rate_10,rate_12_5,
+  tier_*}` in config; rev_13 now carries them per country in the schedule, so
+  the schedule can become the rate authority with config as fallback. Should
+  be numerically neutral given the zero-mismatch reconciliation — parity-gate
+  it. NOTE the net-of-MFN cap needs care: the HTS implements it by BIFURCATING
+  headings on the line's own column-1 level (9903.05.38 = EU at-or-above the
+  threshold, no additional duty; 9903.05.39 = EU below it, flat 10% replacing
+  column 1) rather than by arithmetic, so a naive per-heading rate read would
+  see "0%" and "10%" where the model means max(10% - MFN, 0).
+- [ ] **Cross-check the 21 `9903.06.01-.21` per-country product carve-outs**
+  against `resources/s301fl_final_country_exemptions.csv` (4,921 rows, built
+  from the FR annex). The HTS references these lists by note-52 subdivision
+  ((j)(4) Malaysia, (j)(5) Cambodia, Guatemala, El Salvador, Argentina,
+  Bangladesh, Ecuador, ...), so USITC's enumeration is an INDEPENDENT check on
+  ours — a disagreement means one of the two mis-read the annex. Also confirm
+  the exemption headings .85-.99 map onto the modeled carve-outs (in-transit,
+  note 52(b)/(c), civil aircraft, pharma use, full §232 mask, donations,
+  informational, CA 52(g) / MX 52(h) / CAFTA-DR textiles 52(i) / UK / EU / CH
+  / MY).
+
 ## AD/CVD (decided 2026-06-08)
 
 - [ ] **Strip AD/CVD from the collected side before calibrating η — do NOT
