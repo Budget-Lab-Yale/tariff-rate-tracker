@@ -161,6 +161,78 @@ resolve_policy_params_path <- function() {
 }
 
 
+#' Read a BASELINE policy-params YAML, honoring an optional `extends:` parent
+#'
+#' A pre-2025 ERA baseline (config/policy_params_pre2025.yaml, selected via the
+#' build config's `policy_params_path`) is the 2025-26 baseline plus a handful of
+#' era fields. It cannot be a scenario overlay: the grid filter reads
+#' series_horizon from the BASELINE yaml, and load_policy_params() refuses an
+#' overlay that sets it (see below). Copying 1000 lines to change three would
+#' make every future baseline edit a two-file edit that silently drifts, so an
+#' era baseline names its parent instead:
+#'
+#'   extends: config/policy_params.yaml
+#'   series_horizon: {start_date: '2016-01-01', end_date: '2024-12-31'}
+#'
+#' Merge semantics are the scenario-overlay ones (.deep_merge_lists): the child
+#' wins, maps merge field-by-field, sequences/scalars replace wholesale. Parent
+#' paths resolve relative to the child's directory first, then the repo root.
+#' The key is stripped after merging, so nothing downstream ever sees it.
+#'
+#' Fail-closed: a child that extends may only use TOP-LEVEL keys the parent
+#' already defines (plus `extends`). Without that, `series_horizen:` would be
+#' silently ignored and the era would build on the 2025-01-01 window.
+#'
+#' No `extends` key => a plain read_yaml(), byte-identical to before. The shipped
+#' 2025-26 baseline has no such key, so the production path is unchanged.
+#'
+#' @param yaml_path Path to a baseline policy-params YAML
+#' @param ancestry Normalized paths already being resolved (cycle detection)
+#' @return Parsed, parent-merged params list (no `extends` key)
+.read_baseline_params <- function(yaml_path, ancestry = character()) {
+  here_norm <- function(p) normalizePath(p, winslash = '/', mustWork = FALSE)
+  self <- here_norm(yaml_path)
+  if (self %in% ancestry) {
+    stop('Policy-params `extends` cycle: ',
+         paste(c(ancestry, self), collapse = ' -> '), call. = FALSE)
+  }
+  params <- read_yaml(yaml_path)
+  parent_ref <- as.character(params$extends %||% character())
+  if (length(parent_ref) == 0) return(params)
+  if (length(parent_ref) > 1 || !nzchar(parent_ref)) {
+    stop('Policy params ', yaml_path,
+         ': `extends` must be a single path to a parent policy-params YAML.',
+         call. = FALSE)
+  }
+
+  candidates <- c(file.path(dirname(yaml_path), parent_ref),
+                  parent_ref,
+                  here(parent_ref))
+  parent_path <- candidates[file.exists(candidates)][1]
+  if (is.na(parent_path)) {
+    stop('Policy params ', yaml_path, ': `extends` parent not found: ',
+         parent_ref, call. = FALSE)
+  }
+
+  parent <- .read_baseline_params(parent_path, c(ancestry, self))
+  params$extends <- NULL
+  # The same allowance the overlay validator makes: a few keys are documented
+  # inputs that the active baseline deliberately does not carry (most notably
+  # disabled_authorities, which an era baseline needs to switch post-2025
+  # authorities off).
+  allowed <- c(names(parent), names(.scenario_overlay_extensions()))
+  unknown <- setdiff(names(params), allowed)
+  if (length(unknown) > 0) {
+    stop('Policy params ', yaml_path, ' extends ', parent_ref,
+         ' but sets top-level key(s) the parent does not define: ',
+         paste(unknown, collapse = ', '),
+         '. A derived baseline may only override existing keys — this is ',
+         'almost always a typo.', call. = FALSE)
+  }
+  .deep_merge_lists(parent, params)
+}
+
+
 load_policy_params <- function(yaml_path = NULL,
                                use_policy_dates = TRUE,
                                scenario = NULL,
@@ -172,7 +244,7 @@ load_policy_params <- function(yaml_path = NULL,
     stop('Policy params YAML not found: ', yaml_path)
   }
 
-  params <- read_yaml(yaml_path)
+  params <- .read_baseline_params(yaml_path)
 
   # --- Scenario overlay (the counterfactual harness) -------------------------
   # `scenario` (arg or TARIFF_SCENARIO env) names a folder under config/scenarios/.

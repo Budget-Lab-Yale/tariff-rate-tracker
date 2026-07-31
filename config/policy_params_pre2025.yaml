@@ -1,0 +1,85 @@
+# =============================================================================
+# policy_params_pre2025.yaml — BASELINE policy params for the pre-2025 era
+# =============================================================================
+# Phase 2a of the pre-2025 expansion (docs/pre2025_expansion_plan.md;
+# docs/internal/pre2025_expansion_scoping_2026-07-28.md §3, §6 decision 6).
+#
+# WHY THIS IS A BASELINE AND NOT A SCENARIO OVERLAY
+#   The revision-grid window is read from the BASELINE yaml by
+#   series_window_start() (src/model/revisions.R), and load_policy_params()
+#   hard-stops on any scenario overlay that sets `series_horizon` — an overlay
+#   window would silently disagree with the grid the build actually loaded. So
+#   each era is a baseline config selected by the build config's
+#   `policy_params_path`, and the eras are unioned at the published parquet
+#   layer (decision 6: per-era vintages, no monolithic panel).
+#
+# WHY `extends:` AND NOT A COPY
+#   Everything below is the era's DIFF against the 2025-26 baseline. A full copy
+#   would be ~1000 duplicated lines and would turn every future baseline edit
+#   into a two-file edit that silently drifts. See
+#   src/model/policy_params.R::.read_baseline_params for the merge semantics
+#   (child wins; maps merge; sequences replace) and the fail-closed key check.
+#
+# SCOPE WARNING — READ BEFORE USING ANY NUMBER THIS PRODUCES
+#   This is the Phase 2a SKELETON config: it makes the era build end to end so
+#   the per-era architecture can be validated. The RATES IT PRODUCES ARE KNOWN
+#   TO BE WRONG in the ways Phase 2b/2c fix, because the following are still
+#   frozen at their 2025 values (scoping §3, "load-bearing 2025 assumptions"):
+#     * section_301_rates      — the static map holds FEBRUARY-2020 values, so
+#                                every date before 2020-02-14 is wrong (List 3
+#                                10%->25% on 2019-05-10, List 4A 15%->7.5% on
+#                                2020-02-14 are both unmodelled).
+#     * section_232_country_exemptions — expiry-only, no START date, so Canada,
+#                                Mexico and the EU read as EXEMPT in 2018-19
+#                                when they were not.
+#     * section_201.solar_rate — a single scalar at its Year-8 step-down value;
+#                                the washing-machine safeguard (2018-02 ..
+#                                2023-02) is not modelled at all.
+#     * §301 aircraft (9903.89, EU/UK 2019-10 .. 2021-07) has no non-China
+#                                branch; the MTB cycle (2018-10 .. 2020-12) has
+#                                no end date, so membership tests credit relief
+#                                after it lapsed.
+#     * usmca_shares / mfn_exemption — 2025-vintage, time-invariant, and keyed
+#                                on the `S`/`S+` program codes introduced in
+#                                2020-07, so NAFTA-era CA/MX (~a quarter of
+#                                imports) resolve to full column-1 MFN.
+#     * TRQ over_quota_share and the GSP lapse window (2021-01-01) are absent.
+#   None of that is fixed here on purpose: 2a is the skeleton, 2b is the rates.
+# =============================================================================
+
+extends: config/policy_params.yaml
+
+# --- Era window --------------------------------------------------------------
+# start_date gates the revision grid (load_revision_dates), is asserted again in
+# assemble_timeseries, and is what keeps this era's ~110 backfilled revision rows
+# out of the shipped 2025-26 build (whose own baseline pins start_date
+# 2025-01-01). end_date closes the era at the 2025 boundary so the two vintages
+# tile without overlap.
+series_horizon:
+  start_date: '2016-01-01'
+  end_date: '2024-12-31'
+
+# --- Post-2025 authorities: OFF ----------------------------------------------
+# Same list as the pre_2025 counterfactual overlay (config/scenarios/pre_2025/),
+# for the same reason: these authorities did not exist before 2025, and §338 and
+# Brazil §301 are BASELINE authorities that would otherwise be applied by their
+# config date-gates alone. Section 232 and Section 301 are deliberately NOT
+# disabled — they are the era's principal authorities (2018 metals, 2018-19 China
+# lists).
+#
+# Belt-and-braces rather than load-bearing: every one of these is either
+# archive-driven (no 9903.01.* / 9903.05.* heading exists in a pre-2025 edition)
+# or gated to a 2026 date, so all five are already inert in 2016-2024. Stating
+# them makes the era's intent explicit and fails loud if a future baseline
+# authority arrives without a date gate.
+disabled_authorities: [ieepa_reciprocal, ieepa_fentanyl, section_122, section_338,
+                       section_301_brazil]
+
+# --- Boundary mints ----------------------------------------------------------
+# The baseline's curated overrides are all 2026 dates (§232 metals annex, Brazil
+# §301, §122 sunset, patented-pharma carve-out, §338 Canada, pharma §232). None
+# falls inside a pre-2025 revision interval, so discover_boundaries would drop
+# them anyway (owner_of -> NA); emptying the list keeps the era's mint set
+# purely what the Chapter 99 scan finds in the historical archives.
+# Curated pre-2025 boundary dates, if any turn out to be needed, are 2b work.
+boundary_overrides: []

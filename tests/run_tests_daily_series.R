@@ -245,15 +245,119 @@ run_test('window excluding every revision fails loud', {
   stopifnot(grepl('no revisions remain', err))
 })
 
-run_test('real grid is identical with and without the shipped window', {
+run_test('shipped window yields exactly the in-window rows of the raw grid', {
+  # Until the pre-2025 backfill landed (Phase 2a) the shipped window filtered
+  # NOTHING, so this asserted windowed == raw outright. The CSV now carries the
+  # 110 historical revision rows, so the invariant is restated in the form that
+  # survives the backfill and still catches window drift: the current era's grid
+  # is the raw grid restricted to [start_date, end_date], with nothing dropped,
+  # reordered, or altered inside the window.
   windowed <- load_revision_dates()
   raw <- load_revision_dates(apply_window = FALSE)
+  pp <- load_policy_params()
+  expected <- raw %>%
+    dplyr::filter(effective_date >= pp$SERIES_HORIZON_START,
+                  effective_date <= pp$SERIES_HORIZON_END)
   # Diagnosable pieces first, so a failure reads as "rows changed" vs
   # "attribute drift" (identical() also compares tibble attributes).
-  stopifnot(identical(dim(windowed), dim(raw)))
-  stopifnot(identical(names(windowed), names(raw)))
-  stopifnot(identical(as.data.frame(windowed), as.data.frame(raw)))
-  stopifnot(identical(windowed, raw))
+  stopifnot(identical(dim(windowed), dim(expected)))
+  stopifnot(identical(names(windowed), names(expected)))
+  stopifnot(identical(as.data.frame(windowed), as.data.frame(expected)))
+  stopifnot(identical(windowed, expected))
+  # And the published product's shape, pinned explicitly: adding a historical
+  # era must never move these.
+  stopifnot(nrow(windowed) == 45L)
+  stopifnot(min(windowed$effective_date) == as.Date('2025-01-01'))
+  stopifnot(max(windowed$effective_date) == as.Date('2026-07-21'))
+  stopifnot(!any(windowed$effective_date < as.Date('2025-01-01')))
+})
+
+run_test('window END gate excludes post-window revisions (era tiling)', {
+  # The pre-2025 era's failure mode if the window were start-only: reading the
+  # backfilled CSV through a 2016..2024 window must NOT return the 2025-26 rows.
+  dates <- load_revision_dates(.window_fixture_csv,
+                               window_start = as.Date('2016-01-01'),
+                               window_end = as.Date('2024-12-31'))
+  stopifnot(identical(dates$revision, '2016_basic'))
+
+  # Both edges open => the whole fixture.
+  both <- load_revision_dates(.window_fixture_csv, apply_window = FALSE)
+  stopifnot(nrow(both) == 3)
+
+  # An end-only window keeps everything at or before the edge.
+  end_only <- load_revision_dates(.window_fixture_csv,
+                                  window_start = as.Date('1900-01-01'),
+                                  window_end = as.Date('2025-01-01'))
+  stopifnot(identical(end_only$revision, c('2016_basic', 'basic')))
+
+  # A window that excludes everything still fails loud from the end side.
+  err <- tryCatch({
+    load_revision_dates(.window_fixture_csv,
+                        window_start = as.Date('1900-01-01'),
+                        window_end = as.Date('1901-01-01'))
+    NULL
+  }, error = function(e) conditionMessage(e))
+  stopifnot(!is.null(err), grepl('no revisions remain', err))
+})
+
+run_test('series_window_end reads the shipped end_date and honors extends', {
+  stopifnot(series_window_end() == as.Date('2026-12-31'))
+  old_env <- Sys.getenv('TARIFF_POLICY_PARAMS', unset = NA)
+  y <- tempfile(fileext = '.yaml')
+  tryCatch({
+    # A derived era baseline that names its parent must resolve to ITS OWN
+    # window on both edges — the bug this guards is a bare read_yaml() seeing
+    # only the child and returning NULL (no bound at all).
+    writeLines(c(paste0("extends: '", here('config', 'policy_params.yaml'), "'"),
+                 'series_horizon:',
+                 "  start_date: '2016-01-01'",
+                 "  end_date: '2024-12-31'"), y)
+    Sys.setenv(TARIFF_POLICY_PARAMS = y)
+    stopifnot(series_window_start() == as.Date('2016-01-01'))
+    stopifnot(series_window_end() == as.Date('2024-12-31'))
+    # and the inherited body is really there
+    pp <- load_policy_params()
+    stopifnot(length(pp$EU27_CODES) == 27)
+    stopifnot(!'extends' %in% names(pp))
+  }, finally = {
+    if (is.na(old_env)) Sys.unsetenv('TARIFF_POLICY_PARAMS') else
+      Sys.setenv(TARIFF_POLICY_PARAMS = old_env)
+    unlink(y)
+  })
+})
+
+run_test('a derived baseline may not invent top-level keys', {
+  old_env <- Sys.getenv('TARIFF_POLICY_PARAMS', unset = NA)
+  y <- tempfile(fileext = '.yaml')
+  tryCatch({
+    writeLines(c(paste0("extends: '", here('config', 'policy_params.yaml'), "'"),
+                 'series_horizen:',           # deliberate typo
+                 "  start_date: '2016-01-01'"), y)
+    Sys.setenv(TARIFF_POLICY_PARAMS = y)
+    err <- tryCatch({ load_policy_params(); NULL },
+                    error = function(e) conditionMessage(e))
+    stopifnot(!is.null(err), grepl('series_horizen', err))
+  }, finally = {
+    if (is.na(old_env)) Sys.unsetenv('TARIFF_POLICY_PARAMS') else
+      Sys.setenv(TARIFF_POLICY_PARAMS = old_env)
+    unlink(y)
+  })
+})
+
+run_test('assert_within_series_window names post-window offenders', {
+  rd <- tibble(revision = c('2024_rev_1', 'basic', 'bnd_2024-12-31'),
+               effective_date = as.Date(c('2024-01-01', '2025-01-01', '2024-12-31')))
+  # in-window ids pass on both edges
+  stopifnot(isTRUE(assert_within_series_window(rd, c('2024_rev_1', 'bnd_2024-12-31'),
+                                               as.Date('2016-01-01'),
+                                               as.Date('2024-12-31'))))
+  err <- tryCatch({
+    assert_within_series_window(rd, rd$revision, as.Date('2016-01-01'),
+                                as.Date('2024-12-31'))
+    NULL
+  }, error = function(e) conditionMessage(e))
+  stopifnot(!is.null(err), grepl('basic', err))
+  stopifnot(grepl('series_horizon.end_date', err, fixed = TRUE))
 })
 
 run_test('series_window_start honors TARIFF_POLICY_PARAMS and the no-key case', {

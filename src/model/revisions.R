@@ -78,7 +78,40 @@ build_chapter99_url <- function(release_name) {
 #' docs/internal/pre2025_expansion_scoping_2026-07-28.md).
 #'
 #' @return Date, or NULL when the key (or file) is absent => no start bound
-series_window_start <- function() {
+series_window_start <- function() .series_window_edge('start_date', 'series_window_start')
+
+
+#' Resolve the series-window END date from the active policy params
+#'
+#' The mirror of series_window_start(). Phase 0 shipped the window as a LOWER
+#' bound only, which is sufficient while there is exactly one era: the shipped
+#' baseline's end_date (2026-12-31) is later than every revision, so the grid is
+#' bounded in practice by the CSV itself.
+#'
+#' It stops being sufficient the moment a second era exists. Reading the
+#' backfilled CSV through the pre-2025 baseline (start 2016-01-01) returns all
+#' 155 rows — the 110 historical revisions AND the 45 shipped 2025-26 ones — so
+#' the "pre-2025 era" would in fact rebuild the current series on top of itself,
+#' with 2025-26 rates computed against an era config that disables IEEPA. Eras
+#' must TILE, which needs both edges. Applied by load_revision_dates() next to
+#' the start gate.
+#'
+#' Inert for the shipped 2025-26 build: end_date 2026-12-31 > the last revision
+#' (2026-07-21), so the filter drops nothing.
+#'
+#' @return Date, or NULL when the key (or file) is absent => no end bound
+series_window_end <- function() .series_window_edge('end_date', 'series_window_end')
+
+
+#' Shared reader for both series-window edges (so they cannot drift on the path
+#' contract, the fail-closed missing-file rule, or the `extends:` resolution).
+#'
+#' Resolved through .read_baseline_params() (not a bare read_yaml) so an era
+#' baseline that inherits its window via `extends:` resolves the SAME value
+#' load_policy_params() sees. A bare read would return NULL for an inherited
+#' series_horizon — i.e. silently no window at all, the one failure mode this
+#' rail exists to prevent.
+.series_window_edge <- function(key, caller) {
   yaml_path <- resolve_policy_params_path()
   if (!file.exists(yaml_path)) {
     # A rail that switches itself off is the wrong failure mode: an explicit
@@ -86,14 +119,13 @@ series_window_start <- function() {
     # fixture. Only the default path may be legitimately absent (fresh clone
     # fixtures). Parse errors propagate for the same reason.
     if (nzchar(Sys.getenv('TARIFF_POLICY_PARAMS', ''))) {
-      stop('series_window_start: TARIFF_POLICY_PARAMS points at a missing file: ',
-           yaml_path)
+      stop(caller, ': TARIFF_POLICY_PARAMS points at a missing file: ', yaml_path)
     }
     return(NULL)
   }
-  sh <- yaml::read_yaml(yaml_path)$series_horizon
-  if (is.null(sh$start_date)) return(NULL)
-  as.Date(sh$start_date)
+  sh <- .read_baseline_params(yaml_path)$series_horizon
+  if (is.null(sh[[key]])) return(NULL)
+  as.Date(sh[[key]])
 }
 
 
@@ -106,17 +138,34 @@ series_window_start <- function() {
 #'
 #' @param rev_dates Tibble from load_revision_dates()
 #' @param revision_ids Character revision ids about to enter the panel
-#' @param window_start Date lower bound, or NULL to skip the check
-assert_within_series_window <- function(rev_dates, revision_ids, window_start) {
-  if (is.null(window_start)) return(invisible(TRUE))
-  early <- rev_dates %>%
-    filter(revision %in% revision_ids, effective_date < window_start)
-  if (nrow(early) > 0) {
-    stop('assemble_timeseries: ', nrow(early),
-         ' revision(s) fall before series_horizon.start_date (', window_start, '): ',
-         paste(early$revision, collapse = ', '),
-         '. Pre-window revisions must build as their own era/vintage — see ',
+#' @param window_start Date lower bound, or NULL to skip the lower check
+#' @param window_end Date upper bound, or NULL to skip the upper check. Boundary
+#'   mints are exempt: discover_boundaries already caps them at the horizon, and
+#'   a `bnd_` id has no rev_dates row of its own to validate against an era edge.
+assert_within_series_window <- function(rev_dates, revision_ids, window_start,
+                                        window_end = NULL) {
+  offenders <- function(pred, edge_name, edge_val, direction) {
+    bad <- rev_dates %>% filter(revision %in% revision_ids, pred(effective_date))
+    if (nrow(bad) == 0) return(invisible(TRUE))
+    stop('assemble_timeseries: ', nrow(bad),
+         ' revision(s) fall ', direction, ' series_horizon.', edge_name,
+         ' (', edge_val, '): ', paste(bad$revision, collapse = ', '),
+         '. Out-of-window revisions must build as their own era/vintage — see ',
          'docs/internal/pre2025_expansion_scoping_2026-07-28.md.')
+  }
+  if (!is.null(window_start)) {
+    offenders(function(d) d < window_start, 'start_date', window_start, 'before')
+  }
+  if (!is.null(window_end)) {
+    real_ids <- setdiff(revision_ids, grep('^(sched_|bnd_)', revision_ids, value = TRUE))
+    bad <- rev_dates %>% filter(revision %in% real_ids, effective_date > window_end)
+    if (nrow(bad) > 0) {
+      stop('assemble_timeseries: ', nrow(bad),
+           ' revision(s) fall after series_horizon.end_date (', window_end, '): ',
+           paste(bad$revision, collapse = ', '),
+           '. Out-of-window revisions must build as their own era/vintage — see ',
+           'docs/internal/pre2025_expansion_scoping_2026-07-28.md.')
+    }
   }
   invisible(TRUE)
 }
@@ -140,11 +189,15 @@ assert_within_series_window <- function(rev_dates, revision_ids, window_start) {
 #'   (or refuse to fetch) inventory the backfill depends on.
 #' @param window_start Explicit window start (Date); default NULL resolves it
 #'   from the active policy params via series_window_start().
+#' @param window_end Explicit window end (Date); default NULL resolves it from
+#'   the active policy params via series_window_end(). Both edges are needed for
+#'   eras to TILE — see series_window_end().
 #' @return Tibble with revision, effective_date
 load_revision_dates <- function(csv_path = here('config', 'revision_dates.csv'),
                                 use_policy_dates = TRUE,
                                 apply_window = TRUE,
-                                window_start = NULL) {
+                                window_start = NULL,
+                                window_end = NULL) {
   if (!file.exists(csv_path)) {
     stop('Revision dates CSV not found: ', csv_path,
          '\nRun scraper or create manually.')
@@ -202,6 +255,7 @@ load_revision_dates <- function(csv_path = here('config', 'revision_dates.csv'),
   # the filter only bites once pre-2025 rows are backfilled.
   if (apply_window) {
     if (is.null(window_start)) window_start <- series_window_start()
+    if (is.null(window_end)) window_end <- series_window_end()
     if (!is.null(window_start)) {
       n_before <- nrow(dates)
       dates <- dates %>% filter(effective_date >= window_start)
@@ -210,10 +264,27 @@ load_revision_dates <- function(csv_path = here('config', 'revision_dates.csv'),
         message('  Series window: excluded ', n_dropped,
                 ' revision(s) before ', window_start)
       }
+    }
+    # End gate: the mirror of the start gate, and what makes eras TILE rather
+    # than overlap. Inert for the shipped 2025-26 baseline (end_date 2026-12-31
+    # is later than every revision in the CSV); load-bearing for a pre-2025 era,
+    # whose start-only window would otherwise pull the 45 current-series
+    # revisions into the historical vintage. See series_window_end().
+    if (!is.null(window_end)) {
+      n_before <- nrow(dates)
+      dates <- dates %>% filter(effective_date <= window_end)
+      n_dropped <- n_before - nrow(dates)
+      if (n_dropped > 0) {
+        message('  Series window: excluded ', n_dropped,
+                ' revision(s) after ', window_end)
+      }
+    }
+    if (!is.null(window_start) || !is.null(window_end)) {
       if (nrow(dates) == 0) {
         stop('load_revision_dates: no revisions remain after applying the ',
-             'series window (start ', window_start, '). Check ',
-             'series_horizon.start_date against ', csv_path)
+             'series window (start ', window_start %||% '-inf',
+             ', end ', window_end %||% '+inf', '). Check ',
+             'series_horizon.start_date / end_date against ', csv_path)
       }
     }
   }

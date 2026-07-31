@@ -294,7 +294,10 @@ assemble_timeseries <- function(output_dir, rev_dates, pp_build,
   # fail loud rather than silently widening the series. When rev_dates came
   # through the normal windowed load, pre-window snapshots are already caught
   # by the orphan gate above; this covers the unfiltered paths.
-  assert_within_series_window(rev_dates, revs_on_disk, pp_build$SERIES_HORIZON_START)
+  # (End side included since Phase 2a: with two eras a start-only window lets
+  # the later era's revisions assemble into the earlier era's panel.)
+  assert_within_series_window(rev_dates, revs_on_disk, pp_build$SERIES_HORIZON_START,
+                              pp_build$SERIES_HORIZON_END)
 
   # Streaming fill instead of rbindlist. The full panel is ~210M rows x 33
   # cols (~50 GB in memory) after the 2026-06-04 universe expansion; rbindlist

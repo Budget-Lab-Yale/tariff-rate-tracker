@@ -128,11 +128,13 @@ ordered <- rev_dates %>%
 if (length(ordered) == 0) stop('No snapshots found in ', output_dir, ' — run the array build first.')
 message('Gathering ', length(ordered), ' revisions: ', ordered[1], ' .. ', ordered[length(ordered)])
 
-# Horizon-start gate (mirror of assemble_timeseries' guard on the serial path):
-# the array grid is windowed by list_revisions.R, so this is a no-op on the
-# happy path — it exists for the bypass cases (foreign timeline rds, stale
-# snapshots from a wider earlier run).
-assert_within_series_window(rev_dates, ordered, pp$SERIES_HORIZON_START)
+# Horizon gate (mirror of assemble_timeseries' guard on the serial path): the
+# array grid is windowed by list_revisions.R, so this is a no-op on the happy
+# path — it exists for the bypass cases (foreign timeline rds, stale snapshots
+# from a wider earlier run). Both edges since Phase 2a: with two eras, a stale
+# snapshot from the OTHER era is exactly the "wider earlier run" case.
+assert_within_series_window(rev_dates, ordered, pp$SERIES_HORIZON_START,
+                            pp$SERIES_HORIZON_END)
 
 # Completeness gate (Finding 3): the array dispatches one task per revision that
 # has a JSON archive (the same set list_revisions.R prints to size the array). If

@@ -1,0 +1,59 @@
+# Pre-2025 era build (Phase 2a — the era SKELETON).
+# =============================================================================
+#   bash scripts/submit_build_array.sh --config config/build/pre2025_era.yaml
+#
+# PURPOSE: make the 2016-2024 era build end to end so the per-era architecture
+# (scoping decision 6: per-era vintages, unioned at the published parquet layer)
+# is validated before any rate-correctness work. The RATES THIS PRODUCES ARE
+# KNOWN WRONG — see the SCOPE WARNING block in config/policy_params_pre2025.yaml
+# for the specific list (§301 rates frozen at Feb-2020, §232 exemptions with no
+# start date, §201 solar scalar, no washers/aircraft/MTB, 2025-vintage USMCA and
+# preference shares). This vintage is diagnostic output, not a publishable series.
+#
+# Nothing here can reach the published 2025-26 product: it writes under
+# .validation/, never repoints `latest`, and its own era window
+# (series_horizon 2016-01-01 .. 2024-12-31) is disjoint from the shipped
+# baseline's (2025-01-01 .. 2026-12-31).
+# =============================================================================
+
+# Diagnostic root, alongside the other validation vintages — NOT the published
+# interface root.
+model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker/.validation/pre2025-era
+
+# The ERA BASELINE (not a scenario overlay — an overlay may not set
+# series_horizon, and the grid filter reads the window from the baseline).
+policy_params_path: config/policy_params_pre2025.yaml
+
+# No scenarios: `actual` only. Counterfactuals against a skeleton whose rates are
+# known wrong would compare two wrong numbers.
+scenarios: []
+
+# Flags
+use_hts_dates: true        # HTS RELEASE ORDER, deliberately. The 110 backfilled
+                           # rows carry release dates with policy_effective_date
+                           # empty; policy-date curation of the ~127 revisions is
+                           # Phase 2b. Running on release order is the basis the
+                           # repo already supports and sidesteps curation for now.
+
+weight_mode: unweighted    # Weights are Phase 3: there is no pre-2025 weights
+                           # spine yet (single 2024 anchor, 484(f) crosswalk only
+                           # back to 2024-07, and two HS nomenclature breaks
+                           # inside the window that would silently drop codes
+                           # from the denominator). Any weighted number from this
+                           # era would be wrong in an invisible way.
+
+update_latest: false       # never repoint the published `latest` from a
+                           # diagnostic era vintage
+
+allow_partial: false       # fail loud on a missing revision snapshot — a dropped
+                           # middle revision reads as policy stability
+
+verify: false              # scripts/verify_build.R pins 2025-26 EXPECTATIONS —
+                           # config/expected_authorities.csv is keyed from
+                           # `basic` = 2025-01-01 and carries forward, so it
+                           # asserts IEEPA/§122-era facts that are false by
+                           # construction in 2016-2024 (and asserts §232/§301
+                           # active from the era's first revision, which is false
+                           # before 2018). Gating this era on it would fail for
+                           # reasons that say nothing about the era. Re-keying
+                           # expected_authorities per era is Phase 2b work.
