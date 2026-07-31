@@ -143,8 +143,61 @@ captures aborts the run rather than silently recording "no JSON".
 ## 5. Coverage
 
 <!-- COVERAGE-START -->
-_(filled in from `resources/pre2025_hts_inventory.csv` after the acquisition
-run; see that file for the per-release detail.)_
+| Year | Releases | JSON editions | Ch99 PDF | Change Record |
+|---|---|---|---|---|
+| 2016 | 2 | 1 | 2 | 2 |
+| 2017 | 2 | 1 | 2 | 2 |
+| 2018 | 19 | 8 | 19 | 19 |
+| 2019 | 21 | 17 | 21 | 21 |
+| 2020 | 29 | 29 | 29 | 29 |
+| 2021 | 17 | 17 | 17 | 17 |
+| 2022 | 14 | 14 | 14 | 14 |
+| 2023 | 12 | 12 | 12 | 12 |
+| 2024 | 11 | 11 | 11 | 11 |
+| **Total** | **127** | **110** | **127** | **127** |
+
+JSON editions carry **32,830–35,810 records** (median 34,389) — every file a
+full edition; no truncated capture survived validation. §301 headings
+(`9903.88.*`) appear in 106 of 110 editions, and the **List 3 rate reads 10% in
+6 editions and 25% in 97** — the 2018-09-24 → 2019-05-09 step is visible in the
+data, which is the strongest available evidence that these are genuine
+historical captures rather than current-release data served under a historical
+URL.
+
+Validation outcomes: 109 `ok`, 1 `ok_with_warnings`, **0 failures**. Release-name
+matching: 106 exact, 2 number-only, 2 unmatched (`2016_supplemental`, `2017_prelim` — real
+editions Wayback holds that correspond to no named release in the API list).
+
+### The 19 releases with NO usable JSON
+
+Phase 2 must build these from the Chapter 99 PDF + annual tariff database
+(`source_for_phase2 = chapter99_pdf+annual_db` in the inventory):
+
+- `2016_chapter98` (chapter98, eff. 2016-05-17)
+- `2016_chapter99` (Chapter99, eff. 2016-11-17)
+- `2017_basiccorrections2` (basicCorrections2, eff. 2017-02-09)
+- `2017_nte` (NTE, eff. 2017-10-30)
+- `2018_rev_1_1` (2018HTSARevision1_1, eff. 2018-02-08)
+- `2018_rev_1_2` (2018HTSARevision1_2, eff. 2018-02-28)
+- `2018_rev_2` (2018HTSARevision2, eff. 2018-03-23)
+- `2018_rev_2_1` (2018HTSARevision2_1, eff. 2018-03-29)
+- `2018_rev_3` (2018HTSARevision3, eff. 2018-04-25)
+- `2018_rev_4` (2018HTSARevision4, eff. 2018-05-01)
+- `2018_rev_4_1` (2018HTSARevision4_1, eff. 2018-05-15)
+- `2018_rev_5_1` (2018HTSARevision5_1, eff. 2018-06-06)
+- `2018_rev_6` (2018HTSARevision6, eff. 2018-06-29)
+- `2018_rev_7_1` (2018HTSARevision7_1, eff. 2018-07-11)
+- `2018_rev_9` (2018HTSARevision9, eff. 2018-08-16)
+- `2019_rev_3` (2019HTSAREV3, eff. 2019-04-18)
+- `2019_rev_10` (2019HTSARev10, eff. 2019-07-31)
+- `2019_rev_12` (2019HTSARev12, eff. 2019-08-30)
+- `2019_rev_18` (2019HTSARev18, eff. 2019-11-29)
+
+The 2018 gap is the consequential one: **`2018_rev_2` (eff. 2018-03-23) is the
+§232 steel/aluminum start**, and the first 2018 edition with JSON is
+`2018_rev_8_1` (2018-08-07) — a ~4.5-month blind spot in machine-readable form.
+The annual tariff database carries the correct `begin_effect_date` for those
+provisions, which is why it is the designated spine for the era.
 <!-- COVERAGE-END -->
 
 ## 6. Census IMDB monthly weights — verification only
