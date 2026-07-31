@@ -286,7 +286,16 @@ classify_authority <- function(ch99_code) {
   parts <- str_split(ch99_code, '\\.')[[1]]
   if (length(parts) < 2) return('unknown')
 
-  middle <- as.integer(parts[2])
+  # A heading number that will not parse as an integer cannot be classified —
+  # treat it exactly like a code with too few parts. This is not defensive
+  # programming for its own sake: the USITC's own published JSON contains
+  # malformed codes (the 2021 preliminary editions carry "9903.89,61", a comma
+  # where the second period belongs). Without the guard, as.integer() returns
+  # NA, the first `if (middle == ...)` below raises "missing value where
+  # TRUE/FALSE needed", and ONE bad character in a source document aborts the
+  # whole revision build. `third` below was already guarded this way.
+  middle <- suppressWarnings(as.integer(parts[2]))
+  if (is.na(middle)) return('unknown')
 
   # Section 338 Canada (proclamations of 2026-07-20): charging headings
   # 9903.03.12-.14 plus the companion §232 / civil-aircraft exception headings
