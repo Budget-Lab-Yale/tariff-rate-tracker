@@ -226,6 +226,13 @@ detect_anomalies <- function(rev_quality) {
 #' if any authority activates, deactivates, or expires (e.g., S122 expiry at
 #' 2026-07-23 means the first post-expiry revision needs s122,inactive).
 #'
+#' Era behavior (pre-2025 expansion, Phase 0 review): the mechanism is already
+#' grid-relative — expectations key on revision ids, the carry-forward walks
+#' rev_quality$revision (this build's grid), and rows keyed to out-of-grid
+#' revisions are inert (unknown-revision warning only). A pre-2025 era built
+#' from its own windowed grid therefore needs its own earliest-state rows
+#' (e.g. 2016_basic,s232,inactive) but no code change here.
+#'
 #' @param rev_quality Output from compute_revision_quality()
 #' @return Tibble of authority timeline anomalies
 check_authority_timeline <- function(rev_quality) {

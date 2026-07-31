@@ -341,8 +341,10 @@ if (sys.nframe() == 0) {
     message('API unavailable — no changes made.')
   }
 
-  # Cross-reference with available JSON files
-  dates <- load_revision_dates(csv_path, use_policy_dates = FALSE)
+  # Cross-reference with available JSON files. The scraper reconciles the RAW
+  # CSV (apply_window = FALSE): windowing here would make out-of-window rows
+  # look absent and mis-report archive inventory.
+  dates <- load_revision_dates(csv_path, use_policy_dates = FALSE, apply_window = FALSE)
   all_revisions <- dates$revision
   archive_dir <- here('data', 'hts_archives')
 

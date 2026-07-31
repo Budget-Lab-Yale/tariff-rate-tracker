@@ -206,7 +206,7 @@ FIN_CMD+=" && rm -rf '$SCRATCH' && echo 'removed scratch $SCRATCH'"
 DEP="${GATHER_JOBS[-1]}"
 echo "--- finalize vintage $VINTAGE (afterok:$DEP, verify=${VERIFY:-1}) ---"
 FIN_JOB=$(TARIFF_SCRATCH="$SCRATCH" TARIFF_VINTAGE="$VINTAGE" TARIFF_MODEL_DATA_ROOT="$MODEL_DATA_ROOT" \
-  TARIFF_UPDATE_LATEST="${UPDATE_LATEST:-1}" \
+  TARIFF_UPDATE_LATEST="${UPDATE_LATEST:-1}" TARIFF_POLICY_PARAMS="$POLICY_PARAMS_PATH" \
   sbatch --parsable --dependency=afterok:"$DEP" --job-name="finalize-$VINTAGE" \
     --time=01:00:00 --nodes=1 --ntasks=1 --cpus-per-task=4 --mem=48G \
     --output="$HOME/slurm-logs/finalize-$VINTAGE-%j.out" --error="$HOME/slurm-logs/finalize-$VINTAGE-%j.err" \

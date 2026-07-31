@@ -65,7 +65,6 @@ init_logging(
   level = 'info'
 )
 
-rev_dates <- load_revision_dates(use_policy_dates = use_policy_dates)
 timeline <- readRDS(timeline_path) %>%
   mutate(effective_date = as.Date(effective_date))
 ri <- timeline %>% filter(revision == rev_id)

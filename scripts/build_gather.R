@@ -85,7 +85,6 @@ init_logging(
   level = 'info'
 )
 
-rev_dates <- load_revision_dates(use_policy_dates = use_policy_dates)
 pp <- load_policy_params(use_policy_dates = use_policy_dates,
                          scenario = if (is_baseline) NULL else scenario)
 timeline_path <- Sys.getenv('REV_TIMELINE', 'output/build_array_timeline.rds')
@@ -128,6 +127,12 @@ ordered <- rev_dates %>%
   pull(revision)
 if (length(ordered) == 0) stop('No snapshots found in ', output_dir, ' — run the array build first.')
 message('Gathering ', length(ordered), ' revisions: ', ordered[1], ' .. ', ordered[length(ordered)])
+
+# Horizon-start gate (mirror of assemble_timeseries' guard on the serial path):
+# the array grid is windowed by list_revisions.R, so this is a no-op on the
+# happy path — it exists for the bypass cases (foreign timeline rds, stale
+# snapshots from a wider earlier run).
+assert_within_series_window(rev_dates, ordered, pp$SERIES_HORIZON_START)
 
 # Completeness gate (Finding 3): the array dispatches one task per revision that
 # has a JSON archive (the same set list_revisions.R prints to size the array). If
