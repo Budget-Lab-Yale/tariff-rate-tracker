@@ -9,6 +9,13 @@
 
 suppressPackageStartupMessages(library(here))
 
+# UTF-8 guard before spawning: several test files carry accented literals and
+# each child parses its own file before any in-process guard can run, so the
+# runner switches now and exports LANG/LC_ALL for children to inherit (see
+# src/core/locale.R). Sourced directly — the runner loads no modules.
+source(here('src', 'core', 'locale.R'))
+ensure_utf8_locale()
+
 args <- commandArgs(trailingOnly = TRUE)
 tests_dir <- here('tests')
 files <- c(

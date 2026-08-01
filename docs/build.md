@@ -382,6 +382,7 @@ published only through the internal per-interval snapshot layout.
 - If `preflight.R` reports missing packages, run `tools/install_dependencies.R --all`.
 - If the pre-run import-weights auto-build fails (Census URL change, network issues), run `src/io/build_import_weights.R` manually with override flags or set `weight_mode: unweighted` (see [docs/weights.md](weights.md)).
 - If no HTS JSON archives are found, run `src/pipeline/02_download_hts.R`.
+- Warnings like `unable to translate 'c<U+00F4>te d'ivoire' to native encoding` or `invalid input found on input connection` mean the shell locale is not UTF-8 (`LC_ALL=C` is the default in many cron and container environments). Pipeline entrypoints switch to a UTF-8 locale automatically (`src/core/locale.R`) and stop with instructions when none is available; for other tooling set `LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8`. `preflight.R` reports the locale under `LOCALE`.
 
 ## Querying built data
 
