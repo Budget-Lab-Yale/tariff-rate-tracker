@@ -48,6 +48,64 @@ open work. Registry of statutory deviations (the B/U/P/S/F items):
    rate-number changes, ready to implement.
 6. **Build/alternatives unification remaining phases** (sections below).
 
+## MRS replication: two pinned tracker series
+
+The Minton–Ray–Somale (MRS) replication should consume two explicitly named,
+versioned rate series. They answer different questions and must not be blended:
+the first asks what the results look like using the tracker's current best
+measurement, while the second asks whether the paper can be reproduced under
+the paper's information set and modeling conventions. Both should use fixed
+2024 Census import weights and month-end rate snapshots, and both should retain
+the same HS10 × origin × date grain and authority-level columns.
+
+- [ ] **Series A — updated tracker (`mrs_updated_tracker`).** Pin a released
+  tracker vintage and use its baseline policy engine and corrections, including
+  the current `usmca_shares.mode: since` window (July 2025 through the latest
+  available month), BEA 2017 detail I-O metal-content shares, and the baseline
+  `auto_rebate.us_auto_content_share: 0.40`. Restrict the exported observations
+  to the replication sample dates, but do not roll back later improvements to
+  the measurement of policies that were in force during that sample. This is
+  the preferred updated-data series, not a claim to reproduce the paper's
+  original tariff dose exactly.
+
+- [ ] **Series B — paper-matched (`mrs_paper_assumptions`).** Add a named
+  scenario that freezes the MRS action universe and conventions: (i) use July
+  2025 DataWeb S/S+ claim shares at HS10 × origin (`fixed_month`, year 2025,
+  month 7); (ii) replace the scalar auto-content assumption with
+  origin-specific finished-vehicle shares of 0.55 for Canada and 0.18 for
+  Mexico; (iii) scale Canada/Mexico fentanyl duties and auto-parts duties by the
+  non-USMCA-claim share, while scaling finished-vehicle §232 relief by the
+  product of the claim share and the origin-specific U.S.-content share; (iv)
+  use the MRS Table 1 policy-action set through November 14, 2025 and exclude
+  actions outside that frozen set; and (v) retain the paper's BEA 2017
+  input-output metal-content treatment for §232 derivative products. Document
+  every remaining mismatch where the paper does not provide enough detail to
+  implement an exact rule.
+
+- [ ] **Keep the China shipping-lag convention auditable.** MRS assigns no
+  theoretical effect to the 115 percentage-point China increase of April 9,
+  2025 that was reversed on May 14 because affected goods would not arrive
+  before the reversal. Preserve the raw statutory rate in the tracker and
+  expose the zeroed MRS regression dose as a separately named derived column or
+  companion output. If the transformation remains in `mrs-replication`, record
+  that ownership in both manifests; never overwrite the statutory series.
+
+- [ ] **Make the two-series contract reproducible.** Commit scenario metadata,
+  the exact tracker commit/release, input checksums, USMCA source months,
+  weighting vintage, action cutoff, and all parameter overrides. Export a
+  compact comparison table by date × origin × authority, with focused checks
+  for Canada/Mexico autos and parts, the fentanyl programs, the April–May China
+  interval, and every MRS Table 1 event. The replication repo must select one
+  series by explicit ID and fail if the ID or manifest is missing.
+
+- [ ] **Acceptance criteria.** Confirm that `mrs_updated_tracker` reproduces
+  the pinned baseline over the replication window; that the paper-matched
+  scenario differs only through the documented frozen action set and parameter
+  overrides; that July claim shares do not drift with the build date; and that
+  aggregate tariff-rate changes can be reconciled from the HS10-level diff.
+  Publish the comparison before treating discrepancies in the DID estimates as
+  economic rather than measurement-driven.
+
 ## Eta statutory-measurement queue (2026-07-01) — open items
 
 Origin + investigated items 1 (2716 electricity — statutory correct, entry
