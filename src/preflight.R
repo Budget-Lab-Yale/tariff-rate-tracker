@@ -43,10 +43,13 @@ REQUIRED_RESOURCES <- c(
   'resources/ieepa_exempt_products.csv',
   'resources/floor_exempt_products.csv',
   'resources/s301_product_lists.csv',
+  'resources/s301_exclusion_lines.csv',
   'resources/s232_derivative_products.csv',
   'resources/s232_auto_parts.txt',
   'resources/s232_mhd_parts.txt',
   'resources/s232_copper_products.csv',
+  'resources/s232_polysilicon_adval_products.csv',
+  'resources/s232_polysilicon_mip_products.csv',
   'resources/fentanyl_carveout_products.csv',
   'resources/hs10_gtap_crosswalk.csv'
 )

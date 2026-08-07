@@ -37,7 +37,8 @@ note_skip <- function(msg) { skip <<- skip + 1L; cat('  SKIP:', msg, '\n') }
 snapshot_dir <- here('data', 'timeseries')
 pp <- load_policy_params(use_policy_dates = TRUE)
 rd <- load_revision_dates(use_policy_dates = TRUE)
-have_ch99 <- length(list.files(snapshot_dir, pattern = '^ch99_.*\\.rds$')) > 0
+real_revs <- rd$revision[!grepl('^(sched_|bnd_)', rd$revision)]
+have_ch99 <- all(file.exists(file.path(snapshot_dir, paste0('ch99_', real_revs, '.rds'))))
 
 b <- discover_boundaries(rd, snapshot_dir, pp,
                          overrides = pp$BOUNDARY_OVERRIDES,
@@ -79,6 +80,11 @@ check(identical(owner_of('2025-11-14'), 'rev_29'),
 # --- Expiry boundaries --------------------------------------------------------
 check('2026-07-24' %in% emitted,
       'S122 first-dead-day boundary (2026-07-24) is minted')
+check(!('2026-02-07' %in% emitted) &&
+        any(rd$effective_date == as.Date('2026-02-07')),
+      'Solar Section 201 first dead day is a real revision edge, not a duplicate boundary')
+check('2026-12-04' %in% emitted,
+      'Polysilicon Section 232 effective-date boundary (2026-12-04) is minted')
 check('2026-04-01' %in% emitted,
       'Swiss first-dead-day boundary (2026-04-01) is minted')
 check(identical(owner_of('2026-04-01'), '2026_rev_4'),
@@ -94,8 +100,8 @@ for (edge in c('2025-04-09', '2026-04-06')) {
 if (have_ch99) {
   check('2026-11-10' %in% emitted,
         '2026-11-10 (§301 cranes/chassis turn-on) is discovered from the Ch99 scan')
-  check(identical(owner_of('2026-11-10'), '2026_rev_10'),
-        '2026-11-10 owner resolves to 2026_rev_10 (tip interval)')
+  check(identical(owner_of('2026-11-10'), '2026_rev_15'),
+        '2026-11-10 owner resolves to 2026_rev_15 (tip interval)')
   check(grepl('ch99', src_of('2026-11-10')), '2026-11-10 sourced from a Ch99 offset')
   # Ch99 rate-less heading expiries (expiry-mirror scan): state flips on expiry+1.
   check(identical(owner_of('2025-06-01'), 'rev_13') && grepl('ch99_expiry', src_of('2025-06-01')),
@@ -107,8 +113,9 @@ if (have_ch99) {
   # On the production grid exactly these seven boundaries are mintable (incl. the
   # two Ch99 rate-less heading expiries 2025-06-01 / 2025-09-01).
   expected <- c('2025-03-12', '2025-06-01', '2025-09-01', '2025-11-14',
-                '2026-02-20', '2026-04-01', '2026-07-24', '2026-09-29',
-                '2026-11-10')
+                '2026-02-20', '2026-04-01', '2026-07-22',
+                '2026-07-24', '2026-07-31', '2026-08-19', '2026-09-29',
+                '2026-11-10', '2026-12-04')
   check(setequal(emitted, expected),
         paste0('exactly {', paste(expected, collapse = ', '), '} discovered on the live grid'))
   check(all(!is.na(b$owner_rev)),

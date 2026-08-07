@@ -333,6 +333,11 @@ load_policy_params <- function(yaml_path = NULL,
   # so we override with the published current rate.
   if (!is.null(params$section_201)) {
     params$SECTION_201 <- params$section_201
+    if (!is.null(params$section_201$expiry_date)) {
+      params$SECTION_201$expiry_date <- as.Date(params$section_201$expiry_date)
+      message('  Policy dates: S201 expiry -> ',
+              params$SECTION_201$expiry_date)
+    }
   }
 
   # Local paths (optional user-specific file locations)

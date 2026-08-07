@@ -377,6 +377,137 @@ Review: `docs/internal/hts_2026_rev13_review.md`.
   informational, CA 52(g) / MX 52(h) / CAFTA-DR textiles 52(i) / UK / EU / CH
   / MY).
 
+## HTS 2026 rev_14 / rev_15 ingest + §232 pharma (2026-08-07)
+
+rev_14 (published 2026-07-31) codified the §232 pharmaceutical action
+(PP 11020) as headings 9903.04.60-.69 / U.S. note 40; rev_15 (2026-08-03,
+CURRENT) changed exactly one thing — the rate on the UK heading. The archive
+tip was rev_13, so the build was TWO releases behind. rev_15 archive + both
+change records are now committed. Product scope reconciled EXACTLY (131 HTS10s
+vs note 40(c), 0 mismatches) and the 100%/15% net-of-MFN structure matches the
+config's `target_total` semantics. Review:
+`docs/internal/hts_2026_rev14_rev15_review.md`. **Consolidated proposal with
+proposed diffs + sequencing: `docs/proposed_mod_claude_2026_08_07.md` (M2-M4,
+M6).**
+
+- [ ] **Fix the UK pharma rate — CONFIRMED WRONG BY 10 POINTS.** Config has
+  `section_232_headings.pharmaceuticals.country_rates.CTY_UK: 0.10` (resolving
+  to 2.0% after the generic/exempt shares); heading 9903.04.63 charges "the
+  duty provided in the applicable subheading **+ 0%**" and note 40(g) carries
+  NO net-of-MFN language, unlike 40(d)/(f). This is the single change rev_15
+  made, dated effective 2026-07-31 (retroactive to rev_14), so there is no
+  split window — set `CTY_UK: 0.0`. Moves the series from 2026-09-29 onward;
+  publish as a deliberate vintage.
+- [ ] **Decide the 2026-07-31 → 09-28 window.** Heading 9903.04.61 exempts only
+  companies the Secretary IDENTIFIED, and only before 2026-09-29; heading
+  .60's 100% is otherwise live from 07-31. The model gates the whole pharma
+  layer at 09-29, which is correct only if every patented-pharma importer is
+  on that list for the eight-week window. Note-40(c) universe is $160.4B of
+  2024 imports (5.1% of panel), so this is not negligible. Either move the
+  gate to 07-31 with a `.61` exempt share, or record the assumption in
+  `docs/statutory_deviations.md`. Do not leave it implicit.
+- [ ] **Ingest rev_14 + rev_15 rows.** Suggested dating per the review: rev_14
+  at `effective_date: 2026-07-31` (the operative legal date; owns the pharma
+  headings), rev_15 at `2026-08-03` with `policy_effective_date` empty.
+  Expect rate-neutrality of rev_15 vs rev_14 in the series.
+- [ ] **Teach `tools/revision_changelog.R` to strip HTML markup.** USITC ran a
+  schedule-wide typographic pass (italic scientific names, `<sup>` units,
+  `<br />`, one `<em style=...>`): a raw field diff reports 3,199 modified
+  entries, ALL cosmetic once tags/whitespace are normalised. Without this the
+  next changelog run is unreadable. Tags land in `description`/`units` only,
+  so rate parsers are unaffected — but re-check anything matching on
+  description text (the §232 annex parser is the candidate).
+- [ ] **Optional — make the HTS the pharma rate authority.** Add a
+  `classify_authority()` rule for `9903.04.6x` → `section_232` (they currently
+  fall through to `other`; inert today since no ch.1-97 line
+  footnote-references 9903.04) and read .60/.62/.63/.64 off the schedule with
+  config demoted to fallback. Same pattern as Brazil rev_12 and the
+  forced-labor tiers in the working tree — and it would have caught the UK
+  rate automatically.
+- [x] **Notes 50(a)(vi)(8) / 52(f)(8) — ALREADY MODELED, confirmed by rev_14.**
+  rev_14 added "patented pharmaceutical articles provided for in headings
+  9903.04.60-9903.04.66" as item (8) to the §232-overlap exclusions in both
+  §301 notes. The repo already implements this from the FR notice's Annex I
+  Part B (`patented_pharma_exempt_date: '2026-07-31'`, config:867,937;
+  `06_calculate_rates.R:1085`) and got the subtle part right — §301 relief
+  starts 07-31 even though the §232 duty starts 09-29. The parallel
+  note 2(aa)(v)(1) §122 exclusion is MOOT (§122 expired 2026-07-23).
+  Residual nuance, not currently distinguished: the exclusion spans .60-.66
+  only, so generics (.67), US-origin API (.68) and non-pharma articles in the
+  list (.69) still owe §301; the flat 131-HTS10 mask cannot tell them apart.
+
+## §232 polysilicon (proclamation 2026-08-06, eff. 2026-12-04)
+
+New §232 action creating U.S. note 42 / headings 9903.45.30-.36. Not in any
+HTS revision yet. Ad valorem layer is modelable; the minimum-import-price
+layer ($21/kg, $100/kg, $0.22/W, $0.38/W) is a CONDITIONAL specific-duty
+backstop and is not representable as-is. Exposure $16.8B of 2024 imports
+(0.54% of panel), 88% of it solar modules. Review:
+`docs/internal/polysilicon_232_review_2026-08-06.md`. **Consolidated proposal
+with proposed diffs + sequencing: `docs/proposed_mod_claude_2026_08_07.md`
+(M1, M5, M6c).**
+
+- [ ] **Date-gate Section 201 — LIVE ERROR, do this first.** The CSPV
+  safeguard **terminated 2026-02-06** (8-year statutory max; USITC
+  TA-201-075 evaluates the relief "which terminated on February 6, 2026"),
+  but `apply_section201()` has NO date gate — it applies
+  `section_201.solar_rate: 0.145` flat across the whole series
+  (`06_calculate_rates.R:1243-1268`). Every snapshot after 2026-02-06 charges
+  14.5% on `8541420010`/`8541430010`/`8541430080` ($16.6B of 2024 imports)
+  where it should charge zero: ~$2.4B/yr of phantom duty, ~0.08pp of weighted
+  ETR. **The archives have carried the evidence since `2026_rev_4`**
+  (2026-02-24; absent in rev_3): USITC stamped a compiler's note "This
+  subheading and its related note, U.S. note 18 to this subchapter, have
+  expired" onto all of 9903.45.21-.29, and as of rev_15 there is NO live CSPV
+  provision in ch99. Two mechanisms miss it: `has_s201` keys off mere
+  PRESENCE of the (still-shaded) headings, and the compiler's note carries no
+  DATE so `extract_expiry_date_offset()` returns NA and `filter_active_ch99()`
+  can't drop it (verified). Fix with `expiry_date`/`policy_expiry_date` on the
+  `section_122` pattern; prefer gating via the spec's `active$until`
+  (`authority_adapter.R:1157`), which mints the 2026-02-07 boundary for free
+  via `timeline.R:82-86` — but first verify `active$until` is ENFORCED in the
+  calc and not merely read for boundary collection. Also confirm the Year-8
+  rate: secondary sources say 14%, config says 14.5%.
+- [ ] **Add a `classify_authority()` segment rule** for `9903.45.30-.36` →
+  `section_232`. They currently classify as `section_201` because Solar 201
+  owns the whole 9903.40-45 range (`rate_schema.R:344`). Latent, not live —
+  `extract_section201_rates()` restricts to .21-.29 so no rate is misread,
+  and no ch.1-97 line footnote-references 9903.45. Use the `section_338`
+  segment-match precedent at `rate_schema.R:298`.
+- [ ] **Add the 3818.00.00 484(f) concordance mapping.** Annex I / heading .34
+  cite `3818.00.0020/.0040/.0045/.0050/.0091`; the 2024 GTAP weight panel has
+  only the retired `3818000090` ($1.39B) and `3818000010` ($0.14B). As written
+  the wafer layer — the largest per-unit rate in the action — would attach to
+  a base of ZERO. Same failure mode the rev_11 entry flags; the 484(f) weight
+  mapper (`15646c6`) is the machinery. Check
+  `data/484f/source_manifest.csv` first.
+- [ ] **Model the ad valorem layer** as `section_232_headings.polysilicon`,
+  hand-fed from the proclamation with a 2026-12-04 date gate (pharma/Brazil/
+  s338 pattern — no HTS archive carries the headings). Needs a shape the
+  config vocabulary lacks: an ADDITIVE default (.30, +15%, note 42 has no cap
+  clause for it) alongside a `target_total` tier (.31, 15% ALL-IN per note
+  42(c), for LI/JP/KR/CH/TW/EU) and a second additive tier (.32, UK +10%).
+  The pharma block's `max(country_rate, target_total - base_rate)` resolves
+  the wrong way for an additive default, so this is NOT a copy of that block.
+  `usmca: none`. Scope covers wafers/cells/modules but NOT `2804.61.0000`
+  (raw polysilicon appears in no ad valorem heading — MIP only).
+- [ ] **Record the MIP as a documented zero** with a named compliance share.
+  Note 42(a) makes .33-.36 a backstop that applies only when the importer
+  fails to document resale price or CBP adjusts; a compliant importer pays
+  nothing. Also `parse_rate()` collapses non-ad-valorem rates to NA
+  (`helpers.R:93,118`) and the watt-denominated rates need capacity data the
+  panel does not carry. Add a `docs/statutory_deviations.md` entry.
+- [ ] **Watch for the codifying HTS revision** and reconcile .30/.31/.32
+  against the config the way rev_13 was reconciled. Note 42's enumeration is
+  authoritative for scope — Annex I says its descriptions are "provided for
+  informational purposes only."
+- Also noted: polysilicon is added to NO §232-overlap exclusion list (not note
+  2(v), 2(aa)(v), 50(a)(vi) or 52(f)) — unlike every other sectoral §232
+  action. No displacement of any other authority, and no USMCA relief (CA/MX
+  appear only as drawback-eligible Trade Agreement Partners). Out of scope:
+  manufacturing drawback, FTZ privileged-status admission, onshoring tariff
+  offsets, substantially-equivalent-MIP arrangements.
+
 ## AD/CVD (decided 2026-06-08)
 
 - [ ] **Strip AD/CVD from the collected side before calibrating η — do NOT
