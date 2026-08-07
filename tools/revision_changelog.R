@@ -8,7 +8,42 @@ library(jsonlite)
 library(here)
 
 
+#' Strip HTML markup and normalize whitespace for text comparison
+#'
+#' USITC ran a schedule-wide typographic pass across 2026 revisions 13-15:
+#' italicised scientific names, `<sup>` unit exponents, `<br />`, one
+#' `<em style=...>`. A raw field diff reports ~3,199 modified entries that are
+#' entirely cosmetic, which buries the handful of substantive changes.
+#'
+#' Applied ONLY in the comparison layer — the archives keep the raw schedule
+#' text, and no rate parser sees this. `<br>` becomes a space (it separates
+#' words); every other tag is removed outright so `kg<sup>2</sup>` normalizes to
+#' the same string as a pre-pass `kg2`.
+#'
+#' @param x Character vector of schedule text
+#' @return Character vector, markup-free and whitespace-squished
+normalize_schedule_text <- function(x) {
+  x %>%
+    str_replace_all('(?i)<br\\s*/?>', ' ') %>%
+    str_replace_all('<[^>]*>', '') %>%
+    # Entities are decoded after tag removal so an encoded &lt;...&gt; cannot
+    # turn into something the tag pattern would then strip.
+    str_replace_all('&nbsp;', ' ') %>%
+    str_replace_all('&amp;', '&') %>%
+    str_replace_all('&lt;', '<') %>%
+    str_replace_all('&gt;', '>') %>%
+    str_replace_all('&quot;', '"') %>%
+    str_replace_all('&#39;', "'") %>%
+    str_squish()
+}
+
+
 #' Enhanced comparison: detect rate, description, and general text changes
+#'
+#' Description and general-text changes are classed by comparing
+#' normalize_schedule_text() output, so a markup-only edit is counted as
+#' cosmetic and excluded from the substantive diff rather than reported as a
+#' change. Raw text is preserved in the returned rows.
 compare_ch99_full <- function(old_ch99, new_ch99) {
   old_codes <- old_ch99$ch99_code
   new_codes <- new_ch99$ch99_code
@@ -35,10 +70,12 @@ compare_ch99_full <- function(old_ch99, new_ch99) {
     mutate(change_type = 'rate_change')
 
   # Description changes (catch suspensions, compiler notes, etc.)
-  desc_changes <- joined %>%
-    filter(!is.na(desc_old) & !is.na(desc_new) & desc_old != desc_new) %>%
-    # Only keep substantive changes (skip whitespace-only)
-    filter(trimws(desc_old) != trimws(desc_new)) %>%
+  desc_edited <- joined %>%
+    filter(!is.na(desc_old) & !is.na(desc_new) & desc_old != desc_new)
+  # Only keep substantive changes; markup- and whitespace-only edits are counted
+  # and dropped rather than listed.
+  desc_changes <- desc_edited %>%
+    filter(normalize_schedule_text(desc_old) != normalize_schedule_text(desc_new)) %>%
     # Flag suspensions
     mutate(
       was_suspended = str_detect(tolower(desc_new), 'suspend'),
@@ -52,9 +89,10 @@ compare_ch99_full <- function(old_ch99, new_ch99) {
     select(ch99_code, desc_old, desc_new, change_type, was_suspended, was_unsuspended)
 
   # General rate text changes (catch rate-text-only changes)
-  general_changes <- joined %>%
-    filter(!is.na(general_old) & !is.na(general_new) & general_old != general_new) %>%
-    filter(trimws(general_old) != trimws(general_new)) %>%
+  general_edited <- joined %>%
+    filter(!is.na(general_old) & !is.na(general_new) & general_old != general_new)
+  general_changes <- general_edited %>%
+    filter(normalize_schedule_text(general_old) != normalize_schedule_text(general_new)) %>%
     mutate(change_type = 'general_text_change') %>%
     select(ch99_code, general_old, general_new, change_type)
 
@@ -70,7 +108,11 @@ compare_ch99_full <- function(old_ch99, new_ch99) {
     n_removed = length(removed_codes),
     n_rate_changes = nrow(rate_changes),
     n_desc_changes = nrow(desc_changes),
-    n_general_changes = nrow(general_changes)
+    n_general_changes = nrow(general_changes),
+    # Reported, not hidden: a large cosmetic count is itself a signal that
+    # USITC ran a typographic pass over the schedule.
+    n_desc_cosmetic = nrow(desc_edited) - nrow(desc_changes),
+    n_general_cosmetic = nrow(general_edited) - nrow(general_changes)
   )
 }
 
@@ -136,7 +178,8 @@ run_changelog <- function() {
 
     # Print summary
     n_changes <- diff$n_added + diff$n_removed + diff$n_rate_changes +
-      diff$n_desc_changes + diff$n_general_changes
+      diff$n_desc_changes + diff$n_general_changes +
+      diff$n_desc_cosmetic + diff$n_general_cosmetic
     if (n_changes > 0) {
       cat('\n', strrep('-', 60), '\n')
       cat(curr_rev, ' (', as.character(eff_date), ')\n', sep = '')
@@ -183,6 +226,12 @@ run_changelog <- function() {
       }
       if (diff$n_general_changes > 0 && diff$n_rate_changes == 0) {
         cat('  GENERAL TEXT CHANGES: ', diff$n_general_changes, '\n')
+      }
+      n_cosmetic <- diff$n_desc_cosmetic + diff$n_general_cosmetic
+      if (n_cosmetic > 0) {
+        cat('  COSMETIC ONLY (markup/whitespace, excluded from the diff): ',
+            n_cosmetic, ' (', diff$n_desc_cosmetic, ' desc, ',
+            diff$n_general_cosmetic, ' general)\n', sep = '')
       }
     }
   }
@@ -261,6 +310,11 @@ run_changelog <- function() {
       suspensions = map_int(revision, ~ {
         if (. %in% names(changelog)) {
           sum(changelog[[.]]$diff$desc_changes$was_suspended, na.rm = TRUE)
+        } else NA_integer_
+      }),
+      cosmetic = map_int(revision, ~ {
+        if (. %in% names(changelog)) {
+          changelog[[.]]$diff$n_desc_cosmetic + changelog[[.]]$diff$n_general_cosmetic
         } else NA_integer_
       })
     ) %>%
