@@ -335,12 +335,25 @@ classify_authority <- function(ch99_code) {
     return('section_301_brazil')
   }
 
+  # Section 232 pharmaceuticals (U.S. note 40): 9903.04.60-.69. Match the
+  # segments rather than all 9903.04.xx so unrelated future programs do not
+  # inherit Section 232 classification.
+  if (isTRUE(middle == 4 && !is.na(third) && third %in% 60:69)) {
+    return('section_232')
+  }
+
   # IEEPA reciprocal: 9903.90 (China surcharges) + 9903.93/95/96
   if (middle == 90 || (middle >= 93 && middle <= 96 && middle != 94)) {
     return('ieepa_reciprocal')
   }
 
-  # Section 201 (safeguards): 9903.40-45
+  # Section 232 polysilicon (U.S. note 42): 9903.45.30-.36. This segment must
+  # precede the broad 9903.40-.45 Section 201 safeguard bucket.
+  if (isTRUE(middle == 45 && !is.na(third) && third %in% 30:36)) {
+    return('section_232')
+  }
+
+  # Section 201 (safeguards): 9903.40-45, excluding polysilicon above.
   if (middle >= 40 && middle <= 45) {
     return('section_201')
   }

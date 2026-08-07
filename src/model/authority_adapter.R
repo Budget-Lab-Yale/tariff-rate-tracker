@@ -921,7 +921,10 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
     }
 
     # Heading activation is revision-resolved policy data, not calculator state.
-    heading_gates <- compute_heading_gates(list(section_232 = section_232), s232_rates)
+    heading_gates <- compute_heading_gates(
+      list(section_232 = section_232), s232_rates,
+      effective_date = effective_date,
+      heading_configs = pp$section_232_headings)
     # Fail closed: a heading configured in policy_params.yaml but absent from
     # compute_heading_gates()'s registry would otherwise be built with
     # enabled = FALSE forever and silently publish zero rates for that program.
@@ -1085,7 +1088,13 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
     authority = 'section_201',
     stacking  = list(class = 'additive', exceptions = list()),
     usmca_treatment = 'none',
-    active = list(from = NA, until = NA),
+    # active$until is the first dead day. apply_section201() enforces it and
+    # collect_schedule_boundaries() uses the same value to mint the split.
+    active = list(
+      from = NA,
+      until = if (!is.null(pp$SECTION_201$expiry_date))
+        as.Date(pp$SECTION_201$expiry_date) + 1 else NA
+    ),
     programs = list(authority_program(
       id = 's201',
       product_scope = list(list_file = 'resources/s201_solar_products.csv'),

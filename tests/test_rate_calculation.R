@@ -19,6 +19,7 @@ source(here('src', 'core', 'helpers.R'))
 source(here('src', 'pipeline', '03_parse_chapter99.R'))
 source(here('src', 'pipeline', '04_parse_products.R'))
 source(here('src', 'pipeline', '05_parse_policy_params.R'))
+source(here('src', 'model', 'authority_spec.R'))
 source(here('src', 'pipeline', '06_calculate_rates.R'))
 
 pass_count <- 0
@@ -790,6 +791,45 @@ run_test('non-232 product stacks IEEPA + fentanyl + s122 fully', {
   stopifnot(abs(result$total_rate - (0.04 + expected)) < 1e-10)
 })
 
+run_test('section_232 pharmaceuticals from 9903.04.60-.69', {
+  stopifnot(classify_authority('9903.04.60') == 'section_232')
+  stopifnot(classify_authority('9903.04.63') == 'section_232')
+  stopifnot(classify_authority('9903.04.69') == 'section_232')
+  stopifnot(classify_authority('9903.04.59') == 'other')
+})
+
+run_test('polysilicon 9903.45.30-.36 routes to section_232 before section_201', {
+  stopifnot(classify_authority('9903.45.29') == 'section_201')
+  stopifnot(classify_authority('9903.45.30') == 'section_232')
+  stopifnot(classify_authority('9903.45.36') == 'section_232')
+  stopifnot(classify_authority('9903.45.37') == 'section_201')
+})
+
+run_test('Solar Section 201 is live through 2026-02-06 and dead on 2026-02-07', {
+  specs <- list(section_201 = list(
+    active = list(from = NA, until = as.Date('2026-02-07')),
+    programs = list(list(
+      rate = list(default = 0.145, rate_type = 'surcharge'),
+      product_scope = list(list_file = 'resources/s201_solar_products.csv'),
+      country_scope = list(include = 'all', exclude = '1220')
+    ))
+  ))
+  rates <- tibble(
+    hts10 = c('8541430010', '8541430010'),
+    country = c('5700', '1220'),
+    rate_section_201 = 0
+  )
+
+  last_live <- suppressMessages(apply_section201(
+    rates, specs, c('5700', '1220'), as.Date('2026-02-06')))
+  first_dead <- suppressMessages(apply_section201(
+    rates, specs, c('5700', '1220'), as.Date('2026-02-07')))
+
+  stopifnot(abs(last_live$rate_section_201[last_live$country == '5700'] - 0.145) < 1e-12,
+            last_live$rate_section_201[last_live$country == '1220'] == 0,
+            all(first_dead$rate_section_201 == 0))
+})
+
 
 # =============================================================================
 # Test 11: Note 39 semiconductor integration (snapshot-based)
@@ -1245,7 +1285,36 @@ run_test('s301 exclusion registry: schema + safety invariants', {
                              c('9903.88.69', '9903.88.70')] == 'curator'))
 })
 
-run_test('rev_9 snapshot: §301 exclusion scales China rate_301 on 9903.88.69 refs', {
+run_test('s301 exclusion scope survives missing current-snapshot footnotes', {
+  # 2026_rev_13 dropped almost all columns:[general] cross-reference endnotes
+  # from the JSON export. The durable mapping must keep the known haddock line
+  # in the .69 exclusion scope even when products$ch99_refs is empty.
+  products <- tibble(
+    hts10 = '0304725000',
+    ch99_refs = list(character())
+  )
+  active <- tibble(ch99_code = '9903.88.69', coverage_share = 0.35)
+  cfg <- list(lines_file = 'resources/s301_exclusion_lines.csv')
+
+  out <- suppressMessages(resolve_s301_exclusion_scope(products, active, cfg))
+  haddock <- out %>% filter(hts10 == '0304725000')
+  stopifnot(nrow(haddock) == 1,
+            abs(haddock$excl_coverage - 0.35) < 1e-12)
+})
+
+run_test('s301 exclusion scope rejects a missing durable mapping file', {
+  products <- tibble(hts10 = '0304725000', ch99_refs = list(character()))
+  active <- tibble(ch99_code = '9903.88.69', coverage_share = 0.35)
+  err <- tryCatch({
+    resolve_s301_exclusion_scope(
+      products, active,
+      list(lines_file = 'resources/does_not_exist_s301_exclusions.csv'))
+    NULL
+  }, error = identity)
+  stopifnot(inherits(err, 'error'), grepl('lines_file not found', err$message))
+})
+
+run_test('rev_9 snapshot: §301 exclusion scales China rate_301 on 9903.88.69 scope', {
   # Worked example from the bug report: 0304725000 (frozen haddock) refs both
   # 9903.88.03 (25%, kept) and 9903.88.69 (exclusion, in force through
   # 2026-11-09). Pre-fix snapshots model 25% China §301 mid-exclusion-window;
@@ -1598,6 +1667,98 @@ run_test('pharma 232 target-total and share scaling matches Tariff-ETRs treatmen
   stopifnot(abs(got['4120'] - (0.10 * 0.80 * 0.25)) < 1e-12)
   # China/default target: 100% total-duty floor, high generic share.
   stopifnot(abs(got['5700'] - ((1.00 - 0.02) * 0.05 * 0.60)) < 1e-12)
+})
+
+run_test('current-law UK pharmaceutical Section 232 additional rate is zero', {
+  pp <- load_policy_params()
+  cfg <- pp$section_232_headings$pharmaceuticals
+  rates <- tibble(
+    hts10 = '3004901000', country = '4120', base_rate = 0.02,
+    rate_232 = cfg$default_rate
+  )
+  out <- apply_pharma_232_adjustments(
+    rates, '3004901000', cfg, '4120', pp)
+  stopifnot(cfg$country_rates$CTY_UK == 0,
+            cfg$target_total$CTY_UK == 0,
+            out$rate_232 == 0)
+})
+
+run_test('polysilicon product resources separate ad valorem and MIP-only scope', {
+  adval <- read_csv(
+    here('resources', 's232_polysilicon_adval_products.csv'),
+    col_types = cols(.default = col_character()), show_col_types = FALSE)
+  mip <- read_csv(
+    here('resources', 's232_polysilicon_mip_products.csv'),
+    col_types = cols(hts10 = col_character(), mip_amount = col_double(),
+                     .default = col_character()), show_col_types = FALSE)
+  stopifnot(nrow(adval) == 9, nrow(mip) == 10,
+            !'2804610000' %in% adval$hts10,
+            '2804610000' %in% mip$hts10,
+            setequal(adval$hts10, setdiff(mip$hts10, '2804610000')))
+})
+
+run_test('July 2026 484(f) crosswalk reaches every polysilicon wafer suffix', {
+  xwalk <- read_csv(
+    here('resources', 'hts10_484f_transfers.csv'),
+    col_types = cols(.default = col_character()), show_col_types = FALSE)
+  successors <- xwalk %>%
+    filter(old_hts10 == '3818000095', effective_date == '2026-07-01') %>%
+    pull(new_hts10)
+  stopifnot(setequal(successors,
+    c('3818000040', '3818000045', '3818000050', '3818000091')),
+    any(xwalk$old_hts10 == '3818000090' &
+        xwalk$new_hts10 == '3818000020'))
+})
+
+run_test('polysilicon country tiers are additive except framework total floor', {
+  countries <- c('5700', '4120', '4280', '5880', '5800', '5830',
+                 '4419', '4411', '1220', '2010')
+  cfg <- list(
+    default_rate = 0.15,
+    country_rates = list(CTY_UK = 0.10),
+    target_total = list(
+      eu = 0.15, CTY_JAPAN = 0.15, CTY_SKOREA = 0.15,
+      CTY_TAIWAN = 0.15, CTY_SWITZERLAND = 0.15,
+      CTY_LIECHTENSTEIN = 0.15)
+  )
+  pp <- list(
+    country_codes = list(
+      CTY_UK = '4120', CTY_JAPAN = '5880', CTY_SKOREA = '5800',
+      CTY_TAIWAN = '5830', CTY_SWITZERLAND = '4419',
+      CTY_LIECHTENSTEIN = '4411'),
+    EU27_CODES = '4280'
+  )
+  rates <- tibble(
+    hts10 = '8541430010', country = countries,
+    base_rate = 0.03, rate_232 = 0.05
+  )
+  out <- apply_polysilicon_232_adjustments(
+    rates, '8541430010', cfg, countries, pp)
+  got <- setNames(out$rate_232, out$country)
+
+  stopifnot(abs(got['5700'] - 0.20) < 1e-12,
+            abs(got['1220'] - 0.20) < 1e-12,
+            abs(got['2010'] - 0.20) < 1e-12,
+            abs(got['4120'] - 0.15) < 1e-12,
+            all(abs(got[c('4280', '5880', '5800', '5830', '4419', '4411')] -
+                    0.17) < 1e-12))
+})
+
+run_test('polysilicon activation gate turns on at 2026-12-04', {
+  cfg <- list(polysilicon = list(effective_date = '2026-12-04'))
+  specs <- list(section_232 = list(programs = list(
+    list(id = 'autos_source', rate = list(default = 0)),
+    list(id = 'copper_source', rate = list(default = 0)),
+    list(id = 'wood_source', rate = list(default = 0)),
+    list(id = 'mhd_source', rate = list(default = 0)),
+    list(id = 'semiconductors_source', rate = list(default = 0)),
+    list(id = 'pharmaceuticals_source', rate = list(default = 0))
+  )))
+  s232 <- list(auto_has_deals = FALSE, auto_has_parts = FALSE,
+               wood_furniture_rate = 0)
+  before <- compute_heading_gates(specs, s232, as.Date('2026-12-03'), cfg)
+  on_date <- compute_heading_gates(specs, s232, as.Date('2026-12-04'), cfg)
+  stopifnot(!before$polysilicon, on_date$polysilicon)
 })
 
 
