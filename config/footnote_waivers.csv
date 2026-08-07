@@ -1,0 +1,14 @@
+# Documented waivers for tools/footnote_audit.R.
+#
+# The audit fails any (columns, type) footnote class that moves more than 10%
+# between consecutive revisions. A waiver records that a specific move was
+# looked at and explained; it is NOT an approval that the move is harmless.
+# Every row needs a reason — the audit rejects an empty one.
+#
+# Adding a row is a deliberate act: prefer fixing the ingest. See
+# docs/proposed_mod_combined_2026_08_07.md §0.2 and §3 test 3.
+from_revision,to_revision,footnote_class,reason
+rev_32,2026_basic,"[stat,units] footnote","Annual 2025 -> 2026 schedule rollover: statistical/unit annotations are re-issued wholesale each year. Benign for the rate path, and evidenced as such by <ch1-97 lines citing 9903> holding flat across the same boundary (the class that actually feeds ch99_refs)."
+2026_rev_12,2026_rev_13,"[general] endnote","UNRESOLVED - M0. 10,411 -> 127 (-98.8%). The ""See 9903.88.15.""-style China 301 cross-references vanished upstream between 2026-07-21 and 2026-07-28, unmentioned in any change record. Independently confirmed in the rev_13 archive obtained separately on feat/ingest-2026-rev13, so it is not a fetch artifact. Waived to record the known break, NOT to bless it: the open question is whether USITC removed the endnotes or the export serializer stopped emitting them. Calculation is insulated - apply_section301() now takes exclusion scope from resources/s301_exclusion_lines.csv (06_calculate_rates.R:1299-1315), not snapshot footnotes."
+2026_rev_12,2026_rev_13,<ch1-97 lines citing 9903>,"UNRESOLVED - M0, same upstream event. 10,558 -> 765. This is the metric that directly bounded 301 exclusion scope before the s301_exclusion_lines.csv migration. See the [general] endnote row."
+2026_rev_12,2026_rev_13,"[desc] endnote","UNRESOLVED - M0, same upstream event. 365 -> 219 (-146). Smaller sibling of the [general] endnote collapse, same revision boundary, same missing change-record entry."
