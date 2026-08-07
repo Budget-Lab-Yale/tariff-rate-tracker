@@ -68,7 +68,6 @@ rates <- calculate_rates_for_revision(
   products, ch99_data, usmca,
   countries, rev_id, eff_date,
   specs = specs,
-  stacking_method = 'mutual_exclusion',
   policy_params = pp_build
 )
 
