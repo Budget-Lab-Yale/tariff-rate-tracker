@@ -53,17 +53,34 @@ build_release_name <- function(revision) {
 }
 
 
-#' Build USITC Chapter 99 PDF download URL
+#' Build a USITC reststop file-endpoint URL
 #'
-#' Uses the USITC reststop file endpoint to construct a URL for downloading
-#' the Chapter 99 PDF for a specific HTS release.
+#' Unlike the exportList endpoint — which silently IGNORES a `release`
+#' parameter and always returns the current release with HTTP 200 — the file
+#' endpoint serves ARCHIVED releases. It is therefore the only route to
+#' per-revision attribution once a release has been missed, and the fallback
+#' whenever a revision's JSON is gone (2026_rev_14 has no JSON at all; its
+#' Chapter 99 PDF is the primary source for that revision).
+#'
+#' Verified for 2026 revisions 13-15 with filename 'Change Record' and
+#' 'Chapter 99'; the chapter route generalizes to any chapter number.
+#'
+#' @param release_name Character release name from build_release_name()
+#' @param filename USITC file name, e.g. 'Chapter 99', 'Change Record', 'Chapter 1'
+#' @return Character URL string
+build_reststop_file_url <- function(release_name, filename) {
+  paste0('https://hts.usitc.gov/reststop/file?release=',
+         URLencode(release_name, reserved = TRUE),
+         '&filename=', URLencode(filename, reserved = TRUE))
+}
+
+
+#' Build USITC Chapter 99 PDF download URL
 #'
 #' @param release_name Character release name from build_release_name()
 #' @return Character URL string
 build_chapter99_url <- function(release_name) {
-  paste0('https://hts.usitc.gov/reststop/file?release=',
-         URLencode(release_name, reserved = TRUE),
-         '&filename=Chapter+99')
+  build_reststop_file_url(release_name, 'Chapter 99')
 }
 
 
