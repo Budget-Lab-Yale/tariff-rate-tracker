@@ -14,13 +14,20 @@ Pick the venue by memory footprint:
 | Full rebuild `src/pipeline/00_build_timeseries.R --full` | **Slurm** | OOMs locally |
 | Weighted-output build | **Slurm** | Needs the ~1.5 GB Census ZIP build + memory |
 
-Full rebuild + verify is a ready-made batch job (4 h walltime, **192 GB**, 4 CPUs):
+Full rebuild + verify is a ready-made batch job (6 h walltime, **384 GB**, 4 CPUs):
 
 ```bash
 sbatch scripts/submit_build_verify.sh
 ```
 
-- 192 GB is deliberate: `combine-snapshots` has OOM'd at 96 GB.
+- **384 GB is measured, and the requirement grows with the series.** At 60
+  revisions / 292M rows the build peaks at **MaxRSS 234 GB** and takes 3 h 15 m
+  (job 21784088, 2026-08-09). The former 192 GB is no longer enough — job
+  21739576 that same day was OOM-killed at 201 GB. Re-measure after adding
+  revisions rather than assuming the figure holds.
+- The binding constraint has moved: the old 192 GB came from a
+  `combine-snapshots` OOM at 96 GB, but that step now succeeds and the kill
+  happens downstream, in the daily/ETR stage.
 - The script rebuilds all snapshots, runs `tests/test_rate_calculation.R`, and
   does inline Russia rev_5 sanity checks. Logs land in `~/slurm-logs/`.
 - BLAS/OpenMP threads are pinned in batch jobs via `OPENBLAS_NUM_THREADS` etc.;
