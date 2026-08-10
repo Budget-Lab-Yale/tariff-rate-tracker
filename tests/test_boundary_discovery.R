@@ -78,8 +78,14 @@ check(identical(owner_of('2025-11-14'), 'rev_29'),
       '2025-11-14 owner resolves to rev_29')
 
 # --- Expiry boundaries --------------------------------------------------------
-check('2026-07-24' %in% emitted,
-      'S122 first-dead-day boundary (2026-07-24) is minted')
+# 2026-07-24 (s122 first dead day + forced-labor turn-on) is edge-coincident
+# with rev_13's policy_effective_date, so it must NOT mint a duplicate
+# boundary: rev_13's own snapshot owns the date and enforces both the s122
+# sunset (date-gated, expiry 07-23) and the forced-labor turn-on (rates read
+# off its codified 9903.05.20-.84 headings).
+check(!('2026-07-24' %in% emitted) &&
+        any(rd$effective_date == as.Date('2026-07-24')),
+      'S122/forced-labor date (2026-07-24) is a real revision edge (rev_13 policy date), not a duplicate boundary')
 check(!('2026-02-07' %in% emitted) &&
         any(rd$effective_date == as.Date('2026-02-07')),
       'Solar Section 201 first dead day is a real revision edge, not a duplicate boundary')

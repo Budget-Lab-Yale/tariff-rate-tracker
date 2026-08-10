@@ -1172,6 +1172,94 @@ extract_section301_brazil_rates <- function(ch99_data) {
 }
 
 
+#' Extract Section 301 forced-labor rates from Chapter 99 data
+#'
+#' Charging headings 9903.05.20-.84 (U.S. note 52), codified in 2026 rev_13.
+#' The heading rate text takes three forms:
+#'   'The duty provided in the applicable subheading + N%'  -> additive N
+#'   pair: 'The duty provided in the applicable subheading' (column-1 >= N)
+#'         with a flat 'N%' sibling (column-1 < N)          -> total-duty floor N
+#' The floor pairs are self-classifying by the column-1 rate (total duty =
+#' max(column 1, N)), so the flat sibling alone fixes the country's target and
+#' the no-additional sibling carries no rate information. The EU pair names
+#' 'a member state of the European Union' and expands to eu27_codes.
+#'
+#' Fails loudly on any charging heading whose rate text or country cannot be
+#' resolved — a partially-read roster must never silently drop an economy.
+#'
+#' @param ch99_data Tibble of parsed Chapter 99 entries (needs general_raw)
+#' @param eu27_codes Character vector of EU-27 census codes (config eu27_codes)
+#' @return list(has_s301fl, by_country = code->rate, by_country_type = code->'surcharge'|'floor')
+extract_section301_fl_rates <- function(ch99_data, eu27_codes = character(0)) {
+  fl <- ch99_data %>%
+    mutate(.sfx = suppressWarnings(as.integer(
+      str_match(ch99_code, '^9903\\.05\\.([0-9]{2})$')[, 2]))) %>%
+    filter(!is.na(.sfx), .sfx >= 20, .sfx <= 84)
+
+  if (nrow(fl) == 0) {
+    return(list(has_s301fl = FALSE,
+                by_country = numeric(0), by_country_type = character(0)))
+  }
+  message('Extracting Section 301 forced-labor rates (', nrow(fl), ' headings)...')
+
+  lookup <- build_country_lookup(here('resources', 'census_codes.csv'))
+  lookup <- c(lookup, c('türkiye' = '4890', 'turkiye' = '4890',
+                        # census names are 'Denmark, except Greenland' and
+                        # 'Germany (Federal Republic of Germany)'
+                        'denmark' = '4099', 'germany' = '4280'))
+
+  txt    <- normalize_schedule_text(fl$general_raw)
+  add_m  <- str_match(txt, '^The duty provided in the applicable subheading \\+ ([0-9.]+)%$')
+  flat_m <- str_match(txt, '^([0-9.]+)%$')
+  noadd  <- txt == 'The duty provided in the applicable subheading'
+  name_m <- str_match(fl$description,
+    regex('articles the product of (a member state of the European Union|.+?)(?:,| with an ad valorem| described| as provided)',
+          ignore_case = TRUE))
+
+  by_country <- numeric(0)
+  by_type    <- character(0)
+  unresolved <- character(0)
+
+  for (i in seq_len(nrow(fl))) {
+    if (isTRUE(noadd[i])) next  # floor pair's no-additional arm: no rate info
+    rate <- if (!is.na(add_m[i, 2])) as.numeric(add_m[i, 2]) / 100
+            else if (!is.na(flat_m[i, 2])) as.numeric(flat_m[i, 2]) / 100
+            else NA_real_
+    type <- if (!is.na(add_m[i, 2])) 'surcharge'
+            else if (!is.na(flat_m[i, 2])) 'floor'
+            else NA_character_
+    nm <- str_squish(name_m[i, 2])
+    if (is.na(rate) || is.na(nm)) {
+      unresolved <- c(unresolved, paste0(fl$ch99_code[i], ' [', txt[i], ']'))
+      next
+    }
+    codes <- if (str_detect(nm, regex('european union', ignore_case = TRUE))) {
+      # config eu27_codes lists member-state NAMES; resolve through the lookup
+      as.character(lookup[tolower(as.character(unlist(eu27_codes)))])
+    } else {
+      as.character(lookup[tolower(str_remove(nm, regex('^the ', ignore_case = TRUE)))])
+    }
+    if (length(codes) == 0 || any(is.na(codes))) {
+      unresolved <- c(unresolved, paste0(fl$ch99_code[i], ' [country: ', nm, ']'))
+      next
+    }
+    for (cc in codes) {
+      by_country[cc] <- rate
+      by_type[cc]    <- type
+    }
+  }
+
+  if (length(unresolved) > 0) {
+    stop('extract_section301_fl_rates: unresolved charging headings: ',
+         paste(unresolved, collapse = '; '))
+  }
+  message('  Section 301 forced-labor: ', length(by_country), ' economies (',
+          sum(by_type == 'surcharge'), ' additive, ', sum(by_type == 'floor'),
+          ' net-of-MFN floor)')
+  list(has_s301fl = TRUE, by_country = by_country, by_country_type = by_type)
+}
+
+
 #' Extract Section 201 (safeguard) rates from Chapter 99 data
 #'
 #' Section 201 is a safeguard tariff under Trade Act of 1974 Section 201.
