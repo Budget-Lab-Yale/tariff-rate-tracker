@@ -48,6 +48,69 @@ open work. Registry of statutory deviations (the B/U/P/S/F items):
    rate-number changes, ready to implement.
 6. **Build/alternatives unification remaining phases** (sections below).
 
+## HTML markup in `general` defeats the base-rate parser — LIVE ERROR (2026-08-10)
+
+**The published series carries `base_rate = 0` on 21 HTS10s that have a real
+MFN rate.** USITC's `general` field sometimes trails stray markup; the base-rate
+parser does not strip it, so the value fails to match as ad valorem and falls
+back to `base_rate_type = 'other'`, `base_rate = 0`:
+
+```
+2.5% <u></u>   ->  other,      base_rate 0.000     rev_12, rev_15 (current)
+2.5%           ->  ad_valorem, base_rate 0.025     rev_13
+```
+
+Scope on rev_15 (the current revision): of 11,414 ch1-97 lines carrying a
+general rate, 19 contain markup and **12 are a bare `N%` once tags are
+stripped** — i.e. mis-parsed. Those 12 source entries (several are HTS8 parents)
+expand to **21 HTS10 x 240 countries = 5,040 rows per partition**, at true rates
+of 2.5%, 3.7%, 5%, 6% and 10%. Tags seen: `<u></u>` x12, `<sup>...</sup>` x6,
+and one malformed `</il>`. Affected lines are motor-vehicle parts (8708.\*),
+bicycles (8712.00.50) and bicycle parts (8714.9\*).
+
+**Rate impact.** Downstream net-of-MFN arms subtract the zeroed base, so they
+overstate the additional duty by the MFN amount: `rate_232` charges 15% where
+12.5% is correct (15% - 2.5%), `rate_s301fl` charges 10% where 4% is correct
+(10% - 6%). For `target_total` programs the *total* roughly survives — the
+overstated additional offsets the understated base — which is exactly why this
+went unnoticed. For ADDITIVE programs there is no such cancellation, and
+`statutory_base_rate` is wrong on these lines regardless of program.
+
+**How it surfaced.** Partition parity of a full candidate build against vintage
+`2026-07-24-09` (`scripts/verify_partition_parity.R`, Slurm 21799738) flagged
+`base_rate` / `base_rate_type` moving on exactly one partition, 2026-07-31.
+That is the only partition owned by rev_13 — the one revision in this window
+whose text happens to be clean. Its neighbours (08-19, 09-29, 11-10) are owned
+by rev_15, which has the tags back, so they matched the reference and looked
+fine. Source text confirmed per-archive (Slurm 21845798): the rate VALUE never
+changes across rev_12/13/15, only the markup.
+
+- [ ] **Correct the documented assumption first.** This section and the rev_14/
+  rev_15 section below both assert that tags "land in `description`/`units`
+  only, so rate parsers are unaffected". That is FALSE — they land in `general`
+  and the base-rate parser is affected. The claim came from a cosmetic-diff
+  analysis that only inspected description/units.
+- [ ] **Strip markup before parsing**, not just when diffing. `tools/revision_changelog.R`
+  already has `normalize_schedule_text()` (tag removal + entity decode +
+  whitespace squish) applied in its comparison layer; hoist that into the parse
+  path (`parse_rate()` / the base-rate classifier in `src/core/helpers.R`) so
+  the archives stay raw but every consumer sees normalised text. Guard against
+  the malformed `</il>` case — a `<[^>]*>` pass handles it, a tag-name
+  allowlist would not.
+- [ ] **This is rate-moving: own vintage + parity review.** 5,040 rows per
+  partition change, across every partition whose owning revision carries the
+  tags. Do NOT fold it into an unrelated publish. Re-run
+  `scripts/verify_partition_parity.R` afterwards and expect `base_rate`,
+  `base_rate_type`, `rate_232`, `rate_s301fl` and the totals to move on those
+  lines — and nothing else.
+- [ ] **Add a parser regression test** over the real archives: assert no ch1-97
+  line whose `general` normalises to a bare `N%` classifies as
+  `base_rate_type == 'other'`. That is the invariant that was silently false;
+  a fixture-only test would not have caught it, since the fixtures are clean.
+- [ ] **Re-check the `<sup>` cases.** 6 markup lines are NOT bare `N%` after
+  stripping (units/exponents in the rate text). They may be legitimately
+  non-ad-valorem, or a second, different parse failure. Not yet examined.
+
 ## MRS replication: two pinned tracker series
 
 The Minton–Ray–Somale (MRS) replication should consume two explicitly named,
@@ -410,13 +473,19 @@ M6).**
   at `effective_date: 2026-07-31` (the operative legal date; owns the pharma
   headings), rev_15 at `2026-08-03` with `policy_effective_date` empty.
   Expect rate-neutrality of rev_15 vs rev_14 in the series.
-- [ ] **Teach `tools/revision_changelog.R` to strip HTML markup.** USITC ran a
-  schedule-wide typographic pass (italic scientific names, `<sup>` units,
-  `<br />`, one `<em style=...>`): a raw field diff reports 3,199 modified
-  entries, ALL cosmetic once tags/whitespace are normalised. Without this the
-  next changelog run is unreadable. Tags land in `description`/`units` only,
-  so rate parsers are unaffected — but re-check anything matching on
-  description text (the §232 annex parser is the candidate).
+- [x] **Teach `tools/revision_changelog.R` to strip HTML markup.** DONE
+  (`633ac46`): `normalize_schedule_text()` in the comparison layer; markup-only
+  edits are counted and excluded (63 at rev_13, 73 at rev_15) rather than
+  listed. USITC ran a schedule-wide typographic pass (italic scientific names,
+  `<sup>` units, `<br />`, one `<em style=...>`): a raw field diff reports
+  3,199 modified entries, ALL cosmetic once tags/whitespace are normalised.
+  ~~Tags land in `description`/`units` only, so rate parsers are unaffected~~
+  — **THIS WAS WRONG, see the LIVE ERROR section at the top of this file.**
+  Tags also land in `general`, and the base-rate parser IS affected: `2.5%
+  <u></u>` classifies as `other` with `base_rate = 0`. The original claim came
+  from a cosmetic-diff analysis that only inspected description/units. Still
+  open: re-check anything matching on description text (the §232 annex parser
+  is the candidate).
 - [ ] **Optional — make the HTS the pharma rate authority.** Add a
   `classify_authority()` rule for `9903.04.6x` → `section_232` (they currently
   fall through to `other`; inert today since no ch.1-97 line
