@@ -110,9 +110,27 @@ changes across rev_12/13/15, only the markup.
   against the pre-fix classifier the archive scan finds 12 offenders in rev_12
   and 12 in rev_15, 0 in rev_13. It also fails if fewer than 2 archives are
   scanned, so it cannot pass vacuously.
-- [ ] **Re-check the `<sup>` cases.** 6 markup lines are NOT bare `N%` after
-  stripping (units/exponents in the rate text). They may be legitimately
-  non-ad-valorem, or a second, different parse failure. Not yet examined.
+- [x] **Re-check the `<sup>` cases.** DONE (verification pass 2026-08-10): all
+  7 `<sup>`/`<il>` lines in rev_15 are genuinely specific/compound —
+  `$1.13/m<sup>3</sup>`, `14.5¢/m<sup>2 </sup>+ 0.4%`, `6.5¢/gross<il></il>` —
+  and classify as `specific_or_compound` both before and after the fix (the
+  `¢`/`$` detection is unanchored, so markup never defeated it). Not a second
+  parse failure. Also confirmed the strip is safe on this corpus: every `<` in
+  any `general` field across all 47 archives is one of exactly 6 tag forms
+  (`<u>` `</u>` `<sup>` `</sup>` `<il>` `</il>`, matched pairs), and ZERO bare
+  `<` remain after stripping — no real less-than sign exists to be eaten.
+- [ ] **Latent: two anchored `^N%$` matchers still read UN-normalised text.**
+  Both are empirically safe today — ch99 `general`/`other` fields carry ZERO
+  markup across all 47 archives (verified 2026-08-10) — but they are the same
+  shape that broke on ch1-97, and USITC has demonstrated it will inject tags
+  into rate fields:
+  - `parse_ch99_rate()` (`rate_schema.R:262`), bare-`N%` arm only (the
+    `+ N%` / `plus N%` / `duty of N%` arms are unanchored and safe);
+  - the §232 auto floor-vs-surcharge classifier
+    (`05_parse_policy_params.R:926,991`), `^N%$` on `general_raw`.
+  Fix is one line each (normalise at entry) but 05_parse_policy_params.R has
+  uncommitted WIP in it — apply when that lands, and extend
+  `tests/test_rate_parse_markup.R` with a ch99-side invariant at the same time.
 
 ## MRS replication: two pinned tracker series
 
