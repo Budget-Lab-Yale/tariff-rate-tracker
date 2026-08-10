@@ -757,6 +757,53 @@ mfn_exemption:
   method: 'hs2'
   exclude_usmca_countries: true
 
+# --- Column 2 (non-NTR) origins ---
+# HTSUS General Note 3(b): goods of countries denied normal-trade-relations
+# (formerly MFN) treatment are dutiable at the rates in **column 2** of the
+# tariff schedule, not column 1 general. GN 3(b) names the countries in prose
+# only — nothing in the HTS JSON marks them — so the country side MUST be an
+# exogenous overlay. The RATE side is parsed off the JSON `other` field
+# (col2_rate / col2_rate_type in 04_parse_products.R) and applied in
+# 06_calculate_rates.R step 1c.
+#
+# Entries: { country: Census code, name: label, effective_date: nullable }
+#   effective_date: null  = column 2 has applied for the whole modeled window
+#                           (Cuba since 1962, North Korea since 1951 — the two
+#                           countries GN 3(b) has named continuously)
+#   effective_date: DATE  = column 2 applies to revisions effective on or after
+#                           DATE (gate is `revision effective_date >= DATE`)
+#
+# Russia and Belarus: PL 117-110, "Suspending Normal Trade Relations with Russia
+# and Belarus Act", signed 2022-04-09 — before the 2025 start of the current
+# series, so they are column 2 throughout it. The date is recorded correctly
+# anyway so the pre-2025 backfill (docs/internal/
+# pre2025_expansion_scoping_2026-07-28.md, decision 7 / Phase 0b) gets the
+# column-1 -> column-2 switch at the right revision without touching this block.
+#
+# NOT column 2 today, and deliberately absent: no other origin is denied NTR
+# treatment as of 2026-07. Adding an entry is a rate change on that origin's
+# entire product set — it must come with an Act of Congress or a GN 3(b)
+# amendment cited in the `name` field.
+#
+# Interaction: column-2 origins receive NO preference programs (that is what
+# losing NTR means), so step 6c does NOT apply the HS2 x country
+# mfn_exemption_shares scaling to these rows. Chapter 99 authority layers
+# (§232 incl. the Russia 200% aluminum surcharge, §122, §301) stack on top
+# unchanged. See docs/assumptions.md §20 and docs/statutory_deviations.md S11.
+column_2_countries:
+  - country: '2390'
+    name: 'Cuba (GN 3(b); non-NTR since 1962)'
+    effective_date: null
+  - country: '5790'
+    name: 'North Korea (GN 3(b); non-NTR since 1951)'
+    effective_date: null
+  - country: '4621'
+    name: 'Russia (PL 117-110, 2022-04-09)'
+    effective_date: '2022-04-09'
+  - country: '4622'
+    name: 'Belarus (PL 117-110, 2022-04-09)'
+    effective_date: '2022-04-09'
+
 # --- IEEPA reciprocal: duty-free product treatment ---
 # Whether to apply IEEPA reciprocal tariffs to products with 0% MFN base rate.
 # Legal text supports either interpretation. Sensitivity toggle, not a TPC match:

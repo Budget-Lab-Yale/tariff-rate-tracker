@@ -181,7 +181,9 @@ products_last <- read_products_cache(file.path(output_dir, paste0('products_', l
 products_raw_path <- file.path(output_dir, 'products_raw.csv')
 products_last %>%
   mutate(ch99_refs = vapply(ch99_refs, paste, FUN.VALUE = character(1), collapse = ';')) %>%
-  select(hts10, base_rate, base_rate_raw, base_rate_type, ch99_refs, n_ch99_refs, description) %>%
+  select(hts10, base_rate, base_rate_raw, base_rate_type,
+         col2_rate, col2_rate_raw, col2_rate_type,
+         ch99_refs, n_ch99_refs, description) %>%
   write_csv(products_raw_path)
 
 # ---- 3. Downstream ----

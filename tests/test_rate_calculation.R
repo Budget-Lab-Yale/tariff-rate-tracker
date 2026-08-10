@@ -684,6 +684,50 @@ run_test('parse_products: base_rate_type inheritance + stale-sibling flag', {
   stopifnot(abs(br[['1806202010']] - 0.05) < 1e-10)  # stale numeric — documented, not fixed here
 })
 
+run_test('parse_products: column 2 parsed from `other` with S2 typing', {
+  # Same shape as the base_rate fixture above, but exercising the `other`
+  # (column 2) field. Note the column-2 hierarchy is deliberately NOT parallel
+  # to the column-1 one: 1806.20.20 is clean ad valorem in column 2 while being
+  # compound in column 1, and vice versa for 1806.20.10 — so a col2 value that
+  # accidentally came from the `general` field would be caught.
+  fixture <- list(
+    make_hts_item('1806.20',       general = '5%',   other = '35%',       indent = 0),
+    make_hts_item('1806.20.10',    general = '',     other = '$4/kg',     indent = 1),
+    make_hts_item('1806.20.10.00', general = '',     other = '',          indent = 2),
+    make_hts_item('1806.20.20',    general = '$1/kg', other = '20%',      indent = 1),
+    make_hts_item('1806.20.20.10', general = '',     other = '',          indent = 2),
+    make_hts_item('1806.30.00',    general = 'Free', other = 'Free',      indent = 0),
+    make_hts_item('1806.90.00',    general = '2%',   other = '',          indent = 0)
+  )
+  tmp <- tempfile(fileext = '.json')
+  jsonlite::write_json(fixture, tmp, auto_unbox = TRUE)
+  on.exit(unlink(tmp), add = TRUE)
+  p <- parse_products(tmp)
+  stopifnot(all(c('col2_rate', 'col2_rate_raw', 'col2_rate_type') %in% names(p)))
+  c2 <- setNames(p$col2_rate, p$hts10)
+  ct <- setNames(p$col2_rate_type, p$hts10)
+  raw <- setNames(p$col2_rate_raw, p$hts10)
+
+  # Specific column-2 parent shadows the ad-valorem heading: NA numeric (S2 ->
+  # 0 downstream) but an honest type. The single col2 stack pushes on ANY legal
+  # column-2 line, so unlike base_rate there is no stale-sibling inheritance.
+  stopifnot(is.na(c2[['1806201000']]))
+  stopifnot(ct[['1806201000']] == 'specific_or_compound')
+
+  # Ad-valorem column 2 under a compound column 1 — proves the two fields are
+  # read independently.
+  stopifnot(abs(c2[['1806202010']] - 0.20) < 1e-10)
+  stopifnot(ct[['1806202010']] == 'ad_valorem')
+
+  # Free in both columns; and a line with no column-2 text at all stays NA.
+  stopifnot(abs(c2[['1806300000']]) < 1e-10, ct[['1806300000']] == 'free')
+  stopifnot(is.na(c2[['1806900000']]), is.na(ct[['1806900000']]))
+
+  # Raw text is preserved verbatim for audit.
+  stopifnot(raw[['1806202010']] == '')
+  stopifnot(raw[['1806300000']] == 'Free')
+})
+
 run_test('parse_ch99_rate: surcharge format', {
   stopifnot(abs(parse_ch99_rate('The duty provided in the applicable subheading + 25%') - 0.25) < 1e-10)
   stopifnot(abs(parse_ch99_rate('The duty provided in the applicable subheading plus 7.5%') - 0.075) < 1e-10)
@@ -1889,6 +1933,211 @@ run_test('annex-era snapshot: scrap and copper cathodes are unclassified, 0 rate
   }
   mill <- s %>% filter(substr(hts10, 1, 4) == '7208')
   stopifnot(nrow(mill) > 0, all(mill$s232_annex == 'annex_1a', na.rm = TRUE))
+})
+
+
+# =============================================================================
+# Test 16: Column 2 base rates for non-NTR origins (GN 3(b))
+# =============================================================================
+
+message('\n--- Test 16: Column 2 base rates (non-NTR origins) ---')
+
+# Census codes: Russia 4621, Belarus 4622, Cuba 2390, North Korea 5790,
+# China 5700 (control, NTR). Verified against resources/census_codes.csv.
+COL2_TEST_CONFIG <- tibble(
+  country = c('2390', '5790', '4621', '4622'),
+  name = c('Cuba', 'North Korea', 'Russia', 'Belarus'),
+  effective_date = as.Date(c(NA, NA, '2022-04-09', '2022-04-09'))
+)
+
+# Grid of one product across a column-2 origin, a not-yet-column-2 origin and an
+# NTR control. col2_rate/col2_rate_type are what build_rate_grid() hands over.
+make_col2_grid <- function() {
+  tibble(
+    hts10 = rep(c('7208100000', '0403200000'), each = 3),
+    country = rep(c('4621', '5700', '2390'), 2),
+    base_rate = rep(c(0.02, 0.02, 0.02, 0.174, 0.174, 0.174), 1),
+    base_rate_type = 'ad_valorem',
+    # 7208.10: clean ad valorem in both columns. 0403.20: specific column 2.
+    col2_rate = rep(c(0.35, NA_real_), each = 3),
+    col2_rate_type = rep(c('ad_valorem', 'specific_or_compound'), each = 3)
+  )
+}
+
+run_test('column-2 origin gets the column-2 rate, not column 1', {
+  g <- apply_column_2_rates(make_col2_grid(), COL2_TEST_CONFIG,
+                            effective_date = as.Date('2026-01-15'))
+  ru <- g %>% filter(country == '4621', hts10 == '7208100000')
+  cu <- g %>% filter(country == '2390', hts10 == '7208100000')
+  stopifnot(nrow(ru) == 1, nrow(cu) == 1)
+  stopifnot(abs(ru$base_rate - 0.35) < 1e-10)   # column 2, not the 2% column 1
+  stopifnot(abs(cu$base_rate - 0.35) < 1e-10)
+  stopifnot(ru$base_rate_source == 'col2_other')
+  stopifnot(cu$base_rate_source == 'col2_other')
+  # Transient product-attribute columns must not survive onto the panel.
+  stopifnot(!any(c('col2_rate', 'col2_rate_type') %in% names(g)))
+})
+
+run_test('non-column-2 origin is unchanged apart from the provenance flag', {
+  before <- make_col2_grid()
+  after <- apply_column_2_rates(before, COL2_TEST_CONFIG,
+                                effective_date = as.Date('2026-01-15'))
+  cn_before <- before %>% filter(country == '5700') %>%
+    select(hts10, country, base_rate, base_rate_type) %>% arrange(hts10)
+  cn_after <- after %>% filter(country == '5700') %>%
+    select(hts10, country, base_rate, base_rate_type) %>% arrange(hts10)
+  stopifnot(identical(cn_before, cn_after))
+  stopifnot(all((after %>% filter(country == '5700'))$base_rate_source ==
+                  'col1_general'))
+})
+
+run_test('column 2 is date-gated: PL 117-110 origins do not fire before 2022-04-09', {
+  # Same config, a revision predating the Act. Cuba/North Korea (NA date) still
+  # fire; Russia must not.
+  g <- apply_column_2_rates(make_col2_grid(), COL2_TEST_CONFIG,
+                            effective_date = as.Date('2022-04-08'))
+  ru <- g %>% filter(country == '4621', hts10 == '7208100000')
+  cu <- g %>% filter(country == '2390', hts10 == '7208100000')
+  stopifnot(abs(ru$base_rate - 0.02) < 1e-10, ru$base_rate_source == 'col1_general')
+  stopifnot(abs(cu$base_rate - 0.35) < 1e-10, cu$base_rate_source == 'col2_other')
+  # The boundary day itself IS active (gate is >=).
+  g2 <- apply_column_2_rates(make_col2_grid(), COL2_TEST_CONFIG,
+                             effective_date = as.Date('2022-04-09'))
+  stopifnot((g2 %>% filter(country == '4621', hts10 == '7208100000'))$base_rate_source ==
+              'col2_other')
+})
+
+run_test('specific/compound column 2 lands at 0 with the type preserved (S2)', {
+  g <- apply_column_2_rates(make_col2_grid(), COL2_TEST_CONFIG,
+                            effective_date = as.Date('2026-01-15'))
+  ru <- g %>% filter(country == '4621', hts10 == '0403200000')
+  stopifnot(nrow(ru) == 1)
+  # NA numeric -> 0 per S2, NOT a fallback to the 17.4% column-1 rate: a
+  # column-2 specific duty is unmodeled, and silently charging column 1 would
+  # be a different (wrong) number rather than a visible understatement.
+  stopifnot(abs(ru$base_rate) < 1e-10)
+  stopifnot(ru$base_rate_type == 'specific_or_compound')
+  stopifnot(ru$base_rate_source == 'col2_other')
+})
+
+run_test('no column-2 origin active: every row keeps column 1', {
+  empty <- COL2_TEST_CONFIG[0, ]
+  g <- apply_column_2_rates(make_col2_grid(), empty,
+                            effective_date = as.Date('2026-01-15'))
+  stopifnot(all(g$base_rate_source == 'col1_general'))
+  stopifnot(all(abs(g$base_rate - make_col2_grid()$base_rate) < 1e-10))
+})
+
+run_test('column-2 config overlapping the USMCA codes fails loud', {
+  bad <- tibble(country = '1220', name = 'Canada (bogus)',
+                effective_date = as.Date(NA))
+  grid <- make_col2_grid() %>% mutate(country = '1220')
+  err <- tryCatch({
+    apply_column_2_rates(grid, bad, effective_date = as.Date('2026-01-15'),
+                         usmca_countries = c('1220', '2010'))
+    NULL
+  }, error = function(e) conditionMessage(e))
+  stopifnot(!is.null(err), grepl('USMCA', err))
+})
+
+run_test('active column-2 origin without parsed col2 columns fails loud', {
+  # A stale product cache (pre-col2 parser) must not silently ship column 1.
+  grid <- make_col2_grid() %>% select(-col2_rate, -col2_rate_type)
+  err <- tryCatch({
+    apply_column_2_rates(grid, COL2_TEST_CONFIG,
+                         effective_date = as.Date('2026-01-15'))
+    NULL
+  }, error = function(e) conditionMessage(e))
+  stopifnot(!is.null(err), grepl('col2_rate', err))
+})
+
+run_test('MFN exemption preference scaling is skipped on column-2 rows', {
+  # Step 6c's single withholding point. A column-2 origin has no preference
+  # program, so its share must be forced to 0 while NTR rows keep theirs.
+  src <- c('col2_other', 'col1_general', 'col2_other', 'col1_general')
+  share <- c(0.8, 0.8, 0.25, 0.25)
+  out <- zero_exemption_share_for_column_2(share, src)
+  stopifnot(identical(out, c(0, 0.8, 0, 0.25)))
+  # Consequence that matters: base_rate survives unscaled on column-2 rows, so
+  # base_rate == statutory_base_rate and the 6d-6f floor recomputations (gated
+  # on base_rate < statutory_base_rate) are no-ops there.
+  base <- c(0.35, 0.10, 0.35, 0.10)
+  scaled <- base * (1 - out)
+  stopifnot(max(abs(scaled - c(0.35, 0.02, 0.35, 0.075))) < 1e-12)
+})
+
+run_test('policy_params resolves the four column-2 origins with verified codes', {
+  pp <- load_policy_params()
+  c2 <- pp$COLUMN_2_COUNTRIES
+  stopifnot(is.data.frame(c2), nrow(c2) == 4)
+  stopifnot(setequal(c2$country, c('2390', '4621', '4622', '5790')))
+  # Cuba / North Korea are always column 2; Russia / Belarus from PL 117-110.
+  always <- c2$country[is.na(c2$effective_date)]
+  stopifnot(setequal(always, c('2390', '5790')))
+  dated <- c2 %>% filter(!is.na(effective_date))
+  stopifnot(setequal(dated$country, c('4621', '4622')))
+  stopifnot(all(dated$effective_date == as.Date('2022-04-09')))
+  # Every code must exist in the Census universe — a typo'd code would silently
+  # never match a panel row.
+  codes_path <- here('resources', 'census_codes.csv')
+  if (file.exists(codes_path)) {
+    census <- read_csv(codes_path, show_col_types = FALSE,
+                       col_types = cols(.default = col_character()))
+    stopifnot(all(c2$country %in% census[[1]]))
+  }
+  # And none may collide with CA/MX (asserted at runtime too).
+  stopifnot(length(intersect(c2$country, c('1220', '2010'))) == 0)
+})
+
+
+# --- GN 3(b) IEEPA reciprocal exemption (heading 9903.01.29) -----------------
+
+.gn3b_frame <- function() {
+  tibble(
+    country = c('4621', '2390', '5700', '4280'),   # Russia, Cuba, China, Germany
+    rate_ieepa_recip = c(0.10, 0.10, 0.34, 0.15)
+  )
+}
+.gn3b_cfg <- function() {
+  tibble(country = c('2390', '5790', '4621', '4622'),
+         name = c('Cuba', 'North Korea', 'Russia', 'Belarus'),
+         effective_date = as.Date(c(NA, NA, '2022-04-09', '2022-04-09')))
+}
+
+run_test('GN 3(b) origins lose the IEEPA reciprocal duty; others keep it', {
+  out <- apply_gn3b_ieepa_exemption(.gn3b_frame(), .gn3b_cfg(),
+                                    as.Date('2025-09-01'))
+  stopifnot(out$rate_ieepa_recip[out$country == '4621'] == 0)   # Russia
+  stopifnot(out$rate_ieepa_recip[out$country == '2390'] == 0)   # Cuba
+  # Non-GN-3(b) origins untouched
+  stopifnot(abs(out$rate_ieepa_recip[out$country == '5700'] - 0.34) < 1e-12)
+  stopifnot(abs(out$rate_ieepa_recip[out$country == '4280'] - 0.15) < 1e-12)
+})
+
+run_test('GN 3(b) exemption respects the PL 117-110 effective date', {
+  # Before 2022-04-09 Russia was an NTR partner: reciprocal duty stands (the
+  # program does not exist that early, but the gate must still be date-driven).
+  out <- apply_gn3b_ieepa_exemption(.gn3b_frame(), .gn3b_cfg(),
+                                    as.Date('2022-01-01'))
+  stopifnot(abs(out$rate_ieepa_recip[out$country == '4621'] - 0.10) < 1e-12)
+  stopifnot(out$rate_ieepa_recip[out$country == '2390'] == 0)   # Cuba: always
+})
+
+run_test('GN 3(b) exemption is inert without the column, config, or matches', {
+  # No rate_ieepa_recip column (pre-IEEPA fixture) => unchanged frame
+  f <- tibble(country = c('4621', '5700'))
+  stopifnot(identical(apply_gn3b_ieepa_exemption(f, .gn3b_cfg(),
+                                                 as.Date('2025-09-01')), f))
+  # Empty config => unchanged
+  empty <- tibble(country = character(), name = character(),
+                  effective_date = as.Date(character()))
+  g <- .gn3b_frame()
+  stopifnot(identical(apply_gn3b_ieepa_exemption(g, empty,
+                                                 as.Date('2025-09-01')), g))
+  # No GN 3(b) origin present in the country set => unchanged
+  h <- tibble(country = c('5700', '4280'), rate_ieepa_recip = c(0.34, 0.15))
+  stopifnot(identical(apply_gn3b_ieepa_exemption(h, .gn3b_cfg(),
+                                                 as.Date('2025-09-01')), h))
 })
 
 
