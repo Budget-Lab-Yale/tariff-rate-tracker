@@ -2141,6 +2141,60 @@ run_test('GN 3(b) exemption is inert without the column, config, or matches', {
 })
 
 
+# --- §232 overlay-displacement mask (notes 52(f)/50(a)(vi)/51(c)) ------------
+# The overlay exclusion notes ENUMERATE §232 actions; polysilicon
+# (PP 2026-08-06) is on none of them, so its coverage must not hide a row from
+# FL-301/Brazil-§301/§338. Regression for the 2026-12-04 boundary where the
+# generic mask wrongly dropped ~$1.7B/yr of FL-301 on solar cells/modules
+# (docs/internal/polysilicon_note52f_mask_2026-08-10.md).
+
+run_test('s232_in_scope: non-displacing-only coverage stays overlay-visible', {
+  r <- tibble(
+    hts10 = c('7208100000', '8541430010', '8541430010', '2203000000'),
+    statutory_rate_232 = c(0.50, 0.15, 0.65, 0),
+    s232_annex = c('annex_1a', NA, NA, 'annex_2'),
+    heading_program = c(FALSE, TRUE, TRUE, FALSE),
+    s232_nondisplacing = c(FALSE, TRUE, TRUE, FALSE),
+    rate_232_nondisplacing = c(0, 0.15, 0.15, 0)
+  )
+  # Steel annex line stays excluded; a module whose ONLY coverage is
+  # polysilicon stays overlay-visible; the same module with an additional
+  # displacing 0.50 stays excluded; annex_2 was never in scope.
+  stopifnot(identical(.s232_in_scope(r), c(TRUE, FALSE, TRUE, FALSE)))
+})
+
+run_test('s232_in_scope: frames without displacement columns keep old behavior', {
+  r <- tibble(
+    hts10 = c('7208100000', '8541430010'),
+    statutory_rate_232 = c(0.50, 0),
+    heading_program = c(FALSE, TRUE)
+  )
+  stopifnot(identical(.s232_in_scope(r), c(TRUE, TRUE)))
+})
+
+run_test('polysilicon apply records its component as non-displacing', {
+  base <- tibble(
+    hts10 = c('8541430010', '0101210010'),
+    country = c('5520', '5520'),
+    base_rate = c(0, 0),
+    rate_232 = c(0, 0)
+  )
+  cfg <- list(default_rate = 0.15, displaces_overlays = FALSE)
+  out <- apply_polysilicon_232_adjustments(base, '8541430010', cfg,
+                                           countries = '5520', pp = list())
+  stopifnot(abs(out$rate_232[1] - 0.15) < 1e-12,
+            abs(out$rate_232_nondisplacing[1] - 0.15) < 1e-12,
+            out$rate_232_nondisplacing[2] == 0)
+  # Flipping the flag (a future proclamation amending the notes) must stop
+  # recording the component — the rate itself is unchanged.
+  cfg_d <- list(default_rate = 0.15, displaces_overlays = TRUE)
+  out_d <- apply_polysilicon_232_adjustments(base, '8541430010', cfg_d,
+                                             countries = '5520', pp = list())
+  stopifnot(abs(out_d$rate_232[1] - 0.15) < 1e-12,
+            all(out_d$rate_232_nondisplacing == 0))
+})
+
+
 # =============================================================================
 # Summary
 # =============================================================================

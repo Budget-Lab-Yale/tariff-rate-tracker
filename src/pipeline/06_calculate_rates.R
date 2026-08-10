@@ -920,6 +920,17 @@ apply_section122 <- function(rates, specs, pp, products, effective_date) {
 # see the s338 beer 2203.00.00 case, codex cross-check 2026-07-20), or is a
 # heading_program row. Single definition so a future §232 scope change lands
 # in one place, not three.
+#
+# "In §232 scope" here means "on those notes' exclusion lists", which the
+# notes ENUMERATE per action — they carry no generic any-§232 clause. Heading
+# programs with displaces_overlays: false (polysilicon; Annex II of PP
+# 2026-08-06 amends no exclusion note) are therefore carved back out: their
+# rate component (rate_232_nondisplacing) is subtracted from the statutory
+# prong and their membership (s232_nondisplacing) from the heading prong, so
+# a row they alone cover stays visible to the overlays. A row ALSO covered by
+# a displacing source (metals annex/derivatives) stays excluded — correct,
+# since note 52(f)(1) lists metal articles regardless of what else applies.
+# See docs/internal/polysilicon_note52f_mask_2026-08-10.md.
 .s232_in_scope <- function(rates) {
   ANNEX_IN_SCOPE <- c('annex_1a', 'annex_1b', 'annex_1c', 'annex_3')
   stat232 <- if ('statutory_rate_232' %in% names(rates)) {
@@ -931,7 +942,13 @@ apply_section122 <- function(rates, specs, pp, products, effective_date) {
   headprog <- if ('heading_program' %in% names(rates)) {
     coalesce(rates$heading_program, FALSE)
   } else FALSE
-  stat232 > 0 | annex232 | headprog
+  nondisp <- if ('s232_nondisplacing' %in% names(rates)) {
+    coalesce(rates$s232_nondisplacing, FALSE)
+  } else FALSE
+  nondisp_rate <- if ('rate_232_nondisplacing' %in% names(rates)) {
+    coalesce(rates$rate_232_nondisplacing, 0)
+  } else 0
+  (stat232 - nondisp_rate) > 0 | annex232 | (headprog & !nondisp)
 }
 
 # --- Step 6b-fl: Section 301 forced-labor duties (baseline) ------------------
@@ -1363,6 +1380,15 @@ apply_polysilicon_232_adjustments <- function(rates, polysilicon_products,
         .polysilicon_hit,
         rate_232 + .polysilicon_component,
         rate_232
+      ),
+      # Annex II adds these articles to no overlay exclusion note, so
+      # .s232_in_scope() subtracts this component from the statutory prong —
+      # the FL-301/Brazil-§301/§338 duties keep applying on top
+      # (docs/internal/polysilicon_note52f_mask_2026-08-10.md).
+      rate_232_nondisplacing = if_else(
+        .polysilicon_hit & !isTRUE(cfg$displaces_overlays),
+        .polysilicon_component,
+        0
       )
     ) %>%
     select(-polysilicon_additive, -polysilicon_target_total,
@@ -2252,6 +2278,7 @@ calculate_rates_for_revision <- function(
   semi_products <- character(0)
   pharma_products <- character(0)
   polysilicon_products <- character(0)
+  nondisplacing_products <- character(0)
   metal_program_products <- character(0)
   s232_country_codes <- character(0)
   heading_gates <- lapply(s232_headings, function(cfg) isTRUE(cfg$enabled))
@@ -2314,6 +2341,7 @@ calculate_rates_for_revision <- function(
     semi_products <- character(0)
     pharma_products <- character(0)
     polysilicon_products <- character(0)
+    nondisplacing_products <- character(0)
     # Parts (auto_parts + mhd_parts) tracked separately from whole vehicles.
     # USMCA-qualifying PARTS are fully exempt from 232 (HTS 9903.94.06 for auto
     # parts; Proclamation 10984 for MHD parts) until Commerce stands up a
@@ -2406,6 +2434,19 @@ calculate_rates_for_revision <- function(
           } else stop(tariff_name, ' applicability_shares_file not found: ', ap_path)
         }
 
+        # Overlay displacement (notes 52(f)/50(a)(vi)/51(c)) is enumerated per
+        # action, so every heading program must declare it — no default. A
+        # silent default is how polysilicon wrongly displaced FL-301
+        # (docs/internal/polysilicon_note52f_mask_2026-08-10.md).
+        if (is.null(cfg$displaces_overlays))
+          stop('Section 232 heading "', tariff_name, '" does not declare ',
+               'displaces_overlays in policy_params.yaml. State whether the ',
+               'proclamation put its articles on the overlay exclusion lists ',
+               '(notes 52(f), 50(a)(vi), 51(c)) — see the section_232_headings ',
+               'comment in the config.')
+        if (!isTRUE(cfg$displaces_overlays))
+          nondisplacing_products <- c(nondisplacing_products, matched)
+
         heading_product_lists[[tariff_name]] <- list(
           products = matched,
           rate = resolve_heading_rate(tariff_name, cfg),
@@ -2444,6 +2485,7 @@ calculate_rates_for_revision <- function(
     semi_products <- unique(semi_products)
     pharma_products <- unique(pharma_products)
     polysilicon_products <- unique(polysilicon_products)
+    nondisplacing_products <- unique(nondisplacing_products)
     parts_products <- unique(parts_products)
 
     # Note 39(a)(1)-(9) excludes semi articles from stacking with 232 autos,
@@ -2656,6 +2698,34 @@ calculate_rates_for_revision <- function(
       s232_headings$polysilicon,
       countries, pp
     )
+
+    # Overlay-displacement bookkeeping (notes 52(f)/50(a)(vi)/51(c)): a row
+    # whose ONLY §232 coverage comes from a non-displacing heading program must
+    # stay visible to the FL-301 / Brazil-§301 / §338 overlays. .s232_in_scope()
+    # subtracts the s232_nondisplacing membership and the
+    # rate_232_nondisplacing component set in the polysilicon apply step.
+    # Component tracking exists only for the polysilicon path; a future program
+    # flipping displaces_overlays must extend its own apply path first.
+    stray_nondisplacing <- setdiff(nondisplacing_products, polysilicon_products)
+    if (length(stray_nondisplacing) > 0)
+      stop('displaces_overlays: false is only implemented for the polysilicon ',
+           'heading program (its apply step tracks rate_232_nondisplacing); ',
+           length(stray_nondisplacing), ' products from another program carry ',
+           'the flag. Extend that program\'s apply path before flipping it.')
+    # The mask treats non-displacing membership as the row's only heading-
+    # program claim; that premise fails if a product is also on a displacing
+    # list (metals or another heading program), so fail loudly if lists collide.
+    displacing_232_products <- unique(c(
+      auto_products, mhd_products, copper_products, wood_products,
+      semi_products, pharma_products, metal_program_products))
+    nondisplacing_collision <- intersect(nondisplacing_products,
+                                         displacing_232_products)
+    if (length(nondisplacing_collision) > 0)
+      stop('Non-displacing §232 products also appear on a displacing product ',
+           'list (', paste(head(nondisplacing_collision, 5), collapse = ', '),
+           ', ...). .s232_in_scope() cannot attribute their coverage; resolve ',
+           'the list overlap.')
+    rates$s232_nondisplacing <- rates$hts10 %in% nondisplacing_products
   }
 
   # statutory_rate_232 is set after step 4c (deal overrides) — see below.
