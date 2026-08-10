@@ -109,20 +109,31 @@ section_232_chapters:
 
 # Additional 232 tariffs beyond steel/aluminum (9903.94 auto tariffs, copper, etc.)
 # These use HTS heading/subheading prefixes rather than full chapter coverage.
+#
+# displaces_overlays (REQUIRED on every block): whether this action's articles
+# are on the §232-overlap exclusion lists of the chapter-99 overlays — note
+# 52(f) (forced-labor §301), note 50(a)(vi) (Brazil §301), note 51(c) (§338).
+# Those notes ENUMERATE the excluded actions by heading; a new §232 action
+# displaces the overlays only if its proclamation amends them. True for every
+# action through pharma; polysilicon (PP 2026-08-06) amends no note and stacks
+# (docs/internal/polysilicon_note52f_mask_2026-08-10.md).
 section_232_headings:
   autos_passenger:
     prefixes: ['870322', '870323', '870324', '870331', '870332', '870333',
                '870334', '870340', '870350', '870360', '870370', '870380', '870390']
     default_rate: 0.25
     usmca_exempt: true
+    displaces_overlays: true    # note 52(f)(2)
   autos_light_trucks:
     prefixes: ['87042101', '87043101', '87044100', '87045100']
     default_rate: 0.25
     usmca_exempt: true
+    displaces_overlays: true    # note 52(f)(2)
   copper:
     products_file: 'resources/s232_copper_products.csv'  # Authoritative: US Note 36(b), 80 HTS8 prefixes
     default_rate: 0.50    # 9903.78.01: 50% upon value of copper content (June 2025 proclamation)
     usmca_exempt: false
+    displaces_overlays: true    # note 52(f)(1)
 
   # Polysilicon and derivatives Section 232 action (PP 2026-08-06), effective
   # 2026-12-04. The default and UK headings are additive; only the named trade-
@@ -142,6 +153,10 @@ section_232_headings:
       CTY_SWITZERLAND: 0.15
       CTY_LIECHTENSTEIN: 0.15
     usmca_exempt: false
+    # Annex II inserts note 42 + headings 9903.45.30-.36 and NOTHING else: the
+    # articles join no overlay exclusion note, so FL-301/Brazil-301/s338 keep
+    # applying on top. Flip only if a later action amends notes 52(f)/50(a)(vi)/51(c).
+    displaces_overlays: false
     mip_model: documented_zero
     mip_products_file: 'resources/s232_polysilicon_mip_products.csv'
   softwood:
@@ -150,14 +165,17 @@ section_232_headings:
                '44071100', '44071200', '44071300', '44071400', '44071900']
     default_rate: 0.10
     usmca_exempt: false
+    displaces_overlays: true    # note 52(f)(4)
   wood_furniture:
     prefixes: ['9401614011', '9401614031', '9401616011', '9401616031']
     default_rate: 0.25
     usmca_exempt: false
+    displaces_overlays: true    # note 52(f)(4)
   kitchen_cabinets:
     prefixes: ['9403409060', '9403608093', '9403910080']
     default_rate: 0.25
     usmca_exempt: false
+    displaces_overlays: true    # note 52(f)(4)
   mhd_vehicles:
     prefixes: ['87012100', '87012200', '87012300', '87012400', '87012900',
                '87041010', '87041050', '87042211', '87042251', '87042301',
@@ -166,6 +184,7 @@ section_232_headings:
                '8706000575', '87060025', '87060050', '87091100', '87091900']
     default_rate: 0.25
     usmca_exempt: true
+    displaces_overlays: true    # note 52(f)(5)
   auto_parts:
     prefixes_file: 'resources/s232_auto_parts.txt'
     # Note 33(g) names some dual-use provisions (bare 8471) whose trade is
@@ -173,14 +192,17 @@ section_232_headings:
     applicability_shares_file: 'resources/s232_auto_parts_applicability.csv'
     default_rate: 0.25
     usmca_exempt: true
+    displaces_overlays: true    # note 52(f)(3)
   mhd_parts:
     prefixes_file: 'resources/s232_mhd_parts.txt'
     default_rate: 0.25
     usmca_exempt: true
+    displaces_overlays: true    # note 52(f)(6)
   buses:
     prefixes: ['8702']
     default_rate: 0.10
     usmca_exempt: false
+    displaces_overlays: true    # note 52(f)(5)
   # 9903.79.01 (Note 39, effective 2026-01-16). Note 39 has no USMCA carve-out —
   # all countries owe the 25% on qualifying articles. Subdivision (c) routes
   # imports under the three HTS headings that fail the TPP/DRAM tech gate
@@ -195,6 +217,7 @@ section_232_headings:
     default_rate: 0.25
     usmca_exempt: false
     end_use_exemption_share: 0.0   # uncalibrated, see todo.md Phase 5
+    displaces_overlays: true    # note 52(f)(7)
   # Pharmaceuticals (chapter 30) — DORMANT 232 sub-program (register-then-activate).
   # No Ch99 backing in baseline => extract_section232_rates sets pharma_rate = 0 and
   # compute_heading_gates gates this OFF, so the heading loop skips it => byte-
@@ -241,6 +264,7 @@ section_232_headings:
       CTY_SWITZERLAND: 0.95
       '4231': 0.95
     usmca_exempt: false
+    displaces_overlays: true    # note 52(f)(8), patented pharma 9903.04.60-.66
 
 # --- Section 232 country exemptions (pre-March 2025) ---
 # TRQ/quota agreements and full exemptions from Proclamations 9705/9704.
