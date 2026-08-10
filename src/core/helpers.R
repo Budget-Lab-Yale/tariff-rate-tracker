@@ -74,6 +74,9 @@ write_parquet_if_arrow <- function(df, path) {
 #' @param x Character vector of schedule text
 #' @return Character vector, markup-free and whitespace-squished
 normalize_schedule_text <- function(x) {
+  # Fast path: no '<' or '&' anywhere means the nine replacement passes below
+  # are all no-ops; only the whitespace squish can still change the string.
+  if (!any(grepl('[<&]', x))) return(str_squish(x))
   x %>%
     str_replace_all('(?i)<br\\s*/?>', ' ') %>%
     str_replace_all('<[^>]*>', '') %>%
