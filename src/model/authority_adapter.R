@@ -1034,6 +1034,20 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
   fentanyl_scope <- c(CTY_CHINA, CTY_CANADA, CTY_MEXICO)
   fentanyl_scope <- fentanyl_scope[!is.na(fentanyl_scope)]
   fent <- .resolve_ieepa_fentanyl(fentanyl_rates)
+  # Scenario cap (ieepa_fentanyl_rate_caps, census_code -> max rate): hold a
+  # country's parsed general fentanyl rate at/below a configured maximum.
+  # mrs_paper_assumptions freezes the MRS Table 1 action set, which carries
+  # Canada at 25% — the Aug-1-2025 increase to 35% (rev_17) is outside that
+  # set. Product carve-out rates sit below any cap and pass through unchanged.
+  fent_caps <- pp$ieepa_fentanyl_rate_caps
+  if (!is.null(fent) && length(fent_caps)) {
+    for (cap_cty in names(fent_caps)) {
+      if (cap_cty %in% names(fent$by_country)) {
+        fent$by_country[[cap_cty]] <- min(fent$by_country[[cap_cty]],
+                                          as.numeric(fent_caps[[cap_cty]]))
+      }
+    }
+  }
   fent_rate <- list()
   if (!is.null(fent)) {
     fent_rate$by_country <- fent$by_country

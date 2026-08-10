@@ -626,6 +626,10 @@ metal_content:
 # if the block or any key is missing, rather than silently defaulting. To disable
 # components explicitly, set values to 0 (rebate_rate, us_assembly_share) or 1
 # (us_auto_content_share → full USMCA share applied).
+#
+# us_auto_content_share also accepts an origin-keyed map
+# {default: x, canada: y, mexico: z} for origin-specific vehicle content
+# (used by the mrs_paper_assumptions scenario overlay: CA 0.55 / MX 0.18).
 auto_rebate:
   rebate_rate: 0.0375          # 3.75% rebate per Proclamation
   us_assembly_share: 0.33      # fraction of vehicle assembled in US

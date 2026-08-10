@@ -44,7 +44,17 @@ library(here)
     # Optional fields documented in policy_params.yaml but intentionally absent
     # from the active baseline configuration.
     usmca_shares = list(month = 0L),
-    section_301_exclusions = list(line_coverage_file = '')
+    section_301_exclusions = list(line_coverage_file = ''),
+    # Per-country caps on the parsed general IEEPA-fentanyl rate (census code ->
+    # max rate), applied when the spec is assembled (authority_adapter.R). Keys
+    # are limited to the fentanyl scope; a typo'd code fails loudly here. Used
+    # by mrs_paper_assumptions to hold Canada at the MRS Table 1 rate of 25%.
+    ieepa_fentanyl_rate_caps = list('5700' = 0, '1220' = 0, '2010' = 0),
+    # us_auto_content_share is a scalar in the baseline; overlays may replace it
+    # with the origin-keyed map form (06_calculate_rates.R step 4b validates the
+    # values). Registering the map shape here lets the overlay validator accept it.
+    auto_rebate = list(us_auto_content_share =
+                         list(default = 0, canada = 0, mexico = 0))
   )
 }
 
