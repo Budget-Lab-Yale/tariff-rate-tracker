@@ -2446,7 +2446,29 @@ calculate_rates_for_revision <- function(
   }
   rebate_rate <- auto_rebate_cfg$rebate_rate
   assembly_share <- auto_rebate_cfg$us_assembly_share
-  us_auto_content_share <- auto_rebate_cfg$us_auto_content_share
+  # us_auto_content_share: a scalar (one value for both USMCA origins — the
+  # baseline), or an origin-keyed map {default, canada, mexico} for
+  # origin-specific finished-vehicle U.S.-content (mrs_paper_assumptions:
+  # CA 0.55 / MX 0.18 per MRS).
+  uacs_cfg <- auto_rebate_cfg$us_auto_content_share
+  if (is.list(uacs_cfg)) {
+    unknown_uacs <- setdiff(names(uacs_cfg), c('default', 'canada', 'mexico'))
+    if (length(unknown_uacs) > 0 || is.null(uacs_cfg$default)) {
+      stop('auto_rebate$us_auto_content_share map requires `default` and allows ',
+           'only `canada`/`mexico` overrides (got keys: ',
+           paste(names(uacs_cfg), collapse = ', '), ').')
+    }
+    uacs_canada <- uacs_cfg$canada %||% uacs_cfg$default
+    uacs_mexico <- uacs_cfg$mexico %||% uacs_cfg$default
+  } else {
+    uacs_canada <- uacs_mexico <- uacs_cfg
+  }
+  for (uacs_value in list(uacs_canada, uacs_mexico)) {
+    if (!is.numeric(uacs_value) || length(uacs_value) != 1 || is.na(uacs_value) ||
+        uacs_value < 0 || uacs_value > 1) {
+      stop('auto_rebate$us_auto_content_share values must be single numbers in [0, 1].')
+    }
+  }
   rebate_deduction <- rebate_rate * assembly_share
 
   if (rebate_deduction > 0 && length(auto_products) > 0) {
@@ -2461,8 +2483,9 @@ calculate_rates_for_revision <- function(
     n_rebated <- sum(rates$hts10 %in% auto_products & rates$rate_232 > 0)
     message('  Auto rebate: -', round(rebate_deduction * 100, 2),
             'pp on ', n_rebated, ' auto product-country pairs',
-            if (us_auto_content_share < 1) paste0(
-              '; USMCA content share: ', us_auto_content_share * 100, '%') else '')
+            if (uacs_canada < 1 || uacs_mexico < 1) paste0(
+              '; USMCA content share: CA ', uacs_canada * 100,
+              '% / MX ', uacs_mexico * 100, '%') else '')
   }
 
   # 4c. Apply country-specific 232 deal rates (floor/surcharge)
@@ -3433,8 +3456,9 @@ calculate_rates_for_revision <- function(
           # convex blend. importer-level U.S.-content above/below the 40% exempt cap
           # is not observed; (1 - usmca_share) proxies the non-U.S. content fraction.
           # Whole VEHICLES (usmca_vehicle_products) use the adjusted USMCA share:
-          # usmca_share * us_auto_content_share (only ~40% of USMCA-eligible vehicle
-          # value is US/USMCA-origin content). PARTS (auto_parts 9903.94.06, MHD
+          # usmca_share * the origin's US-content share (baseline scalar ~40% of
+          # USMCA-eligible vehicle value is US/USMCA-origin content; origin-keyed
+          # under mrs_paper_assumptions). PARTS (auto_parts 9903.94.06, MHD
           # parts per Proc. 10984) are fully exempt when USMCA-qualifying — Commerce
           # had no non-US-content process for parts in the data window — so they are
           # NOT content-scaled; they fall through to the s232_usmca_eligible arm and
@@ -3445,7 +3469,8 @@ calculate_rates_for_revision <- function(
               coalesce(s232_annex == 'annex_1c', FALSE) ~
                 pmax(rate_232 * (1 - usmca_share), ann1c_usmca_target),
               coalesce(s232_usmca_eligible, FALSE) & hts10 %in% usmca_vehicle_products ~
-                rate_232 * (1 - usmca_share * us_auto_content_share),
+                rate_232 * (1 - usmca_share *
+                              if_else(country == CTY_CANADA, uacs_canada, uacs_mexico)),
               coalesce(s232_usmca_eligible, FALSE) ~
                 rate_232 * (1 - usmca_share),
               TRUE ~ rate_232
@@ -3486,17 +3511,17 @@ calculate_rates_for_revision <- function(
             0, rate_s301fl
           ),
           # Binary fallback: 232 for USMCA-eligible CA/MX. Whole VEHICLES
-          # (usmca_vehicle_products): scale by (1 - us_auto_content_share). PARTS
-          # (auto_parts 9903.94.06, MHD parts per Proc. 10984) and other generic
-          # s232_usmca_eligible rows are fully exempt (zero) — parts are not
-          # content-scaled. Annex I-C steel gets the 15% minimum.
+          # (usmca_vehicle_products): scale by (1 - the origin's US-content
+          # share). PARTS (auto_parts 9903.94.06, MHD parts per Proc. 10984) and
+          # other generic s232_usmca_eligible rows are fully exempt (zero) —
+          # parts are not content-scaled. Annex I-C steel gets the 15% minimum.
           rate_232 = if_else(
             country %in% c(CTY_CANADA, CTY_MEXICO) & usmca_eligible,
             case_when(
               coalesce(s232_annex == 'annex_1c', FALSE) ~
                 pmin(rate_232, ann1c_usmca_target),
               coalesce(s232_usmca_eligible, FALSE) & hts10 %in% usmca_vehicle_products ~
-                rate_232 * (1 - us_auto_content_share),
+                rate_232 * (1 - if_else(country == CTY_CANADA, uacs_canada, uacs_mexico)),
               coalesce(s232_usmca_eligible, FALSE) ~ 0,
               TRUE ~ rate_232
             ),

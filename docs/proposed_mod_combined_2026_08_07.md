@@ -90,6 +90,37 @@ Never pass `release` to `exportList` and never trust that it was honored.
 
 ### 0.2 M0 — Unexplained collapse of Chapter 99 cross-reference endnotes at revision 13
 
+> **RESOLVED 2026-08-07 — no longer gates Phase 2.** All four required steps are
+> done, and both open readings are settled:
+>
+> 1. **Durable scope source** — `apply_section301()` reads
+>    `resources/s301_exclusion_lines.csv` (`06_calculate_rates.R:1299-1315`).
+> 2. **Parity proved** — across the rev_12 → rev_13 ingest every China §301
+>    column is identical over 20,422 rows (aggregate `rate_301` 3645.558750 →
+>    3645.558750, delta 0). Non-vacuous by positive control: the same comparison
+>    sees `rate_s301fl` go 0 → 1,217,435 nonzero rows and `rate_s301br` 0 →
+>    15,547. Reproduce with `sbatch scripts/submit_m0_s301_parity.sh`
+>    (Slurm 21669551 / 21669780).
+> 3. **The two readings distinguished — it is a REAL upstream removal, not an
+>    export-serializer defect.** Per-release Chapter 1/27/42/63/71/97 PDFs, which
+>    render the schedule as published and are independent of the JSON
+>    serializer, agree with the JSON code-for-code: rev_12 carries
+>    9903.88.02/.03/.15/.69 and 9903.91.xx, rev_15 carries only 9903.90.08. The
+>    decisive point is that the deletion is *surgical*: 9903.88 falls
+>    10,319 → 5 and 9903.91 falls 394 → 1, while 9903.90 holds at exactly 680
+>    and 9903.41 at 79 — all the same `columns:['general'] endnote` class, which
+>    a serializer that stopped emitting a class could not preserve selectively.
+>    **Revisions 13-15 are therefore complete snapshots**, and the second
+>    reading below (incomplete snapshots, ~9,400 lines silently dropped) is
+>    ruled out.
+> 4. **Assertion added** — `tools/footnote_audit.R` + `config/footnote_waivers.csv`
+>    + `tests/test_footnote_population.R` fail any unwaived per-class move
+>    beyond 10%.
+>
+> Caveat on counts below: the JSON figures count ref-carrying *lines* while the
+> PDF check counts *distinct codes*. Chapter 97 keeps 19 ref-lines in both
+> revisions because all 19 point at 9903.90.08, which was never removed.
+
 **This was not in either source proposal. It is a blocking question for the
 revision 13 merge, and on the evidence available it is the largest unresolved
 item in this document.**

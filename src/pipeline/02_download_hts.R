@@ -21,10 +21,20 @@
 #   obtain its JSON manually from hts.usitc.gov and place it (raw or .gz) in
 #   data/hts_archives/.
 #
+# Per-release PDFs (change records, chapter text) ARE reachable for archived
+# revisions, via the reststop file endpoint — see download_release_file(). That
+# is the only source for a revision whose JSON is gone (2026_rev_14).
+#
 # Usage:
 #   Rscript src/pipeline/02_download_hts.R                # Download missing for 2025
 #   Rscript src/pipeline/02_download_hts.R --year 2026    # Download missing for 2026
 #   Rscript src/pipeline/02_download_hts.R --dry-run      # Report only, no downloads
+#
+#   # Per-release files (comma-separated; quote names containing spaces):
+#   Rscript src/pipeline/02_download_hts.R \
+#     --release-file 'Change Record' --revisions 2026_rev_13,2026_rev_15
+#   Rscript src/pipeline/02_download_hts.R \
+#     --release-file 'Chapter 99,Chapter 1' --revisions 2026_rev_14 --force
 #
 # =============================================================================
 
@@ -146,6 +156,143 @@ gzip_file <- function(src, remove = TRUE) {
   close(con_out)
   if (remove && file.exists(dst)) file.remove(src)
   dst
+}
+
+
+# =============================================================================
+# Per-release file downloads (reststop file endpoint)
+# =============================================================================
+#
+# The JSON routes above cannot reach archived revisions: the static host is
+# Akamai-blocked and exportList only ever serves the current release. The
+# reststop FILE endpoint does serve archived releases, so it is the only way to
+# attribute a change record or chapter text to a specific revision after the
+# fact — and the only source at all for 2026_rev_14, whose JSON is gone.
+# See build_reststop_file_url() (src/model/revisions.R).
+
+RELEASE_FILE_DIR <- 'data/hts_change_record'
+
+# Change records run ~90-270 KB; a chapter PDF runs into the megabytes. A 50 KB
+# floor catches an error page served with HTTP 200 without rejecting a genuinely
+# short change record.
+RELEASE_FILE_MIN_MB <- 0.05
+
+#' Filename-safe slug for a USITC file name ('Change Record' -> 'change_record')
+release_file_slug <- function(filename) {
+  gsub('^_|_$', '', gsub('[^a-z0-9]+', '_', tolower(filename)))
+}
+
+#' Local paths a release file may already occupy
+#'
+#' Two naming conventions exist in data/hts_change_record: the established
+#' <release>_<slug>.pdf (44 files) and an ad-hoc <filename>_<release>.pdf left
+#' by the 2026-08-07 acquisition run. New downloads write the established form;
+#' both are accepted as cache hits so an already-acquired file is never
+#' re-fetched under a second name.
+#'
+#' @return Character vector; the first element is the canonical write path
+release_file_paths <- function(release_name, filename, dest_dir = RELEASE_FILE_DIR) {
+  c(file.path(dest_dir, paste0(release_name, '_', release_file_slug(filename), '.pdf')),
+    file.path(dest_dir, paste0(filename, '_', release_name, '.pdf')))
+}
+
+#' Download one per-release file (PDF) from the reststop file endpoint
+#'
+#' @param revision Revision id (e.g. '2026_rev_15')
+#' @param filename USITC file name (e.g. 'Change Record', 'Chapter 99')
+#' @param dest_dir Destination directory
+#' @param force Re-download even when a local copy exists
+#' @param min_size_mb Minimum plausible size; below this the response is
+#'   treated as an error page and discarded
+#' @return Path to the local file, or NULL on failure
+download_release_file <- function(revision, filename,
+                                  dest_dir = RELEASE_FILE_DIR,
+                                  force = FALSE,
+                                  min_size_mb = RELEASE_FILE_MIN_MB) {
+  release_name <- build_release_name(revision)
+  if (is.na(release_name)) {
+    message('  SKIP ', revision, ': no USITC release mapping (pre-2025)')
+    return(NULL)
+  }
+
+  paths <- release_file_paths(release_name, filename, dest_dir)
+  existing <- paths[file.exists(paths)]
+  if (length(existing) > 0 && !force) {
+    message('  Cached: ', existing[1])
+    return(existing[1])
+  }
+
+  dest_path <- paths[1]
+  url <- build_reststop_file_url(release_name, filename)
+  dir.create(dest_dir, recursive = TRUE, showWarnings = FALSE)
+
+  old_ua <- getOption('HTTPUserAgent')
+  options(HTTPUserAgent = EXPORT_USER_AGENT)
+  on.exit(options(HTTPUserAgent = old_ua), add = TRUE)
+
+  message('  Downloading ', release_name, ' / ', filename)
+  message('    URL: ', url)
+  tryCatch({
+    download.file(url, dest_path, mode = 'wb', quiet = TRUE)
+
+    size_mb <- file.info(dest_path)$size / (1024 * 1024)
+    if (is.na(size_mb) || size_mb < min_size_mb) {
+      warning('Response too small (', round(size_mb, 3), ' MB < ', min_size_mb,
+              ' MB) — probably an error page: ', release_name, ' / ', filename)
+      unlink(dest_path)
+      return(NULL)
+    }
+
+    # The endpoint returns HTTP 200 with an HTML error body for a bad release
+    # or filename, so check the PDF magic rather than trusting the status.
+    con <- file(dest_path, 'rb')
+    magic <- rawToChar(readBin(con, 'raw', n = 4))
+    close(con)
+    if (!identical(magic, '%PDF')) {
+      warning('Response is not a PDF (starts "', magic, '"): ',
+              release_name, ' / ', filename)
+      unlink(dest_path)
+      return(NULL)
+    }
+
+    message('    Saved: ', dest_path, ' (', round(size_mb, 1), ' MB)')
+    dest_path
+  }, error = function(e) {
+    message('    FAILED: ', conditionMessage(e))
+    if (file.exists(dest_path)) unlink(dest_path)
+    NULL
+  })
+}
+
+#' Download per-release files for several revisions
+#'
+#' @param revisions Character vector of revision ids
+#' @param filenames Character vector of USITC file names
+#' @return Tibble with revision, filename, status, path
+download_release_files <- function(revisions, filenames,
+                                   dest_dir = RELEASE_FILE_DIR,
+                                   force = FALSE) {
+  grid <- expand_grid(revision = revisions, filename = filenames)
+  results <- vector('list', nrow(grid))
+
+  for (i in seq_len(nrow(grid))) {
+    message('\n[', i, '/', nrow(grid), '] ', grid$revision[i], ' — ', grid$filename[i])
+    path <- download_release_file(grid$revision[i], grid$filename[i],
+                                  dest_dir = dest_dir, force = force)
+    results[[i]] <- tibble(
+      revision = grid$revision[i],
+      filename = grid$filename[i],
+      status = if (is.null(path)) 'failed' else 'ok',
+      path = if (is.null(path)) NA_character_ else path
+    )
+    # Rate-limit, matching the JSON loop.
+    if (i < nrow(grid)) Sys.sleep(2)
+  }
+
+  out <- bind_rows(results)
+  message('\n=== Release-file Summary ===')
+  message('OK: ', sum(out$status == 'ok'), '  Failed: ', sum(out$status == 'failed'))
+  out
 }
 
 
@@ -464,14 +611,36 @@ if (sys.nframe() == 0) {
 
   year <- 2025
   dry_run <- FALSE
+  release_files <- character()
+  release_revisions <- character()
+  force <- FALSE
+
+  split_arg <- function(x) trimws(strsplit(x, ',', fixed = TRUE)[[1]])
 
   for (i in seq_along(args)) {
     if (args[i] == '--year' && i < length(args)) {
       year <- as.integer(args[i + 1])
     } else if (args[i] == '--dry-run') {
       dry_run <- TRUE
+    } else if (args[i] == '--force') {
+      force <- TRUE
+    } else if (args[i] == '--release-file' && i < length(args)) {
+      release_files <- split_arg(args[i + 1])
+    } else if (args[i] == '--revisions' && i < length(args)) {
+      release_revisions <- split_arg(args[i + 1])
     }
   }
 
-  results <- download_missing_revisions(year = year, dry_run = dry_run)
+  if (length(release_files) > 0) {
+    if (length(release_revisions) == 0) {
+      stop('--release-file requires --revisions (e.g. --revisions 2026_rev_13,2026_rev_15)')
+    }
+    results <- download_release_files(release_revisions, release_files, force = force)
+  } else {
+    if (length(release_revisions) > 0) {
+      stop('--revisions only applies to --release-file; JSON downloads are driven ',
+           'by config/revision_dates.csv')
+    }
+    results <- download_missing_revisions(year = year, dry_run = dry_run)
+  }
 }

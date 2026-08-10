@@ -1,0 +1,34 @@
+# rev_13 ingest candidate: does the new revision assemble, and is the series
+# still rate-neutral where it should be?
+#
+# rev_13 codifies the Section 301 forced-labor action (U.S. note 52) that the
+# tracker ALREADY models as a baseline authority from the Federal Register
+# notice, with the duty turned on at 2026-07-24 via config + boundary mint. The
+# review (docs/internal/hts_2026_rev13_review.md) reconciled all 64 country
+# charging headings against the config tiers with zero mismatches, so the
+# expectation for this build is:
+#
+#   * ONE new snapshot partition, valid_from = 2026-07-28 (rev_13's own
+#     interval), extending the series tip from 07-21 to 07-28.
+#   * Every pre-07-28 partition IDENTICAL to the previous vintage — rev_13
+#     changes no rate that applies before its own effective date.
+#   * No new boundary mints: the 07-24 turn-on already exists.
+#
+# A rate difference on any pre-07-28 partition would mean rev_13 changed
+# something the review missed, and is worth stopping for.
+#
+# Publishes a vintage but does NOT repoint `latest` — bless deliberately with
+#   Rscript scripts/publish_vintage.R --latest-only <vintage>
+# after comparing against the current latest:
+#   Rscript scripts/run_parity_check.R --reference <.../latest> \
+#     --candidate <.../.validation/rev13-ingest/<vintage>> \
+#     --artifacts snapshot,daily_overall,daily_by_authority,daily_by_country,daily_by_category,daily_by_hs
+model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker/.validation/rev13-ingest
+policy_params_path: config/policy_params.yaml
+scenarios:
+  - new_301
+use_hts_dates: false
+weight_mode: required
+update_latest: false
+allow_partial: false
+verify: true

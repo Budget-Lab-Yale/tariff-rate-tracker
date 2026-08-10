@@ -48,63 +48,96 @@ open work. Registry of statutory deviations (the B/U/P/S/F items):
    rate-number changes, ready to implement.
 6. **Build/alternatives unification remaining phases** (sections below).
 
-## MRS replication: two pinned tracker series
+## HTML markup in `general` defeats the base-rate parser — LIVE ERROR (2026-08-10)
 
-The Minton–Ray–Somale (MRS) replication should consume two explicitly named,
-versioned rate series. They answer different questions and must not be blended:
-the first asks what the results look like using the tracker's current best
-measurement, while the second asks whether the paper can be reproduced under
-the paper's information set and modeling conventions. Both should use fixed
-2024 Census import weights and month-end rate snapshots, and both should retain
-the same HS10 × origin × date grain and authority-level columns.
+**The published series carries `base_rate = 0` on 21 HTS10s that have a real
+MFN rate.** USITC's `general` field sometimes trails stray markup; the base-rate
+parser does not strip it, so the value fails to match as ad valorem and falls
+back to `base_rate_type = 'other'`, `base_rate = 0`:
 
-- [ ] **Series A — updated tracker (`mrs_updated_tracker`).** Pin a released
-  tracker vintage and use its baseline policy engine and corrections, including
-  the current `usmca_shares.mode: since` window (July 2025 through the latest
-  available month), BEA 2017 detail I-O metal-content shares, and the baseline
-  `auto_rebate.us_auto_content_share: 0.40`. Restrict the exported observations
-  to the replication sample dates, but do not roll back later improvements to
-  the measurement of policies that were in force during that sample. This is
-  the preferred updated-data series, not a claim to reproduce the paper's
-  original tariff dose exactly.
+```
+2.5% <u></u>   ->  other,      base_rate 0.000     rev_12, rev_15 (current)
+2.5%           ->  ad_valorem, base_rate 0.025     rev_13
+```
 
-- [ ] **Series B — paper-matched (`mrs_paper_assumptions`).** Add a named
-  scenario that freezes the MRS action universe and conventions: (i) use July
-  2025 DataWeb S/S+ claim shares at HS10 × origin (`fixed_month`, year 2025,
-  month 7); (ii) replace the scalar auto-content assumption with
-  origin-specific finished-vehicle shares of 0.55 for Canada and 0.18 for
-  Mexico; (iii) scale Canada/Mexico fentanyl duties and auto-parts duties by the
-  non-USMCA-claim share, while scaling finished-vehicle §232 relief by the
-  product of the claim share and the origin-specific U.S.-content share; (iv)
-  use the MRS Table 1 policy-action set through November 14, 2025 and exclude
-  actions outside that frozen set; and (v) retain the paper's BEA 2017
-  input-output metal-content treatment for §232 derivative products. Document
-  every remaining mismatch where the paper does not provide enough detail to
-  implement an exact rule.
+Scope on rev_15 (the current revision): of 11,414 ch1-97 lines carrying a
+general rate, 19 contain markup and **12 are a bare `N%` once tags are
+stripped** — i.e. mis-parsed. Those 12 source entries (several are HTS8 parents)
+expand to **21 HTS10 x 240 countries = 5,040 rows per partition**, at true rates
+of 2.5%, 3.7%, 5%, 6% and 10%. Tags seen: `<u></u>` x12, `<sup>...</sup>` x6,
+and one malformed `</il>`. Affected lines are motor-vehicle parts (8708.\*),
+bicycles (8712.00.50) and bicycle parts (8714.9\*).
 
-- [ ] **Keep the China shipping-lag convention auditable.** MRS assigns no
-  theoretical effect to the 115 percentage-point China increase of April 9,
-  2025 that was reversed on May 14 because affected goods would not arrive
-  before the reversal. Preserve the raw statutory rate in the tracker and
-  expose the zeroed MRS regression dose as a separately named derived column or
-  companion output. If the transformation remains in `mrs-replication`, record
-  that ownership in both manifests; never overwrite the statutory series.
+**Rate impact.** Downstream net-of-MFN arms subtract the zeroed base, so they
+overstate the additional duty by the MFN amount: `rate_232` charges 15% where
+12.5% is correct (15% - 2.5%), `rate_s301fl` charges 10% where 4% is correct
+(10% - 6%). For `target_total` programs the *total* roughly survives — the
+overstated additional offsets the understated base — which is exactly why this
+went unnoticed. For ADDITIVE programs there is no such cancellation, and
+`statutory_base_rate` is wrong on these lines regardless of program.
 
-- [ ] **Make the two-series contract reproducible.** Commit scenario metadata,
-  the exact tracker commit/release, input checksums, USMCA source months,
-  weighting vintage, action cutoff, and all parameter overrides. Export a
-  compact comparison table by date × origin × authority, with focused checks
-  for Canada/Mexico autos and parts, the fentanyl programs, the April–May China
-  interval, and every MRS Table 1 event. The replication repo must select one
-  series by explicit ID and fail if the ID or manifest is missing.
+**How it surfaced.** Partition parity of a full candidate build against vintage
+`2026-07-24-09` (`scripts/verify_partition_parity.R`, Slurm 21799738) flagged
+`base_rate` / `base_rate_type` moving on exactly one partition, 2026-07-31.
+That is the only partition owned by rev_13 — the one revision in this window
+whose text happens to be clean. Its neighbours (08-19, 09-29, 11-10) are owned
+by rev_15, which has the tags back, so they matched the reference and looked
+fine. Source text confirmed per-archive (Slurm 21845798): the rate VALUE never
+changes across rev_12/13/15, only the markup.
 
-- [ ] **Acceptance criteria.** Confirm that `mrs_updated_tracker` reproduces
-  the pinned baseline over the replication window; that the paper-matched
-  scenario differs only through the documented frozen action set and parameter
-  overrides; that July claim shares do not drift with the build date; and that
-  aggregate tariff-rate changes can be reconciled from the HS10-level diff.
-  Publish the comparison before treating discrepancies in the DID estimates as
-  economic rather than measurement-driven.
+- [ ] **Correct the documented assumption first.** This section and the rev_14/
+  rev_15 section below both assert that tags "land in `description`/`units`
+  only, so rate parsers are unaffected". That is FALSE — they land in `general`
+  and the base-rate parser is affected. The claim came from a cosmetic-diff
+  analysis that only inspected description/units.
+- [x] **Strip markup before parsing**, not just when diffing. DONE:
+  `normalize_schedule_text()` moved from `tools/revision_changelog.R` into
+  `src/core/helpers.R` (one definition; the changelog now sources it) and
+  applied in `parse_rate()`, `is_simple_rate()` and `classify_rate_type()`.
+  Archives stay raw. The tag pattern is `<[^>]*>` rather than a tag-name
+  allowlist, which is what handles the malformed `</il>`.
+- [ ] **This is rate-moving: own vintage + parity review.** 5,040 rows per
+  partition change, across every partition whose owning revision carries the
+  tags. Do NOT fold it into an unrelated publish. Re-run
+  `scripts/verify_partition_parity.R` afterwards and expect `base_rate`,
+  `base_rate_type`, `rate_232`, `rate_s301fl` and the totals to move on those
+  lines — and nothing else.
+- [x] **Add a parser regression test** over the real archives. DONE:
+  `tests/test_rate_parse_markup.R` (20 assertions, 47 archives, ~35s). Asserts
+  no ch1-97 line whose `general` normalises to a bare `N%` classifies as
+  non-`ad_valorem`, plus that markup does not create FALSE ad valorem (a
+  marked-up `$1.50/doz` stays `specific_or_compound`). Verified discriminating:
+  against the pre-fix classifier the archive scan finds 12 offenders in rev_12
+  and 12 in rev_15, 0 in rev_13. It also fails if fewer than 2 archives are
+  scanned, so it cannot pass vacuously.
+- [x] **Re-check the `<sup>` cases.** DONE (verification pass 2026-08-10): all
+  7 `<sup>`/`<il>` lines in rev_15 are genuinely specific/compound —
+  `$1.13/m<sup>3</sup>`, `14.5¢/m<sup>2 </sup>+ 0.4%`, `6.5¢/gross<il></il>` —
+  and classify as `specific_or_compound` both before and after the fix (the
+  `¢`/`$` detection is unanchored, so markup never defeated it). Not a second
+  parse failure. Also confirmed the strip is safe on this corpus: every `<` in
+  any `general` field across all 47 archives is one of exactly 6 tag forms
+  (`<u>` `</u>` `<sup>` `</sup>` `<il>` `</il>`, matched pairs), and ZERO bare
+  `<` remain after stripping — no real less-than sign exists to be eaten.
+- [ ] **Latent: two anchored `^N%$` matchers still read UN-normalised text.**
+  Both are empirically safe today — ch99 `general`/`other` fields carry ZERO
+  markup across all 47 archives (verified 2026-08-10) — but they are the same
+  shape that broke on ch1-97, and USITC has demonstrated it will inject tags
+  into rate fields:
+  - `parse_ch99_rate()` (`rate_schema.R:262`), bare-`N%` arm only (the
+    `+ N%` / `plus N%` / `duty of N%` arms are unanchored and safe);
+  - the §232 auto floor-vs-surcharge classifier
+    (`05_parse_policy_params.R:926,991`), `^N%$` on `general_raw`.
+  Fix is one line each (normalise at entry) but 05_parse_policy_params.R has
+  uncommitted WIP in it — apply when that lands, and extend
+  `tests/test_rate_parse_markup.R` with a ch99-side invariant at the same time.
+
+## MRS replication
+
+Independent research workstream (JI); tracked on the researcher's own
+branch, not in this backlog. The only tracker-side footprint is generic,
+baseline-neutral engine machinery (origin-keyed us_auto_content_share map,
+ieepa_fentanyl_rate_caps) — dormant unless a scenario overlay configures it.
 
 ## Eta statutory-measurement queue (2026-07-01) — open items
 
@@ -345,6 +378,38 @@ method doc `docs/s301_exclusion_calibration.md`.
   land; promote the per-HTS10 line-coverage extension (built dormant,
   scenario `s301_line_coverage`) after full-build parity review.
 
+## Section 301 forced labor — post-codification follow-ups (2026-07-31)
+
+HTS 2026 rev_13 (published 2026-07-28) codified the final action as
+headings 9903.05.20-.84 / U.S. note 52. The action was already modeled as a
+BASELINE authority from the Federal Register notice, and the ingest review
+reconciled all 64 country charging headings against the config tiers with
+ZERO mismatches — so both items below are refinements, not corrections.
+Review: `docs/internal/hts_2026_rev13_review.md`.
+
+- [ ] **Re-source the forced-labor rates from the HTS** (the pattern rev_12
+  applied to Brazil §301: "the +25% now reads off HTS 9903.05.01 via
+  extract_section301_brazil_rates(); config rate demoted to fallback"). The
+  tiers currently come from `section_301_forced_labor.{rate_10,rate_12_5,
+  tier_*}` in config; rev_13 now carries them per country in the schedule, so
+  the schedule can become the rate authority with config as fallback. Should
+  be numerically neutral given the zero-mismatch reconciliation — parity-gate
+  it. NOTE the net-of-MFN cap needs care: the HTS implements it by BIFURCATING
+  headings on the line's own column-1 level (9903.05.38 = EU at-or-above the
+  threshold, no additional duty; 9903.05.39 = EU below it, flat 10% replacing
+  column 1) rather than by arithmetic, so a naive per-heading rate read would
+  see "0%" and "10%" where the model means max(10% - MFN, 0).
+- [ ] **Cross-check the 21 `9903.06.01-.21` per-country product carve-outs**
+  against `resources/s301fl_final_country_exemptions.csv` (4,921 rows, built
+  from the FR annex). The HTS references these lists by note-52 subdivision
+  ((j)(4) Malaysia, (j)(5) Cambodia, Guatemala, El Salvador, Argentina,
+  Bangladesh, Ecuador, ...), so USITC's enumeration is an INDEPENDENT check on
+  ours — a disagreement means one of the two mis-read the annex. Also confirm
+  the exemption headings .85-.99 map onto the modeled carve-outs (in-transit,
+  note 52(b)/(c), civil aircraft, pharma use, full §232 mask, donations,
+  informational, CA 52(g) / MX 52(h) / CAFTA-DR textiles 52(i) / UK / EU / CH
+  / MY).
+
 ## HTS 2026 rev_14 / rev_15 ingest + §232 pharma (2026-08-07)
 
 rev_14 (published 2026-07-31) codified the §232 pharmaceutical action
@@ -378,13 +443,19 @@ M6).**
   at `effective_date: 2026-07-31` (the operative legal date; owns the pharma
   headings), rev_15 at `2026-08-03` with `policy_effective_date` empty.
   Expect rate-neutrality of rev_15 vs rev_14 in the series.
-- [ ] **Teach `tools/revision_changelog.R` to strip HTML markup.** USITC ran a
-  schedule-wide typographic pass (italic scientific names, `<sup>` units,
-  `<br />`, one `<em style=...>`): a raw field diff reports 3,199 modified
-  entries, ALL cosmetic once tags/whitespace are normalised. Without this the
-  next changelog run is unreadable. Tags land in `description`/`units` only,
-  so rate parsers are unaffected — but re-check anything matching on
-  description text (the §232 annex parser is the candidate).
+- [x] **Teach `tools/revision_changelog.R` to strip HTML markup.** DONE
+  (`633ac46`): `normalize_schedule_text()` in the comparison layer; markup-only
+  edits are counted and excluded (63 at rev_13, 73 at rev_15) rather than
+  listed. USITC ran a schedule-wide typographic pass (italic scientific names,
+  `<sup>` units, `<br />`, one `<em style=...>`): a raw field diff reports
+  3,199 modified entries, ALL cosmetic once tags/whitespace are normalised.
+  ~~Tags land in `description`/`units` only, so rate parsers are unaffected~~
+  — **THIS WAS WRONG, see the LIVE ERROR section at the top of this file.**
+  Tags also land in `general`, and the base-rate parser IS affected: `2.5%
+  <u></u>` classifies as `other` with `base_rate = 0`. The original claim came
+  from a cosmetic-diff analysis that only inspected description/units. Still
+  open: re-check anything matching on description text (the §232 annex parser
+  is the candidate).
 - [ ] **Optional — make the HTS the pharma rate authority.** Add a
   `classify_authority()` rule for `9903.04.6x` → `section_232` (they currently
   fall through to `other`; inert today since no ch.1-97 line

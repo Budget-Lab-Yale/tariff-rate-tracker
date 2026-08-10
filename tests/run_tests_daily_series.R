@@ -509,10 +509,13 @@ run_test('all policy_params heading names have matching gates', {
   # compute_heading_gates (authority_adapter.R). pharmaceuticals is a
   # register-then-activate dormant heading program (Plank 4a) — it has a gate
   # and must be listed here so this mirror stays in sync with the spec adapter.
+  # polysilicon is the same shape: announced before its headings appeared in any
+  # HTS archive, so it registers on every snapshot and activates from the
+  # config's effective_date (2026-12-04).
   heading_gates <- c('autos_passenger', 'autos_light_trucks', 'auto_parts',
                      'copper', 'softwood', 'wood_furniture', 'kitchen_cabinets',
                      'mhd_vehicles', 'mhd_parts', 'buses', 'semiconductors',
-                     'pharmaceuticals')
+                     'pharmaceuticals', 'polysilicon')
 
   config_names <- names(s232_headings)
   missing_gates <- config_names[!config_names %in% heading_gates]
