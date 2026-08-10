@@ -90,23 +90,26 @@ changes across rev_12/13/15, only the markup.
   only, so rate parsers are unaffected". That is FALSE — they land in `general`
   and the base-rate parser is affected. The claim came from a cosmetic-diff
   analysis that only inspected description/units.
-- [ ] **Strip markup before parsing**, not just when diffing. `tools/revision_changelog.R`
-  already has `normalize_schedule_text()` (tag removal + entity decode +
-  whitespace squish) applied in its comparison layer; hoist that into the parse
-  path (`parse_rate()` / the base-rate classifier in `src/core/helpers.R`) so
-  the archives stay raw but every consumer sees normalised text. Guard against
-  the malformed `</il>` case — a `<[^>]*>` pass handles it, a tag-name
-  allowlist would not.
+- [x] **Strip markup before parsing**, not just when diffing. DONE:
+  `normalize_schedule_text()` moved from `tools/revision_changelog.R` into
+  `src/core/helpers.R` (one definition; the changelog now sources it) and
+  applied in `parse_rate()`, `is_simple_rate()` and `classify_rate_type()`.
+  Archives stay raw. The tag pattern is `<[^>]*>` rather than a tag-name
+  allowlist, which is what handles the malformed `</il>`.
 - [ ] **This is rate-moving: own vintage + parity review.** 5,040 rows per
   partition change, across every partition whose owning revision carries the
   tags. Do NOT fold it into an unrelated publish. Re-run
   `scripts/verify_partition_parity.R` afterwards and expect `base_rate`,
   `base_rate_type`, `rate_232`, `rate_s301fl` and the totals to move on those
   lines — and nothing else.
-- [ ] **Add a parser regression test** over the real archives: assert no ch1-97
-  line whose `general` normalises to a bare `N%` classifies as
-  `base_rate_type == 'other'`. That is the invariant that was silently false;
-  a fixture-only test would not have caught it, since the fixtures are clean.
+- [x] **Add a parser regression test** over the real archives. DONE:
+  `tests/test_rate_parse_markup.R` (20 assertions, 47 archives, ~35s). Asserts
+  no ch1-97 line whose `general` normalises to a bare `N%` classifies as
+  non-`ad_valorem`, plus that markup does not create FALSE ad valorem (a
+  marked-up `$1.50/doz` stays `specific_or_compound`). Verified discriminating:
+  against the pre-fix classifier the archive scan finds 12 offenders in rev_12
+  and 12 in rev_15, 0 in rev_13. It also fails if fewer than 2 archives are
+  scanned, so it cannot pass vacuously.
 - [ ] **Re-check the `<sup>` cases.** 6 markup lines are NOT bare `N%` after
   stripping (units/exponents in the rate text). They may be legitimately
   non-ad-valorem, or a second, different parse failure. Not yet examined.

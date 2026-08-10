@@ -7,35 +7,12 @@ library(tidyverse)
 library(jsonlite)
 library(here)
 
-
-#' Strip HTML markup and normalize whitespace for text comparison
-#'
-#' USITC ran a schedule-wide typographic pass across 2026 revisions 13-15:
-#' italicised scientific names, `<sup>` unit exponents, `<br />`, one
-#' `<em style=...>`. A raw field diff reports ~3,199 modified entries that are
-#' entirely cosmetic, which buries the handful of substantive changes.
-#'
-#' Applied ONLY in the comparison layer — the archives keep the raw schedule
-#' text, and no rate parser sees this. `<br>` becomes a space (it separates
-#' words); every other tag is removed outright so `kg<sup>2</sup>` normalizes to
-#' the same string as a pre-pass `kg2`.
-#'
-#' @param x Character vector of schedule text
-#' @return Character vector, markup-free and whitespace-squished
-normalize_schedule_text <- function(x) {
-  x %>%
-    str_replace_all('(?i)<br\\s*/?>', ' ') %>%
-    str_replace_all('<[^>]*>', '') %>%
-    # Entities are decoded after tag removal so an encoded &lt;...&gt; cannot
-    # turn into something the tag pattern would then strip.
-    str_replace_all('&nbsp;', ' ') %>%
-    str_replace_all('&amp;', '&') %>%
-    str_replace_all('&lt;', '<') %>%
-    str_replace_all('&gt;', '>') %>%
-    str_replace_all('&quot;', '"') %>%
-    str_replace_all('&#39;', "'") %>%
-    str_squish()
-}
+# normalize_schedule_text() lives in helpers.R: it started here as a
+# comparison-layer nicety, but the same markup also defeats the base-rate
+# parser, so the parse path needs it too and there must be exactly one
+# definition. Sourced at top level (not just inside run_changelog) so callers
+# that use compare_ch99_full() directly still resolve it.
+source(here('src', 'core', 'helpers.R'))
 
 
 #' Enhanced comparison: detect rate, description, and general text changes

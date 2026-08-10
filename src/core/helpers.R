@@ -53,6 +53,39 @@ write_parquet_if_arrow <- function(df, path) {
 # Rate Parsing Functions
 # =============================================================================
 
+#' Strip HTML markup and normalize whitespace in schedule text
+#'
+#' USITC's exported `general` / `description` / `units` fields intermittently
+#' carry stray markup, and it is NOT confined to prose: rate strings appear as
+#' `2.5% <u></u>` in 2026 revisions 12 and 15, and as a clean `2.5%` in 13. The
+#' rate VALUE never changes — only the markup — but every rate matcher below
+#' anchors on `^[0-9.]+%$`, so an unstripped tag silently demoted 21 HTS10s
+#' (motor-vehicle parts, bicycles, bicycle parts) to base_rate_type 'other'
+#' with base_rate 0, and the net-of-MFN arms then subtracted that zero. See the
+#' LIVE ERROR section in todo.md.
+#'
+#' Applied in the PARSE path, so the archives stay raw and every consumer sees
+#' normalised text. `<br>` becomes a space because it separates words; all
+#' other tags are removed outright so `kg<sup>2</sup>` reads as `kg2`. Entities
+#' decode after tag removal so an encoded `&lt;b&gt;` is not then re-stripped.
+#' The tag pattern is deliberately `<[^>]*>` rather than a tag-name allowlist —
+#' the real data contains a malformed `</il>`.
+#'
+#' @param x Character vector of schedule text
+#' @return Character vector, markup-free and whitespace-squished
+normalize_schedule_text <- function(x) {
+  x %>%
+    str_replace_all('(?i)<br\\s*/?>', ' ') %>%
+    str_replace_all('<[^>]*>', '') %>%
+    str_replace_all('&nbsp;', ' ') %>%
+    str_replace_all('&amp;', '&') %>%
+    str_replace_all('&lt;', '<') %>%
+    str_replace_all('&gt;', '>') %>%
+    str_replace_all('&quot;', '"') %>%
+    str_replace_all('&#39;', "'") %>%
+    str_squish()
+}
+
 #' Parse a rate string from HTS into numeric value
 #'
 #' Handles formats:
@@ -62,6 +95,8 @@ write_parquet_if_arrow <- function(df, path) {
 #'   - Compound rates (e.g., "2.4¢/kg + 5%") -> NA with flag
 #'   - Specific rates (e.g., "$1.50/doz") -> NA with flag
 #'
+#' Markup is stripped first — see normalize_schedule_text().
+#'
 #' @param rate_string Character string containing rate
 #' @return Numeric rate or NA
 parse_rate <- function(rate_string) {
@@ -69,8 +104,10 @@ parse_rate <- function(rate_string) {
     return(NA_real_)
   }
 
-  # Trim whitespace
-  rate_string <- trimws(rate_string)
+  # Strip markup, then trim. normalize_schedule_text() squishes whitespace, so
+  # this subsumes the former trimws().
+  rate_string <- normalize_schedule_text(rate_string)
+  if (rate_string == '') return(NA_real_)
 
   # Handle "Free"
   if (tolower(rate_string) == 'free') {
@@ -102,7 +139,7 @@ is_simple_rate <- function(rate_string) {
   if (is.null(rate_string) || is.na(rate_string) || rate_string == '') {
     return(FALSE)
   }
-  rate_string <- trimws(rate_string)
+  rate_string <- normalize_schedule_text(rate_string)
   tolower(rate_string) == 'free' || grepl('^[0-9.]+%$', rate_string)
 }
 
@@ -130,7 +167,8 @@ is_simple_rate <- function(rate_string) {
 #' @param rate_string Character vector of rate strings
 #' @return Character vector of buckets (NA for empty/NA input)
 classify_rate_type <- function(rate_string) {
-  s <- trimws(as.character(rate_string))
+  # Markup first — an unstripped tag drops a plain "2.5%" into 'other'.
+  s <- normalize_schedule_text(as.character(rate_string))
   empty <- is.na(rate_string) | is.na(s) | s == ''
   # Default non-empty strings to 'other'; refine below.
   out <- ifelse(empty, NA_character_, 'other')
