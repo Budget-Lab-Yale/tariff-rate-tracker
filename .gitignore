@@ -100,3 +100,6 @@ data/us_notes/*.csv
 
 # Parity golden reference (large build artifacts; capture locally)
 tests/golden/
+
+# Presentations (local working directory, not part of the codebase)
+presentations/

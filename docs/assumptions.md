@@ -463,7 +463,7 @@ cache fails loud via `read_products_cache()` (regenerate with
 `src/model/policy_params.R`; `apply_column_2_rates()` and
 `zero_exemption_share_for_column_2()` in `src/pipeline/06_calculate_rates.R`;
 `default_base_cols()` / `build_rate_grid()` in `src/model/rate_schema.R`.
-Registered as **S10** in `docs/statutory_deviations.md`.
+Registered as **S11** in `docs/statutory_deviations.md`.
 
 ### 20a. GN 3(b) origins are exempt from the IEEPA reciprocal tariff (9903.01.29)
 

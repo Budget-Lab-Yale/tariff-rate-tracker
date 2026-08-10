@@ -70,9 +70,11 @@ eu27_codes:
 # reflect the annual step-down published by USTR. Override here with the
 # current effective rate.
 #   - 2025-02-07 → 2026-02-07 (Year 8 of extension): 14.5% on out-of-quota
-#   - update annually based on USTR notice
+#   - safeguard terminated after 2026-02-06; the HTS compiler's expiry note
+#     carries no machine-readable date, so the calculator needs an explicit gate
 section_201:
   solar_rate: 0.145
+  expiry_date: '2026-02-06'
 
 # --- Authority classification ranges (9903.xx) ---
 authority_ranges:
@@ -121,6 +123,27 @@ section_232_headings:
     products_file: 'resources/s232_copper_products.csv'  # Authoritative: US Note 36(b), 80 HTS8 prefixes
     default_rate: 0.50    # 9903.78.01: 50% upon value of copper content (June 2025 proclamation)
     usmca_exempt: false
+
+  # Polysilicon and derivatives Section 232 action (PP 2026-08-06), effective
+  # 2026-12-04. The default and UK headings are additive; only the named trade-
+  # framework partners use a 15% total-duty floor. Raw 2804.61 polysilicon is
+  # MIP-only and therefore intentionally absent from products_file.
+  polysilicon:
+    products_file: 'resources/s232_polysilicon_adval_products.csv'
+    effective_date: '2026-12-04'
+    default_rate: 0.15
+    country_rates:
+      CTY_UK: 0.10
+    target_total:
+      eu: 0.15
+      CTY_JAPAN: 0.15
+      CTY_SKOREA: 0.15
+      CTY_TAIWAN: 0.15
+      CTY_SWITZERLAND: 0.15
+      CTY_LIECHTENSTEIN: 0.15
+    usmca_exempt: false
+    mip_model: documented_zero
+    mip_products_file: 'resources/s232_polysilicon_mip_products.csv'
   softwood:
     prefixes: ['44031100', '44032101', '44032201', '44032301', '44032401',
                '44032501', '44032601', '44039901', '44061100', '44069100',
@@ -194,7 +217,9 @@ section_232_headings:
     effective_date: '2026-09-29'
     default_rate: 0.0001
     country_rates:
-      CTY_UK: 0.10
+      # HTS 2026 rev_15 corrected 9903.04.63 to "applicable subheading +0%",
+      # effective retroactively to 2026-07-31. Note 40(g) has no total-floor arm.
+      CTY_UK: 0.0
     target_total:
       default: 1.00
       CTY_JAPAN: 0.15
@@ -517,11 +542,18 @@ section_301_rates:
 # line_coverage_file (OPTIONAL, dormant by default): per-HTS10 measured
 # coverage shares overriding the heading value for lines present in the file
 # (affected lines absent from the file keep the heading value; scope is
-# unchanged — only lines referencing an in-window heading are ever scaled).
+# unchanged — only lines mapped to an in-window heading are ever scaled).
 # Enable by uncommenting; line-level dispersion is wide (IQR 0.15-0.73 in the
 # stable window), so this is the higher-fidelity mode once parity-reviewed.
+#
+# lines_file is the durable heading-to-HTS10 scope. USITC's JSON export stopped
+# emitting almost all columns:['general'] Chapter-99 cross-reference endnotes in
+# 2026_rev_13, so current-snapshot product footnotes are no longer a stable scope
+# source. The file was built from the pre-collapse revision caches and remains
+# independent of that serializer behavior.
 section_301_exclusions:
   headings_file: 'resources/s301_exclusion_headings.csv'
+  lines_file: 'resources/s301_exclusion_lines.csv'
   # line_coverage_file: 'resources/s301_exclusion_line_coverage.csv'
 
 # --- Weighted ETR reporting and comparison defaults ---
@@ -594,6 +626,10 @@ metal_content:
 # if the block or any key is missing, rather than silently defaulting. To disable
 # components explicitly, set values to 0 (rebate_rate, us_assembly_share) or 1
 # (us_auto_content_share → full USMCA share applied).
+#
+# us_auto_content_share also accepts an origin-keyed map
+# {default: x, canada: y, mexico: z} for origin-specific vehicle content
+# (used by the mrs_paper_assumptions scenario overlay: CA 0.55 / MX 0.18).
 auto_rebate:
   rebate_rate: 0.0375          # 3.75% rebate per Proclamation
   us_assembly_share: 0.33      # fraction of vehicle assembled in US
@@ -753,7 +789,7 @@ mfn_exemption:
 # losing NTR means), so step 6c does NOT apply the HS2 x country
 # mfn_exemption_shares scaling to these rows. Chapter 99 authority layers
 # (§232 incl. the Russia 200% aluminum surcharge, §122, §301) stack on top
-# unchanged. See docs/assumptions.md §20 and docs/statutory_deviations.md S10.
+# unchanged. See docs/assumptions.md §20 and docs/statutory_deviations.md S11.
 column_2_countries:
   - country: '2390'
     name: 'Cuba (GN 3(b); non-NTR since 1962)'
@@ -1039,7 +1075,7 @@ series_horizon:
 # Part B): config-driven, no Ch99 offset; the adapter's date-gate populates
 # patented_pharma_hts10 as-of that date, so an empty-ops mint materializes it —
 # without this mint the carve-out would first appear at bnd_2026-08-19.
-boundary_overrides: ['2026-06-08', '2026-07-22', '2026-07-24', '2026-07-31', '2026-08-19', '2026-09-29']
+boundary_overrides: ['2026-06-08', '2026-07-22', '2026-07-24', '2026-07-31', '2026-08-19', '2026-09-29', '2026-12-04']
 
 # --- Validation thresholds ---
 validation_thresholds:

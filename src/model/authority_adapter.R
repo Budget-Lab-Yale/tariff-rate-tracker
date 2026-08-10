@@ -921,7 +921,10 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
     }
 
     # Heading activation is revision-resolved policy data, not calculator state.
-    heading_gates <- compute_heading_gates(list(section_232 = section_232), s232_rates)
+    heading_gates <- compute_heading_gates(
+      list(section_232 = section_232), s232_rates,
+      effective_date = effective_date,
+      heading_configs = pp$section_232_headings)
     # Fail closed: a heading configured in policy_params.yaml but absent from
     # compute_heading_gates()'s registry would otherwise be built with
     # enabled = FALSE forever and silently publish zero rates for that program.
@@ -1031,6 +1034,20 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
   fentanyl_scope <- c(CTY_CHINA, CTY_CANADA, CTY_MEXICO)
   fentanyl_scope <- fentanyl_scope[!is.na(fentanyl_scope)]
   fent <- .resolve_ieepa_fentanyl(fentanyl_rates)
+  # Scenario cap (ieepa_fentanyl_rate_caps, census_code -> max rate): hold a
+  # country's parsed general fentanyl rate at/below a configured maximum.
+  # mrs_paper_assumptions freezes the MRS Table 1 action set, which carries
+  # Canada at 25% — the Aug-1-2025 increase to 35% (rev_17) is outside that
+  # set. Product carve-out rates sit below any cap and pass through unchanged.
+  fent_caps <- pp$ieepa_fentanyl_rate_caps
+  if (!is.null(fent) && length(fent_caps)) {
+    for (cap_cty in names(fent_caps)) {
+      if (cap_cty %in% names(fent$by_country)) {
+        fent$by_country[[cap_cty]] <- min(fent$by_country[[cap_cty]],
+                                          as.numeric(fent_caps[[cap_cty]]))
+      }
+    }
+  }
   fent_rate <- list()
   if (!is.null(fent)) {
     fent_rate$by_country <- fent$by_country
@@ -1085,7 +1102,13 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
     authority = 'section_201',
     stacking  = list(class = 'additive', exceptions = list()),
     usmca_treatment = 'none',
-    active = list(from = NA, until = NA),
+    # active$until is the first dead day. apply_section201() enforces it and
+    # collect_schedule_boundaries() uses the same value to mint the split.
+    active = list(
+      from = NA,
+      until = if (!is.null(pp$SECTION_201$expiry_date))
+        as.Date(pp$SECTION_201$expiry_date) + 1 else NA
+    ),
     programs = list(authority_program(
       id = 's201',
       product_scope = list(list_file = 'resources/s201_solar_products.csv'),

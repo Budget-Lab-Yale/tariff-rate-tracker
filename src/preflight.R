@@ -43,10 +43,13 @@ REQUIRED_RESOURCES <- c(
   'resources/ieepa_exempt_products.csv',
   'resources/floor_exempt_products.csv',
   'resources/s301_product_lists.csv',
+  'resources/s301_exclusion_lines.csv',
   'resources/s232_derivative_products.csv',
   'resources/s232_auto_parts.txt',
   'resources/s232_mhd_parts.txt',
   'resources/s232_copper_products.csv',
+  'resources/s232_polysilicon_adval_products.csv',
+  'resources/s232_polysilicon_mip_products.csv',
   'resources/fentanyl_carveout_products.csv',
   'resources/hs10_gtap_crosswalk.csv'
 )
@@ -186,6 +189,52 @@ if (sys.nframe() == 0) {
     if (length(json_files) == 0) {
       cat('  >> Run: Rscript src/pipeline/02_download_hts.R\n')
       any_required_missing <- TRUE
+    }
+
+    # Every real revision configured in revision_dates.csv must have an archive.
+    # The build SKIPS a configured revision whose JSON is absent, so a missing
+    # archive surfaces as a quietly shorter series rather than an error — the
+    # same silent-omission failure mode the footnote audit exists to catch.
+    # (Combined plan Phase 2 item 6.)
+    #
+    # Base R only, and the revision -> filename mapping is inlined rather than
+    # sourced: preflight must run before the tidyverse is installed, and
+    # src/model/revisions.R calls library(tidyverse) on load. Mirrors
+    # parse_revision_id() / resolve_json_path() there — keep in sync.
+    rev_csv <- file.path(base_dir, 'config', 'revision_dates.csv')
+    if (!file.exists(rev_csv)) {
+      cat('  [!!] config/revision_dates.csv missing — cannot check archive coverage\n')
+      any_required_missing <- TRUE
+    } else {
+      configured <- read.csv(rev_csv, stringsAsFactors = FALSE)$revision
+      # Synthetic partitions are minted during the build, never archived.
+      configured <- configured[!grepl('^(sched_|bnd_)', configured)]
+
+      archive_missing <- character()
+      for (rev in configured) {
+        if (grepl('^[0-9]{4}_', rev)) {
+          yr <- substr(rev, 1, 4)
+          rv <- sub('^[0-9]{4}_', '', rev)
+        } else {
+          yr <- '2025'
+          rv <- rev
+        }
+        stem <- file.path(json_dir, paste0('hts_', yr, '_', rv))
+        if (!file.exists(paste0(stem, '.json.gz')) && !file.exists(paste0(stem, '.json'))) {
+          archive_missing <- c(archive_missing, rev)
+        }
+      }
+
+      cat(sprintf('  [%s] %d/%d configured revisions have an archive\n',
+                  if (length(archive_missing) == 0) 'OK' else '!!',
+                  length(configured) - length(archive_missing), length(configured)))
+      if (length(archive_missing) > 0) {
+        cat('  >> No archive for: ', paste(archive_missing, collapse = ', '), '\n', sep = '')
+        cat('  >> The build skips these silently. Add the archive, or remove the\n')
+        cat('  >> row and represent the policy change with a synthetic boundary\n')
+        cat('  >> (the 2026_rev_14 treatment).\n')
+        any_required_missing <- TRUE
+      }
     }
   } else {
     cat('  [!!] data/hts_archives/ directory missing\n')
