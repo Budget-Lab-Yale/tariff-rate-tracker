@@ -118,9 +118,13 @@ if (have_ch99) {
         '2025-05-03 (auto parts = rev_11 edge) is NOT minted')
   # On the production grid exactly these seven boundaries are mintable (incl. the
   # two Ch99 rate-less heading expiries 2025-06-01 / 2025-09-01).
+  # 2026-07-24 is NOT here: backdating rev_13 to the forced-labor turn-on made
+  # that date a real revision edge, so the mint it used to need is retired (see
+  # the "not a duplicate boundary" check above). The expectation survived the
+  # merge of the two branches that changed this set independently.
   expected <- c('2025-03-12', '2025-06-01', '2025-09-01', '2025-11-14',
                 '2026-02-20', '2026-04-01', '2026-07-22',
-                '2026-07-24', '2026-07-31', '2026-08-19', '2026-09-29',
+                '2026-07-31', '2026-08-19', '2026-09-29',
                 '2026-11-10', '2026-12-04')
   check(setequal(emitted, expected),
         paste0('exactly {', paste(expected, collapse = ', '), '} discovered on the live grid'))
