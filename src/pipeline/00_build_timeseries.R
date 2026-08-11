@@ -144,7 +144,13 @@ build_boundary_mints <- function(rev_dates, boundaries, pp_build, output_dir,
       country_lookup = country_lookup, countries = countries,
       census_codes = census_codes, pp_build = pp_build
     )
-    new_rows[[k]] <- tibble(revision = bid, effective_date = D)
+    # Carry the owner forward: the snapshot is built with archive_rev_id = owner,
+    # and the publish step needs that same pointer to resolve the boundary's
+    # HTS-identity date (its product-code universe is the owner's, not its own
+    # calendar date's). Dropping it here left a bnd_ tip unresolvable, which
+    # silently disabled the 484(f) code-transfer mapping at publish time.
+    new_rows[[k]] <- tibble(revision = bid, effective_date = D,
+                            archive_rev_id = owner)
   }
 
   bound <- dplyr::bind_rows(new_rows)
