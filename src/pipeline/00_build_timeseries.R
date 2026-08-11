@@ -1118,10 +1118,37 @@ if (sys.nframe() == 0) {
       # Load weights OUTSIDE tryCatch so a missing-weights failure aborts the
       # build instead of being silently absorbed. Use --unweighted (CLI) or
       # set weight_mode: unweighted in config/local_paths.yaml to opt out.
-      imports <- load_import_weights(weight_mode = cli_weight_mode)
+      # Resolve the SAME weight plan the array/gather path uses
+      # (scripts/build_gather.R). Previously this site called
+      # load_import_weights() directly, which is the `static` method: the raw
+      # 2024 base joined to the panel on (hts10, country). Every code renumbered
+      # since 2024 then fails to join and drops out of the numerator while
+      # staying in the denominator — $164B of trade (5%) at the 2026 tip, which
+      # depressed EVERY authority's weighted contribution by roughly 0.8pp in
+      # total. config/local_paths.yaml said weight_method: 484f the whole time;
+      # this path just ignored it. Honour it here, so the serial --full build
+      # and the array build produce the same weighted series.
+      # Timeline = real revisions + the synthetic mints this build wrote, so the
+      # bnd_/sched_ intervals resolve their HTS identity through archive_rev_id.
+      build_timeline <- load_revision_dates(use_policy_dates = use_policy_dates)
+      synth_path <- file.path(result$output_dir, 'synthetic_revisions.rds')
+      if (file.exists(synth_path)) {
+        build_timeline <- dplyr::bind_rows(build_timeline, readRDS(synth_path))
+      }
+      build_timeline <- backfill_archive_rev_id(build_timeline)
+      weight_plan <- resolve_daily_weight_plan(
+        hts_as_of_dates = hts_as_of_dates_from_timeline(build_timeline),
+        weight_mode     = cli_weight_mode)
+      message('Daily weights: method=', weight_plan$weight_method,
+              ' mode=', weight_plan$weight_mode)
 
       tryCatch(
-        run_daily_series(ts, imports = imports, policy_params = pp),
+        run_daily_series(ts, imports = weight_plan$imports,
+                         imports_fn = weight_plan$imports_fn,
+                         hts_as_of_dates = weight_plan$hts_as_of_dates,
+                         weight_context = weight_plan$weight_context,
+                         weight_mode = weight_plan$weight_mode,
+                         policy_params = pp),
         error = function(e) message('Daily series failed: ', conditionMessage(e))
       )
 

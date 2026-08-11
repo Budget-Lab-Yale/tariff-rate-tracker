@@ -1,0 +1,20 @@
+# Counterfactual: the polysilicon Section 232 action never happens.
+#
+# The action (Presidential Proclamation 2026-08-06, effective 2026-12-04) is
+# BASELINE law, so the actual series carries a 15% ad-valorem duty on polysilicon
+# derivatives — solar cells and modules above all — from the turn-on, stacking on
+# top of the forced-labor §301 (note 52(f) does not name it; see
+# docs/interactions_design_memo.md).
+#
+# `disabled_authorities` only takes top-level authorities, and disabling
+# section_232 would remove steel, aluminium, copper and the rest with it. So this
+# overlay retires the sub-program the way the law would have: the action simply
+# never takes effect, by moving its effective date beyond the series horizon.
+# Everything else — every other §232 program, the forced-labor §301, the
+# stacking rules — is held fixed.
+#
+# Diff  actual  vs  no_polysilicon  to isolate the marginal effect of the
+# polysilicon action, inclusive of the duty it stacks under.
+section_232_headings:
+  polysilicon:
+    effective_date: '2099-01-01'
