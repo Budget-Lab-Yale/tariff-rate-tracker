@@ -482,17 +482,36 @@ build_s301_tiers <- function(ch99_data, effective_date, pp) {
 # empty before the turn-on AND in every synthetic mint stamped before it. Because
 # the gate is by DATE (not a scenario op), every synthetic revision stamped on/after
 # the turn-on (the bnd_<date> mint + any later empty-ops boundary mint) carries it.
-.build_section_301_forced_labor <- function(pp, countries, effective_date) {
+.build_section_301_forced_labor <- function(pp, countries, effective_date, ch99_data = NULL) {
   cfg <- pp$section_301_forced_labor
   if (is.null(cfg)) return(NULL)
   eff <- if (!is.null(cfg$effective_date)) as.Date(cfg$effective_date) else as.Date(NA)
   active_now <- is.na(eff) || as.Date(effective_date) >= eff
   rate_layer <- list()
   if (active_now) {
-    bc <- .resolve_s301fl_by_country(cfg, countries)
-    if (length(bc) > 0) {
-      rate_layer$by_country <- bc
-      rate_layer$by_country_type <- .resolve_s301fl_by_country_type(cfg, countries)
+    # HTS is the source of truth for the rates: read the 9903.05.20-.84 charging
+    # headings via extract_section301_fl_rates() — the Brazil §301 / §122
+    # pattern. The config tiers are the FALLBACK, used only when the snapshot's
+    # archive predates codification (any pre-rev_13 JSON: the action is live
+    # from 2026-07-24 but USITC first carried it in rev_13, dated back to 07-24
+    # via policy_effective_date). Exemption lists stay FR-annex side-data either
+    # way — the JSON export has the headings but not the note-52 product tables.
+    hts <- if (!is.null(ch99_data)) {
+      extract_section301_fl_rates(
+        filter_active_ch99(ch99_data, as.Date(effective_date)),
+        eu27_codes = pp$eu27_codes)
+    } else list(has_s301fl = FALSE)
+    if (isTRUE(hts$has_s301fl)) {
+      keep <- intersect(names(hts$by_country), as.character(countries))
+      rate_layer$by_country      <- hts$by_country[keep]
+      rate_layer$by_country_type <- hts$by_country_type[keep]
+      message('  s301fl rates read from HTS (', length(keep), ' economies)')
+    } else {
+      bc <- .resolve_s301fl_by_country(cfg, countries)
+      if (length(bc) > 0) {
+        rate_layer$by_country <- bc
+        rate_layer$by_country_type <- .resolve_s301fl_by_country_type(cfg, countries)
+      }
     }
   }
   scope <- if (length(rate_layer$by_country)) names(rate_layer$by_country) else character(0)
@@ -1174,7 +1193,7 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
   # --- section_301_forced_labor — per-country forced-labor §301 (BASELINE) ---
   # Final action in baseline, date-gated, additive with an explicit §232
   # exclusion, and USMCA-eligible. See .build_section_301_forced_labor.
-  section_301_forced_labor <- .build_section_301_forced_labor(pp, countries, effective_date)
+  section_301_forced_labor <- .build_section_301_forced_labor(pp, countries, effective_date, ch99_data)
 
   # --- section_301_brazil — Brazil-only 25% §301 (BASELINE) ------------------
   # Signed law since the final action (FR Doc 2026-14542, effective 2026-07-22):

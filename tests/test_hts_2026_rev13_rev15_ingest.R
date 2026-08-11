@@ -55,7 +55,11 @@ cat('\n--- (a) partition structure ---\n')
 check(!'2026_rev_14' %in% rd$revision,
       'no 2026_rev_14 row in revision_dates.csv (its JSON is unobtainable; a row would be silently skipped)')
 
-for (spec in list(c('2026_rev_13', '2026-07-28'), c('2026_rev_15', '2026-08-03'))) {
+# rev_13 is policy-dated 2026-07-24 (published 07-28; the codification is
+# retroactive to the duty's legal turn-on, and the backdate lets rev_13's own
+# snapshot cover the four-day window instead of a config-fed boundary mint).
+# load_revision_dates() swaps policy dates in, so rd carries 07-24.
+for (spec in list(c('2026_rev_13', '2026-07-24'), c('2026_rev_15', '2026-08-03'))) {
   row <- rd %>% filter(revision == spec[1])
   check(nrow(row) == 1 && as.Date(row$effective_date[1]) == as.Date(spec[2]),
         sprintf('%s is a real revision dated %s', spec[1], spec[2]))

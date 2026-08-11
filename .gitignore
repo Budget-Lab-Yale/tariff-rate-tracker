@@ -103,3 +103,4 @@ tests/golden/
 
 # Presentations (local working directory, not part of the codebase)
 presentations/
+.worktrees/
