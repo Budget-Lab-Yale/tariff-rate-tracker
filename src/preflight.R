@@ -309,6 +309,42 @@ if (sys.nframe() == 0) {
     }
   }
 
+  # Split-share base: the 2025 HS10 x country file the 484(f) mapper uses to
+  # decide WHICH successor of a renumbered code a 2024 flow belongs to. The
+  # build treats it as optional -- resolve_daily_weight_plan() drops a missing
+  # path and every split falls to the even tier -- but that silently moves
+  # ~$64B of trade value out of the country_2025 / all_country_2025 identity
+  # tiers, shifting weighted authority ETRs across the WHOLE series. Nothing
+  # downstream catches it: verify_build passes and matched_imports_b ==
+  # total_imports_b still reads 100%. So flag it as required wherever it would
+  # actually be consumed (weight_method 484f and not opted out of weights).
+  # NOTE: default path and weight_method default mirror
+  # policy_params.R::load_local_paths(). Keep in sync.
+  wmeth <- lp$weight_method
+  if (is.null(wmeth)) wmeth <- '484f'
+  ss <- lp$split_share_imports
+  if (is.null(ss)) ss <- 'data/weights/hs10_by_country_2025_con.rds'
+  ss_path <- if (startsWith(ss, '/') || grepl('^[A-Za-z]:', ss)) ss else file.path(base_dir, ss)
+
+  if (!identical(wmeth, '484f') || identical(wm, 'unweighted')) {
+    cat(sprintf('  [--] split_share_imports: not consumed (weight_method=%s, weight_mode=%s)\n',
+                wmeth, wm))
+  } else if (file.exists(ss_path)) {
+    cat(sprintf('  [OK] split_share_imports: %s\n', ss))
+  } else {
+    cat(sprintf('  [!!] split_share_imports: %s (NOT FOUND, weight_method=484f)\n', ss))
+    cat('       The 484(f) mapper would SILENTLY fall back to an even split:\n')
+    cat('       ~$64B of value leaves the 2025 identity tiers, moving weighted\n')
+    cat('       ETRs across the whole series. The build still reports success --\n')
+    cat('       verify_build and the matched/total diagnostic both stay green --\n')
+    cat('       so a degraded weight plan is only visible in the manifest\n')
+    cat('       (weights.provenance.split_shares.present = false). Either:\n')
+    cat('         - run: Rscript src/io/build_import_weights.R --year 2025 --no-gtap\n')
+    cat('         - set split_share_imports in config/local_paths.yaml, or\n')
+    cat('         - set weight_mode: unweighted to opt out of weighted outputs.\n')
+    any_required_missing <- TRUE
+  }
+
 
   # Tariff-ETRs repo
   etrs <- lp$tariff_etrs_repo
