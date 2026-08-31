@@ -190,7 +190,7 @@ Pass `--with-artifacts` to include the heavier artifact-dependent integration ch
 | `data/timeseries/delta_*.rds` | revision-to-revision diffs |
 | `output/actual/daily/daily_overall.csv` | daily aggregate mean and weighted ETR series. Three weighted columns: `weighted_etr` (total), `weighted_etr_additional` (additional layers only, base-excluded), `weighted_etr_new` (total in excess of the Jan-1-2025 baseline). See [docs/methodology.md](methodology.md#weighted-etrs). |
 | `output/actual/daily/daily_by_country.csv` | daily country-level aggregate rates (incl. `weighted_etr` and `weighted_etr_new` vs each country's Jan-1-2025 baseline) |
-| `output/actual/daily/daily_by_authority.csv` | daily authority decomposition (`mean_232/301/s301br/ieepa/fentanyl/s122/s338/section_201/other`, plus `etr_*` twins when weighted; `mean_s301br`/`etr_s301br` = the Brazil §301 layer, live from 2026-07-22; `mean_s338`/`etr_s338` = the §338 Canada layer, live from 2026-08-19; baseline forced-labor §301 is folded into `mean_301`/`etr_301` — no separate bucket) |
+| `output/actual/daily/daily_by_authority.csv` | daily authority decomposition (`mean_232/301/s301br/ieepa/fentanyl/s122/s338/section_201/other`, plus `etr_*` twins when weighted; `mean_s301br`/`etr_s301br` = the Brazil §301 layer, live from 2026-07-22; `mean_s338`/`etr_s338` = the §338 Canada layer, live from 2026-08-22; baseline forced-labor §301 is folded into `mean_301`/`etr_301` — no separate bucket) |
 | `output/actual/daily/daily_by_category.csv` | daily by-GTAP-sector aggregate rates (only when import weights available) |
 | `output/actual/quality/` | build diagnostics and quality checks |
 

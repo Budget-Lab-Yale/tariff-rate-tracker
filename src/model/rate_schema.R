@@ -363,9 +363,29 @@ classify_authority <- function(ch99_code) {
     return('ieepa_reciprocal')
   }
 
-  # Section 232 polysilicon (U.S. note 42): 9903.45.30-.36. This segment must
-  # precede the broad 9903.40-.45 Section 201 safeguard bucket.
-  if (isTRUE(middle == 45 && !is.na(third) && third %in% 30:36)) {
+  # Section 201 quartz surface products (U.S. note 41): 9903.45.30/.31,
+  # established by HTS 2026 rev_16 effective 2026-08-15 (Proclamation 11051).
+  #
+  # HEADING-NUMBER COLLISION — read before changing either rule. The polysilicon
+  # §232 proclamation (signed 2026-08-06, effective 2026-12-04) specifies U.S.
+  # note 42 at headings 9903.45.30-.36, which is the SAME range USITC then used
+  # for quartz: rev_17 carries .30/.31 as quartz under note 41 and contains no
+  # polysilicon heading at all. One of the two must be renumbered before
+  # polysilicon is codified in December. Until it is, .30/.31 are quartz and
+  # nothing else in .32-.36 exists, so the quartz rule wins on the codified
+  # range and polysilicon keeps only the range it has never occupied.
+  #
+  # This mattered only latently so far: no product line footnote-references
+  # .30/.31 in rev_17, so neither rule fires through the generic ch99 path.
+  # Recheck when the polysilicon annex lands.
+  if (isTRUE(middle == 45 && !is.na(third) && third %in% 30:31)) {
+    return('section_201')
+  }
+
+  # Section 232 polysilicon (U.S. note 42): 9903.45.32-.36 — the residue of the
+  # proclamation's stated range after quartz took .30/.31 (see above). This
+  # segment must precede the broad 9903.40-.45 Section 201 safeguard bucket.
+  if (isTRUE(middle == 45 && !is.na(third) && third %in% 32:36)) {
     return('section_232')
   }
 

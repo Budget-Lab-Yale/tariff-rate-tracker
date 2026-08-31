@@ -91,7 +91,7 @@ turn-on date).
 
 Baseline authorities that turn on mid-series must be listed explicitly in any
 "pre-2025 only" style counterfactual. `pre_2025` disables `section_338` (the
-2026-08-19 Canada +50% duty) and `section_301_brazil` (the 2026-07-22 Brazil
+2026-08-22 Canada +50% duty) and `section_301_brazil` (the 2026-07-22 Brazil
 25% duty, FR 2026-14542) alongside IEEPA/§122; without those lines the duties
 would leak into the counterfactual from their turn-on dates. Any future
 baseline authority added to `policy_params.yaml` must be added to `pre_2025`'s

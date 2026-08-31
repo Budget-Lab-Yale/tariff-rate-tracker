@@ -1153,7 +1153,7 @@ apply_section301_brazil <- function(rates, specs, products, countries) {
 apply_section338 <- function(rates, specs, products, countries) {
   # 6b-338. Apply Section 338 duties: +50% on products of Canada over the three
   #     positive HTS-8 lists (U.S. note 51(b), headings 9903.03.12-.14; three
-  #     proclamations signed 2026-07-20, effective 2026-08-19). BASELINE
+  #     proclamations signed 2026-07-20, effective 2026-08-22). BASELINE
   #     authority — signed law — hand-fed from policy params + side-data lists
   #     (no HTS archive carries the 9903.03.1x headings yet; pharma/Brazil
   #     pattern). Stacks ADDITIVELY (note 51(a): in addition to every other
@@ -1180,7 +1180,7 @@ apply_section338 <- function(rates, specs, products, countries) {
   #         furniture, cameras) are overwhelmingly NOT aircraft-certified entries,
   #         so an unmeasured one is treated as fully dutiable, not interpolated
   #         from the aircraft-heavy §122 chapter mean.
-  #     rate_s338 is a RATE_SCHEMA column: it persists all-zero in pre-08-19
+  #     rate_s338 is a RATE_SCHEMA column: it persists all-zero in pre-08-22
   #     revisions, like the baseline s301fl/s301br columns.
   s338_spec <- specs[['section_338']]
   s338_by_country <- if (is.null(s338_spec)) numeric(0) else {
@@ -1272,33 +1272,51 @@ apply_section338 <- function(rates, specs, products, countries) {
 # --- Step 6b1: Section 201 safeguard (solar) ---------------------------------
 apply_section201 <- function(rates, specs, countries, effective_date) {
   # 6b1. Apply Section 201 (Trade Act §201 safeguard) tariffs.
-  #      Currently models Solar 201 (Proc 9693 + Proc 10454, 9903.45.21–.25)
-  #      on CSPV cells/modules. The 201 rate stacks on top of MFN, separate
-  #      from 232/301/IEEPA. Canada is exempt under USMCA. Per-product
-  #      coverage is in resources/s201_solar_products.csv.
+  #      Two programs share the rate_section_201 column, disjoint in time:
+  #        * s201_solar  — Proc 9693 + Proc 10454, 9903.45.21–.25 on CSPV
+  #          cells/modules, expired 2026-02-06. Canada exempt under USMCA.
+  #        * s201_quartz — Proc 11051, 9903.45.30/.31 on quartz surface
+  #          products (U.S. note 41), 2026-08-15 to 2030-08-14, in-quota leg,
+  #          124 economies exempt under note 41(c).
+  #      The 201 rate stacks on top of MFN, separate from 232/301/IEEPA.
+  #      Gating is PER PROGRAM: an authority-level window would kill quartz
+  #      along with solar.
   spec <- specs[['section_201']]
-  first_dead_day <- as.Date(spec$active$until %||% NA)
-  if (length(first_dead_day) == 1 && !is.na(first_dead_day) &&
-      as.Date(effective_date) >= first_dead_day) {
-    message('  Section 201 (solar): inactive from ', first_dead_day)
+  as_of <- as.Date(effective_date)
+
+  auth_dead <- as.Date(spec$active$until %||% NA)
+  if (length(auth_dead) == 1 && !is.na(auth_dead) && as_of >= auth_dead) {
+    message('  Section 201: authority inactive from ', auth_dead)
     return(rates)
   }
 
-  prog <- spec$programs[[1]]
-  solar_rate <- resolve_rate(prog$rate)$value
-  if (!is.na(solar_rate) && solar_rate > 0) {
+  for (prog in spec$programs) {
+    label <- prog$id %||% 's201'
+
+    p_from <- as.Date(prog$active$from %||% NA)
+    p_dead <- as.Date(prog$active$until %||% NA)
+    if (length(p_from) == 1 && !is.na(p_from) && as_of < p_from) next
+    if (length(p_dead) == 1 && !is.na(p_dead) && as_of >= p_dead) {
+      message('  Section 201 (', label, '): inactive from ', p_dead)
+      next
+    }
+
+    prog_rate <- resolve_rate(prog$rate)$value
+    if (is.na(prog_rate) || prog_rate <= 0) next
+
     s201_path <- here(prog$product_scope$list_file)
     if (!file.exists(s201_path))
       stop('Section 201 product list not found: ', s201_path)
     s201_products <- read_csv_cached(s201_path,
                                      col_types = cols(hts10 = col_character()))
     s201_country_codes <- resolve_country_scope(prog$country_scope, countries)
+
+    covered <- rates$hts10 %in% s201_products$hts10 &
+               rates$country %in% s201_country_codes
     rates <- rates %>%
-      mutate(rate_section_201 = if_else(
-        hts10 %in% s201_products$hts10 & country %in% s201_country_codes,
-        solar_rate, rate_section_201))
-    message('  Section 201 (solar): ', round(solar_rate * 100, 1), '% on ',
-            sum(rates$rate_section_201 > 0), ' product-country pairs (',
+      mutate(rate_section_201 = if_else(covered, prog_rate, rate_section_201))
+    message('  Section 201 (', label, '): ', round(prog_rate * 100, 1), '% on ',
+            sum(covered), ' product-country pairs (',
             nrow(s201_products), ' HTS10 covered)')
   }
 

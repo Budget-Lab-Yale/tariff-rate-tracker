@@ -1172,6 +1172,47 @@ extract_section301_brazil_rates <- function(ch99_data) {
 }
 
 
+#' Extract the Section 338 Canada rate from Chapter 99 data
+#'
+#' Charging headings 9903.03.12-.14 (U.S. note 51), codified in 2026 rev_17.
+#' All three carry the same additive text, 'The duty provided in the applicable
+#' subheading + 50%'; the companion headings .15 (§232 scope) and .16 (GN6 civil
+#' aircraft) are exemptions reading 'No change' and carry no rate.
+#'
+#' SCOPE LIMIT — rate only. The three positive HTS-8 product lists live in
+#' U.S. note 51(b), which is legal-note text and is NOT in the JSON export, so
+#' the products stay side-data (resources/s338_products.csv, built from the
+#' proclamation annexes by scripts/build_s338_annex.R). Same split as Brazil
+#' §301, where note 50's exemption lists stay FR-annex side-data.
+#'
+#' Fails loudly if the three charging headings disagree on the rate: they are
+#' one action at one rate, so a split would mean the schedule changed shape and
+#' the caller must not silently pick one.
+#'
+#' @param ch99_data Tibble of parsed Chapter 99 entries
+#' @return list(has_s338, s338_rate)
+extract_section338_rates <- function(ch99_data) {
+  s338_entries <- ch99_data %>%
+    filter(grepl('^9903[.]03[.]1[2-4]$', ch99_code), !is.na(rate))
+
+  if (nrow(s338_entries) == 0) {
+    message('  No Section 338 charging headings (9903.03.12-.14) found')
+    return(list(s338_rate = 0, has_s338 = FALSE))
+  }
+
+  rates <- unique(s338_entries$rate)
+  if (length(rates) > 1) {
+    stop('extract_section338_rates: charging headings 9903.03.12-.14 disagree ',
+         'on the rate (', paste(sprintf('%s=%s', s338_entries$ch99_code,
+                                        s338_entries$rate), collapse = ', '),
+         ') — one action, one rate is assumed; reconcile before proceeding.')
+  }
+
+  message('  Section 338 Canada rate (9903.03.12-.14): ', round(rates * 100), '%')
+  return(list(s338_rate = rates, has_s338 = TRUE))
+}
+
+
 #' Extract Section 301 forced-labor rates from Chapter 99 data
 #'
 #' Charging headings 9903.05.20-.84 (U.S. note 52), codified in 2026 rev_13.
@@ -1326,6 +1367,53 @@ extract_section_201_rates <- function(ch99_data, policy_params = NULL) {
     has_s201 = TRUE,
     solar_rate = solar_rate
   ))
+}
+
+
+#' Extract the Section 201 quartz-surface-products rates from Chapter 99 data
+#'
+#' Safeguard headings 9903.45.30 (in-quota) and 9903.45.31 (over-quota), U.S.
+#' note 41, established by 2026 HTS rev_16 effective 2026-08-15 (Proclamation
+#' 11051). Unlike Solar 201 — whose `general` field is frozen at the stale
+#' Year-1 (2018) rate — these headings carry the CURRENT year's rate, so the
+#' HTS is the rate source and config only supplies the forward step-down
+#' schedule from note 41(e) (which is legal-note text, not in the JSON).
+#'
+#' Scope, exempt countries and quota quantities are side-data by necessity —
+#' see scripts/build_s201_quartz.R.
+#'
+#' @param ch99_data Tibble of parsed Chapter 99 entries
+#' @return list(has_quartz, in_quota_rate, over_quota_rate)
+extract_section201_quartz_rates <- function(ch99_data) {
+  inq  <- ch99_data %>% filter(ch99_code == '9903.45.30', !is.na(rate))
+  over <- ch99_data %>% filter(ch99_code == '9903.45.31', !is.na(rate))
+
+  if (nrow(inq) == 0 && nrow(over) == 0) {
+    message('  No quartz 201 entries (9903.45.30/.31) found')
+    return(list(has_quartz = FALSE, in_quota_rate = 0, over_quota_rate = 0))
+  }
+  # The pair is one program: a lone heading means the schedule changed shape.
+  if (nrow(inq) == 0 || nrow(over) == 0) {
+    stop('extract_section201_quartz_rates: found only one of the quartz TRQ ',
+         'headings (9903.45.30 in-quota: ', nrow(inq), ' rows; 9903.45.31 ',
+         'over-quota: ', nrow(over), ' rows) — the pair is one program, ',
+         'reconcile before proceeding.')
+  }
+
+  in_quota_rate   <- max(inq$rate)
+  over_quota_rate <- max(over$rate)
+  if (over_quota_rate < in_quota_rate) {
+    stop('extract_section201_quartz_rates: over-quota rate (', over_quota_rate,
+         ') is below the in-quota rate (', in_quota_rate, ') — implausible; ',
+         'check whether the headings were renumbered.')
+  }
+
+  message('  Section 201 quartz: in-quota ', round(in_quota_rate * 100, 1),
+          '% (9903.45.30), over-quota ', round(over_quota_rate * 100, 1),
+          '% (9903.45.31)')
+  return(list(has_quartz = TRUE,
+              in_quota_rate = in_quota_rate,
+              over_quota_rate = over_quota_rate))
 }
 
 

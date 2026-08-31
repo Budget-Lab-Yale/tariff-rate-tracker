@@ -6,7 +6,7 @@
 # "pre-2025 rates"; documented limitation carried over from the legacy engine.
 # NOTE: section_338 and section_301_brazil are BASELINE authorities (live in
 # policy_params.yaml, applied in every build), so a "pre-2025 only"
-# counterfactual MUST list them — otherwise the +50% Canada duty (2026-08-19)
+# counterfactual MUST list them — otherwise the +50% Canada duty (2026-08-22)
 # and the Brazil 25% (2026-07-22) leak in. Any future baseline authority must
 # be added here too.
 disabled_authorities: [ieepa_reciprocal, ieepa_fentanyl, section_122, section_338,

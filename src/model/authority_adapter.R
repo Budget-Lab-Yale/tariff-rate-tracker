@@ -609,21 +609,98 @@ build_s301_tiers <- function(ch99_data, effective_date, pp) {
   spec
 }
 
-# ---- section 338 (Canada) — BASELINE authority, hand-fed from params ---------
-# Three Section 338 proclamations (signed 2026-07-20, effective 2026-08-19):
+# ---- section 201 quartz surface products (U.S. note 41) ---------------------
+# Proclamation 11051 of 2026-07-31, codified by HTS 2026 rev_16 effective
+# 2026-08-15, four-year safeguard to 2030-08-14. Headings 9903.45.30 (in-quota)
+# and 9903.45.31 (over-quota); the tracker models the IN-QUOTA leg (see the
+# config block and docs/statutory_deviations.md S10).
+#
+# Rate source is the HTS — unlike solar, these headings carry the current year's
+# rate rather than a frozen Year-1 value. The config `rate_schedule` (note 41(e))
+# is the fallback for archives predating rev_16 and the forward schedule for
+# horizons past 2027-08-15.
+#
+# Scope and the note-41(c) exempt roster are side-data (U.S. notes are not in the
+# JSON export); missing files fail loud rather than silently widening the duty.
+.resolve_s201_quartz_rate <- function(qz, ch99_data, effective_date) {
+  basis <- qz$basis %||% 'in_quota'
+  if (!basis %in% c('in_quota', 'over_quota')) {
+    stop("section_201.quartz.basis must be 'in_quota' or 'over_quota', got: ", basis)
+  }
+  # 1. HTS first.
+  if (!is.null(ch99_data)) {
+    hts <- extract_section201_quartz_rates(ch99_data)
+    if (isTRUE(hts$has_quartz)) {
+      return(if (basis == 'in_quota') hts$in_quota_rate else hts$over_quota_rate)
+    }
+  }
+  # 2. Fall back to the note 41(e) schedule: the last step whose date has passed.
+  sched <- qz$rate_schedule
+  if (is.null(sched) || length(sched) == 0) return(NA_real_)
+  starts <- as.Date(names(sched))
+  live <- which(starts <= as.Date(effective_date))
+  if (length(live) == 0) return(NA_real_)
+  step <- sched[[max(live)]]
+  as.numeric(step[[basis]] %||% NA_real_)
+}
+
+.build_s201_quartz_program <- function(qz, ch99_data, effective_date) {
+  eff <- as.Date(qz$effective_date %||% NA)
+  exp <- as.Date(qz$expiry_date %||% NA)
+  active_now <- (is.na(eff) || as.Date(effective_date) >= eff) &&
+                (is.na(exp) || as.Date(effective_date) <= exp)
+
+  rate_layer <- list()
+  if (active_now) {
+    r <- .resolve_s201_quartz_rate(qz, ch99_data, effective_date)
+    if (!is.na(r) && r > 0) rate_layer <- list(default = r, rate_type = 'surcharge')
+  }
+
+  ex_path <- here(qz$exempt_countries_file %||%
+                    'resources/s201_quartz_exempt_countries.csv')
+  if (!file.exists(ex_path)) {
+    stop('section_201 quartz: note 41(c) exempt-country list not found at ',
+         ex_path, ' — run scripts/build_s201_quartz.R')
+  }
+  exempt <- read_csv_cached(ex_path,
+                            col_types = readr::cols(.default = readr::col_character()))
+
+  authority_program(
+    id = 's201_quartz',
+    product_scope = list(list_file = qz$products_file %||%
+                           'resources/s201_quartz_products.csv'),
+    country_scope = list(include = 'all',
+                         exclude = unique(as.character(exempt$code))),
+    rate = rate_layer,
+    # first dead day, exclusive — same convention as every other `until`
+    active = list(from = eff, until = if (is.na(exp)) NA else exp + 1)
+  )
+}
+
+
+# ---- section 338 (Canada) — BASELINE authority, HTS rate + side-data lists ---
+# Three Section 338 proclamations (PP 11046/11047/11048, signed 2026-07-20),
+# effective 2026-08-22 — the date PP 11056 moved them to; see the note in
+# config/policy_params.yaml for why that proclamation's "suspension" framing is
+# a date shift and not a 3-day hole.
 # +50% ad-valorem on products of Canada over the three positive HTS-8 lists in
 # resources/s338_products.csv (alcohol/dairy/motor_vehicles ->
 # 9903.03.12/.13/.14, U.S. note 51; sources data/s338/). This is SIGNED LAW, so
-# the block lives in baseline config/policy_params.yaml — but no HTS archive
-# carries the 9903.03.1x headings yet, so the authority is params+side-data fed
-# (the pharma/Brazil pattern), independent of the ch99 parse; reconcile when a
-# real revision lands. stacking 'additive' (note 51(a): in addition to every
+# the block lives in baseline config/policy_params.yaml.
+#
+# Split source of truth as of 2026 rev_17, the first archive carrying the
+# headings: the RATE is read off 9903.03.12-.14 by extract_section338_rates()
+# (config demoted to fallback for pre-rev_17 archives and for boundary mints
+# built before rev_17 is ingested), while the PRODUCT lists stay side-data —
+# note 51(b) is legal-note text and never reaches the JSON export. Standing
+# reconciliation: tests/test_s338_hts_rates.R.
+# stacking 'additive' (note 51(a): in addition to every
 # other duty; the note 51(c) §232 interaction is a FULL per-article exclusion
 # implemented as a calc-side SCOPE MASK in apply_section338 — NOT content_split,
 # which would leak s338 onto the non-metal fraction) + usmca 'none' (the duty
 # applies regardless of USMCA origin). DATE-GATED to >= effective_date exactly
-# like the §301 builders: hollow in every pre-08-19 revision and synthetic mint,
-# live on the bnd_2026-08-19 mint and every later revision.
+# like the §301 builders: hollow in every pre-08-22 revision and synthetic mint,
+# live on the bnd_2026-08-22 mint and every later revision.
 
 # GN6 civil-aircraft list (note 51(d) / heading 9903.03.16), hts8 vector. The
 # exemption is USE-conditional (GN6-certified entries only), so the calc scales
@@ -640,14 +717,25 @@ build_s301_tiers <- function(ch99_data, effective_date, pp) {
   unique(as.character(ex$hts8))
 }
 
-.build_section_338 <- function(pp, countries, effective_date) {
+.build_section_338 <- function(pp, countries, effective_date, ch99_data = NULL) {
   cfg <- pp$section_338
   if (is.null(cfg)) return(NULL)
   eff <- if (!is.null(cfg$effective_date)) as.Date(cfg$effective_date) else as.Date(NA)
   active_now <- is.na(eff) || as.Date(effective_date) >= eff
   rate_layer <- list()
   if (active_now) {
+    # HTS is the source of truth for the rate: read +50% off headings
+    # 9903.03.12-.14 (2026 HTS rev_17+). Fall back to the config literal only
+    # when the headings are absent/unparseable in this snapshot's ch99
+    # (pre-rev_17, or a boundary mint built before rev_17 is ingested) — see
+    # extract_section338_rates. The PRODUCT lists are side-data either way:
+    # note 51(b) is legal-note text and never reaches the JSON export.
     rate <- as.numeric(cfg$rate %||% 0.50)
+    if (!is.null(ch99_data)) {
+      hts <- extract_section338_rates(
+        filter_active_ch99(ch99_data, as.Date(effective_date)))
+      if (isTRUE(hts$has_s338)) rate <- hts$s338_rate
+    }
     ctry <- as.character(cfg$country %||% '1220')        # Canada census code
     bc <- stats::setNames(rep(rate, length(ctry)), ctry)
     bc <- bc[intersect(names(bc), as.character(countries))]  # only economies the model knows
@@ -1112,28 +1200,40 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
     )
   )
 
-  # --- section_201 — solar, Canada-exempt -----------------------------------
-  s201_extracted <- extract_section_201_rates(
-    filter_active_ch99(ch99_data, as.Date(effective_date)), policy_params = pp)
+  # --- section_201 — solar (to 2026-02-06) + quartz (from 2026-08-15) --------
+  # Two safeguards, disjoint in time, sharing rate_section_201. The windows live
+  # on the PROGRAMS, not the authority: an authority-level active$until would
+  # kill quartz along with solar. collect_schedule_boundaries() scans program
+  # windows too, so both the solar expiry and the quartz turn-on still mint.
+  s201_ch99 <- filter_active_ch99(ch99_data, as.Date(effective_date))
+  s201_extracted <- extract_section_201_rates(s201_ch99, policy_params = pp)
   s201_rate <- if (isTRUE(s201_extracted$has_s201))
     list(default = s201_extracted$solar_rate, rate_type = 'surcharge') else list()
-  section_201 <- authority_spec(
-    authority = 'section_201',
-    stacking  = list(class = 'additive', exceptions = list()),
-    usmca_treatment = 'none',
-    # active$until is the first dead day. apply_section201() enforces it and
-    # collect_schedule_boundaries() uses the same value to mint the split.
+
+  s201_programs <- list(authority_program(
+    id = 's201_solar',
+    product_scope = list(list_file = 'resources/s201_solar_products.csv'),
+    country_scope = list(include = 'all',
+                         exclude = (CTY_CANADA %||% character(0))),
+    rate = s201_rate,
     active = list(
       from = NA,
       until = if (!is.null(pp$SECTION_201$expiry_date))
         as.Date(pp$SECTION_201$expiry_date) + 1 else NA
-    ),
-    programs = list(authority_program(
-      id = 's201',
-      product_scope = list(list_file = 'resources/s201_solar_products.csv'),
-      country_scope = list(include = 'all',
-                           exclude = (CTY_CANADA %||% character(0))),
-      rate = s201_rate))
+    )))
+
+  qz <- pp$SECTION_201$quartz
+  if (!is.null(qz)) {
+    s201_programs <- c(s201_programs,
+                       list(.build_s201_quartz_program(qz, s201_ch99, effective_date)))
+  }
+
+  section_201 <- authority_spec(
+    authority = 'section_201',
+    stacking  = list(class = 'additive', exceptions = list()),
+    usmca_treatment = 'none',
+    active = list(from = NA, until = NA),
+    programs = s201_programs
   )
 
   # --- section_122 — non-discriminatory blanket -----------------------------
@@ -1207,9 +1307,9 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
   # --- section_338 — Canada +50% over positive lists (BASELINE) ---------------
   # Signed law: the config block ships in baseline config/policy_params.yaml, so
   # the authority (and its rate_s338 column, a RATE_SCHEMA member) exists in
-  # every build. Date-gated to 2026-08-19, additive, usmca 'none'; §232 full
+  # every build. Date-gated to 2026-08-22, additive, usmca 'none'; §232 full
   # exclusion + GN6 scaling are calc-side. See .build_section_338.
-  section_338 <- .build_section_338(pp, countries, effective_date)
+  section_338 <- .build_section_338(pp, countries, effective_date, ch99_data)
 
   spec_list <- list(section_232, section_301, ieepa_reciprocal, ieepa_fentanyl,
                     section_122, section_201, mfn, other)

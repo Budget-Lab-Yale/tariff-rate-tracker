@@ -118,8 +118,8 @@ The production code tracks these authorities:
 - IEEPA fentanyl
 - Section 122
 - Section 301 Brazil (effective 2026-07-22)
-- Section 338 (Canada, effective 2026-08-19)
-- Section 201
+- Section 338 (Canada, effective 2026-08-22)
+- Section 201 (solar, to 2026-02-06; quartz surface products, from 2026-08-15)
 - other residual Chapter 99 provisions
 
 ### Step 5: stack component rates into totals
@@ -219,9 +219,11 @@ The repo enforces Section 122 timing in three places:
 
 ### Section 338 (Canada)
 
-Three Section 338 (Tariff Act of 1930, 19 U.S.C. §1338) proclamations signed 2026-07-20, effective 2026-08-19, impose an additional 50% ad-valorem duty on products of Canada over three positive HTS-8 lists, via new chapter-99 headings under U.S. note 51: alcohol → 9903.03.12 (63 codes), dairy → 9903.03.13 (52 codes), and "motor vehicles" → 9903.03.14 (439 codes). Despite the third proclamation's title, actual vehicles are Section 232-covered and therefore excluded — that list is miscellaneous consumer goods (personal-care products, plywood, apparel, consumer electronics, furniture, art). Sources are archived in `data/s338/`; the lists are extracted by `scripts/build_s338_annex.R` into `resources/s338_products.csv`.
+Three Section 338 (Tariff Act of 1930, 19 U.S.C. §1338) proclamations signed 2026-07-20 (PP 11046 alcohol, PP 11047 dairy, PP 11048 motor vehicles), effective 2026-08-22, impose an additional 50% ad-valorem duty on products of Canada over three positive HTS-8 lists, via new chapter-99 headings under U.S. note 51: alcohol → 9903.03.12 (63 codes), dairy → 9903.03.13 (52 codes), and "motor vehicles" → 9903.03.14 (439 codes). Despite the third proclamation's title, actual vehicles are Section 232-covered and therefore excluded — that list is miscellaneous consumer goods (personal-care products, plywood, apparel, consumer electronics, furniture, art). Sources are archived in `data/s338/`; the lists are extracted by `scripts/build_s338_annex.R` into `resources/s338_products.csv`.
 
-Because no HTS archive carries the 9903.03.1x headings yet, the authority is hand-fed from `config/policy_params.yaml` (`section_338:`) plus the side-data lists — the same pattern as the pharma §232 and Brazil §301 turn-ons — and is date-gated in the authority adapter. The turn-on is materialized in the panel by the `bnd_2026-08-19` boundary mint (`boundary_overrides`). When a real HTS revision publishes the headings, the hand-fed treatment should be reconciled against the parse.
+The effective date is 2026-08-22, not the 2026-08-19 stated in the three original proclamations. Proclamation 11056 (signed 2026-08-18, 91 FR 54789) is titled "Temporary Suspension" and its recitals describe "suspending for a period of 3 days", but its operative clause amends the Annex II chapeau of each proclamation to delete "August 19, 2026" and insert "August 22, 2026" — a moved start date, not a suspension window, with refunds provided for anything collected in between. USITC codified the same date: every note-51 and 9903.03.1x row in the rev_17 change record is dated 8/22/2026.
+
+Rates and products come from different sources. Since 2026 rev_17 — the first archive to carry the headings — the **rate** is read off 9903.03.12-.14 by `extract_section338_rates()`, with the `config/policy_params.yaml` literal demoted to a fallback for earlier archives and for boundary mints built before rev_17 was ingested. The **product lists** remain side-data (`resources/s338_products.csv`), because U.S. note 51(b) is legal-note text that never reaches the JSON export — the same split as Brazil §301, whose note-50 exemption lists stay FR-annex side-data. The promotion is numerically neutral: `tests/test_s338_hts_rates.R` asserts the HTS-extracted rate equals the config rate, and the codified note 51(b) lists were reconciled against `resources/s338_products.csv` at 554/554 HTS-8 codes with zero mismatches.
 
 Mechanics:
 

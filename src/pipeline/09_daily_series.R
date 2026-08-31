@@ -1090,7 +1090,7 @@ build_daily_workbook_readme <- function() {
     c('mean_ieepa', 'Mean net IEEPA reciprocal contribution (mutual exclusion with 232)'),
     c('mean_fentanyl', 'Mean net IEEPA fentanyl contribution (CA, MX, CN)'),
     c('mean_s122', 'Mean net Section 122 contribution (post-IEEPA invalidation, 150-day limit)'),
-    c('mean_s338', 'Mean net Section 338 contribution (Canada +50%, effective 2026-08-19)'),
+    c('mean_s338', 'Mean net Section 338 contribution (Canada +50%, effective 2026-08-22)'),
     c('mean_section_201', 'Mean net Section 201 contribution (safeguard duties, very small)'),
     c('mean_other', 'Mean net other tariff contribution'),
     c('etr_232', 'Import-weighted ETR contribution from Section 232'),

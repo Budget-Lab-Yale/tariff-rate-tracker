@@ -97,11 +97,11 @@ must(all(pos$total_additional >= pos$rate_s301br - 1e-9),
      'total_additional >= rate_s301br on charged rows (additive, never displaced)')
 
 cat('\n================ LAST PRE-BOUNDARY: rate stays on later revisions =====\n')
-post_path <- file.path(TS, 'snapshot_bnd_2026-08-19.rds')
+post_path <- file.path(TS, 'snapshot_bnd_2026-08-22.rds')
 if (file.exists(post_path)) {
   post <- readRDS(post_path)
   must(sum(post$rate_s301br[post$country == BR] > 0) > 0,
-       'Brazil 25% persists on the bnd_2026-08-19 snapshot (date-gate, not one-off)')
+       'Brazil 25% persists on the bnd_2026-08-22 snapshot (date-gate, not one-off)')
 } else cat('  SKIP: ', post_path, ' not found\n', sep = '')
 
 cat(sprintf('\n================ DONE: %d failures ================\n', fails))

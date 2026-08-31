@@ -230,7 +230,7 @@ expected_disables <- list(
   no_301 = c('section_301', 'section_301_brazil'),
   no_232 = 'section_232',
   no_s122 = 'section_122',
-  # section_338 (2026-08-19 Canada +50%) and section_301_brazil (2026-07-22
+  # section_338 (2026-08-22 Canada +50%) and section_301_brazil (2026-07-22
   # Brazil 25%, FR 2026-14542) are baseline authorities added after the legacy
   # engine, so a "pre-2025 only" counterfactual must disable them too.
   pre_2025 = c('ieepa_reciprocal', 'ieepa_fentanyl', 'section_122', 'section_338',
