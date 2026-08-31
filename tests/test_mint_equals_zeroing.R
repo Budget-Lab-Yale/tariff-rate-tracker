@@ -60,7 +60,22 @@ b <- discover_boundaries(rd, here('data', 'timeseries'), pp,
                          overrides = pp$BOUNDARY_OVERRIDES,
                          horizon = pp$SERIES_HORIZON_END)
 check(swiss_boundary %in% b$date, 'Swiss first-dead-day boundary is minted')
-check(as.Date('2026-07-24') %in% b$date, 'Section 122 first-dead-day boundary is minted')
+
+# The §122 sunset (expiry 2026-07-23, first dead day 2026-07-24) must START an
+# interval, so the calendar recompute sees rate_s122 = 0 from that day. It does
+# NOT have to be a synthetic mint: policy-dating rev_13 to the forced-labor
+# turn-on made 2026-07-24 a real revision edge, and discover_boundaries drops a
+# mint that lands on an edge (owner_of returns NA there) because the revision's
+# own snapshot already owns the date. Asserting specifically "is minted" made
+# this test contradict test_boundary_discovery.R, which asserts the opposite.
+# Assert the invariant that actually matters — the day is an interval start,
+# by either route — so a future re-dating cannot silently drop the sunset.
+s122_dead_day <- as.Date(pp$SECTION_122$expiry_date) + 1
+rev_edges <- as.Date(rd$effective_date)
+check(s122_dead_day %in% c(as.Date(b$date), rev_edges),
+      'Section 122 first-dead-day starts an interval (mint or revision edge)')
+check(s122_dead_day %in% rev_edges,
+      'and today that route is the rev_13 edge, not a mint')
 check(!exists('apply_expiry_zeroing', mode = 'function'),
       'no downstream expiry-zeroing function remains')
 

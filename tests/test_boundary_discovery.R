@@ -116,15 +116,24 @@ if (have_ch99) {
         '2025-09-01 (Ch99 heading expiry) discovered, owner rev_20')
   check(!('2025-05-03' %in% emitted),
         '2025-05-03 (auto parts = rev_11 edge) is NOT minted')
-  # On the production grid exactly these seven boundaries are mintable (incl. the
+  # On the production grid exactly these boundaries are mintable (incl. the
   # two Ch99 rate-less heading expiries 2025-06-01 / 2025-09-01).
-  # 2026-07-24 is NOT here: backdating rev_13 to the forced-labor turn-on made
-  # that date a real revision edge, so the mint it used to need is retired (see
-  # the "not a duplicate boundary" check above). The expectation survived the
-  # merge of the two branches that changed this set independently.
+  #
+  # Three dates are deliberately NOT here, all the same pattern: policy-dating a
+  # revision to its duty's legal turn-on makes that date a real revision edge, so
+  # discover_boundaries drops the mint (owner_of returns NA on edges) and the
+  # revision's own snapshot owns the date.
+  #   2026-07-24  rev_13 (forced-labor §301)   — see the "not a duplicate
+  #                                               boundary" check above
+  #   2026-08-15  rev_16 (quartz §201)         — would otherwise mint from the
+  #                                               s201_quartz program window
+  #   2026-08-22  rev_17 (§338 Canada)         — was bnd_2026-08-19 until PP
+  #                                               11056 moved the turn-on
+  # All three remain listed in boundary_overrides; that is harmless and is the
+  # established convention (2026-07-24 has been listed since rev_13 landed).
   expected <- c('2025-03-12', '2025-06-01', '2025-09-01', '2025-11-14',
                 '2026-02-20', '2026-04-01', '2026-07-22',
-                '2026-07-31', '2026-08-19', '2026-09-29',
+                '2026-07-31', '2026-09-29',
                 '2026-11-10', '2026-12-04')
   check(setequal(emitted, expected),
         paste0('exactly {', paste(expected, collapse = ', '), '} discovered on the live grid'))

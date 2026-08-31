@@ -842,9 +842,17 @@ run_test('section_232 pharmaceuticals from 9903.04.60-.69', {
   stopifnot(classify_authority('9903.04.59') == 'other')
 })
 
-run_test('polysilicon 9903.45.30-.36 routes to section_232 before section_201', {
+run_test('quartz .30/.31 route to section_201; polysilicon .32-.36 to section_232', {
+  # The polysilicon §232 proclamation (eff. 2026-12-04) claims note 42 at
+  # 9903.45.30-.36, but USITC used .30/.31 for the quartz safeguard (note 41)
+  # in rev_16, effective 2026-08-15 — and rev_17 carries no polysilicon heading
+  # at all. The codified headings win; polysilicon keeps the .32-.36 residue
+  # until one of the two programs is renumbered. This assertion previously read
+  # .30/.36 -> section_232 on the pre-codification assumption.
   stopifnot(classify_authority('9903.45.29') == 'section_201')
-  stopifnot(classify_authority('9903.45.30') == 'section_232')
+  stopifnot(classify_authority('9903.45.30') == 'section_201')
+  stopifnot(classify_authority('9903.45.31') == 'section_201')
+  stopifnot(classify_authority('9903.45.32') == 'section_232')
   stopifnot(classify_authority('9903.45.36') == 'section_232')
   stopifnot(classify_authority('9903.45.37') == 'section_201')
 })

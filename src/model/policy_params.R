@@ -385,6 +385,17 @@ load_policy_params <- function(yaml_path = NULL,
       message('  Policy dates: S201 expiry -> ',
               params$SECTION_201$expiry_date)
     }
+    # Quartz (note 41) carries its own program window, disjoint from solar.
+    if (!is.null(params$section_201$quartz)) {
+      q <- params$section_201$quartz
+      if (!is.null(q$effective_date))
+        params$SECTION_201$quartz$effective_date <- as.Date(q$effective_date)
+      if (!is.null(q$expiry_date))
+        params$SECTION_201$quartz$expiry_date <- as.Date(q$expiry_date)
+      message('  Policy dates: S201 quartz -> ',
+              params$SECTION_201$quartz$effective_date, ' .. ',
+              params$SECTION_201$quartz$expiry_date)
+    }
   }
 
   # Local paths (optional user-specific file locations)

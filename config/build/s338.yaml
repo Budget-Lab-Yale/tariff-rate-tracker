@@ -1,8 +1,8 @@
 # s338 build — actual + new_301, first vintage to carry the Section 338 Canada
 # authority (three proclamations signed 2026-07-20, +50% on the alcohol/dairy/
-# "motor vehicles" HTS-8 lists, effective 2026-08-19; branch s338-ca):
-#   * new rate_s338 RATE_SCHEMA column (all-zero before 2026-08-19)
-#   * new bnd_2026-08-19 boundary mint (turn-on interval)
+# "motor vehicles" HTS-8 lists, effective 2026-08-22; branch s338-ca):
+#   * new rate_s338 RATE_SCHEMA column (all-zero before 2026-08-22)
+#   * new bnd_2026-08-22 boundary mint (turn-on interval)
 #   * daily_by_authority gains mean_s338 / etr_s338
 #
 # Builds a fresh vintage and VERIFIES it, but does NOT move `latest`: spot-check
