@@ -48,7 +48,8 @@ expect_error <- function(expr, pattern = NULL) {
 ALTERNATIVES <- c('dutyfree_nonzero', 'metal_flat', 'subdivision_r_mid',
                   'usmca_2024', 'usmca_annual', 'usmca_dec2025', 'usmca_monthly')
 COUNTERFACTUALS <- c('no_232', 'no_301', 'no_fl_301', 'no_fl_301_keep_s122',
-                     'no_ieepa', 'no_ieepa_recip', 'no_s122', 'no_s338', 'pre_2025')
+                     'no_ieepa', 'no_ieepa_recip', 'no_polysilicon', 'no_s122',
+                     'no_s338', 'pre_2025')
 
 # =============================================================================
 # 1. Registry
@@ -61,7 +62,7 @@ run_test('registry contains all 7 alternatives', {
   stopifnot(all(ALTERNATIVES %in% registry$name[registry$kind == 'alternative']))
 })
 
-run_test('registry contains all 9 counterfactuals', {
+run_test('registry contains all 10 counterfactuals', {
   stopifnot(all(COUNTERFACTUALS %in% registry$name[registry$kind == 'counterfactual']))
 })
 
@@ -122,11 +123,11 @@ run_test("'alternatives' expands to exactly the historical 7-variant set", {
   stopifnot(setequal(resolve_alternatives_selector('alternatives'), ALTERNATIVES))
 })
 
-run_test("'counterfactuals' expands to the 9 counterfactuals", {
+run_test("'counterfactuals' expands to the 10 counterfactuals", {
   stopifnot(setequal(resolve_alternatives_selector('counterfactuals'), COUNTERFACTUALS))
 })
 
-run_test("'all' is alternatives + counterfactuals (16)", {
+run_test("'all' is alternatives + counterfactuals (17)", {
   got <- resolve_alternatives_selector('all')
   stopifnot(setequal(got, c(ALTERNATIVES, COUNTERFACTUALS)))
 })
