@@ -21,7 +21,7 @@ the printed note (this audit, parse of the rev_5 text):
 | (aa)(ii) / heading 9903.03.03 | **1,098** | none — "articles the product of any country … classifiable in the following subheadings" | full-line exempt | **correct** |
 | (aa)(iii) / 9903.03.04 | 11 | particular articles | full-line exempt | correct |
 | **(aa)(iv) / 9903.03.05** | **546** | civil aircraft, engines, parts, simulators "**that otherwise meet the criteria of general note 6**" — a **USE test**, product of any country | **full-line exempt** | **over-exemption** |
-| untraceable | 1 (9031.49.70) | — | known benign (provenance audit 2026-06-15) | — |
+| untraceable | 1 (9031.49.70) | — | removed 2026-08: absent from (aa)(iv) in every §122-era revision (rev_4–rev_15 checked at the subdivision level); its chapter-99 appearances are unrelated provisions (e.g. the §301 note-20 lists). Formerly carried as "known benign" from the 2026-06-15 provenance audit. | resolved |
 
 The (aa)(iv) enumeration lists eligible HTS8 *provisions*, but only
 GN6-certified civil-aircraft entries within them are exempt. A consumer
