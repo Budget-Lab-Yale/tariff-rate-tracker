@@ -29,11 +29,10 @@ policy_params_path: config/policy_params_pre2025.yaml
 scenarios: []
 
 # Flags
-use_hts_dates: true        # HTS RELEASE ORDER, deliberately. The 110 backfilled
-                           # rows carry release dates with policy_effective_date
-                           # empty; policy-date curation of the ~127 revisions is
-                           # Phase 2b. Running on release order is the basis the
-                           # repo already supports and sidesteps curation for now.
+use_hts_dates: false       # POLICY DATES (Phase 2b): revisions start on their
+                           # measures' legal dates (policy_effective_date in
+                           # revision_dates.csv), as in the 2025-26 build. This
+                           # was `true` (HTS release order) in the 2a skeleton.
 
 weight_mode: unweighted    # Weights are Phase 3: there is no pre-2025 weights
                            # spine yet (single 2024 anchor, 484(f) crosswalk only
@@ -56,4 +55,4 @@ verify: false              # scripts/verify_build.R pins 2025-26 EXPECTATIONS â€
                            # active from the era's first revision, which is false
                            # before 2018). Gating this era on it would fail for
                            # reasons that say nothing about the era. Re-keying
-                           # expected_authorities per era is Phase 2b work.
+                           # expected_authorities per era is still open.
