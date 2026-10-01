@@ -132,6 +132,36 @@ changes across rev_12/13/15, only the markup.
   uncommitted WIP in it — apply when that lands, and extend
   `tests/test_rate_parse_markup.R` with a ch99-side invariant at the same time.
 
+## Pre-2025 era — Phase 2c (rates), found during Phase 2b (2026-10-01)
+
+Phase 2b (timing) is done: revisions start on legal dates and
+`resources/pre2025_ch99_activation_dates.csv` gates early or never-effective
+headings. Its isolated footprint (era vintage `.validation/pre2025-era/2026-10-01-08`
+vs the same tree minus 2b, `.validation/pre2025-era-pre2b/2026-10-01-09`) is
+only the intended moves. Two PRE-EXISTING defects it exposed:
+
+- **Turkey §232 50% applied to every country (2018-08 .. 2019-05).**
+  `parse_countries()` reads 9903.80.02 ("Products of iron or steel that are
+  the product of Turkey ...") as `all_except` with an empty exempt list, so all
+  204 origins' ch72-73 lines get +25 pp (151,572 rows in 2018_rev_10; the
+  unweighted §232 mean doubles, 0.0086 -> 0.0169). It also drops Turkey from
+  9903.80.01's exempt list ("except products of ... of Turkey" parses to
+  AU,AR,BR,KR). This is why the 2a skeleton showed §232 higher in 2018 than
+  2019. Check whether any 2025-26 heading uses the "that are the product of X"
+  phrasing before touching the parser.
+- **"provision suspended" text does not stop a rate.** §301 List 4B
+  (9903.88.16, +15%) carries "[Compiler's note: provision suspended.]" from
+  2021_rev_6, yet the pre-2b build still charges it on 400 China lines through
+  2022-06-29 — `build_s301_tiers()`'s suspended filter is evidently not the path
+  that applies it. The activation table now marks 4B never-effective, so the
+  era is right; but find which path ignores the note and whether a 2025-26
+  heading with the same note is being charged.
+
+Then the 2c rate work itself, per `config/policy_params_pre2025.yaml`'s scope
+warning: dated §301 rate map (List 3 10->25, 4A 15->7.5), §232 exemption START
+dates, §201 dated schedules (solar, washers; §201 reads nonzero in 2016), §301
+aircraft branch, MTB end dates, NAFTA-era preference keying, GSP lapse.
+
 ## MRS replication
 
 Independent research workstream (JI); tracked on the researcher's own
