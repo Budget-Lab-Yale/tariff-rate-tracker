@@ -44,7 +44,17 @@ library(here)
     # Optional fields documented in policy_params.yaml but intentionally absent
     # from the active baseline configuration.
     usmca_shares = list(month = 0L),
-    section_301_exclusions = list(line_coverage_file = '')
+    section_301_exclusions = list(line_coverage_file = ''),
+    # Per-country caps on the parsed general IEEPA-fentanyl rate (census code ->
+    # max rate), applied when the spec is assembled (authority_adapter.R). Keys
+    # are limited to the fentanyl scope; a typo'd code fails loudly here. Used
+    # by mrs_paper_assumptions to hold Canada at the MRS Table 1 rate of 25%.
+    ieepa_fentanyl_rate_caps = list('5700' = 0, '1220' = 0, '2010' = 0),
+    # us_auto_content_share is a scalar in the baseline; overlays may replace it
+    # with the origin-keyed map form (06_calculate_rates.R step 4b validates the
+    # values). Registering the map shape here lets the overlay validator accept it.
+    auto_rebate = list(us_auto_content_share =
+                         list(default = 0, canada = 0, mexico = 0))
   )
 }
 
@@ -350,6 +360,43 @@ load_policy_params <- function(yaml_path = NULL,
     params$MFN_EXEMPTION <- list(method = 'none', exclude_usmca_countries = TRUE)
   }
 
+  # Column 2 (non-NTR) origins — HTSUS General Note 3(b).
+  # Resolved to a flat tibble so the calculator can date-gate with one filter.
+  # `effective_date` is NA for the always-column-2 origins (Cuba, North Korea);
+  # the gate in apply_column_2_rates() is
+  #   is.na(effective_date) | revision effective_date >= effective_date.
+  # Fails loud on a malformed entry: a silently-dropped origin would ship that
+  # country at column-1 rates, which is the exact defect this block fixes.
+  params$COLUMN_2_COUNTRIES <- if (!is.null(params$column_2_countries) &&
+                                   length(params$column_2_countries) > 0) {
+    dplyr::bind_rows(map(seq_along(params$column_2_countries), function(i) {
+      entry <- params$column_2_countries[[i]]
+      code <- as.character(entry$country %||% NA_character_)
+      if (length(code) != 1L || is.na(code) || !nzchar(code)) {
+        stop('policy_params: column_2_countries[[', i,
+             ']] has no usable `country` Census code', call. = FALSE)
+      }
+      tibble::tibble(
+        country = code,
+        name = as.character(entry$name %||% code),
+        effective_date = if (is.null(entry$effective_date)) {
+          as.Date(NA)
+        } else {
+          as.Date(entry$effective_date)
+        }
+      )
+    }))
+  } else {
+    tibble::tibble(country = character(), name = character(),
+                   effective_date = as.Date(character()))
+  }
+  if (anyDuplicated(params$COLUMN_2_COUNTRIES$country)) {
+    stop('policy_params: column_2_countries has duplicate Census codes: ',
+         paste(unique(params$COLUMN_2_COUNTRIES$country[
+           duplicated(params$COLUMN_2_COUNTRIES$country)]), collapse = ', '),
+         call. = FALSE)
+  }
+
   # Section 232 country exemptions (TRQ/quota agreements)
   if (!is.null(params$section_232_country_exemptions)) {
     params$S232_COUNTRY_EXEMPTIONS <- map(params$section_232_country_exemptions, function(entry) {
@@ -431,6 +478,22 @@ load_policy_params <- function(yaml_path = NULL,
   # so we override with the published current rate.
   if (!is.null(params$section_201)) {
     params$SECTION_201 <- params$section_201
+    if (!is.null(params$section_201$expiry_date)) {
+      params$SECTION_201$expiry_date <- as.Date(params$section_201$expiry_date)
+      message('  Policy dates: S201 expiry -> ',
+              params$SECTION_201$expiry_date)
+    }
+    # Quartz (note 41) carries its own program window, disjoint from solar.
+    if (!is.null(params$section_201$quartz)) {
+      q <- params$section_201$quartz
+      if (!is.null(q$effective_date))
+        params$SECTION_201$quartz$effective_date <- as.Date(q$effective_date)
+      if (!is.null(q$expiry_date))
+        params$SECTION_201$quartz$expiry_date <- as.Date(q$expiry_date)
+      message('  Policy dates: S201 quartz -> ',
+              params$SECTION_201$quartz$effective_date, ' .. ',
+              params$SECTION_201$quartz$expiry_date)
+    }
   }
 
   # Local paths (optional user-specific file locations)

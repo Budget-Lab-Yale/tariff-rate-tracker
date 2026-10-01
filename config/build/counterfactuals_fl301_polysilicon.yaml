@@ -1,0 +1,28 @@
+# Counterfactuals: the forced-labor §301 action, and the polysilicon §232 action.
+#
+# Builds `actual` plus one subfolder per scenario in ONE vintage, all three
+# through the same code path and the same 484(f) per-interval weight plan, so the
+# scenario-vs-actual diffs are exact:
+#   <model_data_root>/<vintage>/{actual, scenarios/no_fl_301, scenarios/no_polysilicon}/
+#
+#   actual          - current law
+#   no_fl_301       - USTR forced-labor §301 (eff. 2026-07-24) never happens.
+#                     §122 still sunsets 2026-07-23, so nothing steps into its
+#                     slot (see no_fl_301_keep_s122 for the other world).
+#   no_polysilicon  - polysilicon §232 (PP 2026-08-06, eff. 2026-12-04) never
+#                     takes effect; every other §232 program held fixed.
+#
+# Launch:  bash scripts/submit_build_array.sh --config config/build/counterfactuals_fl301_polysilicon.yaml
+
+model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker
+policy_params_path: config/policy_params.yaml
+
+scenarios:
+  - no_fl_301
+  - no_polysilicon
+
+use_hts_dates: false        # policy effective dates
+weight_mode: required       # 484(f) per-interval weights; fail loud if missing
+update_latest: false        # additive publish — do not move `latest`
+allow_partial: false        # fail loud on any missing revision snapshot
+verify: true                # finalize runs scripts/verify_build.R

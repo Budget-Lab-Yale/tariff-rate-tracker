@@ -4,7 +4,7 @@
 
 | Script | What it does | Destination |
 |---|---|---|
-| `submit_build_verify.sh` | Serial full rebuild + verification gate (`verify_build.R`), one reviewable Slurm job (192G/4h) | Repo-local (`data/timeseries/`, `output/actual/`) |
+| `submit_build_verify.sh` | Serial full rebuild + verification gate (`verify_build.R`), one reviewable Slurm job (384G/6h) | Repo-local (`data/timeseries/`, `output/actual/`) |
 | `submit_build_array.sh --config config/build/<name>.yaml` | Config-driven parallel build: Slurm array per revision, scenarios concurrent, gather + verified finalize | Shared model_data vintage (repo never written) |
 
 Everything else under `scripts/` is supporting infrastructure (array task /
@@ -25,6 +25,28 @@ is a gate: any failure exits 1. Both blessed entry points run it —
 the vintage, then `publish_vintage.R --latest-only` repoints `latest` and the
 scratch is removed. A verify failure keeps the vintage on disk, `latest` on
 the previous good vintage, and the scratch intact.
+
+## Comparing two vintages (`compare_vintages.R`)
+
+`scripts/compare_vintages.R <baseline_vintage_dir> <new_vintage_dir>
+[--series actual,no_s338] [--tol 1e-9]` diffs two published vintages on the
+gathered daily outputs and answers "what did this change actually do to the
+numbers?". Per series it reports column-set and date-coverage differences,
+every numeric column that moved (first/last date, largest move and where, the
+end-of-series delta), the `matched_imports_b == total_imports_b` weights-join
+diagnostic, and the §338 marginal effect (`actual` minus `no_s338`) within each
+vintage. Deltas print in percentage points.
+
+**Check weight-input parity before trusting any diff.** A vintage built without
+the 2025 split-share base silently falls back to an even split for 484(f)
+renumberings, moving ~$64B of value between share tiers and shifting weighted
+ETRs across the WHOLE series — including dates the code change never touched.
+The script reads `manifest.json -> weights.provenance.split_shares.present` on
+both sides and warns loudly when they disagree; preflight now blocks the build
+that would produce such a vintage. Pair this with the snapshot `sha256` values
+in the two manifests: revisions whose rates genuinely did not change are
+byte-identical, which separates a real rate change from an interval-boundary
+reshuffle.
 
 ## Alternatives / counterfactuals (2026-06-10 unification)
 

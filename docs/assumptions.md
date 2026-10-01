@@ -346,3 +346,166 @@ Validity windows are read **per revision from each archive's own heading text** 
 **Zero rate-number change:** adding the flag leaves `base_rate` and all computed rates byte-identical (verified on rev_9). Value-weighted exposure share is deferred to `src/diagnostics.R` (next cluster build).
 
 **Implementation:** `classify_rate_type()` / `read_products_cache()` in `src/core/helpers.R`; `type_stack` in `src/pipeline/04_parse_products.R`; `build_rate_grid()` in `src/model/rate_schema.R`; `compute_revision_quality()` in `src/io/quality_report.R`; `export_statutory_rates()` in `tools/generate_etrs_config.R`.
+
+## 20. Column 2 Base Rates for Non-NTR Origins (GN 3(b))
+
+**The defect this fixes (2026-07-29):** until this section existed the pipeline
+read only the `general` field of the HTS JSON, so **every** origin was priced at
+column 1 general. HTSUS **General Note 3(b)** makes goods of countries denied
+normal-trade-relations treatment dutiable at the rates in **column 2**, and four
+origins qualify for the whole 2025–2026 window. All four were carrying column-1
+base rates — a genuine understatement of their statutory duty, not a modeling
+convention.
+
+**Selection (the country side is exogenous, by necessity).** GN 3(b) names the
+countries in prose; nothing in the HTS JSON marks a line or an origin as
+column-2, and no Census field carries NTR status. So the rate side is parsed and
+the country side is configured:
+
+| Census code | Origin | Column 2 from | Authority |
+|---|---|---|---|
+| `2390` | Cuba | always (whole modeled window) | GN 3(b); non-NTR since 1962 |
+| `5790` | North Korea | always (whole modeled window) | GN 3(b); non-NTR since 1951 |
+| `4621` | Russia | 2022-04-09 | PL 117-110 (Suspending Normal Trade Relations with Russia and Belarus Act) |
+| `4622` | Belarus | 2022-04-09 | PL 117-110 |
+
+Codes verified against `resources/census_codes.csv`. Config lives in
+`config/policy_params.yaml::column_2_countries` as
+`{country, name, effective_date}` with `effective_date: null` meaning "always";
+the gate is `is.na(effective_date) | revision effective_date >= effective_date`.
+The two 2022 dates are before the current series start, so those origins are
+column-2 throughout it — the dates are recorded correctly anyway so the pre-2025
+backfill (`docs/internal/pre2025_expansion_scoping_2026-07-28.md`, decision 7)
+gets the column-1 → column-2 switch at the right revision with no code change.
+**No other origin is denied NTR treatment as of 2026-07**; adding an entry is a
+rate change across that origin's entire product set and requires a cited Act of
+Congress or GN 3(b) amendment.
+
+**Rate side.** `parse_products()` reads the JSON `other` field into `col2_rate` /
+`col2_rate_raw` / `col2_rate_type` using the same `parse_rate()` /
+`classify_rate_type()` pair as the general rate. Column-2 inheritance for
+statistical suffixes rides a **single** stack that pushes on any legal column-2
+line, so — unlike `base_rate` — it does **not** reproduce the stale-sibling
+inheritance bug described in §19: a specific/compound column-2 parent correctly
+shadows a shallower numeric instead of letting a suffix inherit a stale sibling
+rate.
+
+**Coverage of the `other` field (checked, not assumed).** On 2026 rev_9, 23,525 of
+23,568 product lines carry a column-2 rate after inheritance; 39 carry neither a
+column-1 nor a column-2 rate, and exactly **4** carry a column-1 rate with no
+column-2 rate. All four are chapter-98 special provisions — `9801.00.10` /
+`9801.00.11.00` (American goods returned, `Free` in both columns) and
+`9822.05.10` / `9822.06.05` (FTA-specific subchapters a non-NTR origin cannot
+use). A missing column-2 rate therefore defaults to `0` / `free` via
+`default_base_cols()`, which is correct on all four lines rather than merely
+tolerable. No line has a column-2 rate *below* its column-1 rate.
+
+**Where it applies.** `apply_column_2_rates()` (step **1c** of
+`06_calculate_rates.R`) sets `base_rate` ← `col2_rate` (NA → 0) and
+`base_rate_type` ← `col2_rate_type` for active column-2 origins, and stamps
+`base_rate_source` on **every** row (`col1_general` / `col2_other`).
+`statutory_base_rate` follows automatically — step 6c snapshots it from
+`base_rate`. `base_rate_source` is the provenance flag that keeps the panel
+self-documenting: without it a `statutory_base_rate` of 0.35 on a Russian line
+is indistinguishable from a column-1 rate. It is carried as an extra panel
+column, the same way `base_rate_type` is (§19), rather than as a `RATE_SCHEMA`
+member — the smallest footprint that still answers "which column produced this?".
+
+**Ordering (deliberate).** Step 1c runs *before every authority layer*, not just
+before 6c. Column 2 IS the ordinary customs duty for these origins, so every
+downstream expression reading `base_rate` must read the column-2 value. This
+matters only for **MFN-inclusive floor** layers, computed as
+`pmax(floor − base_rate, 0)`: solved against a ~2% column-1 base the total would
+overshoot the statutory floor, whereas against the true ~35% column-2 base the
+floor correctly contributes 0 and the total lands *on* the floor. **Flat** layers
+are arithmetically independent of `base_rate` and are therefore untouched by
+construction — including Russia's 200% aluminum surcharge (Proc. 10522, retained
+by the April-2026 proclamation), `annex_1a`'s 50%, §122, §301, and Russia's flat
+12.5% forced-labor §301 tier.
+
+**No preference programs (interaction with U2).** Column-2 rows are excluded from
+the HS2 × country `mfn_exemption_shares` scaling
+(`zero_exemption_share_for_column_2()`, consumed in step 6c). Losing NTR
+treatment means losing every preference program, and the share is estimated off
+Census calculated duty for *NTR* trade — applying it would shave a column-2 rate
+using other countries' preference behaviour. A side effect worth naming: this
+leaves `base_rate == statutory_base_rate` on these rows, which is exactly what
+makes the 6d–6f post-MFN floor recomputations (all gated on
+`base_rate < statutory_base_rate`) no-ops for them. USMCA (step 7) cannot
+collide: an overlap between `column_2_countries` and the CA/MX codes fails loud.
+
+**S2 interaction — v1 UNDERSTATES column-2 levels.** Column 2 is far more
+specific-duty-heavy than column 1: on 2026 rev_9, ~22% of lines carrying a
+column-2 rate are `specific_or_compound` versus ~7% for column 1. Under the S2
+no-AVE convention (§19) those cells are numerically **0** while keeping an honest
+`base_rate_type`, so the four origins' measured base levels are a **lower bound**
+until ad-valorem equivalents exist. Where both columns parse cleanly the wedge is
+large — mean column 1 4.4% vs mean column 2 36.5% on rev_9, and column 2 is never
+*below* column 1 on any line — so the direction of the fix is unambiguous even
+though the level is conservative. AVEs from IMDB unit values are **Phase 4** of
+the pre-2025 expansion plan; that is the prerequisite for column-2 magnitudes to
+be fully meaningful.
+
+**Trade-weight caveat:** all four origins are small and shrinking shares of US
+imports (Russia and Belarus under sanctions, Cuba and North Korea under embargo),
+so the headline import-weighted ETR moves very little. The correction matters for
+per-origin statutory rates, not for the aggregate.
+
+**Surfaces:** `base_rate_source` on every panel row; `col2_rate` /
+`col2_rate_raw` / `col2_rate_type` in `data/processed/products_raw.csv`; parse
+counts and the mean repointed `base_rate` in the build log. A pre-col2 product
+cache fails loud via `read_products_cache()` (regenerate with
+`scripts/refresh_product_caches.R`).
+
+**Implementation:** `parse_products()` col2 stack in
+`src/pipeline/04_parse_products.R`; `column_2_countries` in
+`config/policy_params.yaml` resolved to `params$COLUMN_2_COUNTRIES` in
+`src/model/policy_params.R`; `apply_column_2_rates()` and
+`zero_exemption_share_for_column_2()` in `src/pipeline/06_calculate_rates.R`;
+`default_base_cols()` / `build_rate_grid()` in `src/model/rate_schema.R`.
+Registered as **S11** in `docs/statutory_deviations.md`.
+
+### 20a. GN 3(b) origins are exempt from the IEEPA reciprocal tariff (9903.01.29)
+
+**A second defect on the same country set, found while implementing §20 and
+fixed with it (2026-07-29).** HTS heading **9903.01.29** reads "Articles the
+product of any country identified in general note 3(b)" with an empty `general`
+field and `other` = "The duty provided in the applicable subheading" — i.e. **no
+additional reciprocal duty**. The reciprocal program excluded the non-NTR origins
+from the outset: they were already at column 2 and under sanctions, so the
+reciprocal schedule never reached them.
+
+The tracker charged them anyway. Measured on the 2025-09-01 panel of vintage
+`2026-07-29-09`, all four origins carried a mean `rate_ieepa_recip` of **8.86%**
+(max 10%, the universal baseline) across 20,241 pairs each — roughly **half**
+their reported total rate. Nothing in `src/`, `config/`, or
+`resources/ieepa_exempt_products.csv` referenced 9903.01.29 or GN 3(b) before
+this change.
+
+**Why the same config block resolves it.** The heading defines its scope by
+*reference* to general note 3(b) — prose the JSON does not carry, which is the
+exact gap `column_2_countries` exists to fill. One config block, two consumers:
+step 1c prices column 2, step 2b withholds the reciprocal duty. They cannot
+disagree about who is non-NTR.
+
+**Scope, deliberately narrow.** Only `rate_ieepa_recip` is cleared. IEEPA
+*fentanyl* is CA/MX/CN-only and never reaches these origins. **§122** has no
+GN 3(b) carve-out in any revision scanned (2025 rev_32, 2026 rev_12), so it
+continues to apply to them. No date gate beyond the origins' own effective dates
+is needed: before the reciprocal program exists, and after the SCOTUS
+invalidation, `rate_ieepa_recip` is already 0 on every row.
+
+**Known follow-up — §232 heading 9903.82.12 (NOT fixed here).** From the 2026
+annex regime, "derivative aluminum and steel articles the product of any country
+identified in general note 3(b) … as provided for in subdivisions (c)(ix)–(x) of
+U.S. note 16" carries **+25%**, not the 50% tier those lines otherwise draw.
+Modeling it requires country-aware annex tier assignment plus the
+9903.82.17 / 9903.85.68 exceptions, which is more than a base-rate PR should
+carry. Tracked as the next GN 3(b) item; until then these origins' derivative
+steel/aluminum rate may be **overstated** (Russia's ch76 lines are unaffected in
+practice because the 200% aluminum surcharge, Proc. 10522, `pmax`es over any
+tier). Direction is therefore opposite to §20's understatement.
+
+**Implementation:** `apply_gn3b_ieepa_exemption()` in
+`src/pipeline/06_calculate_rates.R`, called as step 2b immediately after the
+IEEPA reciprocal step.

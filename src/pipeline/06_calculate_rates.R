@@ -16,6 +16,8 @@
 #
 # Pipeline steps inside calculate_rates_for_revision():
 #   1. Build the canonical product-country grid; seed footnote rates
+#   1c. Column 2 base rates for non-NTR origins (GN 3(b): CU/KP always,
+#       RU/BY from 2022-04-09) — runs before every authority layer
 #   1b. IEEPA invalidation check (SCOTUS ruling cutoff)
 #   2. IEEPA reciprocal (blanket, country-level)
 #   3. IEEPA fentanyl (blanket, CA/MX/CN)
@@ -232,8 +234,13 @@ calculate_rates_fast <- function(products, ch99_data, countries,
 #'   set_rate lands.
 #' @param s232_rates adapter input from extract_section232_rates(); used here only
 #'   while the adapter resolves revision-specific activation.
+#' @param effective_date Revision or synthetic-boundary date for config-fed
+#'   future programs that do not yet have Chapter 99 backing.
+#' @param heading_configs Raw section_232_headings config, used only for those
+#'   config-fed date gates.
 #' @return named logical list, one entry per known heading program
-compute_heading_gates <- function(specs, s232_rates) {
+compute_heading_gates <- function(specs, s232_rates, effective_date = NULL,
+                                  heading_configs = NULL) {
   # Program rates are structured; parser flags supply activation facts.
   pr <- function(id) s232_spec_rate(specs, id)
   auto   <- pr('autos_source')
@@ -258,7 +265,13 @@ compute_heading_gates <- function(specs, s232_rates) {
     # Pharma is a register-then-activate dormant sub-program: pharma_rate is 0 in
     # baseline (gate FALSE => heading skipped => byte-identical). isTRUE() guards
     # the case where an older cached payload predates the pharma_rate field.
-    pharmaceuticals    = isTRUE(pharma > 0)
+    pharmaceuticals    = isTRUE(pharma > 0),
+    # Polysilicon was announced before its headings appeared in an HTS archive.
+    # Register it on every snapshot and activate it from the legal date.
+    polysilicon = !is.null(effective_date) &&
+      !is.null(heading_configs$polysilicon$effective_date) &&
+      as.Date(effective_date) >=
+        as.Date(heading_configs$polysilicon$effective_date)
   )
 }
 
@@ -907,6 +920,17 @@ apply_section122 <- function(rates, specs, pp, products, effective_date) {
 # see the s338 beer 2203.00.00 case, codex cross-check 2026-07-20), or is a
 # heading_program row. Single definition so a future §232 scope change lands
 # in one place, not three.
+#
+# "In §232 scope" here means "on those notes' exclusion lists", which the
+# notes ENUMERATE per action — they carry no generic any-§232 clause. Heading
+# programs with displaces_overlays: false (polysilicon; Annex II of PP
+# 2026-08-06 amends no exclusion note) are therefore carved back out: their
+# rate component (rate_232_nondisplacing) is subtracted from the statutory
+# prong and their membership (s232_nondisplacing) from the heading prong, so
+# a row they alone cover stays visible to the overlays. A row ALSO covered by
+# a displacing source (metals annex/derivatives) stays excluded — correct,
+# since note 52(f)(1) lists metal articles regardless of what else applies.
+# See docs/internal/polysilicon_note52f_mask_2026-08-10.md.
 .s232_in_scope <- function(rates) {
   ANNEX_IN_SCOPE <- c('annex_1a', 'annex_1b', 'annex_1c', 'annex_3')
   stat232 <- if ('statutory_rate_232' %in% names(rates)) {
@@ -918,7 +942,13 @@ apply_section122 <- function(rates, specs, pp, products, effective_date) {
   headprog <- if ('heading_program' %in% names(rates)) {
     coalesce(rates$heading_program, FALSE)
   } else FALSE
-  stat232 > 0 | annex232 | headprog
+  nondisp <- if ('s232_nondisplacing' %in% names(rates)) {
+    coalesce(rates$s232_nondisplacing, FALSE)
+  } else FALSE
+  nondisp_rate <- if ('rate_232_nondisplacing' %in% names(rates)) {
+    coalesce(rates$rate_232_nondisplacing, 0)
+  } else 0
+  (stat232 - nondisp_rate) > 0 | annex232 | (headprog & !nondisp)
 }
 
 # --- Step 6b-fl: Section 301 forced-labor duties (baseline) ------------------
@@ -1123,7 +1153,7 @@ apply_section301_brazil <- function(rates, specs, products, countries) {
 apply_section338 <- function(rates, specs, products, countries) {
   # 6b-338. Apply Section 338 duties: +50% on products of Canada over the three
   #     positive HTS-8 lists (U.S. note 51(b), headings 9903.03.12-.14; three
-  #     proclamations signed 2026-07-20, effective 2026-08-19). BASELINE
+  #     proclamations signed 2026-07-20, effective 2026-08-22). BASELINE
   #     authority — signed law — hand-fed from policy params + side-data lists
   #     (no HTS archive carries the 9903.03.1x headings yet; pharma/Brazil
   #     pattern). Stacks ADDITIVELY (note 51(a): in addition to every other
@@ -1150,7 +1180,7 @@ apply_section338 <- function(rates, specs, products, countries) {
   #         furniture, cameras) are overwhelmingly NOT aircraft-certified entries,
   #         so an unmeasured one is treated as fully dutiable, not interpolated
   #         from the aircraft-heavy §122 chapter mean.
-  #     rate_s338 is a RATE_SCHEMA column: it persists all-zero in pre-08-19
+  #     rate_s338 is a RATE_SCHEMA column: it persists all-zero in pre-08-22
   #     revisions, like the baseline s301fl/s301br columns.
   s338_spec <- specs[['section_338']]
   s338_by_country <- if (is.null(s338_spec)) numeric(0) else {
@@ -1240,31 +1270,147 @@ apply_section338 <- function(rates, specs, products, countries) {
 }
 
 # --- Step 6b1: Section 201 safeguard (solar) ---------------------------------
-apply_section201 <- function(rates, specs, countries) {
+apply_section201 <- function(rates, specs, countries, effective_date) {
   # 6b1. Apply Section 201 (Trade Act §201 safeguard) tariffs.
-  #      Currently models Solar 201 (Proc 9693 + Proc 10454, 9903.45.21–.25)
-  #      on CSPV cells/modules. The 201 rate stacks on top of MFN, separate
-  #      from 232/301/IEEPA. Canada is exempt under USMCA. Per-product
-  #      coverage is in resources/s201_solar_products.csv.
-  prog <- specs[['section_201']]$programs[[1]]
-  solar_rate <- resolve_rate(prog$rate)$value
-  if (!is.na(solar_rate) && solar_rate > 0) {
+  #      Two programs share the rate_section_201 column, disjoint in time:
+  #        * s201_solar  — Proc 9693 + Proc 10454, 9903.45.21–.25 on CSPV
+  #          cells/modules, expired 2026-02-06. Canada exempt under USMCA.
+  #        * s201_quartz — Proc 11051, 9903.45.30/.31 on quartz surface
+  #          products (U.S. note 41), 2026-08-15 to 2030-08-14, in-quota leg,
+  #          124 economies exempt under note 41(c).
+  #      The 201 rate stacks on top of MFN, separate from 232/301/IEEPA.
+  #      Gating is PER PROGRAM: an authority-level window would kill quartz
+  #      along with solar.
+  spec <- specs[['section_201']]
+  as_of <- as.Date(effective_date)
+
+  auth_dead <- as.Date(spec$active$until %||% NA)
+  if (length(auth_dead) == 1 && !is.na(auth_dead) && as_of >= auth_dead) {
+    message('  Section 201: authority inactive from ', auth_dead)
+    return(rates)
+  }
+
+  for (prog in spec$programs) {
+    label <- prog$id %||% 's201'
+
+    p_from <- as.Date(prog$active$from %||% NA)
+    p_dead <- as.Date(prog$active$until %||% NA)
+    if (length(p_from) == 1 && !is.na(p_from) && as_of < p_from) next
+    if (length(p_dead) == 1 && !is.na(p_dead) && as_of >= p_dead) {
+      message('  Section 201 (', label, '): inactive from ', p_dead)
+      next
+    }
+
+    prog_rate <- resolve_rate(prog$rate)$value
+    if (is.na(prog_rate) || prog_rate <= 0) next
+
     s201_path <- here(prog$product_scope$list_file)
     if (!file.exists(s201_path))
       stop('Section 201 product list not found: ', s201_path)
     s201_products <- read_csv_cached(s201_path,
                                      col_types = cols(hts10 = col_character()))
     s201_country_codes <- resolve_country_scope(prog$country_scope, countries)
+
+    covered <- rates$hts10 %in% s201_products$hts10 &
+               rates$country %in% s201_country_codes
     rates <- rates %>%
-      mutate(rate_section_201 = if_else(
-        hts10 %in% s201_products$hts10 & country %in% s201_country_codes,
-        solar_rate, rate_section_201))
-    message('  Section 201 (solar): ', round(solar_rate * 100, 1), '% on ',
-            sum(rates$rate_section_201 > 0), ' product-country pairs (',
+      mutate(rate_section_201 = if_else(covered, prog_rate, rate_section_201))
+    message('  Section 201 (', label, '): ', round(prog_rate * 100, 1), '% on ',
+            sum(covered), ' product-country pairs (',
             nrow(s201_products), ' HTS10 covered)')
   }
 
   rates
+}
+
+# Resolve the durable HTS10 scope for active Section 301 exclusion headings.
+#
+# USITC's JSON export stopped emitting almost all columns:['general'] Chapter-99
+# cross-reference endnotes in 2026_rev_13. Base China Section 301 scope is
+# already side-data-driven, but the exclusion adjustment historically unnested
+# the current snapshot's products$ch99_refs. Prefer the committed cross-revision
+# mapping so serializer changes cannot silently remove exclusions. The footnote
+# path remains as a compatibility fallback for older configs and test fixtures.
+resolve_s301_exclusion_scope <- function(products, active_excl, excl_cfg) {
+  scope <- NULL
+  lines_file <- excl_cfg$lines_file %||% NULL
+
+  if (!is.null(lines_file)) {
+    lines_path <- here(lines_file)
+    if (!file.exists(lines_path)) {
+      stop('section_301_exclusions.lines_file not found: ', lines_path)
+    }
+    scope <- suppressMessages(read_csv_cached(lines_path, col_types = cols(
+      ch99_code = col_character(), hts10 = col_character(),
+      .default = col_character()
+    ))) %>%
+      select(ch99_code, hts10) %>%
+      distinct()
+
+    if (any(is.na(scope$ch99_code) | is.na(scope$hts10) |
+            !grepl('^[0-9]{10}$', scope$hts10))) {
+      stop('section_301_exclusions.lines_file contains missing or invalid keys: ',
+           lines_path)
+    }
+  } else {
+    scope <- products %>%
+      select(hts10, ch99_refs) %>%
+      unnest(ch99_refs) %>%
+      rename(ch99_code = ch99_refs) %>%
+      select(ch99_code, hts10) %>%
+      distinct()
+  }
+
+  scope %>%
+    inner_join(active_excl %>% select(ch99_code, coverage_share),
+               by = 'ch99_code') %>%
+    group_by(hts10) %>%
+    summarise(excl_coverage = max(coverage_share), .groups = 'drop')
+}
+
+apply_polysilicon_232_adjustments <- function(rates, polysilicon_products,
+                                               cfg, countries, pp) {
+  if (!length(polysilicon_products) || is.null(cfg)) return(rates)
+
+  additive_default <- cfg$default_rate %||% cfg$rate %||% 0
+  additive_rate <- resolve_policy_country_values(
+    cfg$country_rates, countries, pp, default = additive_default)
+  target_total <- resolve_policy_country_values(
+    cfg$target_total, countries, pp, default = NA_real_)
+  adj <- tibble(
+    country = names(additive_rate),
+    polysilicon_additive = as.numeric(additive_rate),
+    polysilicon_target_total = as.numeric(target_total)
+  )
+
+  rates %>%
+    left_join(adj, by = 'country', relationship = 'many-to-one') %>%
+    mutate(
+      .polysilicon_hit = hts10 %in% polysilicon_products,
+      .polysilicon_component = if_else(
+        !is.na(polysilicon_target_total),
+        pmax(polysilicon_target_total - base_rate, 0),
+        coalesce(polysilicon_additive, 0)
+      ),
+      # The proclamation makes this component additive to other duties. Keep it
+      # out of the generic max-across-heading aggregation and add it here.
+      rate_232 = if_else(
+        .polysilicon_hit,
+        rate_232 + .polysilicon_component,
+        rate_232
+      ),
+      # Annex II adds these articles to no overlay exclusion note, so
+      # .s232_in_scope() subtracts this component from the statutory prong —
+      # the FL-301/Brazil-§301/§338 duties keep applying on top
+      # (docs/internal/polysilicon_note52f_mask_2026-08-10.md).
+      rate_232_nondisplacing = if_else(
+        .polysilicon_hit & !isTRUE(cfg$displaces_overlays),
+        .polysilicon_component,
+        0
+      )
+    ) %>%
+    select(-polysilicon_additive, -polysilicon_target_total,
+           -.polysilicon_hit, -.polysilicon_component)
 }
 
 # --- Step 6: Section 301 blanket + USTR exclusions ---------------------------
@@ -1356,14 +1502,7 @@ apply_section301 <- function(rates, specs, pp, ch99_data, products, countries, e
              is.na(win_end)   | eff_d <= win_end)
 
     if (nrow(active_excl) > 0) {
-      excl_shares <- products %>%
-        select(hts10, ch99_refs) %>%
-        unnest(ch99_refs) %>%
-        rename(ch99_code = ch99_refs) %>%
-        inner_join(active_excl %>% select(ch99_code, coverage_share),
-                   by = 'ch99_code') %>%
-        group_by(hts10) %>%
-        summarise(excl_coverage = max(coverage_share), .groups = 'drop')
+      excl_shares <- resolve_s301_exclusion_scope(products, active_excl, excl_cfg)
 
       # Optional per-HTS10 refinement (Phase-2 calibration): when
       # section_301_exclusions.line_coverage_file is configured, lines present
@@ -1428,6 +1567,219 @@ apply_section301 <- function(rates, specs, pp, ch99_data, products, countries, e
   rates
 }
 
+
+#' Repoint non-NTR origins from column 1 general to HTSUS column 2
+#'
+#' HTSUS General Note 3(b): goods of a country denied normal-trade-relations
+#' treatment are dutiable at the COLUMN 2 rates. Four origins qualify in the
+#' modeled window — Cuba and North Korea always, Russia and Belarus since
+#' PL 117-110 (2022-04-09) — and the tracker priced all four at column 1 until
+#' this step existed.
+#'
+#' What it does, for rows whose country is an ACTIVE column-2 origin at this
+#' revision's effective date:
+#'   * `base_rate`      <- `col2_rate`, coalesced NA -> 0 per the S2 convention
+#'   * `base_rate_type` <- `col2_rate_type`, so the exposure flag describes the
+#'     rate actually being charged (column 2 is far more specific-duty-heavy
+#'     than column 1, so this is where the S2 understatement concentrates)
+#'   * `base_rate_source` <- 'col2_other' (vs 'col1_general' everywhere else)
+#'
+#' PROVENANCE, not a silent swap. `base_rate_source` is a new panel column
+#' carried the same way `base_rate_type` is — an extra column outside
+#' RATE_SCHEMA rather than a schema member — which is the smallest footprint
+#' that still leaves the published panel self-documenting. Without it a
+#' `statutory_base_rate` of 0.35 on a Russian line is indistinguishable from a
+#' column-1 rate, and no consumer could tell which convention produced it.
+#'
+#' WHERE THIS RUNS AND WHY (step 1c, before every authority layer): column 2 IS
+#' the ordinary customs duty for these origins, so every downstream expression
+#' that reads `base_rate` must read the column-2 value. That matters for
+#' MFN-INCLUSIVE floor layers, which are computed as `pmax(floor - base_rate, 0)`:
+#' with the override placed late, a floor would be solved against a ~2%
+#' column-1 base and the resulting total would overshoot the statutory floor.
+#' Solved against the true ~35% column-2 base the floor correctly contributes 0
+#' and the total lands ON the floor. FLAT layers — the Russia 200% aluminum
+#' surcharge (Proc. 10522), annex_1a's 50%, §122, §301 — are arithmetically
+#' independent of `base_rate` and are therefore untouched by construction.
+#'
+#' NOT applied here: the HS2 x country `mfn_exemption_shares` preference scaling
+#' (step 6c). Losing NTR treatment means losing every preference program, so
+#' scaling a column-2 rate by an FTA/GSP claim share would be wrong; 6c reads
+#' `base_rate_source` to skip these rows.
+#'
+#' @param rates Rate frame carrying `country` and (optionally) the col2 columns
+#' @param col2_countries params$COLUMN_2_COUNTRIES (country/name/effective_date)
+#' @param effective_date This revision's HTS effective date
+#' @param usmca_countries CA/MX Census codes, asserted disjoint from col-2
+#' @return `rates` with base_rate/base_rate_type repointed, `base_rate_source`
+#'   set on every row, and the transient col2 columns dropped
+apply_column_2_rates <- function(rates, col2_countries, effective_date,
+                                 usmca_countries = character()) {
+  # Always present, on every row, whether or not any origin is column 2 — a
+  # column that appears only when the overlay fires is not self-documenting.
+  rates$base_rate_source <- 'col1_general'
+
+  if (is.null(col2_countries) || nrow(col2_countries) == 0) {
+    rates$col2_rate <- NULL
+    rates$col2_rate_type <- NULL
+    return(rates)
+  }
+
+  rev_date <- as.Date(effective_date)
+  active <- col2_countries[is.na(col2_countries$effective_date) |
+                             col2_countries$effective_date <= rev_date, ,
+                           drop = FALSE]
+
+  # CA/MX must never be column-2 origins: step 7 scales base_rate by the USMCA
+  # share, and a column-2 origin has no USMCA. Config error, so fail loud.
+  overlap <- intersect(active$country, usmca_countries)
+  if (length(overlap) > 0) {
+    stop('apply_column_2_rates: column_2_countries overlaps the USMCA codes (',
+         paste(overlap, collapse = ', '),
+         ') — USMCA share scaling and column-2 pricing are mutually ',
+         'incompatible. Fix config/policy_params.yaml.', call. = FALSE)
+  }
+
+  if (nrow(active) == 0) {
+    message('  Column 2: no origin active at ', rev_date,
+            ' (', nrow(col2_countries), ' configured)')
+    rates$col2_rate <- NULL
+    rates$col2_rate_type <- NULL
+    return(rates)
+  }
+
+  # A configured origin absent from the country universe is worth surfacing but
+  # is not an error: the Census code may carry no trade in the weights vintage.
+  col2_rows <- rates$country %in% active$country
+  if (!any(col2_rows)) {
+    message('  Column 2: ', nrow(active), ' origin(s) active at ', rev_date,
+            ' but none present in this revision\'s country set')
+    rates$col2_rate <- NULL
+    rates$col2_rate_type <- NULL
+    return(rates)
+  }
+
+  if (!'col2_rate' %in% names(rates)) {
+    stop('apply_column_2_rates: ', sum(col2_rows), ' row(s) belong to an active ',
+         'column-2 origin (', paste(active$country, collapse = ', '),
+         ') but the frame carries no col2_rate column. The product table must ',
+         'come from a parse_products() run that reads the JSON `other` field ',
+         '(regenerate stale caches with scripts/refresh_product_caches.R).',
+         call. = FALSE)
+  }
+
+  # S2 convention: a specific/compound column-2 duty has no ad-valorem number,
+  # so it lands at 0 — but col2_rate_type keeps saying why.
+  rates$base_rate[col2_rows] <- dplyr::coalesce(rates$col2_rate[col2_rows], 0)
+  if ('base_rate_type' %in% names(rates) && 'col2_rate_type' %in% names(rates)) {
+    rates$base_rate_type[col2_rows] <-
+      dplyr::coalesce(rates$col2_rate_type[col2_rows], 'free')
+  }
+  rates$base_rate_source[col2_rows] <- 'col2_other'
+
+  n_spec <- if ('col2_rate_type' %in% names(rates)) {
+    sum(rates$col2_rate_type[col2_rows] == 'specific_or_compound', na.rm = TRUE)
+  } else {
+    NA_integer_
+  }
+  message('  Column 2: repointed ', sum(col2_rows), ' pair(s) for ',
+          nrow(active), ' origin(s) [',
+          paste(active$country, collapse = ', '), '] at ', rev_date,
+          ' | mean base_rate ', round(mean(rates$base_rate[col2_rows]), 4),
+          ' | specific/compound (understated as 0 per S2): ', n_spec)
+
+  # Product attributes, not product x country ones — never reach the panel.
+  rates$col2_rate <- NULL
+  rates$col2_rate_type <- NULL
+  rates
+}
+
+
+#' Zero the FTA/GSP preference-utilization share on column-2 rows
+#'
+#' The single point at which step 6c's HS2 x country `mfn_exemption_shares`
+#' scaling is withheld from column-2 origins. Losing normal-trade-relations
+#' treatment means losing every preference program, so there is no claim share
+#' to scale a column-2 rate by. The share is also estimated off Census
+#' calculated duty for NTR trade, so applying it here would shave the column-2
+#' rate using OTHER countries' preference behaviour — wrong twice over.
+#'
+#' Zeroing the share (rather than guarding the `base_rate` mutate) is deliberate:
+#' 6c reuses `exemption_share` downstream to scale `rate_s301fl` on
+#' preference-conditional note-52 textile lines, and a non-NTR origin has no FTA
+#' to condition on there either. It also leaves `base_rate ==
+#' statutory_base_rate` on these rows, which is exactly what makes the 6d-6f
+#' post-MFN floor recomputations (all gated on `base_rate < statutory_base_rate`)
+#' no-ops for them.
+#'
+#' @param exemption_share Numeric vector of HS2 x country preference shares
+#' @param base_rate_source Character vector from apply_column_2_rates()
+#' @return `exemption_share` with column-2 rows forced to 0
+zero_exemption_share_for_column_2 <- function(exemption_share, base_rate_source) {
+  dplyr::if_else(base_rate_source == 'col2_other', 0, exemption_share)
+}
+
+
+#' Exempt GN 3(b) origins from the IEEPA reciprocal tariff (9903.01.29)
+#'
+#' HTS heading 9903.01.29 — "Articles the product of any country identified in
+#' general note 3(b)" — carries `general` empty and `other` = "The duty provided
+#' in the applicable subheading", i.e. NO additional reciprocal duty. The
+#' reciprocal EO excluded the non-NTR origins from the outset: they are already
+#' at column 2 and under sanctions, so the reciprocal schedule never reached
+#' them. The tracker nonetheless charged all four the universal baseline
+#' (measured 8.86% mean / 10% max per origin on the 2025-09-01 panel of vintage
+#' 2026-07-29-09), so this removes a duty that was never owed.
+#'
+#' Why the country set comes from `column_2_countries`: the heading names its
+#' scope by REFERENCE to general note 3(b), which is prose the JSON does not
+#' carry — exactly the gap `column_2_countries` exists to fill. One config
+#' block, two consumers (step 1c prices column 2; step 2b withholds the
+#' reciprocal duty), so the two can never disagree about who is non-NTR.
+#'
+#' Scope limits, deliberately: only `rate_ieepa_recip`. IEEPA *fentanyl* is
+#' CA/MX/CN-only and never reaches these origins; §122 has no GN 3(b) carve-out
+#' in any revision scanned (2025 rev_32, 2026 rev_12), so it continues to apply;
+#' and the §232 GN 3(b) derivative heading 9903.82.12 (25% rather than the
+#' 50% tier, 2026 annex regime) is a SEPARATE, unmodeled item tracked as
+#' follow-up — it needs country-aware annex tier assignment plus the
+#' 9903.82.17 / 9903.85.68 exceptions, which is more than this step should carry.
+#'
+#' Unconditional in time by construction: before the reciprocal program exists
+#' (and after the SCOTUS invalidation) `rate_ieepa_recip` is already 0 for every
+#' row, so zeroing is a no-op there and no separate date gate is needed beyond
+#' the origins' own effective dates.
+#'
+#' @param rates Rate frame carrying `country` and `rate_ieepa_recip`
+#' @param col2_countries params$COLUMN_2_COUNTRIES (country/name/effective_date)
+#' @param effective_date This revision's HTS effective date
+#' @return `rates` with `rate_ieepa_recip` forced to 0 on active GN 3(b) origins
+apply_gn3b_ieepa_exemption <- function(rates, col2_countries, effective_date) {
+  if (is.null(col2_countries) || nrow(col2_countries) == 0) return(rates)
+  if (!'rate_ieepa_recip' %in% names(rates)) return(rates)
+
+  rev_date <- as.Date(effective_date)
+  active <- col2_countries[is.na(col2_countries$effective_date) |
+                             col2_countries$effective_date <= rev_date, ,
+                           drop = FALSE]
+  if (nrow(active) == 0) return(rates)
+
+  gn3b_rows <- rates$country %in% active$country
+  if (!any(gn3b_rows)) return(rates)
+
+  n_charged <- sum(gn3b_rows & rates$rate_ieepa_recip > 0)
+  if (n_charged > 0) {
+    mean_removed <- mean(rates$rate_ieepa_recip[gn3b_rows])
+    rates$rate_ieepa_recip[gn3b_rows] <- 0
+    message('  GN 3(b) IEEPA exemption (9903.01.29): cleared reciprocal duty on ',
+            n_charged, ' of ', sum(gn3b_rows), ' pair(s) for ',
+            nrow(active), ' origin(s) [',
+            paste(active$country, collapse = ', '), '] | mean removed ',
+            round(mean_removed, 4))
+  }
+  rates
+}
+
 calculate_rates_for_revision <- function(
   products, ch99_data, usmca,
   countries, revision_id, effective_date,
@@ -1472,6 +1824,19 @@ calculate_rates_for_revision <- function(
   rates <- calculate_rates_fast(products, ch99_data, countries,
                                 iso_to_census = ISO_TO_CENSUS,
                                 cty_china = CTY_CHINA)
+
+  # 1c. Repoint non-NTR origins to HTSUS column 2 (GN 3(b)).
+  #     Runs BEFORE every authority layer so that MFN-inclusive floors solve
+  #     against the true ordinary customs duty for these origins; flat
+  #     surcharges (Russia 200% aluminum, annex_1a, §122, §301) are independent
+  #     of base_rate and unaffected. See apply_column_2_rates() for the full
+  #     rationale and docs/assumptions.md §20.
+  rates <- apply_column_2_rates(
+    rates,
+    col2_countries = pp$COLUMN_2_COUNTRIES,
+    effective_date = effective_date,
+    usmca_countries = c(CTY_CANADA, CTY_MEXICO)
+  )
 
   # Persist the Swiss framework inputs on the panel. The applied result remains
   # rate_ieepa_recip; these fields make the temporary floor and the underlying
@@ -1798,6 +2163,16 @@ calculate_rates_for_revision <- function(
     rates <- rates %>% mutate(rate_ieepa_recip = 0)
   }
 
+  # 2b. GN 3(b) origins are exempt from the IEEPA reciprocal tariff
+  #     (heading 9903.01.29, "Articles the product of any country identified in
+  #     general note 3(b)", carrying no additional duty). Same country set as
+  #     step 1c, so the exemption resolves from the same config block.
+  rates <- apply_gn3b_ieepa_exemption(
+    rates,
+    col2_countries = pp$COLUMN_2_COUNTRIES,
+    effective_date = effective_date
+  )
+
   # 3. Apply IEEPA fentanyl/initial rates with product-level carve-outs
   #    9903.01.01-24: Mexico (+25%), Canada (+35%), China (+10%)
   #    These STACK with reciprocal tariffs for CA/MX.
@@ -1920,6 +2295,8 @@ calculate_rates_for_revision <- function(
   mhd_products <- character(0)
   semi_products <- character(0)
   pharma_products <- character(0)
+  polysilicon_products <- character(0)
+  nondisplacing_products <- character(0)
   metal_program_products <- character(0)
   s232_country_codes <- character(0)
   heading_gates <- lapply(s232_headings, function(cfg) isTRUE(cfg$enabled))
@@ -1981,6 +2358,8 @@ calculate_rates_for_revision <- function(
     mhd_products <- character(0)
     semi_products <- character(0)
     pharma_products <- character(0)
+    polysilicon_products <- character(0)
+    nondisplacing_products <- character(0)
     # Parts (auto_parts + mhd_parts) tracked separately from whole vehicles.
     # USMCA-qualifying PARTS are fully exempt from 232 (HTS 9903.94.06 for auto
     # parts; Proclamation 10984 for MHD parts) until Commerce stands up a
@@ -2073,6 +2452,19 @@ calculate_rates_for_revision <- function(
           } else stop(tariff_name, ' applicability_shares_file not found: ', ap_path)
         }
 
+        # Overlay displacement (notes 52(f)/50(a)(vi)/51(c)) is enumerated per
+        # action, so every heading program must declare it — no default. A
+        # silent default is how polysilicon wrongly displaced FL-301
+        # (docs/internal/polysilicon_note52f_mask_2026-08-10.md).
+        if (is.null(cfg$displaces_overlays))
+          stop('Section 232 heading "', tariff_name, '" does not declare ',
+               'displaces_overlays in policy_params.yaml. State whether the ',
+               'proclamation put its articles on the overlay exclusion lists ',
+               '(notes 52(f), 50(a)(vi), 51(c)) — see the section_232_headings ',
+               'comment in the config.')
+        if (!isTRUE(cfg$displaces_overlays))
+          nondisplacing_products <- c(nondisplacing_products, matched)
+
         heading_product_lists[[tariff_name]] <- list(
           products = matched,
           rate = resolve_heading_rate(tariff_name, cfg),
@@ -2091,6 +2483,8 @@ calculate_rates_for_revision <- function(
           semi_products <- c(semi_products, matched)
         } else if (grepl('pharma', tariff_name, ignore.case = TRUE)) {
           pharma_products <- c(pharma_products, matched)
+        } else if (grepl('polysilicon', tariff_name, ignore.case = TRUE)) {
+          polysilicon_products <- c(polysilicon_products, matched)
         }
 
         # Parts accumulator (non-exclusive): auto_parts also lands in
@@ -2108,6 +2502,8 @@ calculate_rates_for_revision <- function(
     mhd_products <- unique(mhd_products)
     semi_products <- unique(semi_products)
     pharma_products <- unique(pharma_products)
+    polysilicon_products <- unique(polysilicon_products)
+    nondisplacing_products <- unique(nondisplacing_products)
     parts_products <- unique(parts_products)
 
     # Note 39(a)(1)-(9) excludes semi articles from stacking with 232 autos,
@@ -2173,13 +2569,17 @@ calculate_rates_for_revision <- function(
     n_semi <- length(semi_products)
     message('  Section 232 coverage: ', n_steel, ' steel + ', n_alum,
             ' aluminum + ', n_auto, ' auto + ', n_copper, ' copper + ',
-            n_wood, ' wood + ', n_mhd, ' MHD + ', n_semi, ' semi products')
+            n_wood, ' wood + ', n_mhd, ' MHD + ', n_semi, ' semi + ',
+            length(polysilicon_products), ' polysilicon products')
 
     # --- Build product-level 232 rate lookup from heading configs ---
     # Each heading config specifies its own rate. Build an hts10 -> rate mapping.
     heading_product_rate <- map_dfr(names(heading_product_lists), function(nm) {
       cfg <- heading_product_lists[[nm]]
       if (length(cfg$products) == 0) return(tibble())
+      # Polysilicon must add to any other §232 component; applying it through
+      # this table would collapse overlaps with max(). Add it separately below.
+      if (identical(nm, 'polysilicon')) return(tibble())
       tibble(
         hts10 = cfg$products,
         heading_232_rate = cfg$rate,
@@ -2311,6 +2711,39 @@ calculate_rates_for_revision <- function(
       s232_headings$pharmaceuticals,
       countries, pp
     )
+    rates <- apply_polysilicon_232_adjustments(
+      rates, polysilicon_products,
+      s232_headings$polysilicon,
+      countries, pp
+    )
+
+    # Overlay-displacement bookkeeping (notes 52(f)/50(a)(vi)/51(c)): a row
+    # whose ONLY §232 coverage comes from a non-displacing heading program must
+    # stay visible to the FL-301 / Brazil-§301 / §338 overlays. .s232_in_scope()
+    # subtracts the s232_nondisplacing membership and the
+    # rate_232_nondisplacing component set in the polysilicon apply step.
+    # Component tracking exists only for the polysilicon path; a future program
+    # flipping displaces_overlays must extend its own apply path first.
+    stray_nondisplacing <- setdiff(nondisplacing_products, polysilicon_products)
+    if (length(stray_nondisplacing) > 0)
+      stop('displaces_overlays: false is only implemented for the polysilicon ',
+           'heading program (its apply step tracks rate_232_nondisplacing); ',
+           length(stray_nondisplacing), ' products from another program carry ',
+           'the flag. Extend that program\'s apply path before flipping it.')
+    # The mask treats non-displacing membership as the row's only heading-
+    # program claim; that premise fails if a product is also on a displacing
+    # list (metals or another heading program), so fail loudly if lists collide.
+    displacing_232_products <- unique(c(
+      auto_products, mhd_products, copper_products, wood_products,
+      semi_products, pharma_products, metal_program_products))
+    nondisplacing_collision <- intersect(nondisplacing_products,
+                                         displacing_232_products)
+    if (length(nondisplacing_collision) > 0)
+      stop('Non-displacing §232 products also appear on a displacing product ',
+           'list (', paste(head(nondisplacing_collision, 5), collapse = ', '),
+           ', ...). .s232_in_scope() cannot attribute their coverage; resolve ',
+           'the list overlap.')
+    rates$s232_nondisplacing <- rates$hts10 %in% nondisplacing_products
   }
 
   # statutory_rate_232 is set after step 4c (deal overrides) — see below.
@@ -2339,7 +2772,29 @@ calculate_rates_for_revision <- function(
   }
   rebate_rate <- auto_rebate_cfg$rebate_rate
   assembly_share <- auto_rebate_cfg$us_assembly_share
-  us_auto_content_share <- auto_rebate_cfg$us_auto_content_share
+  # us_auto_content_share: a scalar (one value for both USMCA origins — the
+  # baseline), or an origin-keyed map {default, canada, mexico} for
+  # origin-specific finished-vehicle U.S.-content (mrs_paper_assumptions:
+  # CA 0.55 / MX 0.18 per MRS).
+  uacs_cfg <- auto_rebate_cfg$us_auto_content_share
+  if (is.list(uacs_cfg)) {
+    unknown_uacs <- setdiff(names(uacs_cfg), c('default', 'canada', 'mexico'))
+    if (length(unknown_uacs) > 0 || is.null(uacs_cfg$default)) {
+      stop('auto_rebate$us_auto_content_share map requires `default` and allows ',
+           'only `canada`/`mexico` overrides (got keys: ',
+           paste(names(uacs_cfg), collapse = ', '), ').')
+    }
+    uacs_canada <- uacs_cfg$canada %||% uacs_cfg$default
+    uacs_mexico <- uacs_cfg$mexico %||% uacs_cfg$default
+  } else {
+    uacs_canada <- uacs_mexico <- uacs_cfg
+  }
+  for (uacs_value in list(uacs_canada, uacs_mexico)) {
+    if (!is.numeric(uacs_value) || length(uacs_value) != 1 || is.na(uacs_value) ||
+        uacs_value < 0 || uacs_value > 1) {
+      stop('auto_rebate$us_auto_content_share values must be single numbers in [0, 1].')
+    }
+  }
   rebate_deduction <- rebate_rate * assembly_share
 
   if (rebate_deduction > 0 && length(auto_products) > 0) {
@@ -2354,8 +2809,9 @@ calculate_rates_for_revision <- function(
     n_rebated <- sum(rates$hts10 %in% auto_products & rates$rate_232 > 0)
     message('  Auto rebate: -', round(rebate_deduction * 100, 2),
             'pp on ', n_rebated, ' auto product-country pairs',
-            if (us_auto_content_share < 1) paste0(
-              '; USMCA content share: ', us_auto_content_share * 100, '%') else '')
+            if (uacs_canada < 1 || uacs_mexico < 1) paste0(
+              '; USMCA content share: CA ', uacs_canada * 100,
+              '% / MX ', uacs_mexico * 100, '%') else '')
   }
 
   # 4c. Apply country-specific 232 deal rates (floor/surcharge)
@@ -2610,7 +3066,8 @@ calculate_rates_for_revision <- function(
       # the annex_2 catch-all `8703,2` was setting rate_232 = 0.
       heading_program_products <- unique(c(auto_products, mhd_products,
                                            copper_products, wood_products,
-                                           semi_products))
+                                           semi_products, pharma_products,
+                                           polysilicon_products))
       rates <- rates %>%
         mutate(rate_232 = case_when(
           hts10 %in% heading_program_products ~ rate_232,             # heading rate wins
@@ -2956,7 +3413,7 @@ calculate_rates_for_revision <- function(
   rates <- apply_section301_brazil(rates, specs, products, countries)
 
   # 6b1. Section 201 safeguard / solar (see apply_section201)
-  rates <- apply_section201(rates, specs, countries)
+  rates <- apply_section201(rates, specs, countries, effective_date)
 
   # 6b3. Chapter 98 secondary-classification treatment, ALL authorities.
   # Every additional-duty authority's chapter-99 note carries the same ch98
@@ -3059,6 +3516,10 @@ calculate_rates_for_revision <- function(
         exemption_share = if_else(
           exclude_usmca & country %in% usmca_countries,
           0, exemption_share
+        ),
+        # Skip column-2 origins (step 1c) — see the helper's docstring.
+        exemption_share = zero_exemption_share_for_column_2(
+          exemption_share, base_rate_source
         ),
         base_rate = base_rate * (1 - exemption_share),
         # Note 52 preference-conditional textile/apparel exemptions (CAFTA-DR
@@ -3325,8 +3786,9 @@ calculate_rates_for_revision <- function(
           # convex blend. importer-level U.S.-content above/below the 40% exempt cap
           # is not observed; (1 - usmca_share) proxies the non-U.S. content fraction.
           # Whole VEHICLES (usmca_vehicle_products) use the adjusted USMCA share:
-          # usmca_share * us_auto_content_share (only ~40% of USMCA-eligible vehicle
-          # value is US/USMCA-origin content). PARTS (auto_parts 9903.94.06, MHD
+          # usmca_share * the origin's US-content share (baseline scalar ~40% of
+          # USMCA-eligible vehicle value is US/USMCA-origin content; origin-keyed
+          # under mrs_paper_assumptions). PARTS (auto_parts 9903.94.06, MHD
           # parts per Proc. 10984) are fully exempt when USMCA-qualifying — Commerce
           # had no non-US-content process for parts in the data window — so they are
           # NOT content-scaled; they fall through to the s232_usmca_eligible arm and
@@ -3337,7 +3799,8 @@ calculate_rates_for_revision <- function(
               coalesce(s232_annex == 'annex_1c', FALSE) ~
                 pmax(rate_232 * (1 - usmca_share), ann1c_usmca_target),
               coalesce(s232_usmca_eligible, FALSE) & hts10 %in% usmca_vehicle_products ~
-                rate_232 * (1 - usmca_share * us_auto_content_share),
+                rate_232 * (1 - usmca_share *
+                              if_else(country == CTY_CANADA, uacs_canada, uacs_mexico)),
               coalesce(s232_usmca_eligible, FALSE) ~
                 rate_232 * (1 - usmca_share),
               TRUE ~ rate_232
@@ -3378,17 +3841,17 @@ calculate_rates_for_revision <- function(
             0, rate_s301fl
           ),
           # Binary fallback: 232 for USMCA-eligible CA/MX. Whole VEHICLES
-          # (usmca_vehicle_products): scale by (1 - us_auto_content_share). PARTS
-          # (auto_parts 9903.94.06, MHD parts per Proc. 10984) and other generic
-          # s232_usmca_eligible rows are fully exempt (zero) — parts are not
-          # content-scaled. Annex I-C steel gets the 15% minimum.
+          # (usmca_vehicle_products): scale by (1 - the origin's US-content
+          # share). PARTS (auto_parts 9903.94.06, MHD parts per Proc. 10984) and
+          # other generic s232_usmca_eligible rows are fully exempt (zero) —
+          # parts are not content-scaled. Annex I-C steel gets the 15% minimum.
           rate_232 = if_else(
             country %in% c(CTY_CANADA, CTY_MEXICO) & usmca_eligible,
             case_when(
               coalesce(s232_annex == 'annex_1c', FALSE) ~
                 pmin(rate_232, ann1c_usmca_target),
               coalesce(s232_usmca_eligible, FALSE) & hts10 %in% usmca_vehicle_products ~
-                rate_232 * (1 - us_auto_content_share),
+                rate_232 * (1 - if_else(country == CTY_CANADA, uacs_canada, uacs_mexico)),
               coalesce(s232_usmca_eligible, FALSE) ~ 0,
               TRUE ~ rate_232
             ),

@@ -1,0 +1,11 @@
+hts10,component,mip_amount,mip_unit,modeled_in_baseline
+2804610000,raw_polysilicon,21,usd_per_kg,false
+3818000020,wafer,100,usd_per_kg,false
+3818000040,wafer,100,usd_per_kg,false
+3818000045,wafer,100,usd_per_kg,false
+3818000050,wafer,100,usd_per_kg,false
+3818000091,wafer,100,usd_per_kg,false
+8541420010,cell,0.22,usd_per_watt,false
+8541420080,cell,0.22,usd_per_watt,false
+8541430010,module,0.38,usd_per_watt,false
+8541430080,module,0.38,usd_per_watt,false

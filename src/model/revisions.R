@@ -53,17 +53,34 @@ build_release_name <- function(revision) {
 }
 
 
-#' Build USITC Chapter 99 PDF download URL
+#' Build a USITC reststop file-endpoint URL
 #'
-#' Uses the USITC reststop file endpoint to construct a URL for downloading
-#' the Chapter 99 PDF for a specific HTS release.
+#' Unlike the exportList endpoint — which silently IGNORES a `release`
+#' parameter and always returns the current release with HTTP 200 — the file
+#' endpoint serves ARCHIVED releases. It is therefore the only route to
+#' per-revision attribution once a release has been missed, and the fallback
+#' whenever a revision's JSON is gone (2026_rev_14 has no JSON at all; its
+#' Chapter 99 PDF is the primary source for that revision).
+#'
+#' Verified for 2026 revisions 13-15 with filename 'Change Record' and
+#' 'Chapter 99'; the chapter route generalizes to any chapter number.
+#'
+#' @param release_name Character release name from build_release_name()
+#' @param filename USITC file name, e.g. 'Chapter 99', 'Change Record', 'Chapter 1'
+#' @return Character URL string
+build_reststop_file_url <- function(release_name, filename) {
+  paste0('https://hts.usitc.gov/reststop/file?release=',
+         URLencode(release_name, reserved = TRUE),
+         '&filename=', URLencode(filename, reserved = TRUE))
+}
+
+
+#' Build USITC Chapter 99 PDF download URL
 #'
 #' @param release_name Character release name from build_release_name()
 #' @return Character URL string
 build_chapter99_url <- function(release_name) {
-  paste0('https://hts.usitc.gov/reststop/file?release=',
-         URLencode(release_name, reserved = TRUE),
-         '&filename=Chapter+99')
+  build_reststop_file_url(release_name, 'Chapter 99')
 }
 
 
@@ -357,4 +374,39 @@ get_available_revisions_all_years <- function(all_revisions, archive_dir = here(
     available <- c(available, yr_revisions)
   }
   return(available)
+}
+
+
+#' Backfill archive_rev_id for synthetic (bnd_/sched_) revisions that lack it
+#'
+#' A synthetic interval's product-code universe is the one in force on its date —
+#' i.e. the newest REAL revision at or before it — not its own calendar date.
+#' build_boundary_mints() records that owner as `archive_rev_id`, but rows written
+#' before that was carried (or by a path that never wrote one) arrive without it,
+#' and hts_as_of_dates_from_timeline() then errors. Rather than let a caller
+#' silently fall back to unmapped weights, fill the pointer with the same owner
+#' rule the mint uses.
+#'
+#' @param timeline data frame with `revision` and `effective_date`.
+#' @return the timeline with `archive_rev_id` present for every row.
+backfill_archive_rev_id <- function(timeline) {
+  if (!('revision' %in% names(timeline))) return(timeline)
+  if (!('archive_rev_id' %in% names(timeline))) timeline$archive_rev_id <- NA_character_
+  synth <- grepl('^(sched_|bnd_)', timeline$revision)
+  need <- synth & (is.na(timeline$archive_rev_id) | !nzchar(timeline$archive_rev_id))
+  if (!any(need)) return(timeline)
+  real <- timeline[!synth, , drop = FALSE]
+  real <- real[order(as.Date(real$effective_date)), , drop = FALSE]
+  timeline$archive_rev_id[!synth] <- timeline$revision[!synth]
+  for (i in which(need)) {
+    d <- as.Date(timeline$effective_date[i])
+    owners <- real$revision[as.Date(real$effective_date) <= d]
+    if (length(owners)) timeline$archive_rev_id[i] <- tail(owners, 1)
+  }
+  still <- need & (is.na(timeline$archive_rev_id) | !nzchar(timeline$archive_rev_id))
+  if (any(still)) {
+    stop('backfill_archive_rev_id: no real revision at or before ',
+         paste(timeline$revision[still], collapse = ', '), call. = FALSE)
+  }
+  timeline
 }

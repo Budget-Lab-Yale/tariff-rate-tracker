@@ -43,10 +43,13 @@ REQUIRED_RESOURCES <- c(
   'resources/ieepa_exempt_products.csv',
   'resources/floor_exempt_products.csv',
   'resources/s301_product_lists.csv',
+  'resources/s301_exclusion_lines.csv',
   'resources/s232_derivative_products.csv',
   'resources/s232_auto_parts.txt',
   'resources/s232_mhd_parts.txt',
   'resources/s232_copper_products.csv',
+  'resources/s232_polysilicon_adval_products.csv',
+  'resources/s232_polysilicon_mip_products.csv',
   'resources/fentanyl_carveout_products.csv',
   'resources/hs10_gtap_crosswalk.csv'
 )
@@ -187,6 +190,52 @@ if (sys.nframe() == 0) {
       cat('  >> Run: Rscript src/pipeline/02_download_hts.R\n')
       any_required_missing <- TRUE
     }
+
+    # Every real revision configured in revision_dates.csv must have an archive.
+    # The build SKIPS a configured revision whose JSON is absent, so a missing
+    # archive surfaces as a quietly shorter series rather than an error — the
+    # same silent-omission failure mode the footnote audit exists to catch.
+    # (Combined plan Phase 2 item 6.)
+    #
+    # Base R only, and the revision -> filename mapping is inlined rather than
+    # sourced: preflight must run before the tidyverse is installed, and
+    # src/model/revisions.R calls library(tidyverse) on load. Mirrors
+    # parse_revision_id() / resolve_json_path() there — keep in sync.
+    rev_csv <- file.path(base_dir, 'config', 'revision_dates.csv')
+    if (!file.exists(rev_csv)) {
+      cat('  [!!] config/revision_dates.csv missing — cannot check archive coverage\n')
+      any_required_missing <- TRUE
+    } else {
+      configured <- read.csv(rev_csv, stringsAsFactors = FALSE)$revision
+      # Synthetic partitions are minted during the build, never archived.
+      configured <- configured[!grepl('^(sched_|bnd_)', configured)]
+
+      archive_missing <- character()
+      for (rev in configured) {
+        if (grepl('^[0-9]{4}_', rev)) {
+          yr <- substr(rev, 1, 4)
+          rv <- sub('^[0-9]{4}_', '', rev)
+        } else {
+          yr <- '2025'
+          rv <- rev
+        }
+        stem <- file.path(json_dir, paste0('hts_', yr, '_', rv))
+        if (!file.exists(paste0(stem, '.json.gz')) && !file.exists(paste0(stem, '.json'))) {
+          archive_missing <- c(archive_missing, rev)
+        }
+      }
+
+      cat(sprintf('  [%s] %d/%d configured revisions have an archive\n',
+                  if (length(archive_missing) == 0) 'OK' else '!!',
+                  length(configured) - length(archive_missing), length(configured)))
+      if (length(archive_missing) > 0) {
+        cat('  >> No archive for: ', paste(archive_missing, collapse = ', '), '\n', sep = '')
+        cat('  >> The build skips these silently. Add the archive, or remove the\n')
+        cat('  >> row and represent the policy change with a synthetic boundary\n')
+        cat('  >> (the 2026_rev_14 treatment).\n')
+        any_required_missing <- TRUE
+      }
+    }
   } else {
     cat('  [!!] data/hts_archives/ directory missing\n')
     any_required_missing <- TRUE
@@ -258,6 +307,42 @@ if (sys.nframe() == 0) {
       cat(sprintf('  [%s] import_weights: %s  (%s)\n',
                   if (exists) 'OK' else '--', iw_resolved, iw_source))
     }
+  }
+
+  # Split-share base: the 2025 HS10 x country file the 484(f) mapper uses to
+  # decide WHICH successor of a renumbered code a 2024 flow belongs to. The
+  # build treats it as optional -- resolve_daily_weight_plan() drops a missing
+  # path and every split falls to the even tier -- but that silently moves
+  # ~$64B of trade value out of the country_2025 / all_country_2025 identity
+  # tiers, shifting weighted authority ETRs across the WHOLE series. Nothing
+  # downstream catches it: verify_build passes and matched_imports_b ==
+  # total_imports_b still reads 100%. So flag it as required wherever it would
+  # actually be consumed (weight_method 484f and not opted out of weights).
+  # NOTE: default path and weight_method default mirror
+  # policy_params.R::load_local_paths(). Keep in sync.
+  wmeth <- lp$weight_method
+  if (is.null(wmeth)) wmeth <- '484f'
+  ss <- lp$split_share_imports
+  if (is.null(ss)) ss <- 'data/weights/hs10_by_country_2025_con.rds'
+  ss_path <- if (startsWith(ss, '/') || grepl('^[A-Za-z]:', ss)) ss else file.path(base_dir, ss)
+
+  if (!identical(wmeth, '484f') || identical(wm, 'unweighted')) {
+    cat(sprintf('  [--] split_share_imports: not consumed (weight_method=%s, weight_mode=%s)\n',
+                wmeth, wm))
+  } else if (file.exists(ss_path)) {
+    cat(sprintf('  [OK] split_share_imports: %s\n', ss))
+  } else {
+    cat(sprintf('  [!!] split_share_imports: %s (NOT FOUND, weight_method=484f)\n', ss))
+    cat('       The 484(f) mapper would SILENTLY fall back to an even split:\n')
+    cat('       ~$64B of value leaves the 2025 identity tiers, moving weighted\n')
+    cat('       ETRs across the whole series. The build still reports success --\n')
+    cat('       verify_build and the matched/total diagnostic both stay green --\n')
+    cat('       so a degraded weight plan is only visible in the manifest\n')
+    cat('       (weights.provenance.split_shares.present = false). Either:\n')
+    cat('         - run: Rscript src/io/build_import_weights.R --year 2025 --no-gtap\n')
+    cat('         - set split_share_imports in config/local_paths.yaml, or\n')
+    cat('         - set weight_mode: unweighted to opt out of weighted outputs.\n')
+    any_required_missing <- TRUE
   }
 
 

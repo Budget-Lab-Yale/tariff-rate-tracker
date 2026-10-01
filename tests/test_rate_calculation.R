@@ -19,6 +19,7 @@ source(here('src', 'core', 'helpers.R'))
 source(here('src', 'pipeline', '03_parse_chapter99.R'))
 source(here('src', 'pipeline', '04_parse_products.R'))
 source(here('src', 'pipeline', '05_parse_policy_params.R'))
+source(here('src', 'model', 'authority_spec.R'))
 source(here('src', 'pipeline', '06_calculate_rates.R'))
 
 pass_count <- 0
@@ -683,6 +684,50 @@ run_test('parse_products: base_rate_type inheritance + stale-sibling flag', {
   stopifnot(abs(br[['1806202010']] - 0.05) < 1e-10)  # stale numeric — documented, not fixed here
 })
 
+run_test('parse_products: column 2 parsed from `other` with S2 typing', {
+  # Same shape as the base_rate fixture above, but exercising the `other`
+  # (column 2) field. Note the column-2 hierarchy is deliberately NOT parallel
+  # to the column-1 one: 1806.20.20 is clean ad valorem in column 2 while being
+  # compound in column 1, and vice versa for 1806.20.10 — so a col2 value that
+  # accidentally came from the `general` field would be caught.
+  fixture <- list(
+    make_hts_item('1806.20',       general = '5%',   other = '35%',       indent = 0),
+    make_hts_item('1806.20.10',    general = '',     other = '$4/kg',     indent = 1),
+    make_hts_item('1806.20.10.00', general = '',     other = '',          indent = 2),
+    make_hts_item('1806.20.20',    general = '$1/kg', other = '20%',      indent = 1),
+    make_hts_item('1806.20.20.10', general = '',     other = '',          indent = 2),
+    make_hts_item('1806.30.00',    general = 'Free', other = 'Free',      indent = 0),
+    make_hts_item('1806.90.00',    general = '2%',   other = '',          indent = 0)
+  )
+  tmp <- tempfile(fileext = '.json')
+  jsonlite::write_json(fixture, tmp, auto_unbox = TRUE)
+  on.exit(unlink(tmp), add = TRUE)
+  p <- parse_products(tmp)
+  stopifnot(all(c('col2_rate', 'col2_rate_raw', 'col2_rate_type') %in% names(p)))
+  c2 <- setNames(p$col2_rate, p$hts10)
+  ct <- setNames(p$col2_rate_type, p$hts10)
+  raw <- setNames(p$col2_rate_raw, p$hts10)
+
+  # Specific column-2 parent shadows the ad-valorem heading: NA numeric (S2 ->
+  # 0 downstream) but an honest type. The single col2 stack pushes on ANY legal
+  # column-2 line, so unlike base_rate there is no stale-sibling inheritance.
+  stopifnot(is.na(c2[['1806201000']]))
+  stopifnot(ct[['1806201000']] == 'specific_or_compound')
+
+  # Ad-valorem column 2 under a compound column 1 — proves the two fields are
+  # read independently.
+  stopifnot(abs(c2[['1806202010']] - 0.20) < 1e-10)
+  stopifnot(ct[['1806202010']] == 'ad_valorem')
+
+  # Free in both columns; and a line with no column-2 text at all stays NA.
+  stopifnot(abs(c2[['1806300000']]) < 1e-10, ct[['1806300000']] == 'free')
+  stopifnot(is.na(c2[['1806900000']]), is.na(ct[['1806900000']]))
+
+  # Raw text is preserved verbatim for audit.
+  stopifnot(raw[['1806202010']] == '')
+  stopifnot(raw[['1806300000']] == 'Free')
+})
+
 run_test('parse_ch99_rate: surcharge format', {
   stopifnot(abs(parse_ch99_rate('The duty provided in the applicable subheading + 25%') - 0.25) < 1e-10)
   stopifnot(abs(parse_ch99_rate('The duty provided in the applicable subheading plus 7.5%') - 0.075) < 1e-10)
@@ -788,6 +833,53 @@ run_test('non-232 product stacks IEEPA + fentanyl + s122 fully', {
   expected <- 0.15 + 0.10
   stopifnot(abs(result$total_additional - expected) < 1e-10)
   stopifnot(abs(result$total_rate - (0.04 + expected)) < 1e-10)
+})
+
+run_test('section_232 pharmaceuticals from 9903.04.60-.69', {
+  stopifnot(classify_authority('9903.04.60') == 'section_232')
+  stopifnot(classify_authority('9903.04.63') == 'section_232')
+  stopifnot(classify_authority('9903.04.69') == 'section_232')
+  stopifnot(classify_authority('9903.04.59') == 'other')
+})
+
+run_test('quartz .30/.31 route to section_201; polysilicon .32-.36 to section_232', {
+  # The polysilicon §232 proclamation (eff. 2026-12-04) claims note 42 at
+  # 9903.45.30-.36, but USITC used .30/.31 for the quartz safeguard (note 41)
+  # in rev_16, effective 2026-08-15 — and rev_17 carries no polysilicon heading
+  # at all. The codified headings win; polysilicon keeps the .32-.36 residue
+  # until one of the two programs is renumbered. This assertion previously read
+  # .30/.36 -> section_232 on the pre-codification assumption.
+  stopifnot(classify_authority('9903.45.29') == 'section_201')
+  stopifnot(classify_authority('9903.45.30') == 'section_201')
+  stopifnot(classify_authority('9903.45.31') == 'section_201')
+  stopifnot(classify_authority('9903.45.32') == 'section_232')
+  stopifnot(classify_authority('9903.45.36') == 'section_232')
+  stopifnot(classify_authority('9903.45.37') == 'section_201')
+})
+
+run_test('Solar Section 201 is live through 2026-02-06 and dead on 2026-02-07', {
+  specs <- list(section_201 = list(
+    active = list(from = NA, until = as.Date('2026-02-07')),
+    programs = list(list(
+      rate = list(default = 0.145, rate_type = 'surcharge'),
+      product_scope = list(list_file = 'resources/s201_solar_products.csv'),
+      country_scope = list(include = 'all', exclude = '1220')
+    ))
+  ))
+  rates <- tibble(
+    hts10 = c('8541430010', '8541430010'),
+    country = c('5700', '1220'),
+    rate_section_201 = 0
+  )
+
+  last_live <- suppressMessages(apply_section201(
+    rates, specs, c('5700', '1220'), as.Date('2026-02-06')))
+  first_dead <- suppressMessages(apply_section201(
+    rates, specs, c('5700', '1220'), as.Date('2026-02-07')))
+
+  stopifnot(abs(last_live$rate_section_201[last_live$country == '5700'] - 0.145) < 1e-12,
+            last_live$rate_section_201[last_live$country == '1220'] == 0,
+            all(first_dead$rate_section_201 == 0))
 })
 
 
@@ -1245,7 +1337,36 @@ run_test('s301 exclusion registry: schema + safety invariants', {
                              c('9903.88.69', '9903.88.70')] == 'curator'))
 })
 
-run_test('rev_9 snapshot: §301 exclusion scales China rate_301 on 9903.88.69 refs', {
+run_test('s301 exclusion scope survives missing current-snapshot footnotes', {
+  # 2026_rev_13 dropped almost all columns:[general] cross-reference endnotes
+  # from the JSON export. The durable mapping must keep the known haddock line
+  # in the .69 exclusion scope even when products$ch99_refs is empty.
+  products <- tibble(
+    hts10 = '0304725000',
+    ch99_refs = list(character())
+  )
+  active <- tibble(ch99_code = '9903.88.69', coverage_share = 0.35)
+  cfg <- list(lines_file = 'resources/s301_exclusion_lines.csv')
+
+  out <- suppressMessages(resolve_s301_exclusion_scope(products, active, cfg))
+  haddock <- out %>% filter(hts10 == '0304725000')
+  stopifnot(nrow(haddock) == 1,
+            abs(haddock$excl_coverage - 0.35) < 1e-12)
+})
+
+run_test('s301 exclusion scope rejects a missing durable mapping file', {
+  products <- tibble(hts10 = '0304725000', ch99_refs = list(character()))
+  active <- tibble(ch99_code = '9903.88.69', coverage_share = 0.35)
+  err <- tryCatch({
+    resolve_s301_exclusion_scope(
+      products, active,
+      list(lines_file = 'resources/does_not_exist_s301_exclusions.csv'))
+    NULL
+  }, error = identity)
+  stopifnot(inherits(err, 'error'), grepl('lines_file not found', err$message))
+})
+
+run_test('rev_9 snapshot: §301 exclusion scales China rate_301 on 9903.88.69 scope', {
   # Worked example from the bug report: 0304725000 (frozen haddock) refs both
   # 9903.88.03 (25%, kept) and 9903.88.69 (exclusion, in force through
   # 2026-11-09). Pre-fix snapshots model 25% China §301 mid-exclusion-window;
@@ -1600,6 +1721,98 @@ run_test('pharma 232 target-total and share scaling matches Tariff-ETRs treatmen
   stopifnot(abs(got['5700'] - ((1.00 - 0.02) * 0.05 * 0.60)) < 1e-12)
 })
 
+run_test('current-law UK pharmaceutical Section 232 additional rate is zero', {
+  pp <- load_policy_params()
+  cfg <- pp$section_232_headings$pharmaceuticals
+  rates <- tibble(
+    hts10 = '3004901000', country = '4120', base_rate = 0.02,
+    rate_232 = cfg$default_rate
+  )
+  out <- apply_pharma_232_adjustments(
+    rates, '3004901000', cfg, '4120', pp)
+  stopifnot(cfg$country_rates$CTY_UK == 0,
+            cfg$target_total$CTY_UK == 0,
+            out$rate_232 == 0)
+})
+
+run_test('polysilicon product resources separate ad valorem and MIP-only scope', {
+  adval <- read_csv(
+    here('resources', 's232_polysilicon_adval_products.csv'),
+    col_types = cols(.default = col_character()), show_col_types = FALSE)
+  mip <- read_csv(
+    here('resources', 's232_polysilicon_mip_products.csv'),
+    col_types = cols(hts10 = col_character(), mip_amount = col_double(),
+                     .default = col_character()), show_col_types = FALSE)
+  stopifnot(nrow(adval) == 9, nrow(mip) == 10,
+            !'2804610000' %in% adval$hts10,
+            '2804610000' %in% mip$hts10,
+            setequal(adval$hts10, setdiff(mip$hts10, '2804610000')))
+})
+
+run_test('July 2026 484(f) crosswalk reaches every polysilicon wafer suffix', {
+  xwalk <- read_csv(
+    here('resources', 'hts10_484f_transfers.csv'),
+    col_types = cols(.default = col_character()), show_col_types = FALSE)
+  successors <- xwalk %>%
+    filter(old_hts10 == '3818000095', effective_date == '2026-07-01') %>%
+    pull(new_hts10)
+  stopifnot(setequal(successors,
+    c('3818000040', '3818000045', '3818000050', '3818000091')),
+    any(xwalk$old_hts10 == '3818000090' &
+        xwalk$new_hts10 == '3818000020'))
+})
+
+run_test('polysilicon country tiers are additive except framework total floor', {
+  countries <- c('5700', '4120', '4280', '5880', '5800', '5830',
+                 '4419', '4411', '1220', '2010')
+  cfg <- list(
+    default_rate = 0.15,
+    country_rates = list(CTY_UK = 0.10),
+    target_total = list(
+      eu = 0.15, CTY_JAPAN = 0.15, CTY_SKOREA = 0.15,
+      CTY_TAIWAN = 0.15, CTY_SWITZERLAND = 0.15,
+      CTY_LIECHTENSTEIN = 0.15)
+  )
+  pp <- list(
+    country_codes = list(
+      CTY_UK = '4120', CTY_JAPAN = '5880', CTY_SKOREA = '5800',
+      CTY_TAIWAN = '5830', CTY_SWITZERLAND = '4419',
+      CTY_LIECHTENSTEIN = '4411'),
+    EU27_CODES = '4280'
+  )
+  rates <- tibble(
+    hts10 = '8541430010', country = countries,
+    base_rate = 0.03, rate_232 = 0.05
+  )
+  out <- apply_polysilicon_232_adjustments(
+    rates, '8541430010', cfg, countries, pp)
+  got <- setNames(out$rate_232, out$country)
+
+  stopifnot(abs(got['5700'] - 0.20) < 1e-12,
+            abs(got['1220'] - 0.20) < 1e-12,
+            abs(got['2010'] - 0.20) < 1e-12,
+            abs(got['4120'] - 0.15) < 1e-12,
+            all(abs(got[c('4280', '5880', '5800', '5830', '4419', '4411')] -
+                    0.17) < 1e-12))
+})
+
+run_test('polysilicon activation gate turns on at 2026-12-04', {
+  cfg <- list(polysilicon = list(effective_date = '2026-12-04'))
+  specs <- list(section_232 = list(programs = list(
+    list(id = 'autos_source', rate = list(default = 0)),
+    list(id = 'copper_source', rate = list(default = 0)),
+    list(id = 'wood_source', rate = list(default = 0)),
+    list(id = 'mhd_source', rate = list(default = 0)),
+    list(id = 'semiconductors_source', rate = list(default = 0)),
+    list(id = 'pharmaceuticals_source', rate = list(default = 0))
+  )))
+  s232 <- list(auto_has_deals = FALSE, auto_has_parts = FALSE,
+               wood_furniture_rate = 0)
+  before <- compute_heading_gates(specs, s232, as.Date('2026-12-03'), cfg)
+  on_date <- compute_heading_gates(specs, s232, as.Date('2026-12-04'), cfg)
+  stopifnot(!before$polysilicon, on_date$polysilicon)
+})
+
 
 # =============================================================================
 # Test 14: Applicability-excluded statutory shadow (snapshot-based)
@@ -1728,6 +1941,265 @@ run_test('annex-era snapshot: scrap and copper cathodes are unclassified, 0 rate
   }
   mill <- s %>% filter(substr(hts10, 1, 4) == '7208')
   stopifnot(nrow(mill) > 0, all(mill$s232_annex == 'annex_1a', na.rm = TRUE))
+})
+
+
+# =============================================================================
+# Test 16: Column 2 base rates for non-NTR origins (GN 3(b))
+# =============================================================================
+
+message('\n--- Test 16: Column 2 base rates (non-NTR origins) ---')
+
+# Census codes: Russia 4621, Belarus 4622, Cuba 2390, North Korea 5790,
+# China 5700 (control, NTR). Verified against resources/census_codes.csv.
+COL2_TEST_CONFIG <- tibble(
+  country = c('2390', '5790', '4621', '4622'),
+  name = c('Cuba', 'North Korea', 'Russia', 'Belarus'),
+  effective_date = as.Date(c(NA, NA, '2022-04-09', '2022-04-09'))
+)
+
+# Grid of one product across a column-2 origin, a not-yet-column-2 origin and an
+# NTR control. col2_rate/col2_rate_type are what build_rate_grid() hands over.
+make_col2_grid <- function() {
+  tibble(
+    hts10 = rep(c('7208100000', '0403200000'), each = 3),
+    country = rep(c('4621', '5700', '2390'), 2),
+    base_rate = rep(c(0.02, 0.02, 0.02, 0.174, 0.174, 0.174), 1),
+    base_rate_type = 'ad_valorem',
+    # 7208.10: clean ad valorem in both columns. 0403.20: specific column 2.
+    col2_rate = rep(c(0.35, NA_real_), each = 3),
+    col2_rate_type = rep(c('ad_valorem', 'specific_or_compound'), each = 3)
+  )
+}
+
+run_test('column-2 origin gets the column-2 rate, not column 1', {
+  g <- apply_column_2_rates(make_col2_grid(), COL2_TEST_CONFIG,
+                            effective_date = as.Date('2026-01-15'))
+  ru <- g %>% filter(country == '4621', hts10 == '7208100000')
+  cu <- g %>% filter(country == '2390', hts10 == '7208100000')
+  stopifnot(nrow(ru) == 1, nrow(cu) == 1)
+  stopifnot(abs(ru$base_rate - 0.35) < 1e-10)   # column 2, not the 2% column 1
+  stopifnot(abs(cu$base_rate - 0.35) < 1e-10)
+  stopifnot(ru$base_rate_source == 'col2_other')
+  stopifnot(cu$base_rate_source == 'col2_other')
+  # Transient product-attribute columns must not survive onto the panel.
+  stopifnot(!any(c('col2_rate', 'col2_rate_type') %in% names(g)))
+})
+
+run_test('non-column-2 origin is unchanged apart from the provenance flag', {
+  before <- make_col2_grid()
+  after <- apply_column_2_rates(before, COL2_TEST_CONFIG,
+                                effective_date = as.Date('2026-01-15'))
+  cn_before <- before %>% filter(country == '5700') %>%
+    select(hts10, country, base_rate, base_rate_type) %>% arrange(hts10)
+  cn_after <- after %>% filter(country == '5700') %>%
+    select(hts10, country, base_rate, base_rate_type) %>% arrange(hts10)
+  stopifnot(identical(cn_before, cn_after))
+  stopifnot(all((after %>% filter(country == '5700'))$base_rate_source ==
+                  'col1_general'))
+})
+
+run_test('column 2 is date-gated: PL 117-110 origins do not fire before 2022-04-09', {
+  # Same config, a revision predating the Act. Cuba/North Korea (NA date) still
+  # fire; Russia must not.
+  g <- apply_column_2_rates(make_col2_grid(), COL2_TEST_CONFIG,
+                            effective_date = as.Date('2022-04-08'))
+  ru <- g %>% filter(country == '4621', hts10 == '7208100000')
+  cu <- g %>% filter(country == '2390', hts10 == '7208100000')
+  stopifnot(abs(ru$base_rate - 0.02) < 1e-10, ru$base_rate_source == 'col1_general')
+  stopifnot(abs(cu$base_rate - 0.35) < 1e-10, cu$base_rate_source == 'col2_other')
+  # The boundary day itself IS active (gate is >=).
+  g2 <- apply_column_2_rates(make_col2_grid(), COL2_TEST_CONFIG,
+                             effective_date = as.Date('2022-04-09'))
+  stopifnot((g2 %>% filter(country == '4621', hts10 == '7208100000'))$base_rate_source ==
+              'col2_other')
+})
+
+run_test('specific/compound column 2 lands at 0 with the type preserved (S2)', {
+  g <- apply_column_2_rates(make_col2_grid(), COL2_TEST_CONFIG,
+                            effective_date = as.Date('2026-01-15'))
+  ru <- g %>% filter(country == '4621', hts10 == '0403200000')
+  stopifnot(nrow(ru) == 1)
+  # NA numeric -> 0 per S2, NOT a fallback to the 17.4% column-1 rate: a
+  # column-2 specific duty is unmodeled, and silently charging column 1 would
+  # be a different (wrong) number rather than a visible understatement.
+  stopifnot(abs(ru$base_rate) < 1e-10)
+  stopifnot(ru$base_rate_type == 'specific_or_compound')
+  stopifnot(ru$base_rate_source == 'col2_other')
+})
+
+run_test('no column-2 origin active: every row keeps column 1', {
+  empty <- COL2_TEST_CONFIG[0, ]
+  g <- apply_column_2_rates(make_col2_grid(), empty,
+                            effective_date = as.Date('2026-01-15'))
+  stopifnot(all(g$base_rate_source == 'col1_general'))
+  stopifnot(all(abs(g$base_rate - make_col2_grid()$base_rate) < 1e-10))
+})
+
+run_test('column-2 config overlapping the USMCA codes fails loud', {
+  bad <- tibble(country = '1220', name = 'Canada (bogus)',
+                effective_date = as.Date(NA))
+  grid <- make_col2_grid() %>% mutate(country = '1220')
+  err <- tryCatch({
+    apply_column_2_rates(grid, bad, effective_date = as.Date('2026-01-15'),
+                         usmca_countries = c('1220', '2010'))
+    NULL
+  }, error = function(e) conditionMessage(e))
+  stopifnot(!is.null(err), grepl('USMCA', err))
+})
+
+run_test('active column-2 origin without parsed col2 columns fails loud', {
+  # A stale product cache (pre-col2 parser) must not silently ship column 1.
+  grid <- make_col2_grid() %>% select(-col2_rate, -col2_rate_type)
+  err <- tryCatch({
+    apply_column_2_rates(grid, COL2_TEST_CONFIG,
+                         effective_date = as.Date('2026-01-15'))
+    NULL
+  }, error = function(e) conditionMessage(e))
+  stopifnot(!is.null(err), grepl('col2_rate', err))
+})
+
+run_test('MFN exemption preference scaling is skipped on column-2 rows', {
+  # Step 6c's single withholding point. A column-2 origin has no preference
+  # program, so its share must be forced to 0 while NTR rows keep theirs.
+  src <- c('col2_other', 'col1_general', 'col2_other', 'col1_general')
+  share <- c(0.8, 0.8, 0.25, 0.25)
+  out <- zero_exemption_share_for_column_2(share, src)
+  stopifnot(identical(out, c(0, 0.8, 0, 0.25)))
+  # Consequence that matters: base_rate survives unscaled on column-2 rows, so
+  # base_rate == statutory_base_rate and the 6d-6f floor recomputations (gated
+  # on base_rate < statutory_base_rate) are no-ops there.
+  base <- c(0.35, 0.10, 0.35, 0.10)
+  scaled <- base * (1 - out)
+  stopifnot(max(abs(scaled - c(0.35, 0.02, 0.35, 0.075))) < 1e-12)
+})
+
+run_test('policy_params resolves the four column-2 origins with verified codes', {
+  pp <- load_policy_params()
+  c2 <- pp$COLUMN_2_COUNTRIES
+  stopifnot(is.data.frame(c2), nrow(c2) == 4)
+  stopifnot(setequal(c2$country, c('2390', '4621', '4622', '5790')))
+  # Cuba / North Korea are always column 2; Russia / Belarus from PL 117-110.
+  always <- c2$country[is.na(c2$effective_date)]
+  stopifnot(setequal(always, c('2390', '5790')))
+  dated <- c2 %>% filter(!is.na(effective_date))
+  stopifnot(setequal(dated$country, c('4621', '4622')))
+  stopifnot(all(dated$effective_date == as.Date('2022-04-09')))
+  # Every code must exist in the Census universe — a typo'd code would silently
+  # never match a panel row.
+  codes_path <- here('resources', 'census_codes.csv')
+  if (file.exists(codes_path)) {
+    census <- read_csv(codes_path, show_col_types = FALSE,
+                       col_types = cols(.default = col_character()))
+    stopifnot(all(c2$country %in% census[[1]]))
+  }
+  # And none may collide with CA/MX (asserted at runtime too).
+  stopifnot(length(intersect(c2$country, c('1220', '2010'))) == 0)
+})
+
+
+# --- GN 3(b) IEEPA reciprocal exemption (heading 9903.01.29) -----------------
+
+.gn3b_frame <- function() {
+  tibble(
+    country = c('4621', '2390', '5700', '4280'),   # Russia, Cuba, China, Germany
+    rate_ieepa_recip = c(0.10, 0.10, 0.34, 0.15)
+  )
+}
+.gn3b_cfg <- function() {
+  tibble(country = c('2390', '5790', '4621', '4622'),
+         name = c('Cuba', 'North Korea', 'Russia', 'Belarus'),
+         effective_date = as.Date(c(NA, NA, '2022-04-09', '2022-04-09')))
+}
+
+run_test('GN 3(b) origins lose the IEEPA reciprocal duty; others keep it', {
+  out <- apply_gn3b_ieepa_exemption(.gn3b_frame(), .gn3b_cfg(),
+                                    as.Date('2025-09-01'))
+  stopifnot(out$rate_ieepa_recip[out$country == '4621'] == 0)   # Russia
+  stopifnot(out$rate_ieepa_recip[out$country == '2390'] == 0)   # Cuba
+  # Non-GN-3(b) origins untouched
+  stopifnot(abs(out$rate_ieepa_recip[out$country == '5700'] - 0.34) < 1e-12)
+  stopifnot(abs(out$rate_ieepa_recip[out$country == '4280'] - 0.15) < 1e-12)
+})
+
+run_test('GN 3(b) exemption respects the PL 117-110 effective date', {
+  # Before 2022-04-09 Russia was an NTR partner: reciprocal duty stands (the
+  # program does not exist that early, but the gate must still be date-driven).
+  out <- apply_gn3b_ieepa_exemption(.gn3b_frame(), .gn3b_cfg(),
+                                    as.Date('2022-01-01'))
+  stopifnot(abs(out$rate_ieepa_recip[out$country == '4621'] - 0.10) < 1e-12)
+  stopifnot(out$rate_ieepa_recip[out$country == '2390'] == 0)   # Cuba: always
+})
+
+run_test('GN 3(b) exemption is inert without the column, config, or matches', {
+  # No rate_ieepa_recip column (pre-IEEPA fixture) => unchanged frame
+  f <- tibble(country = c('4621', '5700'))
+  stopifnot(identical(apply_gn3b_ieepa_exemption(f, .gn3b_cfg(),
+                                                 as.Date('2025-09-01')), f))
+  # Empty config => unchanged
+  empty <- tibble(country = character(), name = character(),
+                  effective_date = as.Date(character()))
+  g <- .gn3b_frame()
+  stopifnot(identical(apply_gn3b_ieepa_exemption(g, empty,
+                                                 as.Date('2025-09-01')), g))
+  # No GN 3(b) origin present in the country set => unchanged
+  h <- tibble(country = c('5700', '4280'), rate_ieepa_recip = c(0.34, 0.15))
+  stopifnot(identical(apply_gn3b_ieepa_exemption(h, .gn3b_cfg(),
+                                                 as.Date('2025-09-01')), h))
+})
+
+
+# --- §232 overlay-displacement mask (notes 52(f)/50(a)(vi)/51(c)) ------------
+# The overlay exclusion notes ENUMERATE §232 actions; polysilicon
+# (PP 2026-08-06) is on none of them, so its coverage must not hide a row from
+# FL-301/Brazil-§301/§338. Regression for the 2026-12-04 boundary where the
+# generic mask wrongly dropped ~$1.7B/yr of FL-301 on solar cells/modules
+# (docs/internal/polysilicon_note52f_mask_2026-08-10.md).
+
+run_test('s232_in_scope: non-displacing-only coverage stays overlay-visible', {
+  r <- tibble(
+    hts10 = c('7208100000', '8541430010', '8541430010', '2203000000'),
+    statutory_rate_232 = c(0.50, 0.15, 0.65, 0),
+    s232_annex = c('annex_1a', NA, NA, 'annex_2'),
+    heading_program = c(FALSE, TRUE, TRUE, FALSE),
+    s232_nondisplacing = c(FALSE, TRUE, TRUE, FALSE),
+    rate_232_nondisplacing = c(0, 0.15, 0.15, 0)
+  )
+  # Steel annex line stays excluded; a module whose ONLY coverage is
+  # polysilicon stays overlay-visible; the same module with an additional
+  # displacing 0.50 stays excluded; annex_2 was never in scope.
+  stopifnot(identical(.s232_in_scope(r), c(TRUE, FALSE, TRUE, FALSE)))
+})
+
+run_test('s232_in_scope: frames without displacement columns keep old behavior', {
+  r <- tibble(
+    hts10 = c('7208100000', '8541430010'),
+    statutory_rate_232 = c(0.50, 0),
+    heading_program = c(FALSE, TRUE)
+  )
+  stopifnot(identical(.s232_in_scope(r), c(TRUE, TRUE)))
+})
+
+run_test('polysilicon apply records its component as non-displacing', {
+  base <- tibble(
+    hts10 = c('8541430010', '0101210010'),
+    country = c('5520', '5520'),
+    base_rate = c(0, 0),
+    rate_232 = c(0, 0)
+  )
+  cfg <- list(default_rate = 0.15, displaces_overlays = FALSE)
+  out <- apply_polysilicon_232_adjustments(base, '8541430010', cfg,
+                                           countries = '5520', pp = list())
+  stopifnot(abs(out$rate_232[1] - 0.15) < 1e-12,
+            abs(out$rate_232_nondisplacing[1] - 0.15) < 1e-12,
+            out$rate_232_nondisplacing[2] == 0)
+  # Flipping the flag (a future proclamation amending the notes) must stop
+  # recording the component — the rate itself is unchanged.
+  cfg_d <- list(default_rate = 0.15, displaces_overlays = TRUE)
+  out_d <- apply_polysilicon_232_adjustments(base, '8541430010', cfg_d,
+                                             countries = '5520', pp = list())
+  stopifnot(abs(out_d$rate_232[1] - 0.15) < 1e-12,
+            all(out_d$rate_232_nondisplacing == 0))
 })
 
 

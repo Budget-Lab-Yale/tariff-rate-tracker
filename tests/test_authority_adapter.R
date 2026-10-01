@@ -24,7 +24,8 @@ get_country_constants <- function(pp) list(
                  '4550','4710','4850','4359','4792','4700','4010'))
 filter_active_ch99    <- function(ch99_data, effective_date) ch99_data
 HEADING_GATES_SENTINEL <- list(autos_passenger = TRUE, copper = FALSE)
-compute_heading_gates <- function(specs, s232_rates) HEADING_GATES_SENTINEL  # S1b: (specs, s232_rates)
+compute_heading_gates <- function(specs, s232_rates, effective_date = NULL,
+                                  heading_configs = NULL) HEADING_GATES_SENTINEL
 S122_SENTINEL <- list(s122_rate = 0.10, has_s122 = TRUE)   # Phase 6a
 extract_section122_rates <- function(ch99_data) S122_SENTINEL
 extract_section_201_rates <- function(ch99_data, policy_params = NULL)

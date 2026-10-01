@@ -601,6 +601,26 @@ resolve_tip_hts_as_of <- function(snaps_dir, scratch_dir = NULL) {
       if (length(hit) >= 1 && !is.na(hit[1]) && nzchar(hit[1])) arch <- hit[1]
     }
   }
+  # Fallback for a synthetic tip whose row predates the archive_rev_id fix (or
+  # came from a build path that never wrote one): a bnd_/sched_ snapshot's code
+  # universe is that of the newest REAL revision in force on its date, so resolve
+  # the owner from the revision table rather than returning NA. Returning NA here
+  # is not benign — it silently disables the 484(f) transfer mapping downstream,
+  # which then fails the residual-cascade gate at publish time.
+  if (grepl('^(sched_|bnd_)', arch)) {
+    bnd_date <- suppressWarnings(as.Date(sub('^(sched_|bnd_)', '', arch)))
+    rd <- tryCatch(load_revision_dates(), error = function(e) NULL)
+    if (!is.null(rd) && !is.na(bnd_date)) {
+      real <- rd[!grepl('^(sched_|bnd_)', rd$revision) &
+                   as.Date(rd$effective_date) <= bnd_date, ]
+      if (nrow(real) > 0) {
+        owner <- real$revision[which.max(as.Date(real$effective_date))]
+        message('  publish: synthetic tip ', arch, ' has no archive_rev_id; ',
+                'resolving HTS identity from owner ', owner)
+        arch <- owner
+      }
+    }
+  }
   as.Date(.hts_identity_date(arch))
 }
 

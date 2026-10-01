@@ -3,7 +3,8 @@
 # =============================================================================
 #
 # Extracts HTS10 product data:
-#   - Base MFN rate (from 'general' field)
+#   - Base MFN rate (column 1 general, from the 'general' field)
+#   - Column 2 rate (from the 'other' field)
 #   - Chapter 99 footnote references
 #
 # Output: products_{revision}.rds with columns:
@@ -17,6 +18,16 @@
 #     other) — an EXPOSURE FLAG, not a conversion (scope decision 2026-06-10).
 #     Carried via a parallel type_stack (see below); makes visible which cells
 #     the numeric base_rate silently treats as 0 (specific/compound duties).
+#   - col2_rate / col2_rate_raw / col2_rate_type: the HTSUS **column 2** rate,
+#     parsed by the same parse_rate() / classify_rate_type() pair and under the
+#     same S2 no-AVE convention (specific/compound -> NA numeric -> 0
+#     downstream, but TYPED so the exposure is measurable). Column 2 is the
+#     statutory rate of duty for the handful of origins denied
+#     normal-trade-relations treatment (GN 3(b)): Cuba and North Korea always,
+#     Russia and Belarus since PL 117-110 (2022-04-09). Which origins those are
+#     is NOT in the JSON — GN 3(b) is text-only — so the country side is an
+#     exogenous config overlay (`column_2_countries` in policy_params.yaml)
+#     consumed in 06_calculate_rates.R. See docs/assumptions.md §20.
 #
 # =============================================================================
 
@@ -68,10 +79,24 @@ parse_products <- function(json_path) {
   # it without changing any rate number.
   type_stack <- list()  # indent level -> base_rate_type of nearest legal line
 
+  # Column 2 stack. ONE stack carries both the numeric and the type, and it
+  # pushes on ANY legal column-2 line (non-empty `other`) — i.e. it follows the
+  # ROBUST type_stack discipline above, not the rate_stack discipline. That is
+  # deliberate: rate_stack's "push only when the rate parses" rule is what lets a
+  # statistical suffix inherit a stale numeric from a prior sibling subtree (the
+  # parity-gated stale-sibling bug). base_rate must keep that behaviour until
+  # that bug is fixed under its own parity gate; col2 is new, has no parity
+  # obligation, and therefore starts out correct: a specific/compound column-2
+  # parent pushes (rate = NA, type = 'specific_or_compound') and correctly
+  # SHADOWS any shallower numeric, so col2_rate is NA -> 0 with an honest type
+  # rather than a stale number from an unrelated sibling.
+  col2_stack <- list()  # indent level -> list(rate = numeric, type = character)
+
   # Process each item
   products <- map_dfr(hts_raw, function(item) {
     htsno <- item$htsno %||% ''
     general <- item$general %||% ''
+    other <- item$other %||% ''
     indent <- as.integer(item$indent %||% 0)
 
     # Update rate stack for any item with a rate (parents and products alike)
@@ -89,6 +114,16 @@ parse_products <- function(json_path) {
       type_stack[[as.character(indent)]] <<- classify_rate_type(general)
       deeper_t <- names(type_stack)[as.integer(names(type_stack)) > indent]
       for (d in deeper_t) type_stack[[d]] <<- NULL
+    }
+
+    # Update the column-2 stack on ANY legal column-2 line (see note above).
+    if (trimws(other) != '') {
+      col2_stack[[as.character(indent)]] <<- list(
+        rate = parse_rate(other),
+        type = classify_rate_type(other)
+      )
+      deeper_c <- names(col2_stack)[as.integer(names(col2_stack)) > indent]
+      for (d in deeper_c) col2_stack[[d]] <<- NULL
     }
 
     # Keep 10-digit codes and 8-digit candidates. Some tariff lines are leaves
@@ -142,6 +177,26 @@ parse_products <- function(json_path) {
       }
     }
 
+    # Column 2 rate for this line, with the same S2 convention as the general
+    # rate: parse_rate() gives a number only for a clean ad-valorem or "Free",
+    # classify_rate_type() records WHY it is NA otherwise.
+    col2_rate <- parse_rate(other)
+    col2_rate_type <- classify_rate_type(other)
+
+    # Statistical suffixes carry an empty `other`; inherit rate AND type
+    # together from the nearest legal column-2 parent (single stack, so the two
+    # can never disagree the way base_rate / base_rate_type can).
+    if (trimws(other) == '' && indent > 0) {
+      for (i in seq(indent - 1, 0, by = -1)) {
+        parent_col2 <- col2_stack[[as.character(i)]]
+        if (!is.null(parent_col2)) {
+          col2_rate <- parent_col2$rate
+          col2_rate_type <- parent_col2$type
+          break
+        }
+      }
+    }
+
     # Extract Chapter 99 references
     ch99_refs <- extract_chapter99_refs(item$footnotes)
 
@@ -151,6 +206,9 @@ parse_products <- function(json_path) {
       base_rate = base_rate,
       base_rate_raw = general,
       base_rate_type = base_rate_type,
+      col2_rate = col2_rate,
+      col2_rate_raw = other,
+      col2_rate_type = col2_rate_type,
       ch99_refs = list(ch99_refs),
       has_complex_rate = has_complex,
       n_ch99_refs = length(ch99_refs),
@@ -185,6 +243,15 @@ parse_products <- function(json_path) {
   message('  Inherited parent rate: ', n_inherited, ' (',
           round(n_inherited / nrow(products) * 100, 1), '%)')
   message('  With NA base_rate: ', sum(is.na(products$base_rate)))
+  # Column 2 coverage + S2 exposure. col2 is only consumed for the handful of
+  # non-NTR origins, but the exposure share is what §20 of assumptions.md
+  # promises to report: column 2 is far more specific-duty-heavy than column 1
+  # (~22% vs ~7% of lines), so those origins' levels read LOW until AVEs exist.
+  message('  Column 2 — parsed (ad valorem/Free): ',
+          sum(!is.na(products$col2_rate)),
+          ' | NA (specific/compound/other): ', sum(is.na(products$col2_rate)))
+  message('  Column 2 — specific/compound (exposure flag): ',
+          sum(products$col2_rate_type == 'specific_or_compound', na.rm = TRUE))
 
   return(products)
 }

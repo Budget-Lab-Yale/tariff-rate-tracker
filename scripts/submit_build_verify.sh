@@ -21,17 +21,25 @@
 # daily/ETR/quality, no alternatives, no publish. (The shared-filer route is
 # the array flow — see scripts/README.md.)
 #
-# Resource sizing:
-#   - Walltime 4h: main build + post-build is ~1-3h with margin (no alternatives).
-#   - Mem 192G: combine-snapshots has OOM'd at 96G (job 11189086, 2026-05-08).
+# Resource sizing (grows with the series — re-measure when revisions are added):
+#   - Mem 384G: MEASURED MaxRSS 234G at 60 revisions / 292M rows (job 21784088,
+#     2026-08-09). The previous 192G is NO LONGER ENOUGH — job 21739576 the same
+#     day was OOM-killed at 201G, and note it died AFTER combine-snapshots
+#     succeeded, in the downstream daily/ETR stage. The historical 96G
+#     combine-snapshots OOM (job 11189086, 2026-05-08) is what set the old
+#     figure; the binding constraint has since moved downstream. 384G is ~1.6x
+#     the measurement, deliberate headroom because each added revision raises
+#     the peak and an OOM costs a full ~3h run.
+#   - Walltime 6h: MEASURED 3h15m for build + verify (same job). The prior 4h
+#     would still fit but leaves little room as the series grows.
 #   - CPUs 4: build is single-threaded R; 4 covers BLAS/Arrow/OS overhead.
 
 #SBATCH --job-name=tariff-build-verify
-#SBATCH --time=04:00:00
+#SBATCH --time=06:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=192G
+#SBATCH --mem=384G
 #SBATCH --output=/home/%u/slurm-logs/tariff-build-verify-%j.out
 #SBATCH --error=/home/%u/slurm-logs/tariff-build-verify-%j.err
 # (no #SBATCH --chdir: submit from the repo root — sbatch uses the submission dir)

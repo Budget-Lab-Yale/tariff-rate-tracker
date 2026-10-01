@@ -1,12 +1,12 @@
 # =============================================================================
-# test_s338.R — Section 338 Canada authority (baseline, effective 2026-08-19)
+# test_s338.R — Section 338 Canada authority (baseline, effective 2026-08-22)
 # =============================================================================
 # Covers: annex list integrity (63/52/439 + GN6 554 + 28 mv overlap), the
 # adapter builder (.build_section_338: date-gate, additive, usmca 'none'),
 # the stacking-policy invariant, the calculator step (apply_section338: +50%
 # on covered Canada rows, §232 full-scope exclusion mask, GN6 utilization
 # scaling with the measured -> HS2 mean -> 0 fallback; grid rows fixed), and
-# boundary discovery of the bnd_2026-08-19 mint. Synthetic in-memory fixtures
+# boundary discovery of the bnd_2026-08-22 mint. Synthetic in-memory fixtures
 # for the calc checks; repo resource files for list integrity.
 #
 # Usage: Rscript tests/test_s338.R
@@ -58,9 +58,9 @@ pp <- load_policy_params()
 countries <- read_csv(here('resources', 'census_codes.csv'),
                       col_types = cols(.default = col_character()))$Code
 ok(!is.null(pp$section_338), 'baseline policy_params carries section_338 (signed law)')
-ok('2026-08-19' %in% as.character(pp$BOUNDARY_OVERRIDES), 'boundary_overrides lists the 2026-08-19 turn-on')
-spec_on  <- .build_section_338(pp, countries, as.Date('2026-08-19'))
-spec_pre <- .build_section_338(pp, countries, as.Date('2026-08-18'))
+ok('2026-08-22' %in% as.character(pp$BOUNDARY_OVERRIDES), 'boundary_overrides lists the 2026-08-22 turn-on')
+spec_on  <- .build_section_338(pp, countries, as.Date('2026-08-22'))
+spec_pre <- .build_section_338(pp, countries, as.Date('2026-08-21'))
 ok(!is.null(spec_on) && spec_on$authority == 'section_338', 'authority built')
 ok(identical(spec_on$stacking$class, 'additive'), "stacking class = 'additive' (note 51(a))")
 ok(identical(spec_on$usmca_treatment, 'none'), "usmca_treatment = 'none' (applies regardless of origin)")
@@ -68,8 +68,8 @@ bc <- spec_on$programs[[1]]$rate$by_country
 ok(isTRUE(all.equal(unname(bc[CA]), 0.50)) && length(bc) == 1, 'rate$by_country = Canada 0.50 only')
 ok(identical(spec_on$programs[[1]]$country_scope$include, CA), 'country_scope = Canada')
 bc_pre <- .rate_get(spec_pre$programs[[1]]$rate, 'by_country')
-ok(is.null(bc_pre) || length(bc_pre) == 0, 'pre-08-19 revision: hollow (date-gated)')
-ok(length(spec_pre$programs[[1]]$country_scope$include) == 0, 'pre-08-19: empty country scope')
+ok(is.null(bc_pre) || length(bc_pre) == 0, 'pre-08-22 revision: hollow (date-gated)')
+ok(length(spec_pre$programs[[1]]$country_scope$include) == 0, 'pre-08-22: empty country scope')
 ep <- spec_on$programs[[1]]$exempt_products
 ok(length(ep$gn6_hts8) == 554, 'spec carries the 554-code GN6 set')
 ok(length(ep$gn6_utilization) > 100, 'spec carries measured GN6 utilization shares')
@@ -160,7 +160,7 @@ ok(length(g('2203000060', '5700')) == 0, 'no rows added for non-Canada pairs (gr
 out_pre <- suppressMessages(apply_section338(rates, list(section_338 = spec_pre),
                                              products, c(CA, '5700')))
 ok('rate_s338' %in% names(out_pre) && all(out_pre$rate_s338 == 0),
-   'pre-08-19: rate_s338 present and all-zero')
+   'pre-08-22: rate_s338 present and all-zero')
 
 cat('\n== additive stacking (rate_s338 never displaced) ==\n')
 stk <- suppressMessages(apply_stacking_rules(
@@ -175,7 +175,13 @@ ok(isTRUE(all.equal(stk$total_additional[1], 0.60)),
 ok(isTRUE(all.equal(stk$total_additional[2], 0.25 + 0.50)),
    'with §232: s338 contributes FULL rate (additive class, no nonmetal scaling)')
 
-cat('\n== boundary discovery: bnd_2026-08-19 ==\n')
+cat('\n== boundary discovery: 2026-08-22 is a rev_17 EDGE, not a mint ==\n')
+# Until rev_17 was ingested, the §338 turn-on needed a synthetic mint. rev_17 is
+# policy-dated 2026-08-22 (PP 11056's moved effective date), which makes that
+# date a real revision edge — so discover_boundaries drops the override
+# (owner_of returns NA on edges) and rev_17's own snapshot owns the turn-on.
+# Exactly the rev_13 / 2026-07-24 pattern. The date stays listed in
+# boundary_overrides, which is harmless and is the established convention.
 bres <- tryCatch({
   rd <- load_revision_dates(use_policy_dates = TRUE)
   b <- discover_boundaries(rd, here('data', 'timeseries'), pp,
@@ -186,8 +192,12 @@ bres <- tryCatch({
 if (inherits(bres, 'error')) {
   cat('  SKIP: discover_boundaries unavailable here (', conditionMessage(bres), ')\n')
 } else {
-  ok('2026-08-19' %in% as.character(bres$date), 'bnd_2026-08-19 discovered (override)')
-  ok('bnd_2026-08-19' %in% bres$revision, 'mint id bnd_2026-08-19')
+  ok(!('bnd_2026-08-22' %in% bres$revision),
+     'no bnd_2026-08-22 mint (edge-coincident with rev_17)')
+  rd_chk <- load_revision_dates(use_policy_dates = TRUE)
+  ok(as.Date('2026-08-22') %in%
+       as.Date(rd_chk$effective_date[rd_chk$revision == '2026_rev_17']),
+     'rev_17 resolves to 2026-08-22 under policy dating')
 }
 
 cat(sprintf('\n== SUMMARY: %d passed, %d failed ==\n', pass, fail))

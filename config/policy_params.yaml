@@ -65,14 +65,52 @@ eu27_codes:
   '4010': Sweden
 
 # --- Section 201 (Trade Act §201 safeguard) ---
-# Currently models the Solar 201 program (9903.45.21–.29). The HTS `general`
+# Two programs, disjoint in time: Solar (expired 2026-02-06) and quartz surface
+# products (from 2026-08-15). Each carries its own active window at the PROGRAM
+# level; the authority itself is always live.
+#
+# SOLAR (9903.45.21–.29). The HTS `general`
 # field shows the original Year-1 (2018) out-of-quota rate (30%) which doesn't
 # reflect the annual step-down published by USTR. Override here with the
 # current effective rate.
 #   - 2025-02-07 → 2026-02-07 (Year 8 of extension): 14.5% on out-of-quota
-#   - update annually based on USTR notice
+#   - safeguard terminated after 2026-02-06; the HTS compiler's expiry note
+#     carries no machine-readable date, so the calculator needs an explicit gate
+#
+# QUARTZ surface products (9903.45.30 in-quota / 9903.45.31 over-quota, U.S.
+# note 41), Proclamation 11051 of 2026-07-31, established by HTS 2026 rev_16
+# effective 2026-08-15, running four years to 2030-08-14.
+#
+# Unlike solar, these headings carry the CURRENT year's rate, so the rate is
+# read from the HTS by extract_section201_quartz_rates() and `rate_schedule`
+# below is only the forward step-down from note 41(e) — used when the series
+# horizon runs past 2027-08-15, and as the fallback for archives that predate
+# rev_16. Rates step on August 15 each year.
+#
+# TRQ TREATMENT — the tracker carries ONE statutory rate per line, so it models
+# the IN-QUOTA rate. The quota (13,006,426 m²/yr, 3,251,606 per quarter, growing
+# annually) sits well above observed QSP import volumes, so most entries clear
+# in-quota; the over-quota rate is the unmodeled upper bound. Recorded as a
+# statutory deviation — see docs/statutory_deviations.md (S10).
+#
+# Scope (3 HTS10), the 124 exempt economies of note 41(c), and the quota
+# quantities are side-data: U.S. notes never reach the JSON export. Built by
+# scripts/build_s201_quartz.R from data/s201_quartz/note41_rev17.txt.
 section_201:
   solar_rate: 0.145
+  expiry_date: '2026-02-06'
+  quartz:
+    effective_date: '2026-08-15'
+    expiry_date: '2030-08-14'          # last active day (note 41(d)/(e) horizon)
+    basis: 'in_quota'                  # which leg of the TRQ rate_section_201 takes
+    products_file: 'resources/s201_quartz_products.csv'
+    exempt_countries_file: 'resources/s201_quartz_exempt_countries.csv'
+    # note 41(e), keyed by the first day each rate applies
+    rate_schedule:
+      '2026-08-15': {in_quota: 0.25, over_quota: 0.50}
+      '2027-08-15': {in_quota: 0.23, over_quota: 0.49}
+      '2028-08-15': {in_quota: 0.21, over_quota: 0.48}
+      '2029-08-15': {in_quota: 0.19, over_quota: 0.47}
 
 # --- Authority classification ranges (9903.xx) ---
 authority_ranges:
@@ -107,34 +145,73 @@ section_232_chapters:
 
 # Additional 232 tariffs beyond steel/aluminum (9903.94 auto tariffs, copper, etc.)
 # These use HTS heading/subheading prefixes rather than full chapter coverage.
+#
+# displaces_overlays (REQUIRED on every block): whether this action's articles
+# are on the §232-overlap exclusion lists of the chapter-99 overlays — note
+# 52(f) (forced-labor §301), note 50(a)(vi) (Brazil §301), note 51(c) (§338).
+# Those notes ENUMERATE the excluded actions by heading; a new §232 action
+# displaces the overlays only if its proclamation amends them. True for every
+# action through pharma; polysilicon (PP 2026-08-06) amends no note and stacks
+# (docs/internal/polysilicon_note52f_mask_2026-08-10.md).
 section_232_headings:
   autos_passenger:
     prefixes: ['870322', '870323', '870324', '870331', '870332', '870333',
                '870334', '870340', '870350', '870360', '870370', '870380', '870390']
     default_rate: 0.25
     usmca_exempt: true
+    displaces_overlays: true    # note 52(f)(2)
   autos_light_trucks:
     prefixes: ['87042101', '87043101', '87044100', '87045100']
     default_rate: 0.25
     usmca_exempt: true
+    displaces_overlays: true    # note 52(f)(2)
   copper:
     products_file: 'resources/s232_copper_products.csv'  # Authoritative: US Note 36(b), 80 HTS8 prefixes
     default_rate: 0.50    # 9903.78.01: 50% upon value of copper content (June 2025 proclamation)
     usmca_exempt: false
+    displaces_overlays: true    # note 52(f)(1)
+
+  # Polysilicon and derivatives Section 232 action (PP 2026-08-06), effective
+  # 2026-12-04. The default and UK headings are additive; only the named trade-
+  # framework partners use a 15% total-duty floor. Raw 2804.61 polysilicon is
+  # MIP-only and therefore intentionally absent from products_file.
+  polysilicon:
+    products_file: 'resources/s232_polysilicon_adval_products.csv'
+    effective_date: '2026-12-04'
+    default_rate: 0.15
+    country_rates:
+      CTY_UK: 0.10
+    target_total:
+      eu: 0.15
+      CTY_JAPAN: 0.15
+      CTY_SKOREA: 0.15
+      CTY_TAIWAN: 0.15
+      CTY_SWITZERLAND: 0.15
+      CTY_LIECHTENSTEIN: 0.15
+    usmca_exempt: false
+    # Annex II inserts note 42 + headings 9903.45.30-.36 and NOTHING else: the
+    # articles join no overlay exclusion note, so FL-301/Brazil-301/s338 keep
+    # applying on top. Flip only if a later action amends notes 52(f)/50(a)(vi)/51(c).
+    displaces_overlays: false
+    mip_model: documented_zero
+    mip_products_file: 'resources/s232_polysilicon_mip_products.csv'
   softwood:
     prefixes: ['44031100', '44032101', '44032201', '44032301', '44032401',
                '44032501', '44032601', '44039901', '44061100', '44069100',
                '44071100', '44071200', '44071300', '44071400', '44071900']
     default_rate: 0.10
     usmca_exempt: false
+    displaces_overlays: true    # note 52(f)(4)
   wood_furniture:
     prefixes: ['9401614011', '9401614031', '9401616011', '9401616031']
     default_rate: 0.25
     usmca_exempt: false
+    displaces_overlays: true    # note 52(f)(4)
   kitchen_cabinets:
     prefixes: ['9403409060', '9403608093', '9403910080']
     default_rate: 0.25
     usmca_exempt: false
+    displaces_overlays: true    # note 52(f)(4)
   mhd_vehicles:
     prefixes: ['87012100', '87012200', '87012300', '87012400', '87012900',
                '87041010', '87041050', '87042211', '87042251', '87042301',
@@ -143,6 +220,7 @@ section_232_headings:
                '8706000575', '87060025', '87060050', '87091100', '87091900']
     default_rate: 0.25
     usmca_exempt: true
+    displaces_overlays: true    # note 52(f)(5)
   auto_parts:
     prefixes_file: 'resources/s232_auto_parts.txt'
     # Note 33(g) names some dual-use provisions (bare 8471) whose trade is
@@ -150,14 +228,17 @@ section_232_headings:
     applicability_shares_file: 'resources/s232_auto_parts_applicability.csv'
     default_rate: 0.25
     usmca_exempt: true
+    displaces_overlays: true    # note 52(f)(3)
   mhd_parts:
     prefixes_file: 'resources/s232_mhd_parts.txt'
     default_rate: 0.25
     usmca_exempt: true
+    displaces_overlays: true    # note 52(f)(6)
   buses:
     prefixes: ['8702']
     default_rate: 0.10
     usmca_exempt: false
+    displaces_overlays: true    # note 52(f)(5)
   # 9903.79.01 (Note 39, effective 2026-01-16). Note 39 has no USMCA carve-out —
   # all countries owe the 25% on qualifying articles. Subdivision (c) routes
   # imports under the three HTS headings that fail the TPP/DRAM tech gate
@@ -172,6 +253,7 @@ section_232_headings:
     default_rate: 0.25
     usmca_exempt: false
     end_use_exemption_share: 0.0   # uncalibrated, see todo.md Phase 5
+    displaces_overlays: true    # note 52(f)(7)
   # Pharmaceuticals (chapter 30) — DORMANT 232 sub-program (register-then-activate).
   # No Ch99 backing in baseline => extract_section232_rates sets pharma_rate = 0 and
   # compute_heading_gates gates this OFF, so the heading loop skips it => byte-
@@ -194,7 +276,9 @@ section_232_headings:
     effective_date: '2026-09-29'
     default_rate: 0.0001
     country_rates:
-      CTY_UK: 0.10
+      # HTS 2026 rev_15 corrected 9903.04.63 to "applicable subheading +0%",
+      # effective retroactively to 2026-07-31. Note 40(g) has no total-floor arm.
+      CTY_UK: 0.0
     target_total:
       default: 1.00
       CTY_JAPAN: 0.15
@@ -216,6 +300,7 @@ section_232_headings:
       CTY_SWITZERLAND: 0.95
       '4231': 0.95
     usmca_exempt: false
+    displaces_overlays: true    # note 52(f)(8), patented pharma 9903.04.60-.66
 
 # --- Section 232 country exemptions (pre-March 2025) ---
 # TRQ/quota agreements and full exemptions from Proclamations 9705/9704.
@@ -517,11 +602,18 @@ section_301_rates:
 # line_coverage_file (OPTIONAL, dormant by default): per-HTS10 measured
 # coverage shares overriding the heading value for lines present in the file
 # (affected lines absent from the file keep the heading value; scope is
-# unchanged — only lines referencing an in-window heading are ever scaled).
+# unchanged — only lines mapped to an in-window heading are ever scaled).
 # Enable by uncommenting; line-level dispersion is wide (IQR 0.15-0.73 in the
 # stable window), so this is the higher-fidelity mode once parity-reviewed.
+#
+# lines_file is the durable heading-to-HTS10 scope. USITC's JSON export stopped
+# emitting almost all columns:['general'] Chapter-99 cross-reference endnotes in
+# 2026_rev_13, so current-snapshot product footnotes are no longer a stable scope
+# source. The file was built from the pre-collapse revision caches and remains
+# independent of that serializer behavior.
 section_301_exclusions:
   headings_file: 'resources/s301_exclusion_headings.csv'
+  lines_file: 'resources/s301_exclusion_lines.csv'
   # line_coverage_file: 'resources/s301_exclusion_line_coverage.csv'
 
 # --- Weighted ETR reporting and comparison defaults ---
@@ -594,6 +686,10 @@ metal_content:
 # if the block or any key is missing, rather than silently defaulting. To disable
 # components explicitly, set values to 0 (rebate_rate, us_assembly_share) or 1
 # (us_auto_content_share → full USMCA share applied).
+#
+# us_auto_content_share also accepts an origin-keyed map
+# {default: x, canada: y, mexico: z} for origin-specific vehicle content
+# (used by the mrs_paper_assumptions scenario overlay: CA 0.55 / MX 0.18).
 auto_rebate:
   rebate_rate: 0.0375          # 3.75% rebate per Proclamation
   us_assembly_share: 0.33      # fraction of vehicle assembled in US
@@ -721,6 +817,53 @@ mfn_exemption:
   method: 'hs2'
   exclude_usmca_countries: true
 
+# --- Column 2 (non-NTR) origins ---
+# HTSUS General Note 3(b): goods of countries denied normal-trade-relations
+# (formerly MFN) treatment are dutiable at the rates in **column 2** of the
+# tariff schedule, not column 1 general. GN 3(b) names the countries in prose
+# only — nothing in the HTS JSON marks them — so the country side MUST be an
+# exogenous overlay. The RATE side is parsed off the JSON `other` field
+# (col2_rate / col2_rate_type in 04_parse_products.R) and applied in
+# 06_calculate_rates.R step 1c.
+#
+# Entries: { country: Census code, name: label, effective_date: nullable }
+#   effective_date: null  = column 2 has applied for the whole modeled window
+#                           (Cuba since 1962, North Korea since 1951 — the two
+#                           countries GN 3(b) has named continuously)
+#   effective_date: DATE  = column 2 applies to revisions effective on or after
+#                           DATE (gate is `revision effective_date >= DATE`)
+#
+# Russia and Belarus: PL 117-110, "Suspending Normal Trade Relations with Russia
+# and Belarus Act", signed 2022-04-09 — before the 2025 start of the current
+# series, so they are column 2 throughout it. The date is recorded correctly
+# anyway so the pre-2025 backfill (docs/internal/
+# pre2025_expansion_scoping_2026-07-28.md, decision 7 / Phase 0b) gets the
+# column-1 -> column-2 switch at the right revision without touching this block.
+#
+# NOT column 2 today, and deliberately absent: no other origin is denied NTR
+# treatment as of 2026-07. Adding an entry is a rate change on that origin's
+# entire product set — it must come with an Act of Congress or a GN 3(b)
+# amendment cited in the `name` field.
+#
+# Interaction: column-2 origins receive NO preference programs (that is what
+# losing NTR means), so step 6c does NOT apply the HS2 x country
+# mfn_exemption_shares scaling to these rows. Chapter 99 authority layers
+# (§232 incl. the Russia 200% aluminum surcharge, §122, §301) stack on top
+# unchanged. See docs/assumptions.md §20 and docs/statutory_deviations.md S11.
+column_2_countries:
+  - country: '2390'
+    name: 'Cuba (GN 3(b); non-NTR since 1962)'
+    effective_date: null
+  - country: '5790'
+    name: 'North Korea (GN 3(b); non-NTR since 1951)'
+    effective_date: null
+  - country: '4621'
+    name: 'Russia (PL 117-110, 2022-04-09)'
+    effective_date: '2022-04-09'
+  - country: '4622'
+    name: 'Belarus (PL 117-110, 2022-04-09)'
+    effective_date: '2022-04-09'
+
 # --- IEEPA reciprocal: duty-free product treatment ---
 # Whether to apply IEEPA reciprocal tariffs to products with 0% MFN base rate.
 # Legal text supports either interpretation. Sensitivity toggle, not a TPC match:
@@ -804,15 +947,35 @@ section_122:
   exempt_products: 'resources/s122_exempt_products.csv'
 
 # --- Section 338 (Tariff Act of 1930 §338, Canada) ---
-# Three proclamations signed 2026-07-20 (effective 2026-08-19): +50% ad-valorem
+# Three proclamations signed 2026-07-20 (PP 11046 alcohol / 11047 dairy /
+# 11048 motor vehicles), effective 2026-08-22: +50% ad-valorem
 # additional duty on products of Canada over three positive HTS-8 lists, via new
 # ch99 headings under U.S. note 51 (alcohol 9903.03.12, dairy 9903.03.13,
 # "motor vehicles" 9903.03.14 — actual vehicles are §232-covered and excluded;
 # that list is misc consumer goods). Sources: data/s338/; lists built by
-# scripts/build_s338_annex.R. No HTS archive carries the 9903.03.1x headings yet,
-# so the authority is hand-fed from this block + the side-data lists (the
-# pharma/Brazil pattern), independent of the ch99 parse; reconcile when a real
-# revision lands. Applies regardless of USMCA origin (usmca 'none'); stacks
+# scripts/build_s338_annex.R.
+#
+# EFFECTIVE DATE — 08-22, not the 08-19 in the three original proclamations.
+# PP 11056 (signed 2026-08-18, 91 FR 54789) is titled "Temporary Suspension" and
+# its recitals twice describe "suspending for a period of 3 days", but its
+# OPERATIVE clause (1) is a date shift, not a suspension window:
+#   "The effective date of the additional ad valorem duties imposed in
+#    Proclamations 11046, 11047, and 11048 shall be 12:01 a.m. eastern time on
+#    August 22, 2026. Accordingly, the chapeau of Annex II of each ... is
+#    amended by deleting the effective date ``August 19, 2026'' and inserting
+#    ``August 22, 2026'' in lieu thereof."
+# Clause (4) provides refunds for anything collected in the interim, confirming
+# the duty never legally applied on 08-19..08-21. Do NOT model this as a
+# suspension interval: there is no 3-day hole to reopen, the start simply moved.
+# USITC codified the same date — the rev_17 change record dates every note-51
+# and 9903.03.1x row to 8/22/2026 (one 51(d) row reads 8/12/2026, an evident
+# typo: PP 11056 was not signed until 08-18).
+#
+# HTS 2026 rev_17 (published 2026-08-24) is the first archive to carry the
+# 9903.03.12-.16 headings, so the rates are now HTS-extracted with this block
+# demoted to fallback for pre-rev_17 archives — see extract_section338_rates()
+# and the standing reconciliation test tests/test_s338_hts_rates.R.
+# Applies regardless of USMCA origin (usmca 'none'); stacks
 # ADDITIVELY on everything (note 51(a): "in addition to any additional duty").
 # §232 interaction (note 51(c) / heading 9903.03.15) is a FULL per-article
 # exclusion — any article in §232 SCOPE pays zero S338 even on non-metal content,
@@ -827,7 +990,7 @@ section_122:
 # 0 fallback differs from §122's ->1 because the affected mv-list codes —
 # routers, furniture — are overwhelmingly NOT aircraft parts).
 section_338:
-  effective_date: '2026-08-19'
+  effective_date: '2026-08-22'
   rate: 0.50
   country: '1220'                                    # Canada census code
   products_file: 'resources/s338_products.csv'
@@ -986,7 +1149,7 @@ series_horizon:
 # that date. collect_schedule_boundaries already carries it and (since 2026-06-25) it
 # is no longer subtracted by expiry_boundaries(), so it mints cleanly; the override is
 # the explicit, pharma-parallel anchor.
-# 2026-08-19 is the §338 Canada turn-on (three proclamations of 2026-07-20):
+# 2026-08-22 is the §338 Canada turn-on (three proclamations of 2026-07-20):
 # config-driven (section_338 above), no Ch99 offset in any archive; the adapter's
 # date-gate re-resolves it as-of that date, so an empty-ops mint materializes it.
 # 2026-07-22 is the Brazil §301 turn-on (FR Doc 2026-14542, section_301_brazil
@@ -996,8 +1159,8 @@ series_horizon:
 # (note 52(f)(8), patented_pharma_exempt_date above) and Brazil §301 (Annex I
 # Part B): config-driven, no Ch99 offset; the adapter's date-gate populates
 # patented_pharma_hts10 as-of that date, so an empty-ops mint materializes it —
-# without this mint the carve-out would first appear at bnd_2026-08-19.
-boundary_overrides: ['2026-06-08', '2026-07-22', '2026-07-24', '2026-07-31', '2026-08-19', '2026-09-29']
+# without this mint the carve-out would first appear at bnd_2026-08-22.
+boundary_overrides: ['2026-06-08', '2026-07-22', '2026-07-24', '2026-07-31', '2026-08-22', '2026-09-29', '2026-12-04']
 
 # --- Validation thresholds ---
 validation_thresholds:

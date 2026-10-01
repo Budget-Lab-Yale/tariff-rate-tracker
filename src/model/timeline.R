@@ -78,11 +78,19 @@ collect_schedule_boundaries <- function(policy_params = NULL, specs = NULL,
     }
   }
   if (!is.null(specs)) {
+    # Authority-level windows, then PROGRAM-level ones. Programs carry their own
+    # windows where one authority holds actions that are disjoint in time — e.g.
+    # section_201's solar (to 2026-02-06) and quartz (from 2026-08-15). Program
+    # `active` is also used in an unrelated `list(enabled = ...)` shape
+    # elsewhere; `$from`/`$until` are NULL there, so those entries no-op.
     for (s in specs) {
-      af <- s$active$from %||% NA          # first LIVE day == a boundary
-      au <- s$active$until %||% NA          # first DEAD day == a boundary
-      if (length(af) && !is.na(af)) b <- c(b, as.Date(af))
-      if (length(au) && !is.na(au)) b <- c(b, boundary_from_until(au))
+      windows <- c(list(s$active), lapply(s$programs %||% list(), `[[`, 'active'))
+      for (w in windows) {
+        af <- w$from %||% NA               # first LIVE day == a boundary
+        au <- w$until %||% NA              # first DEAD day == a boundary
+        if (length(af) && !is.na(af)) b <- c(b, as.Date(af))
+        if (length(au) && !is.na(au)) b <- c(b, boundary_from_until(au))
+      }
     }
   }
   if (!is.null(horizon)) b <- c(b, as.Date(horizon))

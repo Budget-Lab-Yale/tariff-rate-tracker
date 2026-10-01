@@ -3,7 +3,7 @@
 # build_s338_annex.R — extract the Section 338 Canada product lists (Annex II)
 # =============================================================================
 # SOURCE: three Section 338 proclamations signed 2026-07-20 (effective
-#   2026-08-19), imposing an additional 50% ad-valorem duty on products of
+#   2026-08-22), imposing an additional 50% ad-valorem duty on products of
 #   Canada over three positive HTS-8 lists, via new ch99 headings under U.S.
 #   note 51 to subchapter III:
 #     alcohol        -> 9903.03.12   (note 51(b)(1))

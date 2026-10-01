@@ -8,8 +8,12 @@
 # Submitted by scripts/submit_build_array.sh (which sizes --array and exports
 # REVLIST). Not meant to be sbatch'd directly.
 #
-# Per-task sizing: the heaviest 2026 revision peaks ~40 GB; 64 GB gives headroom
-# and lets Slurm pack a few tasks per 192 GB node or spread across nodes.
+# Per-task sizing: MEASURED MaxRSS 43.0 GB at 60 revisions (vintage 2026-08-31-12,
+# job 24307185, peak on task _45); 64 GB gives headroom and lets Slurm pack a few
+# tasks per 192 GB node or spread across nodes. The peak tracks the size of the
+# heaviest SINGLE revision, not the revision count, so adding revisions does not
+# move it -- but a fatter revision would. Re-measure with:
+#   sacct -j <arrayjob> --format=JobID,MaxRSS -n -P | grep batch
 
 #SBATCH --job-name=tariff-rev
 #SBATCH --time=00:30:00

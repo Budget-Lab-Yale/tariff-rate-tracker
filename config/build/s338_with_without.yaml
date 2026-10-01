@@ -3,7 +3,7 @@
 #   bash scripts/submit_build_array.sh --config config/build/s338_with_without.yaml
 #
 # §338 is a BASELINE authority (config/policy_params.yaml → section_338, turn-on
-# 2026-08-19), so the always-built `actual` series carries it = the WITH case.
+# 2026-08-22), so the always-built `actual` series carries it = the WITH case.
 # The no_s338 counterfactual zeroes rate_s338 via the step-7g kill-switch = the
 # WITHOUT case. Everything else (§232, existing §301, IEEPA-invalidation, §122
 # expiry) is held at current law on both sides, so diffing

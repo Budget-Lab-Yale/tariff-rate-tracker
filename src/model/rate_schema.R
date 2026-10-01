@@ -107,12 +107,23 @@ enforce_rate_schema <- function(df) {
 #' that the canonical grid builder applies to freshly product-joined rows.
 #' Centralizing it keeps the two columns defaulting together (0 / 'free').
 #'
-#' @param df A frame carrying `base_rate` (and optionally `base_rate_type`)
-#' @return `df` with `base_rate` NA->0 and (if present) `base_rate_type` NA->'free'
+#' The column-2 pair (`col2_rate` / `col2_rate_type`) gets the SAME treatment
+#' when present: NA -> 0 / 'free'. The S2 convention is identical on both
+#' columns — a specific/compound column-2 duty is numerically 0 but keeps its
+#' honest `specific_or_compound` type so the exposure stays measurable.
+#'
+#' @param df A frame carrying `base_rate` (and optionally the type / col2 columns)
+#' @return `df` with rate columns NA->0 and type columns NA->'free'
 default_base_cols <- function(df) {
   df <- df %>% mutate(base_rate = coalesce(base_rate, 0))
   if ('base_rate_type' %in% names(df)) {
     df <- df %>% mutate(base_rate_type = coalesce(base_rate_type, 'free'))
+  }
+  if ('col2_rate' %in% names(df)) {
+    df <- df %>% mutate(col2_rate = coalesce(col2_rate, 0))
+  }
+  if ('col2_rate_type' %in% names(df)) {
+    df <- df %>% mutate(col2_rate_type = coalesce(col2_rate_type, 'free'))
   }
   df
 }
@@ -143,8 +154,13 @@ build_rate_grid <- function(products, countries, seed_rates = NULL) {
     stop('build_rate_grid: countries must be non-empty, non-missing, and unique', call. = FALSE)
   }
 
+  # col2_rate / col2_rate_type ride along when the product table carries them
+  # (any_of, so pre-col2 fixtures still build). apply_column_2_rates() in
+  # 06_calculate_rates.R consumes and then DROPS them — they are a product
+  # attribute, not a product x country one, so they never reach the panel.
   grid <- products %>%
-    select(hts10, base_rate, any_of('base_rate_type')) %>%
+    select(hts10, base_rate,
+           any_of(c('base_rate_type', 'col2_rate', 'col2_rate_type'))) %>%
     default_base_cols() %>%
     tidyr::expand_grid(country = countries)
 
@@ -344,12 +360,45 @@ classify_authority <- function(ch99_code) {
     return('section_301_brazil')
   }
 
+  # Section 232 pharmaceuticals (U.S. note 40): 9903.04.60-.69. Match the
+  # segments rather than all 9903.04.xx so unrelated future programs do not
+  # inherit Section 232 classification.
+  if (isTRUE(middle == 4 && !is.na(third) && third %in% 60:69)) {
+    return('section_232')
+  }
+
   # IEEPA reciprocal: 9903.90 (China surcharges) + 9903.93/95/96
   if (middle == 90 || (middle >= 93 && middle <= 96 && middle != 94)) {
     return('ieepa_reciprocal')
   }
 
-  # Section 201 (safeguards): 9903.40-45
+  # Section 201 quartz surface products (U.S. note 41): 9903.45.30/.31,
+  # established by HTS 2026 rev_16 effective 2026-08-15 (Proclamation 11051).
+  #
+  # HEADING-NUMBER COLLISION — read before changing either rule. The polysilicon
+  # §232 proclamation (signed 2026-08-06, effective 2026-12-04) specifies U.S.
+  # note 42 at headings 9903.45.30-.36, which is the SAME range USITC then used
+  # for quartz: rev_17 carries .30/.31 as quartz under note 41 and contains no
+  # polysilicon heading at all. One of the two must be renumbered before
+  # polysilicon is codified in December. Until it is, .30/.31 are quartz and
+  # nothing else in .32-.36 exists, so the quartz rule wins on the codified
+  # range and polysilicon keeps only the range it has never occupied.
+  #
+  # This mattered only latently so far: no product line footnote-references
+  # .30/.31 in rev_17, so neither rule fires through the generic ch99 path.
+  # Recheck when the polysilicon annex lands.
+  if (isTRUE(middle == 45 && !is.na(third) && third %in% 30:31)) {
+    return('section_201')
+  }
+
+  # Section 232 polysilicon (U.S. note 42): 9903.45.32-.36 — the residue of the
+  # proclamation's stated range after quartz took .30/.31 (see above). This
+  # segment must precede the broad 9903.40-.45 Section 201 safeguard bucket.
+  if (isTRUE(middle == 45 && !is.na(third) && third %in% 32:36)) {
+    return('section_232')
+  }
+
+  # Section 201 (safeguards): 9903.40-45, excluding polysilicon above.
   if (middle >= 40 && middle <= 45) {
     return('section_201')
   }

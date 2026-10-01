@@ -1,6 +1,6 @@
 #!/usr/bin/env Rscript
 # Spot-check the Section 338 Canada authority on the actual computed snapshots
-# (pre-gather). Turn-on revision = bnd_2026-08-19; every earlier revision must
+# (pre-gather). Turn-on revision = bnd_2026-08-22; every earlier revision must
 # carry rate_s338 all-zero (the column is RATE_SCHEMA proper, so it is PRESENT
 # but inert pre-turn-on — unlike the scenario s301fl/br columns).
 #
@@ -32,8 +32,8 @@ if (file.exists(pre_path)) {
   must(all(pre$rate_s338 == 0), 'rate_s338 all-zero pre-turn-on')
 } else cat('  SKIP: ', pre_path, ' not found\n', sep = '')
 
-cat('\n================ TURN-ON: snapshot_bnd_2026-08-19 ================\n')
-s <- readRDS(file.path(TS, 'snapshot_bnd_2026-08-19.rds'))
+cat('\n================ TURN-ON: snapshot_bnd_2026-08-22 ================\n')
+s <- readRDS(file.path(TS, 'snapshot_bnd_2026-08-22.rds'))
 ca <- s %>% filter(country == CA) %>% mutate(hts8 = substr(hts10, 1, 8))
 non_ca <- s %>% filter(country != CA)
 cat('Canada rows: ', nrow(ca), ' | rows with rate_s338 > 0: ',
@@ -88,7 +88,7 @@ must(nrow(a2) == 0 || all(a2$rate_s338 > 0),
 # 4413.00.00 (densified wood, alcohol list) is NOT in the §232 wood-program
 # product lists (9903.76 covers 4403/4406/4407 logs+lumber and furniture), so
 # note 51(c)(4) does NOT exclude it — it pays the full 0.50. (Verified against
-# the bnd_2026-08-19 probe snapshot 2026-07-20: heading_program FALSE.)
+# the bnd_2026-08-22 probe snapshot 2026-07-20: heading_program FALSE.)
 w44 <- ca %>% filter(hts8 == '44130000', !coalesce(heading_program, FALSE),
                      is.na(s232_annex), coalesce(statutory_rate_232, 0) == 0)
 must(nrow(w44) > 0 && all(abs(w44$rate_s338 - 0.50) < 1e-12),
