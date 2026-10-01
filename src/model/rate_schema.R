@@ -591,6 +591,55 @@ filter_active_ch99 <- function(ch99_data, revision_effective_date) {
 }
 
 
+#' Sentinel activation date for a heading that never took legal effect. Later
+#' than any series horizon, so filter_active_ch99 always drops the heading and
+#' discover_boundaries never mints a boundary for it.
+NEVER_EFFECTIVE_DATE <- as.Date('9999-12-31')
+
+#' Fill Chapter 99 start dates from a curated activation table
+#'
+#' Most date-bounded headings state their window in their own text, which
+#' parse_chapter99() reads into `effective_date_offset`. Pre-2025 headings
+#' mostly do not, yet some were published before they took legal effect (§301
+#' List 2: published 2018-08-22, effective 2018-08-23) and some never took
+#' effect at all (§301 List 4B, suspended before its 2019-12-15 start). The
+#' activation table supplies those dates, sourced from the USITC Annual Tariff
+#' Database (resources/pre2025_ch99_activation_dates.csv). Once filled, the
+#' existing gates do the rest: filter_active_ch99 holds the heading back, and
+#' discover_boundaries mints a boundary at the date when it falls inside a
+#' revision's interval.
+#'
+#' A date stated in the heading's own text wins over the table; a disagreement
+#' is reported, since it means the curation is stale.
+#'
+#' @param ch99_data Tibble from `parse_chapter99()`
+#' @param activation_dates Tibble with `ch99_code`, `activation_date`,
+#'   `never_effective` (pp$CH99_ACTIVATION_DATES), or NULL for a no-op
+#' @return `ch99_data` with `effective_date_offset` filled for listed headings
+apply_ch99_activation_dates <- function(ch99_data, activation_dates) {
+  if (is.null(activation_dates) || nrow(activation_dates) == 0 ||
+      is.null(ch99_data) || nrow(ch99_data) == 0) {
+    return(ch99_data)
+  }
+  idx <- match(ch99_data$ch99_code, activation_dates$ch99_code)
+  listed <- !is.na(idx)
+  if (!any(listed)) return(ch99_data)
+
+  curated <- dplyr::if_else(activation_dates$never_effective[idx[listed]] %in% TRUE,
+                            NEVER_EFFECTIVE_DATE,
+                            activation_dates$activation_date[idx[listed]])
+  stated <- ch99_data$effective_date_offset[listed]
+  conflict <- !is.na(stated) & stated != curated
+  if (any(conflict)) {
+    message('  NOTE: ', sum(conflict), ' Ch99 heading(s) state their own start date, ',
+            'which overrides the activation table: ',
+            paste(ch99_data$ch99_code[listed][conflict], collapse = ', '))
+  }
+  ch99_data$effective_date_offset[listed] <- dplyr::coalesce(stated, curated)
+  ch99_data
+}
+
+
 #' Check if HTS code is a valid 10-digit product code
 #'
 #' @param hts_code HTS code (with or without dots)

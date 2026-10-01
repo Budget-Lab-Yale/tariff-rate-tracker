@@ -44,7 +44,12 @@
 #                                2020-07, so NAFTA-era CA/MX (~a quarter of
 #                                imports) resolve to full column-1 MFN.
 #     * TRQ over_quota_share and the GSP lapse window (2021-01-01) are absent.
-#   None of that is fixed here on purpose: 2a is the skeleton, 2b is the rates.
+#   None of that is fixed here on purpose: 2a was the skeleton, 2c is the rates.
+#
+#   Phase 2b (DONE) fixed the TIMING, not the rates: each revision now starts
+#   on its measures' legal date (policy_effective_date in revision_dates.csv)
+#   and headings published early or never put into effect are gated by
+#   ch99_activation_dates below. The rate items above still stand.
 # =============================================================================
 
 extends: config/policy_params.yaml
@@ -81,5 +86,15 @@ disabled_authorities: [ieepa_reciprocal, ieepa_fentanyl, section_122, section_33
 # falls inside a pre-2025 revision interval, so discover_boundaries would drop
 # them anyway (owner_of -> NA); emptying the list keeps the era's mint set
 # purely what the Chapter 99 scan finds in the historical archives.
-# Curated pre-2025 boundary dates, if any turn out to be needed, are 2b work.
+# The era's mid-interval boundaries come from the Ch99 activation dates below
+# (discover_boundaries mints them), so no curated override is needed.
 boundary_overrides: []
+
+# --- Chapter 99 activation dates (Phase 2b) ---------------------------------
+# Legal start dates for headings whose own text states none, from the USITC
+# Annual Tariff Database: headings published before they took effect (§301
+# List 2 in 2018_rev_10, List 1 in the backdated 2018_rev_8_1) are held to their
+# date, and headings that never took effect (§301 List 4B, the 2021 digital
+# services tax actions) are never applied. Evidence:
+# resources/pre2025_ch99_onset_worksheet.csv (tools/pre2025_ch99_dating.R).
+ch99_activation_dates: resources/pre2025_ch99_activation_dates.csv

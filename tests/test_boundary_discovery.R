@@ -170,6 +170,32 @@ if (nrow(b) > 0) {
         'build_boundary_mints is idempotent (all ids present => no-op, no recompute)')
 }
 
+# --- Curated Ch99 activation dates mint (pre-2025 Phase 2b) -------------------
+# Two synthetic revisions shaped like 2018_rev_10 (08-13) and 2018_rev_12 (09-24).
+# rev A's archive carries List 2 (no date in its text) and List 4B; the activation
+# table holds List 2 to 08-23 — strictly inside A's interval, so it must mint — and
+# marks 4B never-effective, which must mint nothing.
+act_dir <- tempfile('activation_'); dir.create(act_dir)
+act_rd <- tibble::tibble(revision = c('2018_rev_10', '2018_rev_12'),
+                         effective_date = as.Date(c('2018-08-13', '2018-09-24')))
+for (r in act_rd$revision) {
+  saveRDS(tibble::tibble(ch99_code = c('9903.88.02', '9903.88.16'), rate = c(0.25, 0.15),
+                         effective_date_offset = as.Date(c(NA, NA))),
+          file.path(act_dir, paste0('ch99_', r, '.rds')))
+}
+act_pp <- list(SERIES_HORIZON_END = as.Date('2018-12-31'),
+               CH99_ACTIVATION_DATES = tibble::tibble(
+                 ch99_code = c('9903.88.02', '9903.88.16'),
+                 activation_date = as.Date(c('2018-08-23', NA)),
+                 never_effective = c(FALSE, TRUE)))
+act_b <- discover_boundaries(act_rd, act_dir, act_pp)
+check(identical(act_b$date, as.Date('2018-08-23')) && act_b$owner_rev == '2018_rev_10',
+      'activation date interior to its interval mints bnd_2018-08-23, owned by 2018_rev_10')
+check(grepl('^ch99:', act_b$source), 'the activation mint is sourced from the Ch99 scan')
+act_none <- discover_boundaries(act_rd, act_dir,
+                                modifyList(act_pp, list(CH99_ACTIVATION_DATES = NULL)))
+check(nrow(act_none) == 0, 'without the activation table the same archives mint nothing')
+
 # --- Empty/degenerate inputs --------------------------------------------------
 empty_b <- discover_boundaries(rd, tempfile(), policy_params = NULL,
                                horizon = as.Date('2026-12-31'))

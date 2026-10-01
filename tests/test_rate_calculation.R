@@ -1230,6 +1230,53 @@ run_test('filter_active_ch99 is a no-op when column is missing', {
   stopifnot(out$ch99_code == '9903.94.01')
 })
 
+# --- Curated Ch99 activation dates (pre-2025 Phase 2b) ----------------------
+
+.activation_fixture <- function() {
+  list(
+    ch99 = tibble::tibble(
+      ch99_code = c('9903.88.02', '9903.88.16', '9903.91.01', '9903.80.01'),
+      rate = c(0.25, 0.15, 0.25, 0.25),
+      effective_date_offset = as.Date(c(NA, NA, '2024-09-27', NA))
+    ),
+    table = tibble::tibble(
+      ch99_code = c('9903.88.02', '9903.88.16', '9903.91.01'),
+      activation_date = as.Date(c('2018-08-23', NA, '2024-09-28')),
+      never_effective = c(FALSE, TRUE, FALSE)
+    )
+  )
+}
+
+run_test('apply_ch99_activation_dates is a no-op without a table (2025-26 baseline)', {
+  f <- .activation_fixture()
+  stopifnot(identical(apply_ch99_activation_dates(f$ch99, NULL), f$ch99))
+  stopifnot(identical(apply_ch99_activation_dates(f$ch99, f$table[0, ]), f$ch99))
+})
+
+run_test('apply_ch99_activation_dates fills, sentinels, and defers to stated text', {
+  f <- .activation_fixture()
+  out <- suppressMessages(apply_ch99_activation_dates(f$ch99, f$table))
+  off <- setNames(out$effective_date_offset, out$ch99_code)
+  stopifnot(off[['9903.88.02']] == as.Date('2018-08-23'))   # filled from the table
+  stopifnot(off[['9903.88.16']] == NEVER_EFFECTIVE_DATE)    # never took effect
+  stopifnot(off[['9903.91.01']] == as.Date('2024-09-27'))   # heading's own text wins
+  stopifnot(is.na(off[['9903.80.01']]))                     # unlisted: untouched
+  # Idempotent: discover_boundaries re-applies it to caches the build wrote.
+  stopifnot(identical(suppressMessages(apply_ch99_activation_dates(out, f$table)), out))
+})
+
+run_test('activation dates gate through filter_active_ch99 (List 2 in 2018_rev_10)', {
+  f <- .activation_fixture()
+  gated <- suppressMessages(apply_ch99_activation_dates(f$ch99, f$table))
+  # 2018_rev_10 starts 2018-08-13: List 2 waits until 08-23; List 4B never applies.
+  at_start <- suppressMessages(filter_active_ch99(gated, as.Date('2018-08-13')))
+  stopifnot(!any(c('9903.88.02', '9903.88.16') %in% at_start$ch99_code))
+  at_list2 <- suppressMessages(filter_active_ch99(gated, as.Date('2018-08-23')))
+  stopifnot('9903.88.02' %in% at_list2$ch99_code, !'9903.88.16' %in% at_list2$ch99_code)
+  late <- suppressMessages(filter_active_ch99(gated, as.Date('2030-01-01')))
+  stopifnot(!'9903.88.16' %in% late$ch99_code)
+})
+
 # --- Expiry-date machinery (§301 exclusion windows; 2026-06-10) -------------
 
 run_test('extract_expiry_date_offset returns NA for empty/no-pattern text', {

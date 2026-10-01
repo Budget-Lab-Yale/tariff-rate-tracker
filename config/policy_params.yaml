@@ -1162,6 +1162,14 @@ series_horizon:
 # without this mint the carve-out would first appear at bnd_2026-08-22.
 boundary_overrides: ['2026-06-08', '2026-07-22', '2026-07-24', '2026-07-31', '2026-08-22', '2026-09-29', '2026-12-04']
 
+# --- Chapter 99 activation dates ---
+# Path to a curated CSV of legal start dates for Ch99 headings whose own text
+# states none (see apply_ch99_activation_dates in src/model/rate_schema.R): a
+# heading published before its legal start is held back until that date, and a
+# heading that never took effect is never applied. Null here — every 2025-26
+# heading that needs a gate states its date in its text. The pre-2025 era sets it.
+ch99_activation_dates: null
+
 # --- Validation thresholds ---
 validation_thresholds:
   exact: 0.005

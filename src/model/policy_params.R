@@ -442,6 +442,19 @@ load_policy_params <- function(yaml_path = NULL,
     as.Date(character())
   }
 
+  # Curated legal activation dates for Chapter 99 headings whose own text states
+  # none (apply_ch99_activation_dates). Null in the 2025-26 baseline; the
+  # pre-2025 era points it at resources/pre2025_ch99_activation_dates.csv.
+  params$CH99_ACTIVATION_DATES <- if (!is.null(params$ch99_activation_dates)) {
+    path <- here(params$ch99_activation_dates)
+    if (!file.exists(path)) stop('ch99_activation_dates not found: ', path)
+    readr::read_csv(path, col_types = readr::cols(
+      ch99_code = readr::col_character(), activation_date = readr::col_date(),
+      never_effective = readr::col_logical(), .default = readr::col_character()))
+  } else {
+    NULL
+  }
+
   # Section 122 (Trade Act §122, 150-day statutory limit)
   if (!is.null(params$section_122)) {
     params$SECTION_122 <- list(

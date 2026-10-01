@@ -221,6 +221,10 @@ discover_boundaries <- function(rev_dates, snapshot_dir = NULL, policy_params = 
       tryCatch(readRDS(ch99_p), error = function(e) NULL)
     }
     if (is.null(ch99) || !'effective_date_offset' %in% names(ch99)) return(list())
+    # Same curated start dates the snapshot build applies (revision_snapshot.R),
+    # so a gated heading's activation is minted here too. Idempotent on caches
+    # the build already wrote.
+    ch99 <- apply_ch99_activation_dates(ch99, policy_params$CH99_ACTIVATION_DATES)
     out <- list()
     offs <- unique(ch99$effective_date_offset)
     offs <- offs[!is.na(offs)]

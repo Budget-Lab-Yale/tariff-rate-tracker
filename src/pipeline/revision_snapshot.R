@@ -23,7 +23,8 @@ build_revision_snapshot <- function(rev_id, eff_date,
   # on synthetic boundary revisions.
   json_path <- resolve_json_path(archive_rev_id, archive_dir)
   hts_raw <- fromJSON(json_path, simplifyDataFrame = FALSE)
-  ch99_data <- parse_chapter99(json_path)
+  ch99_data <- apply_ch99_activation_dates(parse_chapter99(json_path),
+                                           pp_build$CH99_ACTIVATION_DATES)
   products <- parse_products(json_path)
 
   ieepa_rates <- extract_ieepa_rates(

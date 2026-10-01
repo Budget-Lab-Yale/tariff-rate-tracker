@@ -1,0 +1,22 @@
+ch99_code,activation_date,never_effective,first_revision,source,note
+9903.88.01,2018-07-06,FALSE,2018_rev_8_1,tariff_data_2018 begin_effect_date,"Section 301 China List 1 (+25%). Its first edition, 2018_rev_8_1, is backdated to the Section 232 start (2018-03-23), so the heading is held until its own start."
+9903.88.02,2018-08-23,FALSE,2018_rev_10,tariff_data_2018 begin_effect_date,"Section 301 China List 2 (+25%). Its edition, 2018_rev_10, is backdated to Turkey's Section 232 50% steel rate (2018-08-13)."
+9903.88.16,,TRUE,2019_rev_20,HTS text from 2021_rev_6: [Compiler's note: provision suspended.],"Section 301 China List 4B (+15%), scheduled for 2019-12-15 and suspended before it started (US-China Phase One). Editions 2019_rev_20 .. 2021_rev_5 carry it without the suspended note."
+9903.80.03,2020-02-08,FALSE,2020_rev_2,tariff_data_2020 begin_effect_date,Section 232 steel derivatives (+25%); published 2020-02-06.
+9903.85.03,2020-02-08,FALSE,2020_rev_2,tariff_data_2020 begin_effect_date,Section 232 aluminum derivatives (+10%); published 2020-02-06.
+9903.89.52,2020-03-05,FALSE,2020_rev_5,tariff_data_2020 begin_effect_date,Section 301 EU large civil aircraft action; published 2020-03-04.
+9903.85.21,2020-08-16,FALSE,2020_rev_19,tariff_data_2020 begin_effect_date,Section 232 aluminum of Canada (+10%); published 2020-08-14.
+9903.89.55,2020-09-01,FALSE,2020_rev_20,tariff_data_2020 begin_effect_date,Section 301 EU large civil aircraft action; published 2020-08-31.
+9903.89.57,2021-01-12,FALSE,2021_prelim_rev_2,tariff_data_2021 begin_effect_date,Section 301 EU large civil aircraft action; published 2021-01-11.
+9903.89.61,2021-01-12,FALSE,2021_prelim_rev_2,tariff_data_2021 begin_effect_date,Section 301 EU large civil aircraft action; published 2021-01-11. The same editions also carry a malformed '9903.89,61' that classify_authority() leaves unknown.
+9903.90.01,,TRUE,2021_prelim_rev_1,HTS text from 2021_prelim_rev_2: [Compiler's note: provision suspended],"Section 301 digital services tax action on France, suspended when announced and never collected."
+9903.90.02,,TRUE,2021_rev_4,HTS text: [Compiler's note: provision suspended],"Section 301 digital services tax action on Austria, suspended when announced and never collected."
+9903.90.03,,TRUE,2021_rev_4,HTS text: [Compiler's note: provision suspended],"Section 301 digital services tax action on India, suspended when announced and never collected."
+9903.90.04,,TRUE,2021_rev_4,HTS text: [Compiler's note: provision suspended],"Section 301 digital services tax action on Italy, suspended when announced and never collected."
+9903.90.05,,TRUE,2021_rev_4,HTS text: [Compiler's note: provision suspended],"Section 301 digital services tax action on Spain, suspended when announced and never collected."
+9903.90.06,,TRUE,2021_rev_4,HTS text: [Compiler's note: provision suspended],"Section 301 digital services tax action on Turkey, suspended when announced and never collected."
+9903.90.07,,TRUE,2021_rev_4,HTS text: [Compiler's note: provision suspended],"Section 301 digital services tax action on the United Kingdom, suspended when announced and never collected."
+9903.85.67,2023-03-10,FALSE,2023_rev_2,tariff_data_2023 begin_effect_date,Section 232 aluminum of Russia (200%); published 2023-03-09.
+9903.85.68,2023-03-10,FALSE,2023_rev_2,tariff_data_2023 begin_effect_date,Section 232 derivative aluminum of Russia (200%); published 2023-03-09.
+9903.85.69,2023-04-10,FALSE,2023_rev_2,tariff_data_2023 begin_effect_date,Section 232 aluminum smelted or cast in Russia (200%); published 2023-03-09 with the later start.
+9903.85.70,2023-04-10,FALSE,2023_rev_2,tariff_data_2023 begin_effect_date,Section 232 derivative aluminum smelted or cast in Russia (200%); published 2023-03-09 with the later start.
