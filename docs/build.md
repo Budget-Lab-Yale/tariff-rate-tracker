@@ -256,6 +256,9 @@ There are two publication destinations. Pick whichever fits the audience.
 Git publish refuses to ship outputs that predate the current build (it skips
 stale daily CSVs) and requires `digest` (`arrow` only if a parquet output is
 reintroduced). A failed publish logs a warning but does not fail the build.
+Publication is staged and validated before it replaces the live files, so a
+failed publish leaves the previous `release/` data and manifest intact (see
+`--publish-git` below).
 
 ---
 
@@ -339,6 +342,8 @@ Rscript src/io/publish_git.R                   # publish current local outputs
 Rscript src/io/publish_git.R --dry-run         # plan only, no writes
 Rscript src/io/publish_git.R --date 2026-05-21 # override the publication date in filenames
 ```
+
+Publication is failure-safe: the new data files and a candidate `MANIFEST.json` are written to a `release/.publish-stage-*` directory, checksummed, and re-validated before anything in `release/data/` or the live manifest changes. Promotion then moves the prior publication to `release/.publish-backup-*`, moves the staged files in (manifest last), and restores the backup if any step fails. `README.md` and `data/.gitkeep` are never touched. A failed run therefore leaves the previous publication byte-for-byte intact and exits with an error. This is rollback safety, not atomic replacement: promotion is a sequence of file renames, so a concurrent reader or a hard crash mid-promotion can observe a mix; after a crash the previous publication is still in `release/.publish-backup-*` (and in git).
 
 After a successful `--publish-git`, the new `release/` files are written to disk but **not auto-committed**. Review with `git status release/`, then commit deliberately so each publication is a reviewable git commit.
 
