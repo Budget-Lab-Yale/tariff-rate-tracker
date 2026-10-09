@@ -19,8 +19,18 @@
 #       daily_by_category_2026-05-21.csv
 #
 # Only the latest publication's files live on disk at any time — `publish_git`
-# deletes the prior data/* before writing the new set. Historical publications
-# are recoverable via `git log -- release/`.
+# replaces the prior data/* with the new set. Historical publications are
+# recoverable via `git log -- release/`.
+#
+# Failure safety: the new files and manifest are first written to a staging
+# directory inside release/ (`.publish-stage-*`), checksummed, and re-validated
+# against the candidate manifest. Only then is the live publication moved aside
+# to `.publish-backup-*` and the staged files moved in (manifest last). Any
+# failure before promotion leaves release/ untouched; a failure during promotion
+# is rolled back from the backup. This is rollback safety, not atomicity: it is
+# a sequence of single-file renames, so a concurrent reader (or a hard crash
+# mid-promotion) can observe a mix. After a crash the backup directory still
+# holds the previous publication; `git status release/` shows the leftovers.
 #
 # CSV vs parquet: explicit per-output (see RELEASE_OUTPUTS below). The public
 # git release currently publishes the daily aggregate views; the full rate panel
@@ -124,19 +134,20 @@ publish_git <- function(release_dir = RELEASE_DIR_DEFAULT,
          '(daily series writes to output/actual/daily/), then re-run.')
   }
 
-  # Clear prior data files (sources validated above). README.md and
-  # MANIFEST.json at the top of release/ are preserved; .gitkeep is kept so
-  # the directory stays tracked between publications.
+  # Everything below is staged outside the live release/data/ and promoted only
+  # after the whole candidate publication (files + manifest) has been built and
+  # re-validated. Nothing under release/data or MANIFEST.json changes before then.
+  stage_dir <- file.path(release_dir, paste0('.publish-stage-', Sys.getpid(), '-',
+                                             format(Sys.time(), '%H%M%S')))
+  backup_dir <- file.path(release_dir, paste0('.publish-backup-', Sys.getpid(), '-',
+                                              format(Sys.time(), '%H%M%S')))
+  keep_artifacts <- FALSE
+  on.exit(if (!keep_artifacts) unlink(c(stage_dir, backup_dir), recursive = TRUE), add = TRUE)
+  stage_data_dir <- file.path(stage_dir, 'data')
+
   if (!dry_run) {
-    if (dir.exists(data_dir)) {
-      old <- setdiff(list.files(data_dir, full.names = TRUE, all.files = TRUE, no.. = TRUE),
-                     file.path(data_dir, '.gitkeep'))
-      if (length(old) > 0) {
-        message('publish-git: removing ', length(old), ' file(s) from prior publication')
-        file.remove(old)
-      }
-    } else {
-      dir.create(data_dir, recursive = TRUE, showWarnings = FALSE)
+    if (!dir.create(stage_data_dir, recursive = TRUE, showWarnings = FALSE)) {
+      stop('publish-git: could not create staging directory ', stage_data_dir)
     }
   }
 
@@ -145,11 +156,16 @@ publish_git <- function(release_dir = RELEASE_DIR_DEFAULT,
     src_path <- file.path(repo_root, out$src)
 
     dest_name <- paste0(out$name, '_', date_str, '.', out$format)
-    dest_path <- file.path(data_dir, dest_name)
+    dest_path <- file.path(stage_data_dir, dest_name)
 
     message('publish-git: ', out$src, ' -> ', file.path('release', 'data', dest_name))
     if (!dry_run) {
-      n_rows <- write_release_file(src_path, dest_path, out$format)
+      n_rows <- tryCatch(
+        write_release_file(src_path, dest_path, out$format),
+        error = function(e) stop('publish-git: staging failed for ', out$src, ': ',
+                                 conditionMessage(e),
+                                 '\nThe existing release/ was not modified.', call. = FALSE)
+      )
     } else {
       n_rows <- NA_integer_
     }
@@ -167,23 +183,39 @@ publish_git <- function(release_dir = RELEASE_DIR_DEFAULT,
 
   data_as_of <- read_data_as_of(repo_root)
 
-  manifest <- list(
-    publication_date = date_str,
-    published_at = format(Sys.time(), '%Y-%m-%dT%H:%M:%S%z'),
-    data_as_of = data_as_of,
-    build_started_at = if (is.null(build_started_at)) NA_character_
-                       else format(build_started_at, '%Y-%m-%dT%H:%M:%S%z'),
-    repo_root = repo_root,
-    git = capture_git_info_release(repo_root),
-    build_flags = build_flags,
-    r_version = paste(R.version$major, R.version$minor, sep = '.'),
-    package_versions = capture_pkg_versions(),
-    files = written
+  manifest <- tryCatch(
+    list(
+      publication_date = date_str,
+      published_at = format(Sys.time(), '%Y-%m-%dT%H:%M:%S%z'),
+      data_as_of = data_as_of,
+      build_started_at = if (is.null(build_started_at)) NA_character_
+                         else format(build_started_at, '%Y-%m-%dT%H:%M:%S%z'),
+      repo_root = repo_root,
+      git = capture_git_info_release(repo_root),
+      build_flags = build_flags,
+      r_version = paste(R.version$major, R.version$minor, sep = '.'),
+      package_versions = capture_pkg_versions(),
+      files = written
+    ),
+    error = function(e) stop('publish-git: could not build the manifest: ',
+                             conditionMessage(e),
+                             '\nThe existing release/ was not modified.', call. = FALSE)
   )
 
   if (!dry_run) {
-    write(jsonlite::toJSON(manifest, pretty = TRUE, auto_unbox = TRUE, na = 'string'),
-          file.path(release_dir, 'MANIFEST.json'))
+    tryCatch({
+      write_release_manifest(manifest, file.path(stage_dir, 'MANIFEST.json'))
+      validate_staged_release(stage_dir, RELEASE_OUTPUTS, date_str)
+    }, error = function(e) stop('publish-git: staged publication failed validation: ',
+                                conditionMessage(e),
+                                '\nThe existing release/ was not modified.', call. = FALSE))
+
+    promoted <- tryCatch(promote_release(stage_dir, release_dir, backup_dir),
+                         error = function(e) e)
+    if (inherits(promoted, 'error')) {
+      if (inherits(promoted, 'publish_git_rollback_failed')) keep_artifacts <- TRUE
+      stop(conditionMessage(promoted), call. = FALSE)
+    }
   }
 
   message('\nPublished ', length(written), ' file(s) to ', data_dir)
@@ -195,6 +227,127 @@ publish_git <- function(release_dir = RELEASE_DIR_DEFAULT,
                  publication_date = date_str,
                  manifest = manifest,
                  n_files = length(written)))
+}
+
+
+#' Write the manifest JSON to `path`.
+#'
+#' @keywords internal
+write_release_manifest <- function(manifest, path) {
+  write(jsonlite::toJSON(manifest, pretty = TRUE, auto_unbox = TRUE, na = 'string'), path)
+  if (!file.exists(path)) stop('manifest was not written: ', path)
+  invisible(path)
+}
+
+
+#' Move one file or directory without replacing an existing target. Errors on
+#' failure. Staging, backup and live paths all sit under release/, so this is a
+#' same-directory-tree rename (no cross-device copy), and it never relies on
+#' replace-on-rename semantics, which differ between Windows and POSIX.
+#'
+#' @keywords internal
+move_release_file <- function(from, to) {
+  if (file.exists(to)) stop('refusing to overwrite existing path: ', to)
+  if (!isTRUE(file.rename(from, to))) stop('could not move ', from, ' -> ', to)
+  invisible(to)
+}
+
+
+#' Check the staged publication (as it will be promoted) against its on-disk
+#' candidate manifest: exact file set, sizes, and SHA-256 recomputed from the
+#' staged bytes. Errors on any mismatch.
+#'
+#' @keywords internal
+validate_staged_release <- function(stage_dir, release_outputs, date_str) {
+  manifest_path <- file.path(stage_dir, 'MANIFEST.json')
+  if (!file.exists(manifest_path)) stop('staged MANIFEST.json is missing')
+  parsed <- jsonlite::fromJSON(manifest_path, simplifyVector = FALSE)
+
+  expected <- vapply(release_outputs, function(o) {
+    paste0(o$name, '_', date_str, '.', o$format)
+  }, character(1))
+  staged <- list.files(file.path(stage_dir, 'data'), all.files = TRUE, no.. = TRUE)
+  if (!setequal(staged, expected) || length(staged) != length(expected)) {
+    stop('staged data files (', paste(sort(staged), collapse = ', '),
+         ') do not match the expected set (', paste(sort(expected), collapse = ', '), ')')
+  }
+  if (length(parsed$files) != length(expected)) {
+    stop('manifest lists ', length(parsed$files), ' file(s); expected ', length(expected))
+  }
+  for (f in parsed$files) {
+    p <- file.path(stage_dir, f$path)
+    if (!file.exists(p)) stop('manifest entry has no staged file: ', f$path)
+    if (!identical(as.numeric(file.info(p)$size), as.numeric(f$size_bytes))) {
+      stop('size mismatch for ', f$path)
+    }
+    if (!identical(digest::digest(file = p, algo = 'sha256'), f$sha256)) {
+      stop('sha256 mismatch for ', f$path)
+    }
+  }
+  invisible(TRUE)
+}
+
+
+#' Promote a validated staged publication into release/, with rollback.
+#'
+#' Order: move the prior data files and MANIFEST.json into `backup_dir`, move
+#' the staged data files into release/data/, move the staged MANIFEST.json into
+#' release/ last. `.gitkeep` and everything else under release/ (README.md) is
+#' never touched. On any error every completed move is undone in reverse order;
+#' if an undo itself fails the error has class `publish_git_rollback_failed`
+#' and names the directories that still hold the recoverable files.
+#'
+#' @keywords internal
+promote_release <- function(stage_dir, release_dir, backup_dir) {
+  data_dir <- file.path(release_dir, 'data')
+  live_manifest <- file.path(release_dir, 'MANIFEST.json')
+  backup_data_dir <- file.path(backup_dir, 'data')
+  if (!dir.create(backup_data_dir, recursive = TRUE, showWarnings = FALSE)) {
+    stop('publish-git: could not create backup directory ', backup_data_dir,
+         '\nThe existing release/ was not modified.')
+  }
+  dir.create(data_dir, recursive = TRUE, showWarnings = FALSE)
+
+  done <- list()  # completed moves, as list(from, to), oldest first
+  step <- function(from, to) {
+    move_release_file(from, to)
+    done[[length(done) + 1L]] <<- list(from = from, to = to)
+  }
+
+  tryCatch({
+    old <- setdiff(list.files(data_dir, all.files = TRUE, no.. = TRUE), '.gitkeep')
+    if (length(old) > 0) {
+      message('publish-git: replacing ', length(old), ' file(s) from prior publication')
+    }
+    for (f in old) step(file.path(data_dir, f), file.path(backup_data_dir, f))
+    if (file.exists(live_manifest)) step(live_manifest, file.path(backup_dir, 'MANIFEST.json'))
+
+    for (f in list.files(file.path(stage_dir, 'data'), all.files = TRUE, no.. = TRUE)) {
+      step(file.path(stage_dir, 'data', f), file.path(data_dir, f))
+    }
+    step(file.path(stage_dir, 'MANIFEST.json'), live_manifest)
+  }, error = function(e) {
+    undo_failures <- character(0)
+    for (m in rev(done)) {
+      tryCatch(move_release_file(m$to, m$from),
+               error = function(e2) {
+                 undo_failures <<- c(undo_failures, conditionMessage(e2))
+               })
+    }
+    if (length(undo_failures) > 0) {
+      stop(structure(class = c('publish_git_rollback_failed', 'error', 'condition'),
+        list(call = NULL, message = paste0(
+          'publish-git: promotion failed (', conditionMessage(e), ') and rollback ',
+          'was incomplete (', paste(undo_failures, collapse = '; '), '). ',
+          'release/ may be inconsistent. The previous publication is preserved in ',
+          backup_dir, '; unpromoted new files are in ', stage_dir,
+          '. Restore from those directories or `git checkout -- release/`.'))))
+    }
+    stop('publish-git: promotion failed and the previous publication was restored: ',
+         conditionMessage(e), call. = FALSE)
+  })
+
+  invisible(TRUE)
 }
 
 
@@ -214,7 +367,10 @@ write_release_file <- function(src_path, dest_path, format) {
 
   if (identical(format, 'csv')) {
     if (tolower(src_ext) == 'csv') {
-      file.copy(src_path, dest_path, overwrite = TRUE)
+      if (!isTRUE(file.copy(src_path, dest_path, overwrite = TRUE)) ||
+          !identical(file.info(dest_path)$size, file.info(src_path)$size)) {
+        stop('copy failed or was incomplete: ', src_path, ' -> ', dest_path)
+      }
       # Cheap row count: lines minus header.
       n_lines <- length(readLines(dest_path, warn = FALSE))
       return(as.integer(max(0L, n_lines - 1L)))
