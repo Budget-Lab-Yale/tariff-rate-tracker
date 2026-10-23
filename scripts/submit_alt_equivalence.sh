@@ -41,9 +41,10 @@
 #SBATCH --mem=192G
 #SBATCH --output=/home/%u/slurm-logs/tariff-alt-eq-%j.out
 #SBATCH --error=/home/%u/slurm-logs/tariff-alt-eq-%j.err
-#SBATCH --chdir=/nfs/roberts/project/pi_nrs36/ji252/repos/tariff-rate-tracker
 
 set -euo pipefail
+
+cd "$(git -C "${SLURM_SUBMIT_DIR:-$PWD}" rev-parse --show-toplevel)"
 
 mkdir -p output/logs ~/slurm-logs
 
