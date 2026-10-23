@@ -742,6 +742,13 @@ build_s301_tiers <- function(ch99_data, effective_date, pp) {
     if (length(bc) > 0) rate_layer$by_country <- bc
   }
   scope <- if (length(rate_layer$by_country)) names(rate_layer$by_country) else character(0)
+  # Note 51(c) §232 carve-out: all three charging headings until PP 11064/11065
+  # (2026-09-15), then 9903.03.13 (dairy) only — the other two stack on §232.
+  s338_headings <- c('9903.03.12', '9903.03.13', '9903.03.14')
+  stk <- cfg$s232_stacking
+  stacking_now <- !is.null(stk) &&
+    as.Date(effective_date) >= as.Date(stk$effective_date)
+  s232_excluded <- if (stacking_now) setdiff(s338_headings, stk$headings) else s338_headings
   spec <- authority_spec(
     authority = 'section_338',
     stacking  = list(class = 'additive', exceptions = list()),
@@ -749,9 +756,12 @@ build_s301_tiers <- function(ch99_data, effective_date, pp) {
     active = list(from = eff, until = NA),
     programs = list(authority_program(
       id = 's338',
-      product_scope = list(list_file = cfg$products_file %||% 'resources/s338_products.csv'),
+      # as_of picks the list version in force (valid_from/valid_until columns).
+      product_scope = list(list_file = cfg$products_file %||% 'resources/s338_products.csv',
+                           as_of = as.Date(effective_date)),
       country_scope = list(include = scope),
-      rate = rate_layer))
+      rate = rate_layer,
+      settings = list(s232_excluded_headings = s232_excluded)))
   )
   # GN6 note-51(d) set + the measured per-HTS10 GN6 utilization shares (same
   # measurement the §122 (aa)(iv) scaling uses). The ->0 unmeasured fallback

@@ -195,6 +195,65 @@ section_232_headings:
     displaces_overlays: false
     mip_model: documented_zero
     mip_products_file: 'resources/s232_polysilicon_mip_products.csv'
+
+  # Drones (unmanned aircraft systems) Section 232 action — PP 11055 of
+  # 2026-08-13 (91 FR 53699), effective 2026-09-03, codified by HTS 2026 rev_18
+  # as U.S. note 43 + headings 9903.08.20-.26. Rates (clause 1 / note 43):
+  #   * +100% on drones with thermal imaging, docking stations and critical
+  #     components (note 43(c)(1)-(3), 9903.08.21);
+  #   * +25% on drones without thermal imaging (43(c)(4), 9903.08.22);
+  #   * UK +10% (9903.08.23); EU / Japan / Korea / Switzerland / Taiwan /
+  #     Liechtenstein 15% total including column 1 (9903.08.24).
+  # Additive to every other duty (clause 3). The proclamation amends no overlay
+  # exclusion note (52(f) / 50(a)(vi) / 51(c)), so FL-301, Brazil-§301 and §338
+  # keep applying on top: displaces_overlays: false, like polysilicon.
+  #
+  # Modeling choices (docs/statutory_deviations.md S14):
+  #   * rate_split: (c)(3) and (c)(4) name the SAME six HTS-8 codes, split by
+  #     whether the drone has a thermal camera, which no code observes.
+  #     share = thermal share of trade on those lines (pays default_rate); the
+  #     rest pays rate_split.rate. 0.25 is an UNCALIBRATED placeholder —
+  #     consumer imports (largely DJI) mostly lack thermal cameras.
+  #   * basket_lines: 8807 covers parts of ALL aircraft, and note 43(c)(2)
+  #     reaches only parts for drones over 25 kg; 8504.40.9580 / 8537.10.9170
+  #     are "other" converter / control-board baskets, of which only docking-
+  #     station parts are covered. Charging them in full would put 100% on
+  #     ~$19B of Canada/Mexico trade alone (2025), overwhelmingly civil-aircraft
+  #     parts and industrial controls. applicability_share scales the component
+  #     on these lines; 0.02 is an UNCALIBRATED placeholder.
+  #   * partner rates are assumed to qualify in full (clause 4 requires
+  #     certification that critical components are allied-origin); the Blue
+  #     UAS / FCC-list 180-day delay (clause 7, to 2027-02-09) and the onshoring
+  #     exemptions (9903.08.25/.26) are not modeled; statutory ceiling.
+  #   * Annex III (UAS components at 25% from 2027-02-09, clause 2) falls after
+  #     the series horizon and is not modeled.
+  drones:
+    prefixes: ['88062100', '88062200', '88062300', '88062400', '88062900',
+               '88069100', '88069200', '88069300', '88069400', '88069900',
+               '88071000', '88072000', '88073000', '88079090',
+               '8504409580', '8537109170']
+    effective_date: '2026-09-03'
+    default_rate: 1.00
+    rate_split:
+      prefixes: ['88062100', '88062200', '88062300',
+                 '88069100', '88069200', '88069300']
+      share: 0.25
+      rate: 0.25
+    basket_lines:
+      prefixes: ['88071000', '88072000', '88073000', '88079090',
+                 '8504409580', '8537109170']
+      applicability_share: 0.02
+    country_rates:
+      CTY_UK: 0.10
+    target_total:
+      eu: 0.15
+      CTY_JAPAN: 0.15
+      CTY_SKOREA: 0.15
+      CTY_TAIWAN: 0.15
+      CTY_SWITZERLAND: 0.15
+      CTY_LIECHTENSTEIN: 0.15
+    usmca_exempt: false
+    displaces_overlays: false
   softwood:
     prefixes: ['44031100', '44032101', '44032201', '44032301', '44032401',
                '44032501', '44032601', '44039901', '44061100', '44069100',
@@ -989,12 +1048,36 @@ section_122:
 # lines are scaled by measured GN6 utilization (measured -> HS2 mean -> 0; the
 # 0 fallback differs from §122's ->1 because the affected mv-list codes —
 # routers, furniture — are overwhelmingly NOT aircraft parts).
+#
+# SCOPE CHANGE 2026-09-15 — PP 11064 (alcohol) and PP 11065 (motor vehicles),
+# signed 2026-09-08 (91 FR 58331 / 58339), codified by HTS 2026 rev_19:
+#   * lists (b)(1) and (b)(3) gain and lose products (alcohol 63 -> 101 codes,
+#     now incl. cheese, hides, furs, boats; "motor vehicles" 439 -> 513, now
+#     incl. paper, aluminum bars, hardware, furniture). Some HTS-8 entries narrow
+#     to named HTS-10 lines. Dairy (b)(2) is unchanged. products_file carries
+#     both list versions with valid_from/valid_until; the adapter resolves the
+#     version in force on the snapshot date.
+#   * the §232 carve-out (note 51(c)) now covers 9903.03.13 (dairy) ONLY. Both
+#     proclamations' clause (1): the duties "as modified in this proclamation,
+#     shall apply in addition to duties imposed pursuant to section 232". From
+#     s232_stacking.effective_date, articles under s232_stacking.headings pay
+#     §338 on top of §232 (no scope mask).
+#
+# IMPORT BANS NOT MODELED — PP 11061/11062/11063 (signed 2026-09-08) exclude
+# certain Canadian alcohol, dairy and motor-vehicle products from importation
+# from 2026-09-29. Their annexes are images in the Federal Register and are not
+# yet in the HTS. The banned lines keep the 50% §338 rate here, which is what
+# each proclamation's clause 9(b) applies if the ban is invalidated. Recorded as
+# deviation S13 in docs/statutory_deviations.md; revisit when USITC codifies.
 section_338:
   effective_date: '2026-08-22'
   rate: 0.50
   country: '1220'                                    # Canada census code
   products_file: 'resources/s338_products.csv'
   gn6_exempt_products: 'resources/s338_gn6_exempt_products.csv'
+  s232_stacking:
+    effective_date: '2026-09-15'
+    headings: ['9903.03.12', '9903.03.14']
 
 # --- Section 301 forced labor (FINAL ACTION — baseline) ---------------------
 # USTR Notice of Action (pre-publication 2026-07-23; effective 2026-07-24),

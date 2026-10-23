@@ -1784,7 +1784,7 @@ run_test('polysilicon country tiers are additive except framework total floor', 
     hts10 = '8541430010', country = countries,
     base_rate = 0.03, rate_232 = 0.05
   )
-  out <- apply_polysilicon_232_adjustments(
+  out <- apply_additive_232_program(
     rates, '8541430010', cfg, countries, pp)
   got <- setNames(out$rate_232, out$country)
 
@@ -2188,7 +2188,7 @@ run_test('polysilicon apply records its component as non-displacing', {
     rate_232 = c(0, 0)
   )
   cfg <- list(default_rate = 0.15, displaces_overlays = FALSE)
-  out <- apply_polysilicon_232_adjustments(base, '8541430010', cfg,
+  out <- apply_additive_232_program(base, '8541430010', cfg,
                                            countries = '5520', pp = list())
   stopifnot(abs(out$rate_232[1] - 0.15) < 1e-12,
             abs(out$rate_232_nondisplacing[1] - 0.15) < 1e-12,
@@ -2196,7 +2196,7 @@ run_test('polysilicon apply records its component as non-displacing', {
   # Flipping the flag (a future proclamation amending the notes) must stop
   # recording the component — the rate itself is unchanged.
   cfg_d <- list(default_rate = 0.15, displaces_overlays = TRUE)
-  out_d <- apply_polysilicon_232_adjustments(base, '8541430010', cfg_d,
+  out_d <- apply_additive_232_program(base, '8541430010', cfg_d,
                                              countries = '5520', pp = list())
   stopifnot(abs(out_d$rate_232[1] - 0.15) < 1e-12,
             all(out_d$rate_232_nondisplacing == 0))

@@ -1,0 +1,35 @@
+# rev_18 / rev_19 ingest candidate: do the two new revisions assemble, and does
+# the series move only where the new policy says it should?
+#
+# rev_18 (policy-dated 2026-09-03) codifies the Section 232 drone action
+# (U.S. note 43, PP 11055, headings 9903.08.20-.26); its JSON is reconstructed
+# from rev_19 (data/hts_archives/hts_2026_rev_18.PROVENANCE.txt). rev_19
+# (2026-09-15) codifies the Section 338 Canada scope change (PP 11064/11065):
+# new alcohol / motor-vehicle lists, and those two lists now stack on §232.
+# Expectations:
+#
+#   * TWO new snapshot partitions: valid_from 2026-09-03 (rev_18) and
+#     2026-09-15 (rev_19). rev_17 now ends 2026-09-02. The later boundary mints
+#     (2026-09-29, 2026-11-10, 2026-12-04) are now owned by rev_19.
+#   * Every partition before 2026-09-03 IDENTICAL to the previous master
+#     vintage (2026-08-31-12).
+#   * 2026-09-03..09-14: rates differ only on drone-scope lines (8806, the
+#     8807 / 8504.40.9580 / 8537.10.9170 basket lines).
+#   * From 2026-09-15: additionally rate_s338 on Canada rows only.
+#
+# A rate difference outside those lines is worth stopping for.
+#
+# Publishes a vintage but does NOT repoint `latest` — bless deliberately with
+#   Rscript scripts/publish_vintage.R --latest-only <vintage>
+# after comparing against the previous master vintage:
+#   Rscript scripts/compare_vintages.R <.../2026-08-31-12> \
+#     <.../.validation/rev18-rev19-ingest/<vintage>>
+model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker/.validation/rev18-rev19-ingest
+policy_params_path: config/policy_params.yaml
+scenarios:
+  - new_301
+use_hts_dates: false
+weight_mode: required
+update_latest: false
+allow_partial: false
+verify: true

@@ -358,6 +358,13 @@ classify_authority <- function(ch99_code) {
     return('section_232')
   }
 
+  # Section 232 drones (U.S. note 43, PP 11055): 9903.08.20-.26, codified by
+  # 2026 HTS rev_18. Segment-matched like pharma so other 9903.08.xx headings
+  # do not inherit Section 232 classification.
+  if (isTRUE(middle == 8 && !is.na(third) && third %in% 20:26)) {
+    return('section_232')
+  }
+
   # IEEPA reciprocal: 9903.90 (China surcharges) + 9903.93/95/96
   if (middle == 90 || (middle >= 93 && middle <= 96 && middle != 94)) {
     return('ieepa_reciprocal')

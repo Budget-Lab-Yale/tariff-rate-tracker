@@ -33,10 +33,15 @@ ok <- function(cond, msg) {
 CA <- '1220'
 
 cat('\n== annex product lists (resources/, built by scripts/build_s338_annex.R) ==\n')
-prod <- read_csv(here('resources', 's338_products.csv'),
-                 col_types = cols(.default = col_character()))
+prod_all <- read_csv(here('resources', 's338_products.csv'),
+                     col_types = cols(.default = col_character()))
 gn6  <- read_csv(here('resources', 's338_gn6_exempt_products.csv'),
                  col_types = cols(hts8 = col_character()))
+ok(identical(sort(unique(prod_all$valid_from)), c('2026-08-22', '2026-09-15')),
+   'two list versions: original (from 08-22) and rev_19 (from 09-15)')
+# Original lists (PP 11046/11047/11048, valid 2026-08-22..2026-09-14)
+prod <- prod_all %>% filter(valid_from == '2026-08-22') %>% rename(hts8 = hts_code)
+ok(all(prod$valid_until == '2026-09-14'), 'original lists end 2026-09-14')
 cnt <- table(prod$program)
 ok(identical(unname(cnt[['alcohol']]), 63L), 'alcohol list = 63 hts8 (annex count)')
 ok(identical(unname(cnt[['dairy']]), 52L), 'dairy list = 52 hts8 (annex count)')
@@ -53,6 +58,21 @@ ok('22083030' %in% prod$hts8[prod$program == 'alcohol'], 'Irish/Scotch whisky 22
 ok('22083060' %in% prod$hts8[prod$program == 'alcohol'], 'Canadian whisky 2208.30.60 on alcohol list (proclamation target)')
 ok('44130000' %in% prod$hts8[prod$program == 'alcohol'], 'densified wood 4413.00.00 on alcohol list (wood §232 test article)')
 
+# rev_19 lists (PP 11064/11065, HTS 2026 rev_19 note 51(b), open-ended from 09-15)
+r19 <- prod_all %>% filter(valid_from == '2026-09-15')
+ok(all(is.na(r19$valid_until)), 'rev_19 lists are open-ended')
+cnt19 <- table(r19$program)
+ok(identical(unname(cnt19[['alcohol']]), 101L), 'rev_19 alcohol list = 101 codes')
+ok(identical(unname(cnt19[['motor_vehicles']]), 513L), 'rev_19 motor_vehicles list = 513 codes')
+ok(setequal(r19$hts_code[r19$program == 'dairy'], prod$hts8[prod$program == 'dairy']),
+   'rev_19 dairy list unchanged (note 51(b)(2) not amended)')
+ok(all(nchar(r19$hts_code) %in% c(8L, 10L)) && sum(nchar(r19$hts_code) == 10) == 12,
+   'rev_19 lists name 12 HTS-10 statistical lines')
+ok(!'22083060' %in% r19$hts_code && '2208306020' %in% r19$hts_code,
+   'Canadian whisky 2208.30.60 narrowed to named HTS-10 lines')
+ok(!'78011000' %in% r19$hts_code, 'refined lead 7801.10.00 dropped from the mv list')
+ok('04061064' %in% r19$hts_code[r19$program == 'alcohol'], 'cheese 0406.10.64 added under 9903.03.12')
+
 cat('\n== adapter: .build_section_338 (baseline config, date-gate) ==\n')
 pp <- load_policy_params()
 countries <- read_csv(here('resources', 'census_codes.csv'),
@@ -61,6 +81,15 @@ ok(!is.null(pp$section_338), 'baseline policy_params carries section_338 (signed
 ok('2026-08-22' %in% as.character(pp$BOUNDARY_OVERRIDES), 'boundary_overrides lists the 2026-08-22 turn-on')
 spec_on  <- .build_section_338(pp, countries, as.Date('2026-08-22'))
 spec_pre <- .build_section_338(pp, countries, as.Date('2026-08-21'))
+spec_914 <- .build_section_338(pp, countries, as.Date('2026-09-14'))
+spec_915 <- .build_section_338(pp, countries, as.Date('2026-09-15'))
+ok(identical(spec_on$programs[[1]]$product_scope$as_of, as.Date('2026-08-22')),
+   'product_scope$as_of carries the snapshot date')
+ok(identical(spec_914$programs[[1]]$settings$s232_excluded_headings,
+             c('9903.03.12', '9903.03.13', '9903.03.14')),
+   'through 09-14: §232 carve-out covers all three headings')
+ok(identical(spec_915$programs[[1]]$settings$s232_excluded_headings, '9903.03.13'),
+   'from 09-15: §232 carve-out covers dairy 9903.03.13 only (PP 11064/11065)')
 ok(!is.null(spec_on) && spec_on$authority == 'section_338', 'authority built')
 ok(identical(spec_on$stacking$class, 'additive'), "stacking class = 'additive' (note 51(a))")
 ok(identical(spec_on$usmca_treatment, 'none'), "usmca_treatment = 'none' (applies regardless of origin)")
@@ -161,6 +190,50 @@ out_pre <- suppressMessages(apply_section338(rates, list(section_338 = spec_pre)
                                              products, c(CA, '5700')))
 ok('rate_s338' %in% names(out_pre) && all(out_pre$rate_s338 == 0),
    'pre-08-22: rate_s338 present and all-zero')
+
+cat('\n== calculator: rev_19 lists + narrowed §232 carve-out (from 2026-09-15) ==\n')
+fix_915 <- spec_915
+fix_915$programs[[1]]$exempt_products$gn6_utilization <- setNames(0.40, '8529901620')
+products_915 <- tibble(
+  hts10 = c('2208306020',    # Canadian whisky, named HTS-10 line -> covered
+            '2208306010',    # sibling line NOT named -> uncovered
+            '0406106400',    # cheese, added to the alcohol heading
+            '7801100000',    # refined lead, dropped from the mv list
+            '4413000000',    # alcohol list, wood §232 heading arm -> now stacks
+            '7203100000',    # mv list, statutory §232 > 0 -> now stacks
+            '0402100500'),   # dairy, forced into §232 scope -> carve-out holds
+  base_rate = 0)
+rates_915 <- tibble(
+  hts10   = products_915$hts10,
+  country = CA,
+  base_rate = 0,
+  rate_232           = c(0, 0, 0, 0, 0, 0.25, 0.25),
+  statutory_rate_232 = c(0, 0, 0, 0, 0, 0.25, 0.25),
+  s232_annex = NA_character_,
+  heading_program = c(FALSE, FALSE, FALSE, FALSE, TRUE, FALSE, FALSE),
+  rate_301 = 0, rate_301_cs = 0, rate_ieepa_recip = 0, rate_ieepa_fent = 0,
+  rate_s122 = 0, rate_section_201 = 0, rate_other = 0)
+out_915 <- suppressMessages(apply_section338(rates_915, list(section_338 = fix_915),
+                                             products_915, CA))
+g9 <- function(h) out_915$rate_s338[out_915$hts10 == h]
+ok(isTRUE(all.equal(g9('2208306020'), 0.50)), 'named HTS-10 whisky line 2208.30.60.20 -> 0.50')
+ok(isTRUE(all.equal(g9('2208306010'), 0)), 'unnamed sibling 2208.30.60.10 -> 0 (narrowed entry)')
+ok(isTRUE(all.equal(g9('0406106400'), 0.50)), 'added cheese 0406.10.64 -> 0.50')
+ok(isTRUE(all.equal(g9('7801100000'), 0)), 'dropped refined lead 7801.10.00 -> 0')
+ok(isTRUE(all.equal(g9('4413000000'), 0.50)), 'alcohol-list article in §232 heading scope now stacks -> 0.50')
+ok(isTRUE(all.equal(g9('7203100000'), 0.50)), 'mv-list article with statutory §232 now stacks -> 0.50')
+ok(isTRUE(all.equal(g9('0402100500'), 0)), 'dairy article in §232 scope keeps the carve-out -> 0')
+ok(nrow(out_915) == nrow(rates_915) && identical(out_915$hts10, rates_915$hts10),
+   'joins preserve row count and order')
+
+# Same fixture on 09-14: original lists and the full carve-out
+out_914 <- suppressMessages(apply_section338(rates_915, list(section_338 = spec_914),
+                                             products_915, CA))
+g8 <- function(h) out_914$rate_s338[out_914$hts10 == h]
+ok(isTRUE(all.equal(g8('2208306010'), 0.50)), '09-14: whole 2208.30.60 covered -> 0.50')
+ok(isTRUE(all.equal(g8('0406106400'), 0)), '09-14: cheese not yet covered -> 0')
+ok(isTRUE(all.equal(g8('7801100000'), 0.50)), '09-14: refined lead still covered -> 0.50')
+ok(isTRUE(all.equal(g8('7203100000'), 0)), '09-14: §232-scope mv article excluded -> 0')
 
 cat('\n== additive stacking (rate_s338 never displaced) ==\n')
 stk <- suppressMessages(apply_stacking_rules(
