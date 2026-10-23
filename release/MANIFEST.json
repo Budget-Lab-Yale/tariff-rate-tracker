@@ -6,7 +6,7 @@
     "last_build_time": "2026-06-09T16:54:15-0400"
   },
   "build_started_at": "NA",
-  "repo_root": "/nfs/roberts/project/pi_nrs36/ji252/repos/tariff-rate-tracker",
+  "repo_root": "tariff-rate-tracker",
   "git": {
     "commit": "9613097e31b0316ee062c34a21bcacb4a5d0f87f",
     "branch": "master",
