@@ -173,7 +173,7 @@ publish_git <- function(release_dir = RELEASE_DIR_DEFAULT,
     data_as_of = data_as_of,
     build_started_at = if (is.null(build_started_at)) NA_character_
                        else format(build_started_at, '%Y-%m-%dT%H:%M:%S%z'),
-    repo_root = repo_root,
+    repo_root = basename(normalizePath(repo_root)),  # repo name only; a server path must not land in a tracked file
     git = capture_git_info_release(repo_root),
     build_flags = build_flags,
     r_version = paste(R.version$major, R.version$minor, sep = '.'),
