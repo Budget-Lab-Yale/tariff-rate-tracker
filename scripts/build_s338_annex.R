@@ -20,12 +20,19 @@
 #   the post-change lists are parsed from the HTS codification instead:
 #   data/s338/text/note51_rev19.txt (HTS 2026 rev_19, Chapter 99 note 51).
 #
+#   SCOPE CHANGE 2026-10-30: Proclamation 11076 modifies the motor-vehicle list
+#   (b)(3) only, codified in HTS 2026 rev_22 (data/s338/text/note51_rev22.txt).
+#   The rev_22 alcohol and dairy lists must equal rev_19's, so only the
+#   motor-vehicle list gets a new version.
+#
 # OUTPUTS:
 #   resources/s338_products.csv — hts_code,program,ch99_heading,valid_from,
 #     valid_until. One row per code x program x list version: the original
-#     lists (valid 2026-08-22..2026-09-14) and the rev_19 lists (valid from
-#     2026-09-15, valid_until blank = open-ended). hts_code is HTS-8, or HTS-10
-#     where the note names a statistical line.
+#     lists (valid 2026-08-22..2026-09-14), the rev_19 lists (valid from
+#     2026-09-15; the motor-vehicle list until 2026-10-29) and the rev_22
+#     motor-vehicle list (valid from 2026-10-30). valid_until blank =
+#     open-ended. hts_code is HTS-8, or HTS-10 where the note names a
+#     statistical line.
 #   resources/s338_gn6_exempt_products.csv — hts8 (the note 51(d) civil-aircraft
 #     GN6 list from heading 9903.03.16; USE-conditional, so the calc scales
 #     covered∩GN6 lines by measured GN6 utilization rather than exempting
@@ -49,6 +56,7 @@
 here_root <- tryCatch(here::here(), error = function(e) getwd())
 txt_dir  <- file.path(here_root, 'data', 's338', 'text')
 note51_rev19 <- 'note51_rev19.txt'
+note51_rev22 <- 'note51_rev22.txt'
 out_prod <- file.path(here_root, 'resources', 's338_products.csv')
 out_gn6  <- file.path(here_root, 'resources', 's338_gn6_exempt_products.csv')
 
@@ -57,10 +65,14 @@ CODE_RE <- '[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}'
 CODE_RE_10 <- '[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}([0-9]{2})?'
 
 # List validity windows. The original lists run from the §338 turn-on to the
-# day before PP 11064/11065; the rev_19 lists are open-ended.
+# day before PP 11064/11065; the rev_19 motor-vehicle list runs to the day
+# before PP 11076; the rev_19 alcohol/dairy and rev_22 motor-vehicle lists are
+# open-ended.
 ORIGINAL_VALID_FROM  <- '2026-08-22'
 ORIGINAL_VALID_UNTIL <- '2026-09-14'
 REV19_VALID_FROM     <- '2026-09-15'
+REV19_MV_VALID_UNTIL <- '2026-10-29'
+REV22_VALID_FROM     <- '2026-10-30'
 
 # A "code line" consists solely of NNNN.NN.NN tokens, whitespace, and an
 # optional closing typographic quote on the last list line.
@@ -176,19 +188,23 @@ expected_original <- c(alcohol = 63L, dairy = 52L, motor_vehicles = 439L)
 check_version(original, expected_original, 'original')
 
 # --- rev_19 lists (HTS 2026 rev_19 note 51(b), after PP 11064/11065) ---------
-note51_txt <- read_annex(note51_rev19)
 rev19_anchors <- c(
   alcohol        = 'Heading 9903\\.03\\.12 applies to articles classifiable',
   dairy          = 'Heading 9903\\.03\\.13 applies to articles classifiable',
   motor_vehicles = 'Heading 9903\\.03\\.14 applies to articles classifiable',
   end            = 'As provided in heading 9903\\.03\\.15')
-rev19 <- do.call(rbind, lapply(seq_along(programs), function(k) {
-  p <- names(programs)[k]
-  data.frame(hts_code = extract_between(note51_txt, rev19_anchors[[k]],
-                                        rev19_anchors[[k + 1]]),
-             program = p, ch99_heading = programs[[p]]$heading,
-             stringsAsFactors = FALSE)
-}))
+# Parse the three note 51(b) lists from one HTS codification of note 51.
+parse_note51 <- function(file) {
+  note51_txt <- read_annex(file)
+  do.call(rbind, lapply(seq_along(programs), function(k) {
+    p <- names(programs)[k]
+    data.frame(hts_code = extract_between(note51_txt, rev19_anchors[[k]],
+                                          rev19_anchors[[k + 1]]),
+               program = p, ch99_heading = programs[[p]]$heading,
+               stringsAsFactors = FALSE)
+  }))
+}
+rev19 <- parse_note51(note51_rev19)
 # Expected row counts from HTS 2026 rev_19 note 51(b) (hand-verified
 # 2026-09-26 against an independent parse of the rev_19 Chapter 99 PDF; the
 # same parse of rev_17 reproduces the original lists exactly).
@@ -200,11 +216,27 @@ if (!setequal(rev19$hts_code[rev19$program == 'dairy'],
        'touch note 51(b)(2); re-check the extraction')
 }
 
+# --- rev_22 lists (HTS 2026 rev_22 note 51(b), after PP 11076) -------------
+rev22 <- parse_note51(note51_rev22)
+# Expected counts from HTS 2026 rev_22 note 51(b) (motor-vehicle list checked
+# 2026-10-30 against an independent token parse: 513 + 100 added - 22 dropped).
+expected_rev22 <- c(alcohol = 101L, dairy = 52L, motor_vehicles = 591L)
+check_version(rev22, expected_rev22, 'rev_22')
+for (p in c('alcohol', 'dairy')) {
+  if (!setequal(rev22$hts_code[rev22$program == p], rev19$hts_code[rev19$program == p])) {
+    stop('rev_22 ', p, ' list differs from rev_19 — PP 11076 amends only ',
+         'note 51(b)(3); re-check the extraction')
+  }
+}
+rev22 <- rev22[rev22$program == 'motor_vehicles', ]
+
 original$valid_from  <- ORIGINAL_VALID_FROM
 original$valid_until <- ORIGINAL_VALID_UNTIL
 rev19$valid_from     <- REV19_VALID_FROM
-rev19$valid_until    <- ''
-prod <- rbind(original, rev19)
+rev19$valid_until    <- ifelse(rev19$program == 'motor_vehicles', REV19_MV_VALID_UNTIL, '')
+rev22$valid_from     <- REV22_VALID_FROM
+rev22$valid_until    <- ''
+prod <- rbind(original, rev19, rev22)
 
 # GN6 civil-aircraft list — note 51(d) (stated once, in the alcohol annex;
 # unchanged by rev_19)
@@ -233,10 +265,11 @@ utils::write.csv(data.frame(hts8 = gn6, stringsAsFactors = FALSE),
                  out_gn6, row.names = FALSE, quote = FALSE)
 
 for (v in list(list(label = 'original', rows = original, expected = expected_original),
-               list(label = 'rev_19',   rows = rev19,    expected = expected_rev19))) {
-  overlap <- lapply(names(programs), function(p)
+               list(label = 'rev_19',   rows = rev19,    expected = expected_rev19),
+               list(label = 'rev_22',   rows = rev22,    expected = expected_rev22['motor_vehicles']))) {
+  overlap <- lapply(names(v$expected), function(p)
     intersect(substr(v$rows$hts_code[v$rows$program == p], 1, 8), gn6))
-  names(overlap) <- names(programs)
+  names(overlap) <- names(v$expected)
   message(sprintf('S338 %s lists (valid from %s): %s', v$label, v$rows$valid_from[1],
                   paste(sprintf('%s=%d', names(v$expected), v$expected), collapse = ', ')))
   message(sprintf('  covered ∩ GN6 overlap: %s',

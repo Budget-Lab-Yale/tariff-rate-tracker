@@ -1,9 +1,11 @@
-# HTS 2026 rev_18 – rev_21 ingest and USMCA refresh — hand-off
+# HTS 2026 rev_18 – rev_22 ingest and USMCA refresh — hand-off
 
 *2026-10-29, John Iselin → John Ricco. Branch `feat/ingest-2026-rev18-rev21`
 (renamed from `feat/ingest-2026-rev18-rev19`). This is Part 1 of the model
-update: the schedule is current through rev_21, and the USMCA monthly claim
-shares run through 2026-08. No build has run on this branch yet.*
+update: the schedule is current through rev_22 (the current USITC release on
+2026-10-30), and the USMCA monthly claim shares run through 2026-08. Updated
+2026-10-30 with the rev_22 ingest, the USMCA decision and the validation
+builds.*
 
 ## What is on the branch
 
@@ -12,6 +14,7 @@ shares run through 2026-08. No build has run on this branch yet.*
 | rev_18 (drones §232, eff. 09-03) and rev_19 (§338 scope, eff. 09-15) | From the September work-in-progress commit `0cf8eca`. **Not reviewed or build-checked as a unit.** |
 | rev_20 (eff. 09-29) | Done this session. JSON rebuilt from rev_21 (`scripts/reconstruct_hts_2026_rev_20.py`, verified against rev_20's change record: sole delta +9903.04.70). |
 | rev_21 (eff. 10-09) | Done this session. Official download, stored as-served. Note text only. |
+| rev_22 (eff. 10-30) | Done 2026-10-30, the day it was released. Official download. §338 motor-vehicle list change (below). |
 | USMCA monthly claim shares 2026-03 … 2026-08 | Pulled from DataWeb. Jan/Feb re-pulled (aggregates unchanged; they gain zero-trade rows for products that appear later in 2026, which the loader treats as no signal). |
 | `tools/download_usmca_dataweb.R` | Fixed: DataWeb now rejects bare "Canada"/"Mexico" (`Incorrect country information`); names must read `Canada - CA - CAN` / `Mexico - MX - MEX`. |
 
@@ -48,6 +51,19 @@ side-data since rev_13, so the line is in the new
 heading × line pairs as the hand edit). Three other 9903.88.69 lines were split
 on 07-01, but note 20 still names only the old codes, so their successors pay
 the full §301 rate from 07-01 (deviation S16, recheck each revision).
+
+**rev_22** (published and effective 2026-10-30) modifies only note 51(b)(3),
+the §338 "motor vehicles" list under 9903.03.14 (Proclamation 11076): 513 →
+591 codes, 100 added (chocolate 1806.10, carpets 5701–5705, paints, lubricants,
+wood and paper products, some appliance, tool and instrument lines) and 22
+dropped (plywood 4412.33/.34, plastic packaging, some paper and machinery
+lines). The rest of note 51 is word-for-word unchanged. The list is parsed from
+`data/s338/text/note51_rev22.txt` (extracted from the rev_22 Chapter 99 PDF);
+`resources/s338_products.csv` ends the rev_19 motor-vehicle list on 10-29 and
+starts the rev_22 list on 10-30. The count was checked against an independent
+parse. The JSON's only change is the "provision suspended" compiler's note
+dropped from 9903.01.63 (China IEEPA reciprocal), which is inert after the
+02-20 IEEPA invalidation. The import bans are still not codified (S13).
 
 ## USMCA claim shares: two windows split at the SCOTUS ruling
 
@@ -90,9 +106,10 @@ zero.
 2. **Review rev_18 / rev_19** (`0cf8eca`); nobody has reviewed them yet.
 3. **The baseline USMCA window** — decided: two windows split at the SCOTUS
    ruling (above).
-4. **Validation build:** `sbatch scripts/submit_build_array.sh --config
-   config/build/rev18_rev21_ingest.yaml` (publishes under `.validation/`, does
+4. **Validation build:** `bash scripts/submit_build_array.sh --config
+   config/build/rev18_rev22_ingest.yaml` (publishes under `.validation/`, does
    not move `latest`); compare against `2026-08-31-12` with
    `scripts/compare_vintages.R`. The config header lists the expected moves.
+   Results under "Validation builds" below.
 5. Then Part 2 of the update: the full run with `usmca_monthly` set to
    `publish: true`, which needs these monthly files.

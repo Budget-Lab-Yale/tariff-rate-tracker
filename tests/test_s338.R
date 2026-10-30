@@ -37,8 +37,8 @@ prod_all <- read_csv(here('resources', 's338_products.csv'),
                      col_types = cols(.default = col_character()))
 gn6  <- read_csv(here('resources', 's338_gn6_exempt_products.csv'),
                  col_types = cols(hts8 = col_character()))
-ok(identical(sort(unique(prod_all$valid_from)), c('2026-08-22', '2026-09-15')),
-   'two list versions: original (from 08-22) and rev_19 (from 09-15)')
+ok(identical(sort(unique(prod_all$valid_from)), c('2026-08-22', '2026-09-15', '2026-10-30')),
+   'three list versions: original (08-22), rev_19 (09-15), rev_22 motor vehicles (10-30)')
 # Original lists (PP 11046/11047/11048, valid 2026-08-22..2026-09-14)
 prod <- prod_all %>% filter(valid_from == '2026-08-22') %>% rename(hts8 = hts_code)
 ok(all(prod$valid_until == '2026-09-14'), 'original lists end 2026-09-14')
@@ -60,7 +60,9 @@ ok('44130000' %in% prod$hts8[prod$program == 'alcohol'], 'densified wood 4413.00
 
 # rev_19 lists (PP 11064/11065, HTS 2026 rev_19 note 51(b), open-ended from 09-15)
 r19 <- prod_all %>% filter(valid_from == '2026-09-15')
-ok(all(is.na(r19$valid_until)), 'rev_19 lists are open-ended')
+ok(all(is.na(r19$valid_until[r19$program != 'motor_vehicles'])) &&
+     all(r19$valid_until[r19$program == 'motor_vehicles'] == '2026-10-29'),
+   'rev_19 alcohol/dairy lists open-ended; motor_vehicles list ends 2026-10-29')
 cnt19 <- table(r19$program)
 ok(identical(unname(cnt19[['alcohol']]), 101L), 'rev_19 alcohol list = 101 codes')
 ok(identical(unname(cnt19[['motor_vehicles']]), 513L), 'rev_19 motor_vehicles list = 513 codes')
@@ -72,6 +74,19 @@ ok(!'22083060' %in% r19$hts_code && '2208306020' %in% r19$hts_code,
    'Canadian whisky 2208.30.60 narrowed to named HTS-10 lines')
 ok(!'78011000' %in% r19$hts_code, 'refined lead 7801.10.00 dropped from the mv list')
 ok('04061064' %in% r19$hts_code[r19$program == 'alcohol'], 'cheese 0406.10.64 added under 9903.03.12')
+
+# rev_22 motor-vehicle list (PP 11076, HTS 2026 rev_22 note 51(b)(3), open-ended from 10-30)
+r22 <- prod_all %>% filter(valid_from == '2026-10-30')
+ok(identical(unique(r22$program), 'motor_vehicles') && nrow(r22) == 591 && all(is.na(r22$valid_until)),
+   'rev_22: only the motor_vehicles list changes; 591 codes, open-ended')
+mv19 <- r19$hts_code[r19$program == 'motor_vehicles']
+ok(length(setdiff(r22$hts_code, mv19)) == 100 && length(setdiff(mv19, r22$hts_code)) == 22,
+   'rev_22 vs rev_19 motor_vehicles: 100 added, 22 dropped')
+ok('18061010' %in% r22$hts_code && '57011040' %in% r22$hts_code, 'chocolate 1806.10.10 and carpets 5701.10.40 added')
+ok(!'44123306' %in% r22$hts_code, 'plywood 4412.33.06 dropped')
+ok(!length(intersect(substr(r22$hts_code, 1, 8),
+                     substr(r19$hts_code[r19$program != 'motor_vehicles'], 1, 8))),
+   'rev_22 motor_vehicles list shares no HTS-8 with the alcohol/dairy lists')
 
 cat('\n== adapter: .build_section_338 (baseline config, date-gate) ==\n')
 pp <- load_policy_params()
@@ -234,6 +249,29 @@ ok(isTRUE(all.equal(g8('2208306010'), 0.50)), '09-14: whole 2208.30.60 covered -
 ok(isTRUE(all.equal(g8('0406106400'), 0)), '09-14: cheese not yet covered -> 0')
 ok(isTRUE(all.equal(g8('7801100000'), 0.50)), '09-14: refined lead still covered -> 0.50')
 ok(isTRUE(all.equal(g8('7203100000'), 0)), '09-14: §232-scope mv article excluded -> 0')
+
+cat('\n== calculator: rev_22 motor-vehicle list (PP 11076, from 2026-10-30) ==\n')
+spec_1029 <- .build_section_338(pp, countries, as.Date('2026-10-29'))
+spec_1030 <- .build_section_338(pp, countries, as.Date('2026-10-30'))
+products_1030 <- tibble(
+  hts10 = c('5701104000',    # carpet, added by PP 11076
+            '4412330600',    # plywood, dropped by PP 11076
+            '2208306020'),   # alcohol list, untouched
+  base_rate = 0)
+rates_1030 <- tibble(
+  hts10 = products_1030$hts10, country = CA, base_rate = 0,
+  rate_232 = 0, statutory_rate_232 = 0, s232_annex = NA_character_,
+  heading_program = FALSE,
+  rate_301 = 0, rate_301_cs = 0, rate_ieepa_recip = 0, rate_ieepa_fent = 0,
+  rate_s122 = 0, rate_section_201 = 0, rate_other = 0)
+s338_on <- function(spec) {
+  out <- suppressMessages(apply_section338(rates_1030, list(section_338 = spec),
+                                           products_1030, CA))
+  setNames(out$rate_s338, out$hts10)
+}
+on_1029 <- s338_on(spec_1029); on_1030 <- s338_on(spec_1030)
+ok(isTRUE(all.equal(unname(on_1029), c(0, 0.50, 0.50))), '10-29: rev_19 lists (plywood covered, carpet not)')
+ok(isTRUE(all.equal(unname(on_1030), c(0.50, 0, 0.50))), '10-30: rev_22 list (carpet covered, plywood dropped; alcohol unchanged)')
 
 cat('\n== additive stacking (rate_s338 never displaced) ==\n')
 stk <- suppressMessages(apply_stacking_rules(
