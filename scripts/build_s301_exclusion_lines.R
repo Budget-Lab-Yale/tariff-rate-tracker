@@ -18,9 +18,15 @@
 #   n_revisions, first_rev, last_rev - provenance across cached revisions
 #                (revision order taken from config/revision_dates.csv)
 #
+# Curated rows: since 2026_rev_13 the JSON export carries almost no Chapter-99
+# footnote references, so a line renumbered after that (e.g. by a 484(f) split)
+# is invisible to the cache scan. resources/s301_exclusion_lines_curated.csv
+# supplies those lines from the U.S. note 20 text; they are appended with
+# n_revisions = 0 and first_rev = last_rev = the revision that codified them.
+#
 # Usage: Rscript scripts/build_s301_exclusion_lines.R [--ts-dir <dir>]
-# Idempotent: output is a pure derivation of the parse caches + registry
-# (no curator rows; re-run freely after onboarding revisions).
+# Idempotent: output is a pure derivation of the parse caches + registry +
+# curated rows (re-run freely after onboarding revisions).
 # =============================================================================
 
 suppressPackageStartupMessages({
@@ -81,7 +87,17 @@ lines <- scan %>%
     first_rev = first(rev),
     last_rev = last(rev),
     .groups = 'drop'
-  ) %>%
+  )
+
+curated <- read_csv(here('resources', 's301_exclusion_lines_curated.csv'),
+                    col_types = cols(.default = col_character())) %>%
+  filter(ch99_code %in% target_codes) %>%
+  anti_join(lines, by = c('ch99_code', 'hts10')) %>%
+  transmute(ch99_code, hts10, n_revisions = 0L,
+            first_rev = source_rev, last_rev = source_rev)
+message('Curated rows appended: ', nrow(curated))
+
+lines <- bind_rows(lines, curated) %>%
   arrange(ch99_code, hts10)
 
 write_csv(lines, out_path)

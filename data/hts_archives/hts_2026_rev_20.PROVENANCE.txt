@@ -1,0 +1,30 @@
+HTS 2026 REVISION 20 -- RECONSTRUCTED, NOT AN OFFICIAL USITC DOWNLOAD
+=====================================================================
+
+hts_2026_rev_20.json.gz in this directory was NOT downloaded from USITC.
+Revision 20 was current 2026-09-28..2026-10-08 and was superseded before
+its JSON was pulled; hts.usitc.gov/reststop/exportList serves only the
+CURRENT release, and the static archive host has 403d since June 2026.
+
+It was derived by scripts/reconstruct_hts_2026_rev_20.py as:
+
+    rev_20 = rev_21, record for record
+
+because revision 21's change record lists only subheading note 1 to
+chapter 38 (errata) and U.S. note 20(vvv)(i)(20) to chapter 99
+(modified) -- legal-note text that never reaches the JSON export.
+
+The result is verified against a SECOND, INDEPENDENT source -- revision
+20's own change record -- which states its delta against revision 19 is
+exactly:
+
+    + 9903.04.70   pharma Section 232 clinical-trial / R&D carve-out,
+                   U.S. note 40, effective 2026-09-29
+    (no deletions, no heading modifications)
+
+No other record differs (asserted, including unnumbered text rows).
+
+Records: rev_19 35803, reconstructed rev_20 35804, rev_21 35804.
+
+Re-derive at any time with:
+    python scripts/reconstruct_hts_2026_rev_20.py

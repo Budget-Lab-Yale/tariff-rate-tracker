@@ -351,10 +351,11 @@ classify_authority <- function(ch99_code) {
     return('section_301_brazil')
   }
 
-  # Section 232 pharmaceuticals (U.S. note 40): 9903.04.60-.69. Match the
+  # Section 232 pharmaceuticals (U.S. note 40): 9903.04.60-.70 (.70, the
+  # clinical-trial / R&D carve-out, added by 2026 HTS rev_20). Match the
   # segments rather than all 9903.04.xx so unrelated future programs do not
   # inherit Section 232 classification.
-  if (isTRUE(middle == 4 && !is.na(third) && third %in% 60:69)) {
+  if (isTRUE(middle == 4 && !is.na(third) && third %in% 60:70)) {
     return('section_232')
   }
 

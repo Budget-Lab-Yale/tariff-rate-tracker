@@ -262,8 +262,13 @@ build_query <- function(chapters, countries, programs = NULL, year, monthly = FA
       countries = list(
         aggregation = 'Break Out Countries',
         countries = as.list(countries),
+        # Names must match DataWeb's country list exactly
+        # (api/v2/country/getAllCountries); since 2026 it labels them
+        # "<name> - <ISO2> - <ISO3>" and rejects bare names with
+        # "Incorrect country information".
         countriesExpanded = lapply(countries, function(c) {
-          list(name = if (c == CTY_CANADA) 'Canada' else 'Mexico', value = c)
+          list(name = if (c == CTY_CANADA) 'Canada - CA - CAN' else 'Mexico - MX - MEX',
+               value = c)
         }),
         countriesSelectType = 'list',
         countryGroups = list(systemGroups = list(), userGroups = list())

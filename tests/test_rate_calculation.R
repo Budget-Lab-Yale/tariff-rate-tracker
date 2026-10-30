@@ -835,11 +835,13 @@ run_test('non-232 product stacks IEEPA + fentanyl + s122 fully', {
   stopifnot(abs(result$total_rate - (0.04 + expected)) < 1e-10)
 })
 
-run_test('section_232 pharmaceuticals from 9903.04.60-.69', {
+run_test('section_232 pharmaceuticals from 9903.04.60-.70', {
   stopifnot(classify_authority('9903.04.60') == 'section_232')
   stopifnot(classify_authority('9903.04.63') == 'section_232')
   stopifnot(classify_authority('9903.04.69') == 'section_232')
+  stopifnot(classify_authority('9903.04.70') == 'section_232')  # rev_20 carve-out
   stopifnot(classify_authority('9903.04.59') == 'other')
+  stopifnot(classify_authority('9903.04.71') == 'other')
 })
 
 run_test('quartz .30/.31 route to section_201; polysilicon .32-.36 to section_232', {
