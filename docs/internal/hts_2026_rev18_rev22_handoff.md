@@ -93,7 +93,22 @@ zero.
 - CI parity (`weight_mode: unweighted`): preflight; daily series 72 pass /
   1 skip; weights resolution 16/16; annex parser 25/25 (with poppler loaded);
   `test_rate_calculation.R` 139/139 (with the new `periods` loader test).
-- `test_drones_232.R` 26/26, `test_s338.R` 69/69, `test_s338_hts_rates.R` 16/16.
+- `test_drones_232.R` 26/26, `test_s338.R` 76/76 (rev_22 list versions and a
+  10-29 / 10-30 calculator check), `test_s338_hts_rates.R` 16/16.
+
+## Validation builds (2026-10-30)
+
+Both under `.validation/` (array path, 484(f) weights with the 2025 split-share
+base; `latest` not moved). Each passed `verify_build` 11/0 and the test suite
+139/0; the weights join reads 100.0000% on every day.
+
+| Vintage | Branch state | Compared with | Result |
+|---|---|---|---|
+| `rev18-rev21-ingest/2026-10-30-09` | rev_18–21 + USMCA split (`879f1f2`) | master `2026-08-31-12` | Nothing moves before 2026-02-20. 02-20 → 06-30: only Canada/Mexico rows (overall weighted ETR −0.03 pp; Mexico −0.2 pp because its claiming on vehicles and parts rose after the ruling while the fall is concentrated in duty-free energy and computers). +0.04 pp from 09-15 (rev_19 §338 scope), +0.11 pp from 09-29 (rev_20 pharma list). |
+| `rev18-rev22-ingest/2026-10-30-11` | + rev_22 (`8d42a48`) | `2026-10-30-09` | Nothing moves before 2026-10-30; from 10-30 only `etr_s338` / `mean_s338` (overall weighted ETR +0.0017 pp). The 9903.01.63 note change is inert. |
+
+The `new_301` scenario has no counterpart in `2026-08-31-12`, so it is only
+compared between the two validation vintages (same result as `actual`).
 
 ## For you
 
