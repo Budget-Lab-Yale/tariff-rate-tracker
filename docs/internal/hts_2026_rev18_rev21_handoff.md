@@ -49,43 +49,47 @@ heading × line pairs as the hand edit). Three other 9903.88.69 lines were split
 on 07-01, but note 20 still names only the old codes, so their successors pay
 the full §301 rate from 07-01 (deviation S16, recheck each revision).
 
-## ⚠ The USMCA refresh moves the baseline at every date
+## USMCA claim shares: two windows split at the SCOTUS ruling
 
-The baseline uses `usmca_shares: mode: since` (2025-07 through the newest
-monthly file), and the loader picks up new files automatically. With the
-2026-03…08 files present, the pooled claim share — the "settled" USMCA rate
-in `actual` — drops:
+**Decided 2026-10-30.** The baseline was `usmca_shares: mode: since`: one pool
+from 2025-07 through the newest monthly file, applied to every date. With the
+2026-03…08 files it would have lowered the pooled claim share at every date,
+including 2025 (Canada 0.870 → 0.840, Mexico 0.885 → 0.874). Instead the
+baseline now uses the new `mode: periods`: two fixed windows, split at the
+Supreme Court's IEEPA ruling (*Learning Resources v. Trump*, 2026-02-20).
 
-| | Jul 2025–Feb 2026 | Jul 2025–Aug 2026 |
-|---|---|---|
-| Canada | 0.870 | 0.840 |
-| Mexico | 0.885 | 0.874 |
+| Window | Applies to | Canada | Mexico |
+|---|---|---|---|
+| 2025-07 … 2026-02 (pre-ruling) | every date before 2026-02-20 | 0.870 | 0.885 |
+| 2026-03 … 2026-08 (post-ruling) | 2026-02-20 on | 0.805 | 0.862 |
 
-About 13% of Canada + Mexico trade sits in cells whose pooled share moves more
-than 10 pp. Lower claiming means a higher statutory rate on CA/MX USMCA-eligible
-lines **in every partition, including 2025**. This is the designed behavior, but
-it is a series revision, and it changes the input to the statutory-vs-realized
-paper's settled-rate convention. **Decide whether to keep it** or to pin the
-window end (the loader has no end-month key today; it would be a small
-addition). The monthly shares by themselves: Canada 0.80–0.84 and Mexico
-0.83–0.90 across Jan–Aug 2026, with July/August the lowest for Mexico (0.834).
+(Pooled claim share = USMCA-claimed customs value ÷ total customs value, all
+products.) The pre-ruling window is the old baseline window, so dates before
+2026-02-20 should not move. Every month in a window must have a file; the
+second window is extended by hand in `config/policy_params.yaml` as new
+months land. Coverage after the split: 98% of Canada/Mexico 2025 import value
+still has its own HTS10 share, 1.6–1.7% uses the HS8 fallback, 0.13% falls to
+zero.
 
 ## Verified
 
 - `tests/test_hts_2026_rev20_rev21_ingest.R` (new): 11/11.
 - CI parity (`weight_mode: unweighted`): preflight; daily series 72 pass /
   1 skip; weights resolution 16/16; annex parser 25/25 (with poppler loaded);
-  `test_rate_calculation.R` 138/138.
+  `test_rate_calculation.R` 139/139 (with the new `periods` loader test).
 - `test_drones_232.R` 26/26, `test_s338.R` 69/69, `test_s338_hts_rates.R` 16/16.
 
 ## For you
 
 1. **Reconcile with `feat/s338-2026-09-15-scope`** (the branch the 09-09 vintage
    was published from — not on GitHub). It already models the 09-15 §338 scope
-   change, which this branch's rev_19 work also does. Push it and decide which
-   carries §338 into `master`.
+   change, which this branch's rev_19 work also does. **Decided 2026-10-30:
+   this branch's rev_19 §338 rates go into `master`** (in September they
+   matched the 09-09 vintage's `bnd_2026-09-15` exactly, 20,422 Canada rows).
+   Check that branch for anything else it carries before retiring it.
 2. **Review rev_18 / rev_19** (`0cf8eca`); nobody has reviewed them yet.
-3. **The baseline USMCA window** — keep the automatic extension or pin it.
+3. **The baseline USMCA window** — decided: two windows split at the SCOTUS
+   ruling (above).
 4. **Validation build:** `sbatch scripts/submit_build_array.sh --config
    config/build/rev18_rev21_ingest.yaml` (publishes under `.validation/`, does
    not move `latest`); compare against `2026-08-31-12` with

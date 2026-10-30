@@ -18,12 +18,15 @@
 #     (rev_19), 2026-09-29 (rev_20, replacing bnd_2026-09-29) and 2026-10-09
 #     (rev_21). rev_17 now ends 2026-09-02. The later boundary mints
 #     (2026-11-10, 2026-12-04) are now owned by rev_21.
-#   * Canada / Mexico rows move at EVERY date: the USMCA monthly claim shares
-#     now run to 2026-08, and the baseline `usmca_shares: since` window pools
-#     2025-07 through the newest file (was ..2026-02). Pooled share: Canada
-#     0.870 -> 0.840, Mexico 0.885 -> 0.874.
-#   * Every other partition-row before 2026-07-01 IDENTICAL to the previous
-#     master vintage (2026-08-31-12).
+#   * USMCA claim shares now use two fixed windows (`usmca_shares: periods`):
+#     dates before the SCOTUS IEEPA ruling (2026-02-20) pool 2025-07..2026-02,
+#     which is the previous baseline window, so they should NOT move; dates
+#     from 2026-02-20 pool 2026-03..2026-08 (Canada 0.870 -> 0.805, Mexico
+#     0.885 -> 0.862 pooled claim share), so Canada / Mexico USMCA-eligible
+#     rows move from 2026-02-20 on.
+#   * Every partition-row before 2026-02-20 IDENTICAL to the previous master
+#     vintage (2026-08-31-12), and from 2026-02-20 to 2026-06-30 only Canada /
+#     Mexico rows move.
 #   * From 2026-07-01: 8479.90.9591 from China gains the 9903.88.69 exclusion.
 #   * From 2026-07-31: forced-labor / Brazil §301 move only on pharma lines
 #     whose codes changed in the note 40(c) list (patented-pharma carve-out).
