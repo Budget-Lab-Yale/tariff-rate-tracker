@@ -1,0 +1,36 @@
+# rev_22 release build — actual + new_301 + usmca_monthly. The 2026-11 model
+# update, following the rev_18 .. rev_22 ingest (PR #41; hand-off in
+# docs/internal/hts_2026_rev18_rev22_handoff.md): the first production vintage carrying HTS 2026 rev_18 .. rev_22 and the
+# USMCA claim-share split at the SCOTUS IEEPA ruling, and the first to publish
+# the `usmca_monthly` alternative (raw monthly claim shares, through 2026-08).
+#
+# Same scenario pair as 2026-09-09-13 (actual + new_301) plus usmca_monthly.
+# Import weights stay on the 2024 Census base (484(f) method), so rates remain
+# comparable with earlier vintages.
+#
+# Production root, verified, and moves `latest`. A new dated vintage is
+# written; 2026-09-09-13 (pinned by the statutory-vs-realized paper until it
+# is repointed) is untouched.
+#
+# Build from a CLEAN tree on master: the manifest records `git status
+# --porcelain`, and statutory-vs-realized flags a dirty publish.
+#
+#   bash scripts/submit_build_array.sh --config config/build/rev22_release.yaml
+#
+# Before using downstream, compare against the rev_22 validation vintage:
+#   Rscript scripts/compare_vintages.R \
+#     <.../.validation/rev18-rev22-ingest/2026-10-30-11> <.../<new vintage>>
+# Expect `actual` and `new_301` IDENTICAL (same code, same inputs).
+
+model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker
+policy_params_path: config/policy_params.yaml
+
+scenarios:
+  - new_301
+  - usmca_monthly
+
+use_hts_dates: false
+weight_mode: required
+update_latest: true
+allow_partial: false
+verify: true                # finalize runs scripts/verify_build.R; gates the latest repoint
