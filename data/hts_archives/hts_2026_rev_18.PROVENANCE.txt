@@ -1,0 +1,33 @@
+HTS 2026 REVISION 18 -- RECONSTRUCTED, NOT AN OFFICIAL USITC DOWNLOAD
+=====================================================================
+
+hts_2026_rev_18.json.gz in this directory was NOT downloaded from USITC.
+Revision 18 was current 2026-09-02..2026-09-14 and was superseded before
+its JSON was pulled; hts.usitc.gov/reststop/exportList serves only the
+CURRENT release, and the static archive host has 403d since June 2026.
+
+It was derived by scripts/reconstruct_hts_2026_rev_18.py as:
+
+    rev_18 = rev_19, record for record
+
+because revision 19's change record lists only U.S. note 51(b)(1),
+51(b)(3) and 51(c) as modified (PP 11064 / 11065, Section 338 Canada
+scope) -- legal-note text that never reaches the JSON export.
+
+The result is verified against a SECOND, INDEPENDENT source -- revision
+18's own change record -- which states its delta against revision 17 is
+exactly:
+
+    + 9903.08.20 - .26   drone Section 232, U.S. note 43, PP 11055
+    + 9903.54.02         lean beef trimmings quota, note 7, PP 11059
+    (no deletions, no heading modifications)
+
+One unlisted, nonsubstantive record edit is tolerated: 2908.91.00.00's
+special-rate field drops a duplicated 'L' program code (same program
+set, asserted). Both change records exclude "minor nonsubstantive format
+adjustments", so which revision made it is unknowable; rate-neutral.
+
+Records: rev_17 35795, reconstructed rev_18 35803, rev_19 35803.
+
+Re-derive at any time with:
+    python scripts/reconstruct_hts_2026_rev_18.py

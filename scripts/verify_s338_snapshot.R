@@ -18,8 +18,12 @@ must <- function(cond, msg) {
   else { fails <<- fails + 1L; cat('  FAIL:', msg, '\n') }
 }
 
+# The turn-on checks below run on 2026-08-22, so they use the original lists
+# (the rev_19 lists take over from 2026-09-15).
 covered <- read_csv(here('resources', 's338_products.csv'),
-                    col_types = cols(.default = col_character()))
+                    col_types = cols(.default = col_character())) %>%
+  filter(valid_from == '2026-08-22') %>%
+  rename(hts8 = hts_code)
 gn6 <- read_csv(here('resources', 's338_gn6_exempt_products.csv'),
                 col_types = cols(hts8 = col_character()))
 gn6_overlap <- intersect(covered$hts8, gn6$hts8)

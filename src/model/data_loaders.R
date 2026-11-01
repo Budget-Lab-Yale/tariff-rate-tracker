@@ -223,6 +223,35 @@ load_revision_floor_exemptions <- function(revision_id, effective_date = NULL) {
 }
 
 
+#' Pool monthly USMCA share rows (hts10, cty_code, total_value, usmca_value)
+#' into one value-weighted share per product-country pair. A thin month does not
+#' get the weight of a heavy-trade month. Zero-trade pairs -> NA (no claim
+#' signal), so the 06_calculate_rates.R application falls back to the HS8 share
+#' (attached as attr 'hs8_shares') and then 0.
+.pool_usmca_months <- function(monthly_rows) {
+  pooled <- monthly_rows %>%
+    group_by(hts10, cty_code) %>%
+    summarise(
+      total_value = sum(total_value, na.rm = TRUE),
+      usmca_value = sum(usmca_value, na.rm = TRUE),
+      .groups = 'drop'
+    ) %>%
+    mutate(usmca_share = if_else(total_value > 0, usmca_value / total_value, NA_real_))
+  hs8_shares <- pooled %>%
+    group_by(hts8 = substr(hts10, 1, 8), cty_code) %>%
+    summarise(
+      usmca_share_hs8 = if_else(sum(total_value) > 0,
+                                sum(usmca_value) / sum(total_value),
+                                NA_real_),
+      .groups = 'drop'
+    ) %>%
+    filter(!is.na(usmca_share_hs8))
+  pooled <- pooled %>% select(hts10, cty_code, usmca_share)
+  attr(pooled, 'hs8_shares') <- hs8_shares
+  pooled
+}
+
+
 #' Load product-level USMCA utilization shares from USITC DataWeb SPI data
 #'
 #' Per-HTS10 x country USMCA shares from DataWeb SPI programs S/S+.
@@ -235,6 +264,7 @@ load_revision_floor_exemptions <- function(revision_id, effective_date = NULL) {
 #'   'annual': loads resources/usmca_product_shares_{year}.csv
 #'   'monthly': loads resources/usmca_product_shares_{year}_{MM}.csv based on effective_date
 #'   'fixed_month': loads resources/usmca_product_shares_{year}_{MM}.csv using configured month
+#'   'periods': fixed pooling windows, each applied from its own date (see policy_params.yaml).
 #'   'hybrid_rolling': Q1 average for Jan-Mar, 3-month rolling average (m, m-1, m-2) from April.
 #'      Smooths the mid-2025 USMCA utilization jump while capturing the behavioral shift.
 #'      Rolling uses available months only; falls back to annual if no monthly files found.
@@ -363,36 +393,10 @@ load_usmca_product_shares <- function(policy_params = NULL, path = NULL, effecti
         has_values <- all(c('total_value', 'usmca_value') %in% names(combined))
         win_label <- paste0(used_labels[1], '..', used_labels[length(used_labels)])
         if (has_values) {
-          # Value-weighted aggregation, identical to h2_average: sum over the
-          # window so a thin month doesn't get equal weight to a heavy-trade
-          # month. Zero-trade pairs -> NA (no claim signal), so the
-          # 06_calculate_rates.R application falls back to the HS8 share then 0.
-          combined <- combined %>%
-            group_by(hts10, cty_code) %>%
-            summarise(
-              total_value = sum(total_value, na.rm = TRUE),
-              usmca_value = sum(usmca_value, na.rm = TRUE),
-              .groups = 'drop'
-            ) %>%
-            mutate(
-              usmca_share = if_else(total_value > 0,
-                                    usmca_value / total_value,
-                                    NA_real_)
-            )
-          hs8_shares <- combined %>%
-            group_by(hts8 = substr(hts10, 1, 8), cty_code) %>%
-            summarise(
-              usmca_share_hs8 = if_else(sum(total_value) > 0,
-                                        sum(usmca_value) / sum(total_value),
-                                        NA_real_),
-              .groups = 'drop'
-            ) %>%
-            filter(!is.na(usmca_share_hs8))
-          combined <- combined %>% select(hts10, cty_code, usmca_share)
-          attr(combined, 'hs8_shares') <- hs8_shares
+          combined <- .pool_usmca_months(combined)
           message('  Loaded USMCA since-window (value-weighted): ', nrow(combined),
                   ' product-country pairs (', length(monthly_shares), ' months, ',
-                  win_label, '); HS8 fallback table: ', nrow(hs8_shares), ' pairs')
+                  win_label, '); HS8 fallback table: ', nrow(attr(combined, 'hs8_shares')), ' pairs')
         } else {
           # Legacy monthly CSVs without value columns: simple ratio average.
           combined <- combined %>%
@@ -407,6 +411,44 @@ load_usmca_product_shares <- function(policy_params = NULL, path = NULL, effecti
                 sprintf('%02d', as.integer(start_month)), ' (since) — falling back to annual')
         path <- here('resources', paste0('usmca_product_shares_', start_year, '.csv'))
       }
+
+    } else if (mode == 'periods') {
+      # Several fixed pooling windows, each applied to a range of dates. Each
+      # entry of `periods` has `applies_from` (date the window takes over; null
+      # for the first) and `window` (first and last month pooled, 'YYYY-MM').
+      # The window whose applies_from is the latest on or before effective_date
+      # is pooled exactly as in 'since' (value-weighted, HS8 fallback). Every
+      # month in the window must have a file: a fixed window with a gap fails.
+      periods <- policy_params$USMCA_SHARES$periods
+      if (length(periods) == 0) stop('usmca_shares mode periods: no periods configured')
+      if (is.null(effective_date)) stop('usmca_shares mode periods needs an effective_date')
+      applies_from <- as.Date(vapply(periods, function(p) p$applies_from %||% '1900-01-01', character(1)))
+      if (is.unsorted(applies_from, strictly = TRUE)) {
+        stop('usmca_shares periods must be ordered by strictly increasing applies_from')
+      }
+      eff <- as.Date(effective_date)
+      chosen <- max(which(applies_from <= eff))
+      if (!is.finite(chosen)) stop('usmca_shares periods: none applies on ', eff)
+      win <- as.Date(paste0(unlist(periods[[chosen]]$window), '-01'))
+      if (length(win) != 2 || anyNA(win) || win[2] < win[1]) {
+        stop('usmca_shares periods[[', chosen, ']]: window must be two months YYYY-MM, in order')
+      }
+      months <- seq(win[1], win[2], by = 'month')
+      m_paths <- here('resources', sprintf('usmca_product_shares_%s.csv', format(months, '%Y_%m')))
+      missing <- m_paths[!file.exists(m_paths)]
+      if (length(missing) > 0) stop('USMCA monthly share file(s) missing: ', paste(basename(missing), collapse = ', '))
+      combined <- bind_rows(lapply(m_paths, read_csv,
+                                   col_types = cols(.default = col_guess(), hts10 = col_character(),
+                                                    cty_code = col_character(), usmca_share = col_double()),
+                                   show_col_types = FALSE))
+      if (!all(c('total_value', 'usmca_value') %in% names(combined))) {
+        stop('usmca_shares mode periods needs total_value / usmca_value columns in the monthly files')
+      }
+      combined <- .pool_usmca_months(combined)
+      message('  Loaded USMCA period window ', format(win[1], '%Y-%m'), '..', format(win[2], '%Y-%m'),
+              ' for ', eff, ' (value-weighted): ', nrow(combined), ' product-country pairs; HS8 fallback table: ',
+              nrow(attr(combined, 'hs8_shares')), ' pairs')
+      return(combined)
 
     } else if (mode == 'fixed_month') {
       fixed_month <- policy_params$USMCA_SHARES$month %||% 12L

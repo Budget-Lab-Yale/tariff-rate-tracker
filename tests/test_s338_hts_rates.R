@@ -92,7 +92,10 @@ check(identical(names(r_hts), names(r_cfg)) && length(r_hts) == 1,
 cat('\n--- products stay side-data (note 51(b) is not in the JSON) ---\n')
 prods <- readr::read_csv(here('resources', 's338_products.csv'),
                          col_types = readr::cols(.default = readr::col_character()))
-check(nrow(prods) == 554, 'side-data product list is the full 554 HTS-8 codes')
+check(sum(prods$valid_from == '2026-08-22') == 554,
+      'side-data original lists are the full 554 HTS-8 codes')
+check(sum(prods$valid_from == '2026-09-15') == 666,
+      'side-data rev_19 lists are the full 666 codes (note 51(b) after PP 11064/11065)')
 check(setequal(unique(prods$ch99_heading),
                c('9903.03.12', '9903.03.13', '9903.03.14')),
       'side-data lists key to the three charging headings')

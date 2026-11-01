@@ -1,0 +1,58 @@
+# rev_18 - rev_22 ingest candidate: do the five new revisions assemble, and does
+# the series move only where the new policy says it should?
+#
+# rev_18 (policy-dated 2026-09-03) codifies the Section 232 drone action
+# (U.S. note 43, PP 11055, headings 9903.08.20-.26); its JSON is reconstructed
+# from rev_19 (data/hts_archives/hts_2026_rev_18.PROVENANCE.txt). rev_19
+# (2026-09-15) codifies the Section 338 Canada scope change (PP 11064/11065):
+# new alcohol / motor-vehicle lists, and those two lists now stack on §232.
+# rev_20 (policy-dated 2026-09-29) revises pharma §232 note 40 for its turn-on
+# and adds 9903.04.70; its JSON is reconstructed from rev_21
+# (data/hts_archives/hts_2026_rev_20.PROVENANCE.txt). rev_21 (2026-10-09) is
+# note text only. rev_22 (2026-10-30) changes the Section 338 motor-vehicle
+# list, note 51(b)(3) (PP 11076: 513 -> 591 codes). Two side-data corrections ride along: the note 40(c) list in
+# current statistical numbering (resources/s232_pharma_products.csv) and the
+# 8479.90.9591 §301 exclusion line (resources/s301_exclusion_lines_curated.csv).
+# Expectations:
+#
+#   * FIVE new snapshot partitions: valid_from 2026-09-03 (rev_18), 2026-09-15
+#     (rev_19), 2026-09-29 (rev_20, replacing bnd_2026-09-29), 2026-10-09
+#     (rev_21) and 2026-10-30 (rev_22). rev_17 now ends 2026-09-02. The later
+#     boundary mints (2026-11-10, 2026-12-04) are now owned by rev_22.
+#   * USMCA claim shares now use two fixed windows (`usmca_shares: periods`):
+#     dates before the SCOTUS IEEPA ruling (2026-02-20) pool 2025-07..2026-02,
+#     which is the previous baseline window, so they should NOT move; dates
+#     from 2026-02-20 pool 2026-03..2026-08 (Canada 0.870 -> 0.805, Mexico
+#     0.885 -> 0.862 pooled claim share), so Canada / Mexico USMCA-eligible
+#     rows move from 2026-02-20 on.
+#   * Every partition-row before 2026-02-20 IDENTICAL to the previous master
+#     vintage (2026-08-31-12), and from 2026-02-20 to 2026-06-30 only Canada /
+#     Mexico rows move.
+#   * From 2026-07-01: 8479.90.9591 from China gains the 9903.88.69 exclusion.
+#   * From 2026-07-31: forced-labor / Brazil §301 move only on pharma lines
+#     whose codes changed in the note 40(c) list (patented-pharma carve-out).
+#   * 2026-09-03..09-14: additionally drone-scope lines (8806, the 8807 /
+#     8504.40.9580 / 8537.10.9170 basket lines).
+#   * From 2026-09-15: additionally rate_s338 on Canada rows only.
+#   * From 2026-09-29: additionally rate_232 on the pharma lines whose codes
+#     changed in the note 40(c) list (the duty itself was already on at 09-29).
+#   * From 2026-10-30: additionally rate_s338 on Canada rows of the 100 added /
+#     22 dropped motor-vehicle-list codes. Against the rev18-rev21 validation
+#     vintage (2026-10-30-09) NOTHING moves before 2026-10-30.
+#
+# A rate difference outside those lines is worth stopping for.
+#
+# Publishes a vintage but does NOT repoint `latest` — bless deliberately with
+#   Rscript scripts/publish_vintage.R --latest-only <vintage>
+# after comparing against the previous master vintage:
+#   Rscript scripts/compare_vintages.R <.../2026-08-31-12> \
+#     <.../.validation/rev18-rev22-ingest/<vintage>>
+model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker/.validation/rev18-rev22-ingest
+policy_params_path: config/policy_params.yaml
+scenarios:
+  - new_301
+use_hts_dates: false
+weight_mode: required
+update_latest: false
+allow_partial: false
+verify: true

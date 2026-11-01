@@ -351,10 +351,18 @@ classify_authority <- function(ch99_code) {
     return('section_301_brazil')
   }
 
-  # Section 232 pharmaceuticals (U.S. note 40): 9903.04.60-.69. Match the
+  # Section 232 pharmaceuticals (U.S. note 40): 9903.04.60-.70 (.70, the
+  # clinical-trial / R&D carve-out, added by 2026 HTS rev_20). Match the
   # segments rather than all 9903.04.xx so unrelated future programs do not
   # inherit Section 232 classification.
-  if (isTRUE(middle == 4 && !is.na(third) && third %in% 60:69)) {
+  if (isTRUE(middle == 4 && !is.na(third) && third %in% 60:70)) {
+    return('section_232')
+  }
+
+  # Section 232 drones (U.S. note 43, PP 11055): 9903.08.20-.26, codified by
+  # 2026 HTS rev_18. Segment-matched like pharma so other 9903.08.xx headings
+  # do not inherit Section 232 classification.
+  if (isTRUE(middle == 8 && !is.na(third) && third %in% 20:26)) {
     return('section_232')
   }
 

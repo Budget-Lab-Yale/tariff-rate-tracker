@@ -835,11 +835,13 @@ run_test('non-232 product stacks IEEPA + fentanyl + s122 fully', {
   stopifnot(abs(result$total_rate - (0.04 + expected)) < 1e-10)
 })
 
-run_test('section_232 pharmaceuticals from 9903.04.60-.69', {
+run_test('section_232 pharmaceuticals from 9903.04.60-.70', {
   stopifnot(classify_authority('9903.04.60') == 'section_232')
   stopifnot(classify_authority('9903.04.63') == 'section_232')
   stopifnot(classify_authority('9903.04.69') == 'section_232')
+  stopifnot(classify_authority('9903.04.70') == 'section_232')  # rev_20 carve-out
   stopifnot(classify_authority('9903.04.59') == 'other')
+  stopifnot(classify_authority('9903.04.71') == 'other')
 })
 
 run_test('quartz .30/.31 route to section_201; polysilicon .32-.36 to section_232', {
@@ -1535,6 +1537,42 @@ run_test('load_usmca_product_shares monthly is unchanged for full-universe month
   stopifnot(nrow(loaded) == nrow(raw))
 })
 
+run_test('load_usmca_product_shares periods picks the window by date', {
+  # Baseline split at the SCOTUS IEEPA ruling: dates before 2026-02-20 pool
+  # 2025-07..2026-02, dates from it pool 2026-03..2026-08.
+  pp <- list(USMCA_SHARES = list(mode = 'periods', periods = list(
+    list(applies_from = NULL, window = list('2025-07', '2026-02')),
+    list(applies_from = '2026-02-20', window = list('2026-03', '2026-08')))))
+  months_needed <- c(sprintf('2025_%02d', 7:12), sprintf('2026_%02d', 1:8))
+  if (!all(file.exists(here('resources', paste0('usmca_product_shares_', months_needed, '.csv'))))) {
+    skip_test('2025-07..2026-08 monthly files missing')
+  }
+  load_on <- function(d) suppressMessages(load_usmca_product_shares(policy_params = pp, effective_date = d))
+  pre_2025 <- load_on('2025-03-04')
+  pre_edge <- load_on('2026-02-19')
+  post_edge <- load_on('2026-02-20')
+  post_late <- load_on('2026-10-09')
+  # Same window -> identical shares; across the ruling -> different.
+  stopifnot(identical(pre_2025, pre_edge), identical(post_edge, post_late))
+  stopifnot(!identical(pre_edge, post_edge))
+  # Pre window equals pooling exactly 2025-07..2026-02 by hand.
+  raw <- bind_rows(lapply(months_needed[1:8], function(m) read_csv(
+    here('resources', paste0('usmca_product_shares_', m, '.csv')),
+    col_types = cols(hts10 = col_character(), cty_code = col_character(), .default = col_guess()),
+    show_col_types = FALSE)))
+  by_hand <- raw %>% group_by(hts10, cty_code) %>%
+    summarise(tv = sum(total_value), uv = sum(usmca_value), .groups = 'drop') %>%
+    filter(tv > 0) %>% mutate(share = uv / tv)
+  joined <- inner_join(by_hand, pre_edge, by = c('hts10', 'cty_code'))
+  stopifnot(nrow(joined) == nrow(by_hand), all(abs(joined$share - joined$usmca_share) < 1e-12))
+  # A window with a missing month fails loudly rather than silently shrinking.
+  pp_gap <- pp
+  pp_gap$USMCA_SHARES$periods[[2]]$window <- list('2026-03', '2099-12')
+  stopifnot(inherits(tryCatch(suppressMessages(
+    load_usmca_product_shares(policy_params = pp_gap, effective_date = '2026-05-01')),
+    error = function(e) e), 'error'))
+})
+
 
 run_test('rev_6 9903.94.01 is gated off (regression for §232 auto fix)', {
   # Production rev_6 ch99 cache should reflect the gate via
@@ -1784,7 +1822,7 @@ run_test('polysilicon country tiers are additive except framework total floor', 
     hts10 = '8541430010', country = countries,
     base_rate = 0.03, rate_232 = 0.05
   )
-  out <- apply_polysilicon_232_adjustments(
+  out <- apply_additive_232_program(
     rates, '8541430010', cfg, countries, pp)
   got <- setNames(out$rate_232, out$country)
 
@@ -2188,7 +2226,7 @@ run_test('polysilicon apply records its component as non-displacing', {
     rate_232 = c(0, 0)
   )
   cfg <- list(default_rate = 0.15, displaces_overlays = FALSE)
-  out <- apply_polysilicon_232_adjustments(base, '8541430010', cfg,
+  out <- apply_additive_232_program(base, '8541430010', cfg,
                                            countries = '5520', pp = list())
   stopifnot(abs(out$rate_232[1] - 0.15) < 1e-12,
             abs(out$rate_232_nondisplacing[1] - 0.15) < 1e-12,
@@ -2196,7 +2234,7 @@ run_test('polysilicon apply records its component as non-displacing', {
   # Flipping the flag (a future proclamation amending the notes) must stop
   # recording the component — the rate itself is unchanged.
   cfg_d <- list(default_rate = 0.15, displaces_overlays = TRUE)
-  out_d <- apply_polysilicon_232_adjustments(base, '8541430010', cfg_d,
+  out_d <- apply_additive_232_program(base, '8541430010', cfg_d,
                                              countries = '5520', pp = list())
   stopifnot(abs(out_d$rate_232[1] - 0.15) < 1e-12,
             all(out_d$rate_232_nondisplacing == 0))

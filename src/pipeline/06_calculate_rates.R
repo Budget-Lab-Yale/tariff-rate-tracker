@@ -271,7 +271,14 @@ compute_heading_gates <- function(specs, s232_rates, effective_date = NULL,
     polysilicon = !is.null(effective_date) &&
       !is.null(heading_configs$polysilicon$effective_date) &&
       as.Date(effective_date) >=
-        as.Date(heading_configs$polysilicon$effective_date)
+        as.Date(heading_configs$polysilicon$effective_date),
+    # Drones (U.S. note 43, PP 11055): headings 9903.08.20-.26 arrive with
+    # HTS 2026 rev_18, but the rate is config-fed, so gate on the legal date
+    # the same way as polysilicon.
+    drones = !is.null(effective_date) &&
+      !is.null(heading_configs$drones$effective_date) &&
+      as.Date(effective_date) >=
+        as.Date(heading_configs$drones$effective_date)
   )
 }
 
@@ -1166,7 +1173,12 @@ apply_section338 <- function(rates, specs, products, countries) {
   #         (annex_1a/1b/1c/3; annex_2 = removed from scope and still pays),
   #         or heading_program (autos/MHD/wood/semi/pharma headings, incl.
   #         USMCA-eligible parts paying 0%) —
-  #         pays ZERO s338, even on its non-metal content. Deliberately a scope
+  #         pays ZERO s338, even on its non-metal content. From 2026-09-15
+  #         (PP 11064/11065) the carve-out covers only the headings in
+  #         settings$s232_excluded_headings (dairy 9903.03.13); the alcohol and
+  #         "motor vehicles" lists stack on §232. The product lists are also
+  #         dated from then: product_scope$as_of selects the version in force,
+  #         and codes are HTS-8 or HTS-10. Deliberately a scope
   #         MASK, not content_split (which would leak s338 onto the non-metal
   #         fraction) and not rate_232 > 0 (which would miss 0%-paying USMCA
   #         parts). Self-updating: when pharma-§232 activates (2026-09-29) its
@@ -1199,9 +1211,30 @@ apply_section338 <- function(rates, specs, products, countries) {
            ' — run scripts/build_s338_annex.R')
     }
     s338_products <- read_csv_cached(s338_path, col_types = cols(
-      hts8 = col_character(), program = col_character(),
-      ch99_heading = col_character()))
-    covered_hts8 <- unique(s338_products$hts8)
+      hts_code = col_character(), program = col_character(),
+      ch99_heading = col_character(), valid_from = col_date(),
+      valid_until = col_date()))
+    # List version in force on the snapshot date (PP 11064/11065 changed lists
+    # (b)(1)/(b)(3) from 2026-09-15). Missing as_of fails loudly: silently
+    # taking every version would union the old and new lists.
+    as_of <- s338_spec$programs[[1]]$product_scope$as_of
+    if (is.null(as_of)) stop('section_338 spec carries no product_scope$as_of date')
+    s338_products <- s338_products %>%
+      filter(valid_from <= as_of, is.na(valid_until) | as_of <= valid_until)
+    if (nrow(s338_products) == 0) {
+      stop('Section 338: no product-list version in force on ', as_of,
+           ' in ', s338_path)
+    }
+    # Codes are HTS-8, or HTS-10 where note 51(b) names a statistical line.
+    covered_by_hts8 <- s338_products %>% filter(nchar(hts_code) == 8) %>%
+      select(.hts8 = hts_code, .heading8 = ch99_heading)
+    covered_by_hts10 <- s338_products %>% filter(nchar(hts_code) == 10) %>%
+      select(hts10 = hts_code, .heading10 = ch99_heading)
+    covered_hts8 <- unique(substr(s338_products$hts_code, 1, 8))
+    s232_excluded <- s338_spec$programs[[1]]$settings$s232_excluded_headings
+    if (is.null(s232_excluded)) {
+      stop('section_338 spec carries no settings$s232_excluded_headings')
+    }
     ep <- s338_spec$programs[[1]]$exempt_products %||% list()
     gn6_hts8 <- intersect(ep$gn6_hts8 %||% character(0), covered_hts8)
     gn6_util <- ep$gn6_utilization %||% setNames(numeric(0), character(0))
@@ -1240,12 +1273,19 @@ apply_section338 <- function(rates, specs, products, countries) {
 
     s338_tbl <- tibble(country = names(s338_by_country),
                        .s338_rate = unname(as.numeric(s338_by_country)))
+    # From 2026-09-15 the note-51(c) mask covers only the dairy heading: the
+    # alcohol and "motor vehicles" lists stack on §232 (PP 11064/11065 cl. 1).
     rates <- rates %>%
+      mutate(.hts8 = substr(hts10, 1, 8)) %>%
+      left_join(covered_by_hts8, by = '.hts8', relationship = 'many-to-one') %>%
+      left_join(covered_by_hts10, by = 'hts10', relationship = 'many-to-one') %>%
+      mutate(.s338_heading = coalesce(.heading10, .heading8)) %>%
       left_join(s338_tbl, by = 'country', relationship = 'many-to-one') %>%
       mutate(rate_s338 = if_else(
-        !is.na(.s338_rate) & substr(hts10, 1, 8) %in% covered_hts8 & !in_232_scope,
+        !is.na(.s338_rate) & !is.na(.s338_heading) &
+          !(in_232_scope & .s338_heading %in% s232_excluded),
         .s338_rate, 0)) %>%
-      select(-.s338_rate)
+      select(-.s338_rate, -.hts8, -.heading8, -.heading10, -.s338_heading)
     if (!is.null(gn6_share_tbl)) {
       rates <- rates %>%
         left_join(gn6_share_tbl, by = 'hts10', relationship = 'many-to-one') %>%
@@ -1262,7 +1302,8 @@ apply_section338 <- function(rates, specs, products, countries) {
     message('  Section 338 (Canada): ',
             round(mean(s338_by_country[s338_scope]) * 100), '% on ',
             sum(rates$rate_s338 > 0), ' product-country pairs (',
-            length(covered_hts8), ' HTS8 covered, §232-scope excluded, ',
+            nrow(s338_products), ' codes covered as of ', as_of,
+            ', §232-scope excluded on ', paste(s232_excluded, collapse = '/'), ', ',
             length(gn6_hts8), ' GN6 HTS8 utilization-scaled)')
   }
 
@@ -1368,49 +1409,70 @@ resolve_s301_exclusion_scope <- function(products, active_excl, excl_cfg) {
     summarise(excl_coverage = max(coverage_share), .groups = 'drop')
 }
 
-apply_polysilicon_232_adjustments <- function(rates, polysilicon_products,
-                                               cfg, countries, pp) {
-  if (!length(polysilicon_products) || is.null(cfg)) return(rates)
+# Additive §232 heading programs (polysilicon, drones): the proclamations make
+# the component additive to every other duty, so it bypasses the generic
+# max-across-heading table and is added to rate_232 here. Optional config:
+#   rate_split   {prefixes, share, rate}: on these lines `share` of trade pays
+#                default_rate and the rest pays `rate` (drones: thermal vs
+#                non-thermal share one HTS-8 code). Country overrides
+#                (country_rates / target_total) apply to both legs.
+#   basket_lines {prefixes, applicability_share}: lines the program covers only
+#                in part (drone parts inside all-aircraft 8807 etc.); the
+#                component is scaled by the share.
+apply_additive_232_program <- function(rates, program_products,
+                                       cfg, countries, pp) {
+  if (!length(program_products) || is.null(cfg)) return(rates)
 
   additive_default <- cfg$default_rate %||% cfg$rate %||% 0
   additive_rate <- resolve_policy_country_values(
     cfg$country_rates, countries, pp, default = additive_default)
+  split_rate <- if (is.null(cfg$rate_split)) additive_rate else
+    resolve_policy_country_values(cfg$country_rates, countries, pp,
+                                  default = cfg$rate_split$rate)
   target_total <- resolve_policy_country_values(
     cfg$target_total, countries, pp, default = NA_real_)
   adj <- tibble(
     country = names(additive_rate),
-    polysilicon_additive = as.numeric(additive_rate),
-    polysilicon_target_total = as.numeric(target_total)
+    .additive = as.numeric(additive_rate),
+    .split_additive = as.numeric(split_rate),
+    .target_total = as.numeric(target_total)
   )
+  split_share <- cfg$rate_split$share %||% 1
+  split_pattern <- if (is.null(cfg$rate_split)) NULL else
+    paste0('^(', paste(unlist(cfg$rate_split$prefixes), collapse = '|'), ')')
+  basket_share <- cfg$basket_lines$applicability_share %||% 1
+  basket_pattern <- if (is.null(cfg$basket_lines)) NULL else
+    paste0('^(', paste(unlist(cfg$basket_lines$prefixes), collapse = '|'), ')')
+
+  if (!'rate_232_nondisplacing' %in% names(rates)) rates$rate_232_nondisplacing <- 0
 
   rates %>%
     left_join(adj, by = 'country', relationship = 'many-to-one') %>%
     mutate(
-      .polysilicon_hit = hts10 %in% polysilicon_products,
-      .polysilicon_component = if_else(
-        !is.na(polysilicon_target_total),
-        pmax(polysilicon_target_total - base_rate, 0),
-        coalesce(polysilicon_additive, 0)
-      ),
+      .hit = hts10 %in% program_products,
+      .in_split = if (is.null(split_pattern)) FALSE else grepl(split_pattern, hts10),
+      .in_basket = if (is.null(basket_pattern)) FALSE else grepl(basket_pattern, hts10),
+      .additive = if_else(.in_split,
+                          split_share * .additive + (1 - split_share) * .split_additive,
+                          .additive),
+      .component = if_else(
+        !is.na(.target_total),
+        pmax(.target_total - base_rate, 0),
+        coalesce(.additive, 0)
+      ) * if_else(.in_basket, basket_share, 1),
       # The proclamation makes this component additive to other duties. Keep it
       # out of the generic max-across-heading aggregation and add it here.
-      rate_232 = if_else(
-        .polysilicon_hit,
-        rate_232 + .polysilicon_component,
-        rate_232
-      ),
-      # Annex II adds these articles to no overlay exclusion note, so
-      # .s232_in_scope() subtracts this component from the statutory prong —
-      # the FL-301/Brazil-§301/§338 duties keep applying on top
+      rate_232 = if_else(.hit, rate_232 + .component, rate_232),
+      # A program that adds its articles to no overlay exclusion note
+      # (displaces_overlays: false) records its component so .s232_in_scope()
+      # can subtract it from the statutory prong — the FL-301/Brazil-§301/§338
+      # duties keep applying on top
       # (docs/internal/polysilicon_note52f_mask_2026-08-10.md).
-      rate_232_nondisplacing = if_else(
-        .polysilicon_hit & !isTRUE(cfg$displaces_overlays),
-        .polysilicon_component,
-        0
-      )
+      rate_232_nondisplacing = rate_232_nondisplacing + if_else(
+        .hit & !isTRUE(cfg$displaces_overlays), .component, 0)
     ) %>%
-    select(-polysilicon_additive, -polysilicon_target_total,
-           -.polysilicon_hit, -.polysilicon_component)
+    select(-.additive, -.split_additive, -.target_total, -.hit, -.in_split,
+           -.in_basket, -.component)
 }
 
 # --- Step 6: Section 301 blanket + USTR exclusions ---------------------------
@@ -2296,6 +2358,7 @@ calculate_rates_for_revision <- function(
   semi_products <- character(0)
   pharma_products <- character(0)
   polysilicon_products <- character(0)
+  drone_products <- character(0)
   nondisplacing_products <- character(0)
   metal_program_products <- character(0)
   s232_country_codes <- character(0)
@@ -2359,6 +2422,7 @@ calculate_rates_for_revision <- function(
     semi_products <- character(0)
     pharma_products <- character(0)
     polysilicon_products <- character(0)
+    drone_products <- character(0)
     nondisplacing_products <- character(0)
     # Parts (auto_parts + mhd_parts) tracked separately from whole vehicles.
     # USMCA-qualifying PARTS are fully exempt from 232 (HTS 9903.94.06 for auto
@@ -2485,6 +2549,8 @@ calculate_rates_for_revision <- function(
           pharma_products <- c(pharma_products, matched)
         } else if (grepl('polysilicon', tariff_name, ignore.case = TRUE)) {
           polysilicon_products <- c(polysilicon_products, matched)
+        } else if (grepl('drone', tariff_name, ignore.case = TRUE)) {
+          drone_products <- c(drone_products, matched)
         }
 
         # Parts accumulator (non-exclusive): auto_parts also lands in
@@ -2503,6 +2569,7 @@ calculate_rates_for_revision <- function(
     semi_products <- unique(semi_products)
     pharma_products <- unique(pharma_products)
     polysilicon_products <- unique(polysilicon_products)
+    drone_products <- unique(drone_products)
     nondisplacing_products <- unique(nondisplacing_products)
     parts_products <- unique(parts_products)
 
@@ -2570,16 +2637,18 @@ calculate_rates_for_revision <- function(
     message('  Section 232 coverage: ', n_steel, ' steel + ', n_alum,
             ' aluminum + ', n_auto, ' auto + ', n_copper, ' copper + ',
             n_wood, ' wood + ', n_mhd, ' MHD + ', n_semi, ' semi + ',
-            length(polysilicon_products), ' polysilicon products')
+            length(polysilicon_products), ' polysilicon + ',
+            length(drone_products), ' drone products')
 
     # --- Build product-level 232 rate lookup from heading configs ---
     # Each heading config specifies its own rate. Build an hts10 -> rate mapping.
     heading_product_rate <- map_dfr(names(heading_product_lists), function(nm) {
       cfg <- heading_product_lists[[nm]]
       if (length(cfg$products) == 0) return(tibble())
-      # Polysilicon must add to any other §232 component; applying it through
-      # this table would collapse overlaps with max(). Add it separately below.
-      if (identical(nm, 'polysilicon')) return(tibble())
+      # Polysilicon and drones must add to any other §232 component; applying
+      # them through this table would collapse overlaps with max(). Added
+      # separately below (apply_additive_232_program).
+      if (nm %in% c('polysilicon', 'drones')) return(tibble())
       tibble(
         hts10 = cfg$products,
         heading_232_rate = cfg$rate,
@@ -2711,9 +2780,14 @@ calculate_rates_for_revision <- function(
       s232_headings$pharmaceuticals,
       countries, pp
     )
-    rates <- apply_polysilicon_232_adjustments(
+    rates <- apply_additive_232_program(
       rates, polysilicon_products,
       s232_headings$polysilicon,
+      countries, pp
+    )
+    rates <- apply_additive_232_program(
+      rates, drone_products,
+      s232_headings$drones,
       countries, pp
     )
 
@@ -2721,29 +2795,48 @@ calculate_rates_for_revision <- function(
     # whose ONLY §232 coverage comes from a non-displacing heading program must
     # stay visible to the FL-301 / Brazil-§301 / §338 overlays. .s232_in_scope()
     # subtracts the s232_nondisplacing membership and the
-    # rate_232_nondisplacing component set in the polysilicon apply step.
-    # Component tracking exists only for the polysilicon path; a future program
-    # flipping displaces_overlays must extend its own apply path first.
-    stray_nondisplacing <- setdiff(nondisplacing_products, polysilicon_products)
+    # rate_232_nondisplacing component set in apply_additive_232_program().
+    # Component tracking exists only for the additive programs (polysilicon,
+    # drones); a future program flipping displaces_overlays must go through
+    # that apply path first.
+    stray_nondisplacing <- setdiff(nondisplacing_products,
+                                   c(polysilicon_products, drone_products))
     if (length(stray_nondisplacing) > 0)
-      stop('displaces_overlays: false is only implemented for the polysilicon ',
-           'heading program (its apply step tracks rate_232_nondisplacing); ',
+      stop('displaces_overlays: false is only implemented for the additive ',
+           'heading programs (their apply step tracks rate_232_nondisplacing); ',
            length(stray_nondisplacing), ' products from another program carry ',
            'the flag. Extend that program\'s apply path before flipping it.')
     # The mask treats non-displacing membership as the row's only heading-
     # program claim; that premise fails if a product is also on a displacing
-    # list (metals or another heading program), so fail loudly if lists collide.
+    # list (metals or another heading program), so resolve collisions below.
     displacing_232_products <- unique(c(
       auto_products, mhd_products, copper_products, wood_products,
       semi_products, pharma_products, metal_program_products))
+    # A collision row keeps the displacing claim for the overlay mask — the
+    # same rule the metals prong already follows — while the non-displacing
+    # component still adds to rate_232. Known case: 8537.10.9170, a drone
+    # docking-station basket line (note 43(c)(1)) that note 33(g) also lists
+    # as auto parts. Only lines named in the program's basket_lines may
+    # collide; anything else is an unexpected list overlap and stops.
     nondisplacing_collision <- intersect(nondisplacing_products,
                                          displacing_232_products)
-    if (length(nondisplacing_collision) > 0)
+    basket_prefixes <- unlist(lapply(s232_headings[c('polysilicon', 'drones')],
+                                     function(cfg) cfg$basket_lines$prefixes))
+    basket_pattern <- if (length(basket_prefixes))
+      paste0('^(', paste(basket_prefixes, collapse = '|'), ')') else '^$'
+    unexpected_collision <- nondisplacing_collision[
+      !grepl(basket_pattern, nondisplacing_collision)]
+    if (length(unexpected_collision) > 0)
       stop('Non-displacing §232 products also appear on a displacing product ',
-           'list (', paste(head(nondisplacing_collision, 5), collapse = ', '),
+           'list (', paste(head(unexpected_collision, 5), collapse = ', '),
            ', ...). .s232_in_scope() cannot attribute their coverage; resolve ',
            'the list overlap.')
-    rates$s232_nondisplacing <- rates$hts10 %in% nondisplacing_products
+    if (length(nondisplacing_collision) > 0)
+      message('  ', length(nondisplacing_collision), ' basket line(s) on both a ',
+              'non-displacing and a displacing §232 list keep the displacing ',
+              'overlay mask: ', paste(nondisplacing_collision, collapse = ', '))
+    rates$s232_nondisplacing <- rates$hts10 %in%
+      setdiff(nondisplacing_products, displacing_232_products)
   }
 
   # statutory_rate_232 is set after step 4c (deal overrides) — see below.
@@ -3067,7 +3160,7 @@ calculate_rates_for_revision <- function(
       heading_program_products <- unique(c(auto_products, mhd_products,
                                            copper_products, wood_products,
                                            semi_products, pharma_products,
-                                           polysilicon_products))
+                                           polysilicon_products, drone_products))
       rates <- rates %>%
         mutate(rate_232 = case_when(
           hts10 %in% heading_program_products ~ rate_232,             # heading rate wins
