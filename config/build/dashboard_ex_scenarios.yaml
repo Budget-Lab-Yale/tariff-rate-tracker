@@ -8,8 +8,8 @@
 #   actual    - current law (byte-identical to the 2026-11-01-13 release series
 #               when built from the same code and inputs)
 #   no_s338   - Section 338 Canada +50% actions never happen
-#   no_s301   - every Section 301 action never happens (legacy China, Brazil
-#               final action, forced-labor final action)
+#   no_s301   - the Section 301 actions taken since January 2025 never happen
+#               (Brazil final action, forced-labor final action); legacy China lists kept
 #   no_232    - Section 232 (metals, autos, derivatives, all other 232 programs)
 #               never enters the revision
 #
