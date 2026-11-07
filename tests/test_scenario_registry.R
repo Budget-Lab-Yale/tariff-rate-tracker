@@ -49,7 +49,7 @@ ALTERNATIVES <- c('dutyfree_nonzero', 'metal_flat', 'subdivision_r_mid',
                   'usmca_2024', 'usmca_annual', 'usmca_dec2025', 'usmca_monthly')
 COUNTERFACTUALS <- c('no_232', 'no_301', 'no_fl_301', 'no_fl_301_keep_s122',
                      'no_ieepa', 'no_ieepa_recip', 'no_polysilicon', 'no_s122',
-                     'no_s338', 'pre_2025')
+                     'no_s301', 'no_s338', 'pre_2025')
 
 # =============================================================================
 # 1. Registry
@@ -229,6 +229,9 @@ expected_disables <- list(
   # no_301 covers ALL §301 instruments: legacy China + the 2026-07-22 Brazil
   # baseline authority (which would otherwise leak into "remove Section 301").
   no_301 = c('section_301', 'section_301_brazil'),
+  # no_s301 (dashboard "ex Section 301") also drops the 2026-07-24 forced-labor
+  # final action, which no_301 predates and keeps.
+  no_s301 = c('section_301', 'section_301_brazil', 'section_301_forced_labor'),
   no_232 = 'section_232',
   no_s122 = 'section_122',
   # section_338 (2026-08-22 Canada +50%) and section_301_brazil (2026-07-22

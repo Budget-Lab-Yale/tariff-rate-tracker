@@ -1,0 +1,3 @@
+kind: counterfactual
+description: 'Remove every Section 301 action (legacy China, Brazil final action, forced-labor final action)'
+publish: false

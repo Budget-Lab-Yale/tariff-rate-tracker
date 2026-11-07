@@ -1,0 +1,12 @@
+# Counterfactual: remove EVERY Section 301 instrument before the revision is
+# calculated, holding every other authority fixed — the dashboard's
+# "excluding the Section 301 tariff actions" world (companion to no_s338).
+#   section_301               legacy China lists (rate_301)
+#   section_301_brazil        Brazil 25% final action, BASELINE since 2026-07-22
+#                             (FR 2026-14542; rate_s301br)
+#   section_301_forced_labor  USTR forced-labor final action, BASELINE since
+#                             2026-07-24 (rate_s301fl)
+# Differs from no_301, which predates the forced-labor action and keeps it.
+# rate_301_cs (content split) is all-zero at baseline; add
+# section_301_content_split if that flavor is ever activated.
+disabled_authorities: [section_301, section_301_brazil, section_301_forced_labor]
