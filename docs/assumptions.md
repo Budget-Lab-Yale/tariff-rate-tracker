@@ -120,6 +120,14 @@ The broader clause (8) rule is not fully modeled: the proclamation also covers n
 
 ---
 
+## 4c. Section 232 Annex Product Lists (April 2026 Annexes I-A / I-B / II / III)
+
+**Assumption:** annex-era §232 scope is the union of two generated layers in `resources/s232_annex_products.csv`: the proclamation's own annex tables (`source = proclamation`, `scripts/parse_annex_products.R` reading the code column of `docs/s232/annexes_layout.txt`) and HTSUS U.S. Note 16(c) (`source = us_note_16`, `tools/scrape_us_notes.R --annex`), plus the Proclamation 11032 (June 2026) Annex I-C / III / IV rows. Longest prefix wins at classification (`classify_s232_annex()`); only listed codes are in scope, never whole chapters or whole headings unless the annex lists the bare heading (the I-A primary steel and aluminum headings 7206–7229, 7304–7306, 7601–7609 are the only ones).
+
+**Correction 2026-11-08:** the proclamation layer had been built by scanning whole lines for HTS-shaped tokens, which swept in headings and subheadings named inside product *descriptions* (bare `8471` from "parts ... of the machines of heading 8471" charged every computer line 25% from 2026-04-06; `8516.50`; `8430.41/.49`) and truncated ten-digit statistical codes to six digits (whole subheadings such as 8481.90, 8503.00, 9403.99 at 25% where only named lines are listed). 73 prefixes were removed; none is in Note 16(c). See `docs/s232/annex_parser.md`, "The `proclamation` layer is generated too". The eval side had read the 8471 symptom as an unmodeled exemption route (about 0.7 pp of monthly imports from April 2026); it is a scope error, so no route calibration is involved.
+
+**Implementation:** `resources/s232_annex_products.csv`; `src/model/data_loaders.R:load_annex_products()` / `classify_s232_annex()`; `src/model/authority_adapter.R` (annex facts on the spec).
+
 ## 6. IEEPA Product Exemptions (Annex A)
 
 **Assumption:** IEEPA reciprocal tariff exemptions cover products from five sources:
