@@ -1,0 +1,32 @@
+# Dashboard "ex-authority" comparison build — actual + no_s338 + no_s301 + no_232
+# in ONE vintage, all through the same code path and the same 484(f) per-interval
+# weight plan, so each scenario-vs-actual diff is exact. Feeds the Tariff-Model
+# State of Tariffs dashboard alternatives tab (config/dashboard.yaml there), which
+# requires every scenario to share a single tracker vintage:
+#   <model_data_root>/<vintage>/{actual, scenarios/{no_s338, no_s301, no_232}}/
+#
+#   actual    - current law (byte-identical to the 2026-11-01-13 release series
+#               when built from the same code and inputs)
+#   no_s338   - Section 338 Canada +50% actions never happen
+#   no_s301   - the Section 301 actions taken since January 2025 never happen
+#               (Brazil final action, forced-labor final action); legacy China lists kept
+#   no_232    - Section 232 (metals, autos, derivatives, all other 232 programs)
+#               never enters the revision
+#
+# Comparison build: verified, does NOT move `latest`.
+#
+#   bash scripts/submit_build_array.sh --config config/build/dashboard_ex_scenarios.yaml
+
+model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker
+policy_params_path: config/policy_params.yaml
+
+scenarios:
+  - no_s338
+  - no_s301
+  - no_232
+
+use_hts_dates: false        # policy effective dates
+weight_mode: required       # 484(f) per-interval weights; fail loud if missing
+update_latest: false        # comparison build — do NOT repoint production latest
+allow_partial: false        # fail loud on any missing revision snapshot
+verify: true                # finalize runs scripts/verify_build.R against the vintage

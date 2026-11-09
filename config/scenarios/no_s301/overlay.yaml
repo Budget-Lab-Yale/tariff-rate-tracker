@@ -1,0 +1,15 @@
+# Counterfactual: remove the Section 301 actions taken SINCE the January 2025
+# baseline, holding every other authority fixed — the dashboard's "excluding the
+# Section 301 tariff actions" world (companion to no_s338).
+#   section_301_brazil        Brazil 25% final action, BASELINE since 2026-07-22
+#                             (FR 2026-14542; rate_s301br)
+#   section_301_forced_labor  USTR forced-labor final action, BASELINE since
+#                             2026-07-24 (rate_s301fl)
+# The legacy China lists (section_301, rate_301) are deliberately KEPT: they
+# predate 2025 and sit inside the Tariff-Model's January 2025 baseline (taken
+# from the `actual` series), so removing them would net pre-2025 revenue out of
+# the "increase since baseline" and drive it negative. Compare no_301, which
+# removes the China lists + Brazil (and keeps forced labor). Documented
+# limitation: 2025-26 amendments to the legacy China lists (e.g. the gantry
+# crane heading 9903.91.14) stay in, as with pre_2025.
+disabled_authorities: [section_301_brazil, section_301_forced_labor]
