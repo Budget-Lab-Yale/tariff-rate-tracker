@@ -22,9 +22,13 @@ open work. Registry of statutory deviations (the B/U/P/S/F items):
    Sequencing per the proposal §8: build the measurement module
    (`tools/calibrate_s232_annex_routes.R`, 3-component realized-rate
    inversion) and run the first measurement — CSV outputs only, curator
-   review before any engine change. Absorbs: the 8471 annex_1b decision
-   (data-gated on the same April+ collections), the zmc/de-minimis/us-origin/
-   motorcycle calibration line, and the eta-queue item-2 annex-era half.
+   review before any engine change. Absorbs the zmc/de-minimis/us-origin/
+   motorcycle calibration line and the eta-queue item-2 annex-era half.
+   The former "8471 annex_1b decision" is CLOSED 2026-11-08: bare 8471 was an
+   annex-parser artifact (heading named in a description), not a route
+   question — see `docs/s232/annex_parser.md`; the July-8 measurement's
+   exit-route mass on 8471 was this scope error, so re-read the route
+   measurement after the regenerated annex CSV ships.
 2. **Eval re-pull → MANDATORY adj recalibration.** The publish half is DONE
    2026-07-08: verified vintage `2026-07-01-16` (verify_build 11/0, tests
    107/0; carries the promoted §301 .69/.70 coverage shares AND the Phase-1
@@ -327,6 +331,14 @@ Phase-1 1a–1e) is in the archive todo. Still open:
   pass.
 - [ ] **Annex III sunset (Dec 2027 → I-B rate):** logic in place; needs a
   future HTS revision to test.
+- [ ] **Floor-country civil-aircraft §232 annex exemption is applied full-line
+  (step 7c):** EU/KR/CH each get the 553-line `civil_aircraft` list of
+  `floor_exempt_products.csv` zeroed on the metals annex for every import,
+  but 528 of those HTS8s are the same GN6 use-conditional codes the §122 audit
+  scaled by `(1 − exempt_share)` (`s122_aircraft_utilization.csv`). Same fix
+  shape: scale the 7c zeroing by the utilization share instead of zeroing.
+  Found 2026-11-08 via the EU/KR/CH vs Vietnam asymmetry on 8471.41/.49/.70
+  (laptops 8471.30 are not on the list). Japan has no aircraft rows (F3).
 - [ ] **Semi `end_use_exemption_share`:** post interim calibration it only
   bites on 8471.80.4000; best path is empirical — eval measures realized ÷
   25% on Taiwan/China Jan-16→Mar-2026 collections = qualifying ×

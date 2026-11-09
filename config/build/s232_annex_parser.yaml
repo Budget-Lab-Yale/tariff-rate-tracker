@@ -1,0 +1,35 @@
+# Section 232 annex parser fix (2026-11-08): the proclamation layer of
+# resources/s232_annex_products.csv is regenerated from the code column of the
+# annex tables (scripts/parse_annex_products.R). 73 prefixes that the old
+# whole-line scan had promoted from product descriptions or truncated to six
+# digits are gone (bare 8471 computers, 8430, 8709, 8516.50, 8481.90, 8503.00,
+# 9403.99, ...); primary aluminum 7601-7609 re-tagged aluminum; 9403.99.9020
+# moved from Annex II to I-B. See docs/s232/annex_parser.md.
+#
+# Expectations against the previous master vintage (2026-11-01-13):
+#   * Nothing moves before 2026-04-06 (annex era starts at rev_5).
+#   * From 2026-04-06: rate_232 falls to 0 on the de-listed lines — all of
+#     heading 8471 except the semiconductor-heading lines (8471.80.4000 stays
+#     25%), and the de-listed statistical lines under 8481.90 / 8503.00 /
+#     8418.99 / 8483.90 / 9403.99 / 7615.10 / 8207.20 etc.; the weighted §232
+#     ETR drops by roughly 0.5-0.6 pp, mostly computers. Russia 76xx primary
+#     aluminum lines not covered by a ten-digit row gain the 200% surcharge
+#     (metal_type now aluminum). No cell should rise except those Russia rows
+#     and 9403.99.9020 (Annex II -> I-B).
+#   * matched_imports_b == total_imports_b on every day (weights join).
+#
+# Publishes a vintage but does NOT repoint `latest` — bless deliberately with
+#   Rscript scripts/publish_vintage.R --latest-only <vintage>
+# after
+#   Rscript scripts/compare_vintages.R <.../2026-11-01-13> \
+#     <.../.validation/s232-annex-parser/<vintage>>
+model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker/.validation/s232-annex-parser
+policy_params_path: config/policy_params.yaml
+scenarios:
+  - new_301
+  - usmca_monthly
+use_hts_dates: false
+weight_mode: required
+update_latest: false
+allow_partial: false
+verify: true

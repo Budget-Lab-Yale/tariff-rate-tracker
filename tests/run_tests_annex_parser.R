@@ -279,6 +279,36 @@ run_test('rev_5 merge is idempotent', {
 # Uses a synthetic rate snapshot rather than building a full revision; we just
 # need the case_when contract to be honored.
 
+message('\n=== resources/s232_annex_products.csv: proclamation layer shape ===')
+# Regression guards for the 2026-11-08 parser defect (codes taken from
+# descriptions; ten-digit codes truncated to six). The proclamation tables list
+# bare headings only for the I-A primary steel / aluminum chapters, and the
+# only six-digit codes they list are 7302.10 / 7302.90.
+annex_csv <- here('resources', 's232_annex_products.csv')
+run_test('no bare heading outside the I-A primary chapters (8471 et al. gone)', {
+  if (!file.exists(annex_csv)) skip_test('annex CSV not available')
+  a <- readr::read_csv(annex_csv, show_col_types = FALSE,
+                       col_types = readr::cols(.default = readr::col_character()))
+  bare <- a$hts_prefix[nchar(a$hts_prefix) == 4]
+  stopifnot(all(substr(bare, 1, 2) %in% c('72', '73', '76')))
+  stopifnot(!any(c('8471', '8430', '8709', '8501', '8502', '8427', '8429') %in% a$hts_prefix))
+})
+run_test('no six-digit proclamation prefix except the two listed rail subheadings', {
+  if (!file.exists(annex_csv)) skip_test('annex CSV not available')
+  a <- readr::read_csv(annex_csv, show_col_types = FALSE,
+                       col_types = readr::cols(.default = readr::col_character()))
+  six <- a$hts_prefix[nchar(a$hts_prefix) == 6 & a$source == 'proclamation']
+  stopifnot(setequal(six, c('730210', '730290')))
+  stopifnot(!any(c('851650', '848190', '850300', '940399', '820720') %in% a$hts_prefix))
+})
+run_test('primary aluminum headings are tagged aluminum', {
+  if (!file.exists(annex_csv)) skip_test('annex CSV not available')
+  a <- readr::read_csv(annex_csv, show_col_types = FALSE,
+                       col_types = readr::cols(.default = readr::col_character()))
+  al <- a[a$hts_prefix %in% c('7601', '7604', '7605', '7606', '7607', '7608', '7609'), ]
+  stopifnot(nrow(al) == 7, all(al$metal_type == 'aluminum'), all(al$annex == '1a'))
+})
+
 message('\n=== zero_metal_content exemption (rate engine) ===')
 
 run_test('config block exists in policy_params.yaml', {
