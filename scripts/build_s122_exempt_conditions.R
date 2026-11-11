@@ -15,8 +15,10 @@
 # Rows on the (aa)(iv) list get 'gn6_civil_aircraft' UNLESS they are also on
 # the unconditional (aa)(ii)/(iii) lists (unconditional wins) or are ch98
 # lines (handled by the ch98 value-basis machinery — left unconditional, see
-# audit §5). The known-benign residual 9031.49.70 (provenance audit
-# 2026-06-15) is aircraft-list-adjacent and gets 'gn6_civil_aircraft'.
+# audit §5). 9031.49.70, formerly carried as a 2026-06-15 provenance-audit
+# residual, is dropped: it does not appear in note 2(aa)(iv) in any
+# section-122-era revision (Rev 4 through Rev 15 checked at the subdivision
+# level); its chapter-99 appearances are unrelated provisions (issue #35).
 #
 # The utilization file is the audit's measurement
 # (output/diagnostics/s122_aircraft_line_utilization.csv — IMDB Mar–May 2026
@@ -61,9 +63,11 @@ ex$condition <- case_when(
   ex$hts8 %in% aa_uncond            ~ 'none',            # unconditional wins on overlap
   substr(ex$hts8, 1, 2) == '98'     ~ 'none',            # ch98 machinery governs
   ex$hts8 %in% aa_gn6               ~ 'gn6_civil_aircraft',
-  ex$hts8 == '90314970'             ~ 'gn6_civil_aircraft',  # known aircraft-instrument residual
   TRUE                              ~ 'UNTRACEABLE'
 )
+# 9031.49.70: absent from note 2(aa)(iv) in every s122-era revision
+# (Rev 4-15); previously a hand-carried residual — removed (issue #35).
+ex <- ex[ex$hts8 != '90314970', ]
 if (any(ex$condition == 'UNTRACEABLE')) {
   stop('Untraceable rows (fix before writing): ',
        paste(ex$hts8[ex$condition == 'UNTRACEABLE'], collapse = ', '))
