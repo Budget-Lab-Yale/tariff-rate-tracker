@@ -62,6 +62,10 @@ TARIFF_MODULES <- list(
     file = 'src/core/logging.R',
     depends = character()
   ),
+  locale = list(
+    file = 'src/core/locale.R',
+    depends = character()
+  ),
   parallel = list(
     file = 'src/core/parallel.R',
     depends = c('logging', 'helpers')
@@ -223,3 +227,13 @@ tariff_loaded_modules <- function(envir = parent.frame()) {
   loaded <- ls(state, all.names = TRUE)
   sort(loaded[vapply(loaded, function(x) identical(get(x, state), 'loaded'), logical(1))])
 }
+
+# Startup invariant: a UTF-8 locale before any module parses. Every consumer
+# of this loader goes on to source files carrying accented country literals
+# and to read config with non-ASCII text; under a non-UTF-8 locale (LC_ALL=C
+# in many cron, container, and headless environments) both degrade with only
+# a warning and produce wrong country matches and truncated config lines.
+# Sourcing the loader establishes the invariant for entrypoints, tests, and
+# ad hoc sessions alike; see src/core/locale.R for the mechanism.
+tariff_load_module('locale', environment())
+ensure_utf8_locale()

@@ -151,6 +151,39 @@ if (sys.nframe() == 0) {
 
   any_required_missing <- FALSE
 
+  # --- 0. Locale ---
+  # Self-contained (preflight sources nothing by design; logic mirrors
+  # src/core/locale.R). Non-UTF-8 locales corrupt accented country-name
+  # matching and truncate config reads with only a warning.
+  cat('LOCALE\n')
+  if (isTRUE(l10n_info()[['UTF-8']])) {
+    cat(sprintf('  [OK] UTF-8 locale (%s)\n', Sys.getlocale('LC_CTYPE')))
+  } else {
+    original_locale <- Sys.getlocale('LC_CTYPE')
+    utf8_available <- ''
+    for (candidate in c('en_US.UTF-8', 'C.UTF-8', 'en_US.utf8', 'UTF-8')) {
+      result <- tryCatch(suppressWarnings(Sys.setlocale('LC_ALL', candidate)),
+                         error = function(e) '')
+      if (nzchar(result) && isTRUE(l10n_info()[['UTF-8']])) {
+        utf8_available <- candidate
+        break
+      }
+    }
+    if (nzchar(utf8_available)) {
+      cat(sprintf('  [..] locale was %s (not UTF-8); %s is available\n',
+                  original_locale, utf8_available))
+      cat('       Pipeline entrypoints switch automatically (src/core/locale.R).\n')
+      cat(sprintf('       For other tooling: export LANG=%s LC_ALL=%s\n',
+                  utf8_available, utf8_available))
+    } else {
+      cat(sprintf('  [!!] locale %s is not UTF-8 and no UTF-8 locale is available\n',
+                  original_locale))
+      cat('       Install or set one, e.g.: export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8\n')
+      any_required_missing <- TRUE
+    }
+  }
+  cat('\n')
+
   # --- 1. R Packages ---
   cat('R PACKAGES\n')
   req_pkg <- check_packages(REQUIRED_PACKAGES, required = TRUE)
