@@ -44,7 +44,7 @@ The registry (`src/model/scenario_registry.R`) reads the folders:
 |---|---|---|
 | `alternative` | methodology/calibration variant (USMCA share modes, `metal_flat`, `dutyfree_nonzero`, `subdivision_r_mid`) | `--alternatives` on the main build → `alt_runner()` → `output/scenarios/<name>/` |
 | `counterfactual` | policy what-if (`no_301`, `no_232`, `no_ieepa`, `no_ieepa_recip`, `no_s122`, `no_s338`, `pre_2025`) | same runner |
-| `scenario` | full named series (`forced_labor`, `new_301`) | main build under `TARIFF_SCENARIO=<name>` / `TARIFF_SERIES=<name>` — persisted snapshots, quality reports |
+| `scenario` | full named series (`forced_labor`, `new_301`, the three `ec301_*`) | main build under `TARIFF_SCENARIO=<name>` / `TARIFF_SERIES=<name>` — persisted snapshots, quality reports |
 | `baseline` | `actual` — documentation stub | never run |
 
 ## Running alternatives
@@ -96,6 +96,27 @@ Baseline authorities that turn on mid-series must be listed explicitly in any
 would leak into the counterfactual from their turn-on dates. Any future
 baseline authority added to `policy_params.yaml` must be added to `pre_2025`'s
 `disabled_authorities` too.
+
+## Proposed Section 301 excess-capacity duties (`ec301_*`)
+
+Three scenarios switch on the duties USTR proposed on 2026-11-25 against 14
+economies, from an assumed start date of 2027-04-01, together with the proposed
+Brazil change (finished aircraft pay a flat 10%):
+
+- `ec301_proposed`: each economy at the rate its notice states first.
+- `ec301_no_deals`: every economy at its higher, no-deal rate.
+- `ec301_all_deals`: every economy at its lower, deal rate.
+
+The rate table and the rules sit in `config/policy_params.yaml` under
+`section_301_excess_capacity`, switched off. An overlay sets `enabled: true`,
+picks `deal` or `no_deal` for each economy under `outcome`, and switches on
+`section_301_brazil.modification_2026_11`. The baseline `boundary_overrides`
+list includes 2027-04-01, so every series, `actual` included, has a snapshot
+starting that date (in `actual` its rates equal the interval before). The duty
+is the `rate_s301ec` column. It exists only in these scenarios: `actual` has no
+such column in its snapshots, daily files or quality report. Build all four
+series with `config/build/s301ec.yaml` and check the result with
+`scripts/verify_s301ec_snapshot.R`.
 
 ## Authoring a new scenario
 

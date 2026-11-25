@@ -975,6 +975,9 @@ apply_section301_forced_labor <- function(rates, specs, countries) {
   rates$s301fl_post_cap <- 0
   rates$s301fl_cap_eligible <- FALSE
   rates$s301fl_exempt_factor <- 1
+  # The duty a non-qualifying entry pays, before the aircraft/pharma use share
+  # scales the line. The excess-capacity duty nets against this.
+  rates$s301fl_full <- 0
   if (length(fl_by_country) > 0) {
     rate_types <- .rate_get(fl_spec$programs[[1]]$rate, 'by_country_type') %||%
       setNames(rep('surcharge', length(fl_by_country)), names(fl_by_country))
@@ -1041,6 +1044,7 @@ apply_section301_forced_labor <- function(rates, specs, countries) {
       TRUE ~ 1
     )
     rates$s301fl_exempt_factor <- factor
+    rates$s301fl_full <- rates$rate_s301fl
     rates$rate_s301fl <- rates$rate_s301fl * factor
 
     message('  Section 301 forced labor final action: duty on ',
@@ -1144,7 +1148,16 @@ apply_section301_brazil <- function(rates, specs, products, countries) {
         TRUE ~ 1)
       rates$rate_s301br <- rates$rate_s301br * br_cond_factor
     }
-    message('  Section 301 Brazil: 25% on ', sum(rates$rate_s301br > 0),
+    # Proposed modification of 2026-11-25 (scenarios only): finished aircraft
+    # pay a flat rate in place of the 25%. The adapter supplies these lines
+    # only once the modification is in effect, having taken them off the
+    # aircraft use-share list.
+    br_flat_hts8 <- br_ex$flat_rate_hts8 %||% character(0)
+    if (length(br_flat_hts8) > 0) {
+      br_flat <- rates$rate_s301br > 0 & substr(rates$hts10, 1, 8) %in% br_flat_hts8
+      rates$rate_s301br[br_flat] <- as.numeric(br_ex$flat_rate)
+    }
+    message('  Section 301 Brazil: duty on ', sum(rates$rate_s301br > 0),
             ' product-country pairs across ', length(br_scope), ' economies (',
             length(br_exempt_hts8), ' unconditional HTS8 exempt; ',
             length(br_aircraft_hts8), ' aircraft-use @ ',
@@ -1153,6 +1166,111 @@ apply_section301_brazil <- function(rates, specs, products, countries) {
             round((1 - br_pharma_share) * 100, 1), '% of rate; §232-scope excluded)')
   }
 
+  rates
+}
+
+# --- Step 6b-ec: Section 301 excess-capacity duties (scenarios only) ---------
+# USTR's proposed actions of 2026-11-25. The rules are set out beside
+# section_301_excess_capacity in config/policy_params.yaml. The authority is
+# built only when a scenario enables it. Baseline tables do not get the
+# rate_s301ec column at all, so baseline outputs are unchanged.
+
+# The duty on each row of `rates`, as a share of customs value.
+#
+# The duty tops up the forced-labor duty to the economy's stated rate, so a
+# line's imports are split by what they pay in forced-labor duty:
+#   * `listed` share: imports the excess-capacity annex treats specially. They
+#     pay `listed_rate`: zero where the annex exempts them, or China's flat
+#     Annex A rate.
+#   * imports exempt from forced labor for aircraft or pharma use but not
+#     listed here (only China without a deal, where the annexes fall away):
+#     they pay no forced-labor duty, so the whole stated rate.
+#   * everything else pays the stated rate less the full forced-labor duty.
+# Where the stated rate is all-in, MFN is netted too. `base_rate` is the MFN
+# rate the forced-labor cap uses at the point this is called.
+.s301ec_duty <- function(rates, ec_spec) {
+  prog <- ec_spec$programs[[1]]
+  target <- .rate_get(prog$rate, 'by_country')
+  if (is.null(target) || length(target) == 0) return(rep(0, nrow(rates)))
+  st <- prog$settings
+  ex <- prog$exempt_products
+
+  i <- match(rates$country, names(target))
+  in_scope <- !is.na(i)
+  stated   <- coalesce(unname(target)[i], 0)
+  net_mfn  <- coalesce(unname(st$net_of_mfn)[i], FALSE)
+  china    <- coalesce(unname(st$china_rules)[i], FALSE)
+  annexes  <- coalesce(unname(st$annexes_apply)[i], TRUE)
+
+  h8 <- substr(rates$hts10, 1, 8)
+  code_hit <- function(codes) {
+    codes <- unique(as.character(codes))
+    h8 %in% codes[nchar(codes) == 8] | rates$hts10 %in% codes[nchar(codes) == 10]
+  }
+  common_full <- code_hit(ex$common_full)
+  use_share <- case_when(
+    code_hit(ex$common_aircraft) ~ ex$aircraft_share,
+    code_hit(ex$common_pharma)   ~ ex$pharma_share,
+    TRUE ~ 0)
+  cf <- ex$country_full
+  country_full <-
+    paste(rates$country, h8) %in% paste(cf$country, cf$hts_code) |
+    paste(rates$country, rates$hts10) %in% paste(cf$country, cf$hts_code)
+  # The eight Section 232 groups the forced-labor action also exempts. China's
+  # notice has no such exemption.
+  in_232_scope <- .s232_in_scope(rates) |
+    rates$hts10 %in% ex$patented_pharma_hts10
+
+  # A country list entry exempts the whole line even where the common list
+  # limits the exemption to one use (4504.90.00).
+  listed <- case_when(
+    !in_scope ~ 0,
+    china & !annexes ~ 0,
+    # China, with a deal. Annex A is checked first, so the two lines printed
+    # in both annexes are treated as Annex A lines.
+    china & common_full ~ 1,
+    china & use_share > 0 ~ use_share,
+    china & code_hit(ex$china_annex_b) ~ 1,
+    china ~ 0,
+    common_full | country_full | in_232_scope ~ 1,
+    TRUE ~ use_share)
+  china_annex_a <- china & annexes & (common_full | use_share > 0)
+  listed_rate <- if_else(china_annex_a, st$china_annex_a_rate, 0)
+
+  mfn <- if_else(net_mfn, coalesce(rates$base_rate, 0), 0)
+  fl_full <- coalesce(rates$s301fl_full, 0)
+  fl_exempt <- if_else(fl_full > 0, 1 - coalesce(rates$s301fl_exempt_factor, 1), 0)
+  without_fl <- pmax(stated - mfn, 0)
+  with_fl    <- pmax(stated - mfn - fl_full, 0)
+
+  duty <- listed * listed_rate +
+    pmax(fl_exempt - listed, 0) * without_fl +
+    (1 - pmax(fl_exempt, listed)) * with_fl
+  if_else(in_scope, duty, 0)
+}
+
+apply_section301_excess_capacity <- function(rates, specs) {
+  ec_spec <- specs[['section_301_excess_capacity']]
+  if (is.null(ec_spec)) return(rates)
+  rates$rate_s301ec <- .s301ec_duty(rates, ec_spec)
+  message('  Section 301 excess capacity: duty on ', sum(rates$rate_s301ec > 0),
+          ' product-country pairs across ',
+          length(ec_spec$programs[[1]]$country_scope$include), ' countries')
+  rates
+}
+
+# South Korea's stated rate is net of the MFN rate actually paid, so its rows
+# are recomputed once claimed KORUS preferences have lowered base_rate and the
+# forced-labor duty has been recomputed the same way. Chapter 98 rows keep
+# their first-pass value, as forced labor's do.
+recompute_s301ec_post_preference <- function(rates, specs) {
+  ec_spec <- specs[['section_301_excess_capacity']]
+  if (is.null(ec_spec)) return(rates)
+  post <- ec_spec$programs[[1]]$settings$post_preference_cap_countries %||% character(0)
+  rows <- which(rates$country %in% post & substr(rates$hts10, 1, 2) != '98')
+  if (length(rows) > 0) {
+    rates$rate_s301ec[rows] <- .s301ec_duty(rates[rows, ], ec_spec)
+  }
   rates
 }
 
@@ -3524,6 +3642,11 @@ calculate_rates_for_revision <- function(
   # ever forces 6b-338 after 7d, move this call with it.
   rates <- apply_section301_brazil(rates, specs, products, countries)
 
+  # 6b-ec. Proposed Section 301 excess-capacity duties (scenarios only; see
+  # apply_section301_excess_capacity). Runs after forced labor because it nets
+  # against it, and reads the same Section 232 scope columns at the same point.
+  rates <- apply_section301_excess_capacity(rates, specs)
+
   # 6b1. Section 201 safeguard / solar (see apply_section201)
   rates <- apply_section201(rates, specs, countries, effective_date)
 
@@ -3546,7 +3669,8 @@ calculate_rates_for_revision <- function(
   if (length(ch98_secondary) > 0) {
     ch98_m <- rates$hts10 %in% ch98_secondary
     ch98_cols <- c('rate_301', 'rate_301_cs', 'rate_s301fl', 'rate_s301br',
-                   'rate_s338', 'rate_s122', 'rate_section_201', 'rate_other')
+                   'rate_s301ec', 'rate_s338', 'rate_s122', 'rate_section_201',
+                   'rate_other')
     ch98_cols <- intersect(ch98_cols, names(rates))
     # coalesce: grid-expanded pairs can carry NA in rate columns at this point
     n_zeroed <- sum(ch98_m & Reduce(`|`, lapply(
@@ -3568,7 +3692,8 @@ calculate_rates_for_revision <- function(
   ch98_vb <- pp$ch98_value_basis$dutiable_value_shares
   if (!is.null(ch98_vb)) {
     vb_cols <- intersect(
-      c('rate_301', 'rate_301_cs', 'rate_s301fl', 'rate_s301br', 'rate_s338',
+      c('rate_301', 'rate_301_cs', 'rate_s301fl', 'rate_s301br', 'rate_s301ec',
+        'rate_s338',
         'rate_s122', 'rate_ieepa_recip', 'swiss_underlying_rate_ieepa_recip',
         'rate_ieepa_fent', 'rate_other'),
       names(rates))
@@ -3603,6 +3728,8 @@ calculate_rates_for_revision <- function(
       statutory_rate_section_201 = rate_section_201,
       statutory_rate_other       = rate_other
     )
+  # Scenario-only column: present only when the excess-capacity authority is on.
+  if ('rate_s301ec' %in% names(rates)) rates$statutory_rate_s301ec <- rates$rate_s301ec
 
   # 6c. Apply MFN exemption shares (FTA/GSP preference adjustment)
   # Reduces statutory base_rate using HS2 x country exemption shares from Census
@@ -3656,10 +3783,14 @@ calculate_rates_for_revision <- function(
       rates$s301fl_cap_eligible &
       substr(rates$hts10, 1, 2) != '98'
     if (any(fl_post_cap)) {
-      rates$rate_s301fl[fl_post_cap] <- pmax(
+      rates$s301fl_full[fl_post_cap] <- pmax(
         rates$s301fl_post_cap[fl_post_cap] - rates$base_rate[fl_post_cap], 0
-      ) * rates$s301fl_exempt_factor[fl_post_cap]
+      )
+      rates$rate_s301fl[fl_post_cap] <- rates$s301fl_full[fl_post_cap] *
+        rates$s301fl_exempt_factor[fl_post_cap]
     }
+    # The excess-capacity duty follows: forced labor is now final for Korea.
+    rates <- recompute_s301ec_post_preference(rates, specs)
 
     # 6d. Recompute IEEPA floor deduction against post-MFN base_rate.
     # Only for rows originally computed as floor-type (ieepa_type == 'floor').
@@ -4107,6 +4238,13 @@ calculate_rates_for_revision <- function(
   if ('statutory_rate_s301br' %in% names(rates)) {
     rates$statutory_rate_s301br <- coalesce(rates$statutory_rate_s301br, 0)
   }
+  # Excess-capacity Section 301 (present only when a scenario enables it).
+  if ('rate_s301ec' %in% names(rates)) {
+    rates$rate_s301ec <- coalesce(rates$rate_s301ec, 0)
+  }
+  if ('statutory_rate_s301ec' %in% names(rates)) {
+    rates$statutory_rate_s301ec <- coalesce(rates$statutory_rate_s301ec, 0)
+  }
   # Section 338 (baseline column): 0-fill rows added after the 6b-338 block
   # (e.g. the §201 blanket seeder + dense-grid MFN-only pairs) so it enters
   # stacking clean. Unlike s301fl/br it is NEVER dropped when all-zero —
@@ -4133,7 +4271,7 @@ calculate_rates_for_revision <- function(
 
   rates <- rates %>%
     select(-s301fl_fta_exempt, -s301fl_post_cap, -s301fl_cap_eligible,
-           -s301fl_exempt_factor)
+           -s301fl_exempt_factor, -s301fl_full)
 
   # 9b. Enforce canonical schema
   rates <- enforce_rate_schema(rates)

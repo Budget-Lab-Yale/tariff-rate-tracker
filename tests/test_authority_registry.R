@@ -21,8 +21,8 @@ cat('--- registry identity and downstream coverage ---\n')
 check(identical(
   AUTHORITY_REGISTRY$rate_col,
   c('rate_232', 'rate_ieepa_recip', 'rate_ieepa_fent', 'rate_301',
-    'rate_301_cs', 'rate_s301fl', 'rate_s301br', 'rate_s338', 'rate_s122',
-    'rate_section_201', 'rate_other')
+    'rate_301_cs', 'rate_s301fl', 'rate_s301br', 'rate_s301ec', 'rate_s338',
+    'rate_s122', 'rate_section_201', 'rate_other')
 ), 'stacking order remains explicit and stable')
 
 check(identical(
@@ -37,15 +37,18 @@ check(all(panel$rate_col %in% RATE_SCHEMA),
       'every baseline authority rate appears in RATE_SCHEMA')
 check('rate_s301fl' %in% RATE_SCHEMA,
       'forced-labor final-action rate is in the baseline schema')
+check(identical(authority_scenario_only_rate_columns(), 'rate_s301ec') &&
+        !'rate_s301ec' %in% RATE_SCHEMA,
+      'proposed excess-capacity rate is scenario-only: not a baseline panel column')
 check(identical(authority_report_net_columns(),
                 c('net_232', 'net_301', 'net_301_cs', 'net_s301br',
-                  'net_s301fl', 'net_ieepa', 'net_fentanyl', 'net_s122',
+                  'net_s301fl', 'net_s301ec', 'net_ieepa', 'net_fentanyl', 'net_s122',
                   'net_s338', 'net_section_201', 'net_other')),
       'daily decomposition preserves its historical floating-point sum order')
 
 buckets <- authority_report_buckets()
 check(identical(names(buckets),
-                c('232', '301', 's301br', 'ieepa', 'fentanyl', 's122',
+                c('232', '301', 's301br', 's301ec', 'ieepa', 'fentanyl', 's122',
                   's338', 'section_201', 'other')),
       'report buckets are ordered by report_sum_order')
 check(identical(buckets[['301']], c('net_301', 'net_301_cs', 'net_s301fl')),

@@ -1,0 +1,35 @@
+# Scenario: the Section 301 "excess capacity" actions USTR proposed on
+# 2026-11-25 take effect on 2027-04-01 and no economy reaches an agreement, so
+# each pays its higher rate (China 40% on all goods, with no annexes).
+#
+# The rates and rules live in config/policy_params.yaml under
+# section_301_excess_capacity; this file only switches the action on and picks
+# an outcome for each economy. It also switches on the proposed modification of
+# the Brazil Section 301 action from the same date: finished aircraft pay a
+# flat 10% (the sugar proposal is not modeled).
+#
+# Compare with `actual`, which has neither. Both series have a snapshot that
+# starts on 2027-04-01 (the baseline boundary list includes the date), so they
+# line up interval by interval.
+section_301_excess_capacity:
+  enabled: true
+  outcome:
+    eu: no_deal
+    japan: no_deal
+    switzerland: no_deal
+    korea: no_deal
+    taiwan: no_deal
+    bangladesh: no_deal
+    cambodia: no_deal
+    indonesia: no_deal
+    malaysia: no_deal
+    thailand: no_deal
+    china: no_deal
+    india: no_deal
+    vietnam: no_deal
+    singapore: no_deal
+
+section_301_brazil:
+  modification_2026_11:
+    enabled: true
+    effective_date: '2027-04-01'

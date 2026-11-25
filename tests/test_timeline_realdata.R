@@ -91,9 +91,12 @@ if (have_ch99) {
   #   2026-09-29 pharma §232 turn-on       (boundary_overrides)
   #   2026-12-04 polysilicon §232 turn-on  (boundary_overrides)
   #   2027-02-09 drone §232 Annex III      (boundary_overrides; within horizon)
+  #   2027-04-01 start date of the ec301_* scenarios (boundary_overrides; no
+  #              rate change in actual)
   config_derived <- c('2025-03-12', '2025-11-14', '2026-02-20', '2026-04-01',
                       '2026-07-22', '2026-07-31', '2026-09-29', '2026-12-04',
-                      if (as.Date(pp$SERIES_HORIZON_END) >= as.Date('2027-02-09')) '2027-02-09')
+                      if (as.Date(pp$SERIES_HORIZON_END) >= as.Date('2027-02-09')) '2027-02-09',
+                      if (as.Date(pp$SERIES_HORIZON_END) >= as.Date('2027-04-01')) '2027-04-01')
 
   # Tier 2 — discovered by the Ch99 effective_date/expiry offset scan, so they
   # appear only when data/timeseries holds FRESH caches for the owning revision.
