@@ -1,0 +1,37 @@
+# Scenario: the Section 301 "excess capacity" actions USTR proposed on
+# 2026-11-25 take effect on 2027-04-01 and every economy reaches an agreement,
+# so each pays its lower rate (Singapore's 10% adds nothing to its 12.5%
+# forced-labor duty).
+#
+# The rates and rules live in config/policy_params.yaml under
+# section_301_excess_capacity; this file only switches the action on and picks
+# an outcome for each economy. It also switches on the proposed modification of
+# the Brazil Section 301 action from the same date: finished aircraft pay a
+# flat 10% (the sugar proposal is not modeled).
+#
+# Compare with `actual`, which has neither.
+section_301_excess_capacity:
+  enabled: true
+  outcome:
+    eu: deal
+    japan: deal
+    switzerland: deal
+    korea: deal
+    taiwan: deal
+    bangladesh: deal
+    cambodia: deal
+    indonesia: deal
+    malaysia: deal
+    thailand: deal
+    china: deal
+    india: deal
+    vietnam: deal
+    singapore: deal
+
+section_301_brazil:
+  modification_2026_11:
+    enabled: true
+    effective_date: '2027-04-01'
+
+# Overlays replace lists whole, so this is the baseline list plus 2027-04-01.
+boundary_overrides: ['2026-06-08', '2026-07-22', '2026-07-24', '2026-07-31', '2026-08-22', '2026-09-29', '2026-12-04', '2027-02-09', '2027-04-01']

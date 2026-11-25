@@ -8,37 +8,41 @@
 AUTHORITY_REGISTRY <- data.frame(
   rate_col = c(
     'rate_232', 'rate_ieepa_recip', 'rate_ieepa_fent', 'rate_301',
-    'rate_301_cs', 'rate_s301fl', 'rate_s301br', 'rate_s338', 'rate_s122',
-    'rate_section_201', 'rate_other'
+    'rate_301_cs', 'rate_s301fl', 'rate_s301br', 'rate_s301ec', 'rate_s338',
+    'rate_s122', 'rate_section_201', 'rate_other'
   ),
   net_col = c(
     'net_232', 'net_ieepa', 'net_fentanyl', 'net_301', 'net_301_cs',
-    'net_s301fl', 'net_s301br', 'net_s338', 'net_s122',
+    'net_s301fl', 'net_s301br', 'net_s301ec', 'net_s338', 'net_s122',
     'net_section_201', 'net_other'
   ),
+  # rate_s301ec is the proposed excess-capacity Section 301 duty. Its authority
+  # is built only when a scenario enables it, so the column is zero in baseline.
   spec_authority = c(
     'section_232', 'ieepa_reciprocal', 'ieepa_fentanyl', 'section_301',
-    NA, 'section_301_forced_labor', 'section_301_brazil', 'section_338',
+    NA, 'section_301_forced_labor', 'section_301_brazil',
+    'section_301_excess_capacity', 'section_338',
     'section_122', 'section_201', 'other'
   ),
   default_stacking_class = c(
     'primary', 'content_split', 'content_split', 'additive',
-    'content_split', 'additive', 'additive', 'additive',
+    'content_split', 'additive', 'additive', 'additive', 'additive',
     'content_split', 'additive', 'additive'
   ),
   additive_country_rule = c(
-    'none', 'none', 'china', 'none', 'none', 'none', 'none', 'none',
+    'none', 'none', 'china', 'none', 'none', 'none', 'none', 'none', 'none',
     'none', 'none', 'none'
   ),
   report_bucket = c(
-    '232', 'ieepa', 'fentanyl', '301', '301', '301', 's301br', 's338',
-    's122', 'section_201', 'other'
+    '232', 'ieepa', 'fentanyl', '301', '301', '301', 's301br', 's301ec',
+    's338', 's122', 'section_201', 'other'
   ),
-  report_sum_order = c(1L, 6L, 7L, 2L, 3L, 5L, 4L, 9L, 8L, 10L, 11L),
-  panel_order = c(1L, 6L, 7L, 2L, 3L, 5L, 4L, 9L, 8L, 10L, 11L),
+  report_sum_order = c(1L, 7L, 8L, 2L, 3L, 5L, 4L, 6L, 10L, 9L, 11L, 12L),
+  panel_order = c(1L, 7L, 8L, 2L, 3L, 5L, 4L, 6L, 10L, 9L, 11L, 12L),
   schema_group = c(
     'pre_swiss', 'pre_swiss', 'pre_swiss', 'pre_swiss', 'pre_swiss',
-    'pre_swiss', 'pre_swiss', 'post_swiss', 'post_swiss', 'post_swiss', 'post_swiss'
+    'pre_swiss', 'pre_swiss', 'pre_swiss', 'post_swiss', 'post_swiss',
+    'post_swiss', 'post_swiss'
   ),
   stringsAsFactors = FALSE
 )

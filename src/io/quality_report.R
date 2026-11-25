@@ -79,6 +79,9 @@ compute_revision_quality <- function(ts) {
   if (!'rate_s338' %in% names(ts)) ts$rate_s338 <- 0
   # rate_s301br likewise (baseline since the 2026-07-20 Brazil §301 final action).
   if (!'rate_s301br' %in% names(ts)) ts$rate_s301br <- 0
+  # rate_s301ec (proposed excess-capacity Section 301) is absent on panels
+  # built before 2026-11-25.
+  if (!'rate_s301ec' %in% names(ts)) ts$rate_s301ec <- 0
   ts %>%
     group_by(revision, effective_date) %>%
     summarise(
@@ -101,6 +104,7 @@ compute_revision_quality <- function(ts) {
       # Brazil-only coverage (~0.4% of pairs) also kept at 4 decimals so the
       # authority-timeline gate can distinguish it from 0.
       pct_s301br = round(mean(rate_s301br > 0) * 100, 4),
+      pct_s301ec = round(mean(rate_s301ec > 0) * 100, 4),
       pct_usmca = round(mean(usmca_eligible, na.rm = TRUE) * 100, 1),
       # Unweighted exposure flag: share of pairs whose base MFN rate is a
       # specific/compound duty the model treats as 0 (no AVE conversion).
@@ -245,7 +249,8 @@ check_authority_timeline <- function(rev_quality) {
   authority_map <- c(
     s232 = 'pct_232', s301 = 'pct_301',
     ieepa_recip = 'pct_ieepa_recip', ieepa_fent = 'pct_ieepa_fent',
-    s122 = 'pct_s122', s338 = 'pct_s338', s301br = 'pct_s301br'
+    s122 = 'pct_s122', s338 = 'pct_s338', s301br = 'pct_s301br',
+    s301ec = 'pct_s301ec'
   )
 
   all_revisions <- rev_quality$revision

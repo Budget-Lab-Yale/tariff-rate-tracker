@@ -1214,6 +1214,125 @@ section_301_brazil:
   # 07-31..09-29 window (same treatment as the FL note-52(f)(8) carve-out).
   patented_pharma_exempt_date: '2026-07-31'
   patented_pharma_products: 'resources/s232_pharma_products.csv'
+  # PROPOSED modification (USTR notice of 2026-11-25, hearing 2027-01-14;
+  # data/s301_excess_capacity/frn/Brazil_301_Modification_FRN.pdf). Not law, so
+  # it is OFF here and ACTUAL is unchanged. The notice proposes no effective
+  # date; the three ec301_* scenarios turn it on from 2027-04-01 by setting
+  # `enabled: true` and `effective_date`.
+  modification_2026_11:
+    enabled: false
+    effective_date: ~
+    # Finished aircraft lose the civil-aircraft exemption and pay a flat 10%.
+    # Once in effect, these six lines leave the aircraft use-share list (where
+    # they pay 25% x 10% = 2.5% today) and pay `aircraft_rate` in full. Aircraft
+    # parts and every other Brazil line are unchanged.
+    aircraft_rate: 0.10
+    aircraft_lines: ['88010000', '88021101', '88021201', '88022001',
+                     '88023001', '88024001']
+    # NOT MODELED (deviation S17 in docs/statutory_deviations.md). The notice
+    # would replace Brazil's 25% on seven over-quota sugar lines with a
+    # per-kilogram duty on sugar of EVERY origin. Turning dollars per kilogram
+    # into a percent of value needs Census unit values by line, origin and
+    # quota status, which the repository does not hold. Brazil therefore keeps
+    # its 25% on these lines and other origins pay nothing extra, even when the
+    # modification is on. The figures below are recorded for later use only.
+    sugar_specific_duty_per_kg:
+      raw_cane: 0.44
+      beet_and_refined: 0.60
+    sugar_lines:
+      raw_cane: ['17011350', '17011450']
+      beet_and_refined: ['17011250', '17019130', '17019950', '17029020',
+                         '21069046']
+
+# --- Section 301 "structural excess capacity" (PROPOSED - scenarios only) ----
+# USTR proposed actions of 2026-11-25 against 14 economies (pre-publication
+# notices in data/s301_excess_capacity/frn/; rules and decisions in
+# data/s301_excess_capacity/DECISION_RECORD.md). Nothing is in force and no
+# notice states an effective date, so the block is OFF here (`enabled: false`)
+# and ACTUAL carries no duty. The scenarios ec301_proposed, ec301_no_deals and
+# ec301_all_deals turn it on from 2027-04-01, the assumed start date.
+#
+# Each economy has two rates. `deal` is the rate the notice attaches to a
+# satisfactory agreement and `no_deal` the rate without one. `outcome` picks
+# one of the two for each economy. A scenario sets `enabled: true` and
+# `outcome`, and adds the start date to `boundary_overrides`.
+#
+# How the duty is computed (rate_s301ec, added on top of every other duty):
+#   * It tops up the forced-labor Section 301 duty to the stated rate R:
+#     duty = max(0, R - forced-labor duty). The forced-labor duty netted is the
+#     full rate a non-qualifying entry pays, before any use-share scaling.
+#   * Where `net_of_mfn` is true the stated rate is all-in, so the MFN rate is
+#     netted as well: duty = max(0, R - MFN - forced-labor duty). MFN is the
+#     same ad valorem base rate the forced-labor cap uses (South Korea: the
+#     rate after claimed KORUS preferences). Specific and compound MFN rates
+#     count as zero, as they do there.
+#   * The 13 economies other than China exempt the common product list, their
+#     own country list where they have one, and the eight Section 232 product
+#     groups the forced-labor action exempts. Drone and polysilicon Section 232
+#     goods are not exempt.
+#   * Lines exempt only for civil-aircraft or pharmaceutical use: the
+#     qualifying share of imports pays neither duty and the rest pays the
+#     formula above. The shares are the forced-labor placeholders.
+#   * China (`china_rules`): no Section 232 exemption, and the 2018-19 China
+#     Section 301 duties are not netted. With a deal, goods on the common list
+#     (its Annex A) pay a flat `china_annex_a_rate`, Annex B goods are exempt
+#     and other goods pay max(0, 20% - forced-labor duty). Without a deal both
+#     annexes fall away and every good pays 40% less the forced-labor duty it
+#     pays, so the two duties together come to 40%. 9403.70.40 and 9403.70.80
+#     appear in both annexes and are treated as Annex A lines.
+# NOT modeled (deviation S18 in docs/statutory_deviations.md): the textile
+# tariff-rate quota on which four notices ask for comment; goods in transit;
+# informational materials, donations and personal baggage; Liechtenstein (the
+# Swiss notice does not cover it); any end date.
+section_301_excess_capacity:
+  enabled: false
+  effective_date: '2027-04-01'
+  common_exemptions: 'resources/s301ec_common_exemptions.csv'
+  country_exemptions: 'resources/s301ec_country_exemptions.csv'
+  china_annex_b: 'resources/s301ec_china_annex_b.csv'
+  aircraft_exempt_share: 0.90
+  pharma_exempt_share: 0.50
+  china_annex_a_rate: 0.10
+  patented_pharma_products: 'resources/s232_pharma_products.csv'
+  post_preference_cap_countries: ['5800']             # South Korea
+  economies:
+    eu:          {countries: eu27,     deal: {rate: 0.15, net_of_mfn: true},  no_deal: {rate: 0.20, net_of_mfn: true}}
+    japan:       {countries: ['5880'], deal: {rate: 0.15, net_of_mfn: true},  no_deal: {rate: 0.20, net_of_mfn: true}}
+    switzerland: {countries: ['4419'], deal: {rate: 0.15, net_of_mfn: true},  no_deal: {rate: 0.20, net_of_mfn: true}}
+    korea:       {countries: ['5800'], deal: {rate: 0.15, net_of_mfn: true},  no_deal: {rate: 0.25, net_of_mfn: true}}
+    # Taiwan's 25% is stated net of Section 301 only, so MFN is not netted.
+    taiwan:      {countries: ['5830'], deal: {rate: 0.15, net_of_mfn: true},  no_deal: {rate: 0.25, net_of_mfn: false}}
+    bangladesh:  {countries: ['5380'], deal: {rate: 0.18, net_of_mfn: false}, no_deal: {rate: 0.20, net_of_mfn: false}}
+    cambodia:    {countries: ['5550'], deal: {rate: 0.18, net_of_mfn: false}, no_deal: {rate: 0.25, net_of_mfn: false}}
+    indonesia:   {countries: ['5600'], deal: {rate: 0.18, net_of_mfn: false}, no_deal: {rate: 0.25, net_of_mfn: false}}
+    malaysia:    {countries: ['5570'], deal: {rate: 0.18, net_of_mfn: false}, no_deal: {rate: 0.25, net_of_mfn: false}}
+    thailand:    {countries: ['5490'], deal: {rate: 0.18, net_of_mfn: false}, no_deal: {rate: 0.25, net_of_mfn: false}}
+    india:       {countries: ['5330'], deal: {rate: 0.17, net_of_mfn: false}, no_deal: {rate: 0.25, net_of_mfn: false}}
+    vietnam:     {countries: ['5520'], deal: {rate: 0.20, net_of_mfn: false}, no_deal: {rate: 0.35, net_of_mfn: false}}
+    # Singapore's 10% is below its 12.5% forced-labor duty, so it adds nothing.
+    singapore:   {countries: ['5590'], deal: {rate: 0.10, net_of_mfn: false}, no_deal: {rate: 0.20, net_of_mfn: false}}
+    china:
+      countries: ['5700']
+      china_rules: true
+      deal:    {rate: 0.20, net_of_mfn: false, annexes_apply: true}
+      no_deal: {rate: 0.40, net_of_mfn: false, annexes_apply: false}
+  # 'deal' or 'no_deal' for each economy. The values here are the rates the
+  # notices state first (the ec301_proposed scenario).
+  outcome:
+    eu: deal
+    japan: deal
+    switzerland: deal
+    korea: deal
+    taiwan: deal
+    bangladesh: deal
+    cambodia: deal
+    indonesia: deal
+    malaysia: deal
+    thailand: deal
+    china: deal
+    india: no_deal
+    vietnam: no_deal
+    singapore: no_deal
 
 # --- Series time horizon ---
 # End date for timeseries valid_until on the final revision.
@@ -1221,7 +1340,7 @@ section_301_brazil:
 # The last observed HTS revision is assumed to remain in force through this date,
 # subject to date-bounded policy overrides (Section 122 expiry, Swiss framework).
 series_horizon:
-  end_date: '2027-04-30'
+  end_date: '2027-06-30'
 
 # --- Future tariff activations ("turn-ON" dates) ---
 # Tariffs that are announced / legally effective on a FUTURE date but do not yet

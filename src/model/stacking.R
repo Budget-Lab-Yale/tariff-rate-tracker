@@ -258,7 +258,7 @@ compute_stacking_contributions <- function(df, policy) {
 
 apply_stacking_rules <- function(df, cty_china = '5700', stacking_policy = NULL) {
   # Ensure optional columns exist and have no NAs
-  df <- ensure_cols(df, list(rate_s122 = 0, rate_s301br = 0, rate_s338 = 0, rate_section_201 = 0, metal_share = 1.0),
+  df <- ensure_cols(df, list(rate_s122 = 0, rate_s301br = 0, rate_s301ec = 0, rate_s338 = 0, rate_section_201 = 0, metal_share = 1.0),
                     fill_na = TRUE)
 
   # Mutual-exclusion stacking: 232 takes the metal content; content-split
@@ -300,8 +300,8 @@ compute_net_authority_contributions <- function(df, cty_china = '5700',
                                                 stacking_policy = NULL) {
   # Ensure optional columns exist (backwards compat with old snapshots). Insert-only,
   # no de-NA — preserving this path's historical behavior (fill_na defaults FALSE).
-  df <- ensure_cols(df, list(rate_s122 = 0, rate_s301br = 0, rate_s338 = 0,
-                             rate_section_201 = 0, rate_other = 0,
+  df <- ensure_cols(df, list(rate_s122 = 0, rate_s301br = 0, rate_s301ec = 0,
+                             rate_s338 = 0, rate_section_201 = 0, rate_other = 0,
                              metal_share = 1.0))
 
   policy <- stacking_policy %||% default_stacking_policy(cty_china)

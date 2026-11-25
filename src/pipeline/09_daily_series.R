@@ -550,6 +550,9 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
       # separate as mean_s301br: a distinct baseline authority, FR 2026-14542.)
       mean_301 = mean(net_data$net_301 + net_data$net_301_cs + net_data$net_s301fl),
       mean_s301br = mean(net_data$net_s301br),
+      # Proposed excess-capacity Section 301: its own column, like Brazil's
+      # (zero unless a scenario enables it).
+      mean_s301ec = mean(net_data$net_s301ec),
       mean_ieepa = mean(net_data$net_ieepa),
       mean_fentanyl = mean(net_data$net_fentanyl),
       mean_s122 = mean(net_data$net_s122),
@@ -568,6 +571,7 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
         row$etr_232 <- sum(wt_net$net_232 * wt_net$imports) / wctx$total_imports
         row$etr_301 <- sum((wt_net$net_301 + wt_net$net_301_cs + wt_net$net_s301fl) * wt_net$imports) / wctx$total_imports
         row$etr_s301br <- sum(wt_net$net_s301br * wt_net$imports) / wctx$total_imports
+        row$etr_s301ec <- sum(wt_net$net_s301ec * wt_net$imports) / wctx$total_imports
         row$etr_ieepa <- sum(wt_net$net_ieepa * wt_net$imports) / wctx$total_imports
         row$etr_fentanyl <- sum(wt_net$net_fentanyl * wt_net$imports) / wctx$total_imports
         row$etr_s122 <- sum(wt_net$net_s122 * wt_net$imports) / wctx$total_imports
@@ -577,7 +581,8 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
         .verify_report_buckets(row, wt_net, 'etr_',
                                function(cols) sum(Reduce(`+`, wt_net[cols]) * wt_net$imports) / wctx$total_imports)
       } else {
-        row$etr_232 <- row$etr_301 <- row$etr_s301br <- row$etr_ieepa <- row$etr_fentanyl <- 0
+        row$etr_232 <- row$etr_301 <- row$etr_s301br <- row$etr_s301ec <- 0
+        row$etr_ieepa <- row$etr_fentanyl <- 0
         row$etr_s122 <- row$etr_s338 <- row$etr_section_201 <- row$etr_other <- 0
       }
     }
@@ -714,8 +719,8 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     agg_by_authority <- agg_by_authority %>%
       left_join(overall_etr, by = c('revision', 'valid_from', 'valid_until')) %>%
       mutate(
-        etr_base = weighted_etr - (etr_232 + etr_301 + etr_s301br + etr_ieepa +
-                                    etr_fentanyl + etr_s122 + etr_s338 +
+        etr_base = weighted_etr - (etr_232 + etr_301 + etr_s301br + etr_s301ec +
+                                    etr_ieepa + etr_fentanyl + etr_s122 + etr_s338 +
                                     etr_section_201 + etr_other)
       ) %>%
       select(-weighted_etr)
@@ -885,7 +890,7 @@ export_daily_slice <- function(ts, date_range, countries = NULL, products = NULL
 
   # Select output columns
   default_columns <- c('date', 'hts10', 'country', 'base_rate',
-                        'rate_232', 'rate_301', 'rate_s301br',
+                        'rate_232', 'rate_301', 'rate_s301br', 'rate_s301ec',
                         'rate_ieepa_recip', 'rate_ieepa_fent',
                         'rate_s122', 'rate_s338', 'rate_section_201', 'rate_other',
                         'total_additional', 'total_rate', 'revision')
@@ -1087,6 +1092,7 @@ build_daily_workbook_readme <- function() {
     c('mean_232', 'Mean net Section 232 contribution (steel, aluminum, autos, copper, derivatives)'),
     c('mean_301', 'Mean net Section 301 contribution (China §301 + content-split + forced-labor §301 when active)'),
     c('mean_s301br', 'Mean net Section 301 Brazil contribution (25% on Brazil, effective 2026-07-22)'),
+    c('mean_s301ec', 'Mean net Section 301 excess-capacity contribution (proposed 2026-11-25; zero outside the ec301 scenarios)'),
     c('mean_ieepa', 'Mean net IEEPA reciprocal contribution (mutual exclusion with 232)'),
     c('mean_fentanyl', 'Mean net IEEPA fentanyl contribution (CA, MX, CN)'),
     c('mean_s122', 'Mean net Section 122 contribution (post-IEEPA invalidation, 150-day limit)'),
@@ -1096,6 +1102,7 @@ build_daily_workbook_readme <- function() {
     c('etr_232', 'Import-weighted ETR contribution from Section 232'),
     c('etr_301', 'Import-weighted ETR contribution from Section 301 (incl. forced-labor §301 when active)'),
     c('etr_s301br', 'Import-weighted ETR contribution from Section 301 Brazil'),
+    c('etr_s301ec', 'Import-weighted ETR contribution from Section 301 excess capacity (zero outside the ec301 scenarios)'),
     c('etr_ieepa', 'Import-weighted ETR contribution from IEEPA reciprocal'),
     c('etr_fentanyl', 'Import-weighted ETR contribution from IEEPA fentanyl'),
     c('etr_s122', 'Import-weighted ETR contribution from Section 122'),
@@ -1104,7 +1111,7 @@ build_daily_workbook_readme <- function() {
     c('etr_other', 'Import-weighted ETR contribution from other authorities'),
     c('etr_base', 'Import-weighted base rate contribution (residual: weighted_etr minus all authority ETRs)'),
     c('', ''),
-    c('Note: etr_base + etr_232 + etr_301 + etr_s301br + etr_ieepa + etr_fentanyl + etr_s122 + etr_s338 + etr_section_201 + etr_other = weighted_etr (from daily_overall)', ''),
+    c('Note: etr_base + etr_232 + etr_301 + etr_s301br + etr_s301ec + etr_ieepa + etr_fentanyl + etr_s122 + etr_s338 + etr_section_201 + etr_other = weighted_etr (from daily_overall)', ''),
     c('', ''),
 
     # --- Notes ---
@@ -1311,7 +1318,10 @@ daily_part_path <- function(snapshot_dir, revision) {
 # other authorities); rejecting v4 forces a rebuild. NB: reported under §301 so
 # the by-authority buckets reconcile to weighted_etr without a new column that a
 # downstream consumer's fixed authority map would silently drop.
-DAILY_PART_SCHEMA_VERSION <- 5L
+# v6 adds the Section 301 excess-capacity decomposition (mean_s301ec /
+# etr_s301ec) and folds etr_s301ec into the etr_base residual; v5 parts lack
+# the columns, so they are rejected like the earlier versions.
+DAILY_PART_SCHEMA_VERSION <- 6L
 
 write_daily_part_for_snapshot <- function(snapshot, revision, valid_from, valid_until,
                                           output_dir, imports = NULL,
