@@ -1,0 +1,37 @@
+# rev_23 ingest validation: does HTS 2026 revision 23 assemble, and does the
+# series move only where it should?
+#
+# rev_23 (published and effective 2026-11-10) changes the date text of seven
+# Chapter 99 headings and nothing else:
+#   * 9903.88.69 / 9903.88.70 — the 178 remaining China Section 301 exclusions
+#     now run through 2027-01-09 (were through 2026-11-09);
+#   * 9903.91.12 - .16 — the China maritime Section 301 duty on ship-to-shore
+#     cranes and intermodal chassis (+100%) now starts 2027-01-10 (was
+#     2026-11-10).
+#
+# Expectations against the current production vintage 2026-11-09-08 (rev_22,
+# horizon 2026-12-31):
+#   * IDENTICAL before 2026-11-10.
+#   * One new snapshot partition, 2026_rev_23 from 2026-11-10; the
+#     bnd_2026-11-10 mint disappears (now a real revision edge).
+#   * From 2026-11-10: rate_301 FALLS on China rows only — the excluded
+#     products keep their exclusion, and the crane/chassis lines stay at their
+#     pre-turn-on rate. The published vintage shows China 24.34% -> 25.02% and
+#     overall 11.17% -> 11.27% on 2026-11-10; this build should show neither
+#     step, i.e. the pre-11-10 levels continuing (apart from the 2026-12-04
+#     polysilicon step, which is unrelated and should match).
+# A rate difference outside China Section 301 is worth stopping for.
+#
+# Validation root; does not move `latest`.
+#   bash scripts/submit_build_array.sh --config config/build/rev23_ingest.yaml
+#   Rscript scripts/compare_vintages.R \
+#     /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker/2026-11-09-08 \
+#     <.../.validation/rev23-ingest/<vintage>>
+model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker/.validation/rev23-ingest
+policy_params_path: config/policy_params.yaml
+scenarios: []
+use_hts_dates: false
+weight_mode: required
+update_latest: false
+allow_partial: false
+verify: true

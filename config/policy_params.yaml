@@ -627,8 +627,10 @@ section_301_rates:
   - ch99_pattern: '9903.92.10'
     s301_rate: 0.25
   # US note 31(k)/(l) — China intermodal chassis (9903.91.12) + ship-to-shore
-  # gantry cranes (9903.91.14), +100%, legally effective 2026-11-10 (gated by the
-  # Ch99 effective_date_offset, so active only from that date — surfaced by the
+  # gantry cranes (9903.91.14), +100%. Legally effective 2026-11-10 under HTS
+  # 2026 rev_10-rev_22; HTS 2026 rev_23 (USTR, FR Doc 2026-22867) moved the start
+  # to 2027-01-10. Gated by each revision's Ch99 effective_date_offset, so it
+  # follows whichever date that revision's text carries — surfaced by the
   # unified-timeline scan; see docs/timeline_split_integration.md). Only the two
   # DUTY-imposing arms are listed: 9903.91.13 (chassis note 31(k)(ii) complement)
   # and 9903.91.15/.16 (crane attestation exemptions) are "duty provided in the
@@ -1232,7 +1234,8 @@ series_horizon:
 # as-of recompute reproduces the change — no new operations).
 #
 # The three in-grid boundaries (2025-03-12 §232 metal-exemption expiry, 2026-02-20
-# IEEPA invalidation, 2026-11-10 §301 cranes/chassis turn-on) are auto-discovered.
+# IEEPA invalidation, 2027-01-10 §301 cranes/chassis turn-on and exclusion end —
+# 2026-11-10 until HTS 2026 rev_23 moved it) are auto-discovered.
 # 2026-09-29 is the pharma §232 turn-on: it has no Ch99 offset (config-driven), so the
 # scan can't see it, but the calc's pharma date-gate re-resolves it as-of that date —
 # exactly the "config date the scan can't see" case this backstop is for.
