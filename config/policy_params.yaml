@@ -1221,7 +1221,7 @@ section_301_brazil:
 # The last observed HTS revision is assumed to remain in force through this date,
 # subject to date-bounded policy overrides (Section 122 expiry, Swiss framework).
 series_horizon:
-  end_date: '2027-04-30'
+  end_date: '2027-06-30'
 
 # --- Future tariff activations ("turn-ON" dates) ---
 # Tariffs that are announced / legally effective on a FUTURE date but do not yet
