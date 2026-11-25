@@ -1071,6 +1071,17 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
         stop('Section 232 heading ', nm, ' has no valid resolved rate')
       product_scope <- cfg[intersect(product_fields, names(cfg))]
       settings <- cfg[setdiff(names(cfg), c(product_fields, 'default_rate'))]
+      # A dated second basket tranche (drones Annex III, 2027-02-09) is policy
+      # data resolved per revision like the heading gate above: kept only on
+      # snapshots dated on or after its effective date, so the calculator
+      # applies whatever it receives. Its turn-on needs a boundary_overrides mint.
+      if (!is.null(settings$basket_tranche_2)) {
+        t2_date <- settings$basket_tranche_2$effective_date
+        if (is.null(t2_date))
+          stop('Section 232 heading ', nm, ': basket_tranche_2 needs an effective_date')
+        if (is.null(effective_date) || as.Date(effective_date) < as.Date(t2_date))
+          settings$basket_tranche_2 <- NULL
+      }
       settings$is_heading <- TRUE
       section_232$programs[[length(section_232$programs) + 1L]] <- authority_program(
         id = nm,
@@ -1088,6 +1099,7 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
     for (nm in names(pp$section_232_headings)) {
       cfg <- pp$section_232_headings[[nm]]
       settings <- cfg[setdiff(names(cfg), c(product_fields, 'default_rate'))]
+      settings$basket_tranche_2 <- NULL   # no revision date here; program is disabled
       settings$is_heading <- TRUE
       section_232$programs[[length(section_232$programs) + 1L]] <- authority_program(
         id = nm,

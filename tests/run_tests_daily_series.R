@@ -185,7 +185,7 @@ run_test('final valid_until equals horizon', {
 run_test('series_horizon parsed from YAML', {
   pp <- load_policy_params()
   stopifnot(!is.null(pp$SERIES_HORIZON_END))
-  stopifnot(pp$SERIES_HORIZON_END == as.Date('2026-12-31'))
+  stopifnot(pp$SERIES_HORIZON_END == as.Date('2027-04-30'))
 })
 
 

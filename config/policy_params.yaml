@@ -224,9 +224,20 @@ section_232_headings:
   #   * partner rates are assumed to qualify in full (clause 4 requires
   #     certification that critical components are allied-origin); the Blue
   #     UAS / FCC-list 180-day delay (clause 7, to 2027-02-09) and the onshoring
-  #     exemptions (9903.08.25/.26) are not modeled; statutory ceiling.
-  #   * Annex III (UAS components at 25% from 2027-02-09, clause 2) falls after
-  #     the series horizon and is not modeled.
+  #     exemptions (9903.08.25/.26) are not modeled; statutory ceiling. The
+  #     Blue UAS delay ends on 2027-02-09, so from then the ceiling is the law.
+  #   * Annex III (clause 2; Annex IV part B adds note 43(c)(5) and widens
+  #     9903.08.22): from 2027-02-09, +25% on parts for use in any drone that
+  #     the 100% tier (c)(2) does not already cover — in practice parts for
+  #     drones of 25 kg or less — on the four 8807 lines. Modeled as
+  #     basket_tranche_2: a second slice of those lines at 25%, scaled by its
+  #     own applicability share, with the same partner caps (clause 4: UK at
+  #     most 10%, the allies at most 15% including column 1). The share 0.04
+  #     is an UNCALIBRATED placeholder set at twice the first tranche's 0.02,
+  #     following the 2:1 ratio of small to large drone parts proposed in
+  #     data/raw/s232_uas/uas_claude_research.md section 3.4 (whose own
+  #     HTS-10 shares are far lower, 0.2%-2%). The proclamation dates the
+  #     tranche 2027-02-09; Annex IV part B's "February 9, 2026" is a typo.
   drones:
     prefixes: ['88062100', '88062200', '88062300', '88062400', '88062900',
                '88069100', '88069200', '88069300', '88069400', '88069900',
@@ -243,6 +254,11 @@ section_232_headings:
       prefixes: ['88071000', '88072000', '88073000', '88079090',
                  '8504409580', '8537109170']
       applicability_share: 0.02
+    basket_tranche_2:
+      effective_date: '2027-02-09'
+      prefixes: ['88071000', '88072000', '88073000', '88079090']
+      rate: 0.25
+      applicability_share: 0.04
     country_rates:
       CTY_UK: 0.10
     target_total:
@@ -1205,7 +1221,7 @@ section_301_brazil:
 # The last observed HTS revision is assumed to remain in force through this date,
 # subject to date-bounded policy overrides (Section 122 expiry, Swiss framework).
 series_horizon:
-  end_date: '2026-12-31'
+  end_date: '2027-04-30'
 
 # --- Future tariff activations ("turn-ON" dates) ---
 # Tariffs that are announced / legally effective on a FUTURE date but do not yet
@@ -1255,7 +1271,12 @@ series_horizon:
 # Part B): config-driven, no Ch99 offset; the adapter's date-gate populates
 # patented_pharma_hts10 as-of that date, so an empty-ops mint materializes it —
 # without this mint the carve-out would first appear at bnd_2026-08-22.
-boundary_overrides: ['2026-06-08', '2026-07-22', '2026-07-24', '2026-07-31', '2026-08-22', '2026-09-29', '2026-12-04']
+# 2027-02-09 is the drone §232 Annex III turn-on (PP 11055 clause 2: 25% on
+# parts for use in drones, heading 8807, not already in the Annex I tier):
+# config-driven (section_232_headings.drones.basket_tranche_2), no Ch99 offset
+# in any archive; the adapter keeps the tranche only on snapshots dated on or
+# after it, so an empty-ops mint materializes it.
+boundary_overrides: ['2026-06-08', '2026-07-22', '2026-07-24', '2026-07-31', '2026-08-22', '2026-09-29', '2026-12-04', '2027-02-09']
 
 # --- Validation thresholds ---
 validation_thresholds:

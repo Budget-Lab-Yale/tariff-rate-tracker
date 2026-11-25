@@ -145,7 +145,8 @@ if (have_ch99) {
   expected <- c('2025-03-12', '2025-06-01', '2025-09-01', '2025-11-14',
                 '2026-02-20', '2026-04-01', '2026-07-22',
                 '2026-07-31', '2026-09-29', '2026-12-04',
-                if (as.Date(pp$SERIES_HORIZON_END) >= as.Date('2027-01-10')) '2027-01-10')
+                if (as.Date(pp$SERIES_HORIZON_END) >= as.Date('2027-01-10')) '2027-01-10',
+                if (as.Date(pp$SERIES_HORIZON_END) >= as.Date('2027-02-09')) '2027-02-09')
   check(setequal(emitted, expected),
         paste0('exactly {', paste(expected, collapse = ', '), '} discovered on the live grid'))
   check(all(!is.na(b$owner_rev)),
