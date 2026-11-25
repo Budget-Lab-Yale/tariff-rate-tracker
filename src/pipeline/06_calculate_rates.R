@@ -205,7 +205,6 @@ calculate_rates_fast <- function(products, ch99_data, countries,
   rates_wide$rate_301_cs <- 0
   rates_wide$rate_s301br <- 0
   rates_wide$rate_s301fl <- 0
-  rates_wide$rate_s301ec <- 0
 
   # Create the complete product x country table exactly once. All policy
   # programs below mutate this table; none is allowed to add rows.
@@ -1158,7 +1157,7 @@ apply_section301_brazil <- function(rates, specs, products, countries) {
       br_flat <- rates$rate_s301br > 0 & substr(rates$hts10, 1, 8) %in% br_flat_hts8
       rates$rate_s301br[br_flat] <- as.numeric(br_ex$flat_rate)
     }
-    message('  Section 301 Brazil: 25% on ', sum(rates$rate_s301br > 0),
+    message('  Section 301 Brazil: duty on ', sum(rates$rate_s301br > 0),
             ' product-country pairs across ', length(br_scope), ' economies (',
             length(br_exempt_hts8), ' unconditional HTS8 exempt; ',
             length(br_aircraft_hts8), ' aircraft-use @ ',
@@ -1173,7 +1172,8 @@ apply_section301_brazil <- function(rates, specs, products, countries) {
 # --- Step 6b-ec: Section 301 excess-capacity duties (scenarios only) ---------
 # USTR's proposed actions of 2026-11-25. The rules are set out beside
 # section_301_excess_capacity in config/policy_params.yaml. The authority is
-# built only when a scenario enables it, so in baseline rate_s301ec is zero.
+# built only when a scenario enables it. Baseline tables do not get the
+# rate_s301ec column at all, so baseline outputs are unchanged.
 
 # The duty on each row of `rates`, as a share of customs value.
 #
@@ -1251,7 +1251,6 @@ apply_section301_brazil <- function(rates, specs, products, countries) {
 
 apply_section301_excess_capacity <- function(rates, specs) {
   ec_spec <- specs[['section_301_excess_capacity']]
-  rates$rate_s301ec <- 0
   if (is.null(ec_spec)) return(rates)
   rates$rate_s301ec <- .s301ec_duty(rates, ec_spec)
   message('  Section 301 excess capacity: duty on ', sum(rates$rate_s301ec > 0),
@@ -3724,12 +3723,13 @@ calculate_rates_for_revision <- function(
       statutory_rate_301_cs      = rate_301_cs,
       statutory_rate_s301fl      = rate_s301fl,
       statutory_rate_s301br      = rate_s301br,
-      statutory_rate_s301ec      = rate_s301ec,
       statutory_rate_s338        = rate_s338,
       statutory_rate_s122        = rate_s122,
       statutory_rate_section_201 = rate_section_201,
       statutory_rate_other       = rate_other
     )
+  # Scenario-only column: present only when the excess-capacity authority is on.
+  if ('rate_s301ec' %in% names(rates)) rates$statutory_rate_s301ec <- rates$rate_s301ec
 
   # 6c. Apply MFN exemption shares (FTA/GSP preference adjustment)
   # Reduces statutory base_rate using HS2 x country exemption shares from Census
@@ -4238,7 +4238,7 @@ calculate_rates_for_revision <- function(
   if ('statutory_rate_s301br' %in% names(rates)) {
     rates$statutory_rate_s301br <- coalesce(rates$statutory_rate_s301br, 0)
   }
-  # Excess-capacity Section 301 (zero unless a scenario enables it).
+  # Excess-capacity Section 301 (present only when a scenario enables it).
   if ('rate_s301ec' %in% names(rates)) {
     rates$rate_s301ec <- coalesce(rates$rate_s301ec, 0)
   }

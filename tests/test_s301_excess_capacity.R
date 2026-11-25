@@ -4,6 +4,8 @@
 # The duty (rate_s301ec) is off in baseline and switched on from 2027-04-01 by
 # the scenarios ec301_proposed, ec301_no_deals and ec301_all_deals, which also
 # switch on the proposed Brazil change (finished aircraft pay a flat 10%).
+# Baseline outputs carry no rate_s301ec column at all; every series, baseline
+# included, has a snapshot starting 2027-04-01.
 #
 # Covers the product lists, the scenario overlays, the adapter, the calculator
 # step on a small made-up table of products and countries, stacking, the
@@ -88,15 +90,14 @@ ok(isFALSE(pp$section_301_brazil$modification_2026_11$enabled),
 ok(identical(as.character(pp$SERIES_HORIZON_END), '2027-06-30'), 'horizon 2027-06-30')
 
 baseline_mints <- as.character(pp$BOUNDARY_OVERRIDES)
-ok(!'2027-04-01' %in% baseline_mints, 'actual: no 2027-04-01 boundary')
+ok('2027-04-01' %in% baseline_mints, 'actual: boundary list includes 2027-04-01')
 for (s in SCENARIOS) {
   ok(isTRUE(pps[[s]]$section_301_excess_capacity$enabled) &&
        identical(as.character(pps[[s]]$section_301_excess_capacity$effective_date),
                  '2027-04-01'),
      paste0(s, ': enabled from 2027-04-01'))
-  ok(identical(as.character(pps[[s]]$BOUNDARY_OVERRIDES),
-               c(baseline_mints, '2027-04-01')),
-     paste0(s, ': boundary list = baseline list + 2027-04-01'))
+  ok(identical(as.character(pps[[s]]$BOUNDARY_OVERRIDES), baseline_mints),
+     paste0(s, ': boundary list is the baseline list'))
   mod <- pps[[s]]$section_301_brazil$modification_2026_11
   ok(isTRUE(mod$enabled) && identical(as.character(mod$effective_date), '2027-04-01'),
      paste0(s, ': Brazil modification on from 2027-04-01'))
@@ -155,17 +156,26 @@ P <- c(plain = '6109100012', dutyfree = '6109100020', high = '6109100030',
        steel = '7210110000', ore = '2601120030', air = '8805290000',
        pharma = '3004430000', cork = '4504900000', wine = '2204100030',
        annex_b = '3604109000', furn = '9403704001', fin_air = '8802300100',
-       air_part = '8807300000')
+       air_part = '8807300000', solar = '8541430010', specific = '0406904100')
 mfn <- c(plain = 0.05, dutyfree = 0, high = 0.30, steel = 0, ore = 0, air = 0.04,
          pharma = 0, cork = 0, wine = 0.02, annex_b = 0.05, furn = 0, fin_air = 0,
-         air_part = 0)
-ok(!any(substr(P[c('plain', 'steel')], 1, 8) %in% c(common$hts_code, annex_b$hts_code)),
-   'the plain good and the steel line are on no list')
+         air_part = 0, solar = 0, specific = 0)
+ok(!any(substr(P[c('plain', 'steel', 'solar', 'specific')], 1, 8) %in%
+          c(common$hts_code, annex_b$hts_code, country$hts_code)),
+   'the plain good, steel, the solar line and the specific-duty line are on no list')
 grid <- expand_grid(hts10 = unname(P), country = c(code_of, brazil = BR, canada = CA)) %>%
   mutate(base_rate = unname(mfn[match(hts10, P)]),
-         statutory_rate_232 = if_else(hts10 == P['steel'], 0.50, 0),
+         # `solar` stands for a polysilicon or drone good: its Section 232 duty
+         # is the kind that does not displace the Section 301 duties.
+         statutory_rate_232 = case_when(hts10 == P['steel'] ~ 0.50,
+                                        hts10 == P['solar'] ~ 0.15, TRUE ~ 0),
          rate_232 = statutory_rate_232,
-         s232_annex = NA_character_, heading_program = FALSE)
+         rate_232_nondisplacing = if_else(hts10 == P['solar'], 0.15, 0),
+         s232_nondisplacing = hts10 == P['solar'],
+         heading_program = hts10 == P['solar'],
+         # `specific` has a per-kilogram MFN duty, carried as a zero rate.
+         base_rate_type = if_else(hts10 == P['specific'], 'specific_or_compound', 'ad_valorem'),
+         s232_annex = NA_character_)
 
 fl_spec <- .build_section_301_forced_labor(pp, countries, START)
 run <- function(p, date = START, post_pref_korea = NULL) {
@@ -189,12 +199,11 @@ run <- function(p, date = START, post_pref_korea = NULL) {
 }
 out <- lapply(pps, run)
 base <- run(pp)
-get <- function(r, col, p, c) r[[col]][r$hts10 == P[[p]] & r$country == c]
-ec <- function(s, p, c) get(out[[s]], 'rate_s301ec', p, c)
-fl <- function(s, p, c) get(out[[s]], 'rate_s301fl', p, c)
+cell <- function(r, col, p, c) r[[col]][r$hts10 == P[[p]] & r$country == c]
+ec <- function(s, p, c) cell(out[[s]], 'rate_s301ec', p, c)
+fl <- function(s, p, c) cell(out[[s]], 'rate_s301fl', p, c)
 
-ok('rate_s301ec' %in% names(base) && all(base$rate_s301ec == 0),
-   'baseline: rate_s301ec is zero on every row')
+ok(!'rate_s301ec' %in% names(base), 'baseline: no rate_s301ec column is created')
 ok(identical(base$rate_s301fl, out$ec301_proposed$rate_s301fl) &&
      identical(base$rate_s301fl, out$ec301_no_deals$rate_s301fl),
    'the forced-labor duty is the same with and without the new duty')
@@ -243,6 +252,15 @@ ok(near(ec('ec301_proposed', 'steel', CN), 0.20) && near(ec('ec301_no_deals', 's
      fl('ec301_proposed', 'steel', CN) == 0,
    'China steel pays 20% (deal) or 40% (no deal): no Section 232 exemption')
 
+# Drone and polysilicon Section 232 goods are not exempt: the duty applies on top.
+ok(near(fl('ec301_no_deals', 'solar', VN) + ec('ec301_no_deals', 'solar', VN), 0.35) &&
+     near(ec('ec301_proposed', 'solar', JP), 0.025) && near(ec('ec301_proposed', 'solar', CN), 0.075),
+   'polysilicon/drone Section 232 good: forced labor and the new duty both still apply')
+# A specific-duty MFN rate counts as zero in the netting.
+ok(near(fl('ec301_proposed', 'specific', JP), 0.125) && near(ec('ec301_proposed', 'specific', JP), 0.025) &&
+     near(ec('ec301_proposed', 'specific', DE), 0.05),
+   'specific-duty MFN line: MFN nets as zero (Japan 12.5% + 2.5%, EU 10% + 5%)')
+
 # China annexes.
 ok(near(ec('ec301_proposed', 'plain', CN), 0.075) && near(fl('ec301_proposed', 'plain', CN), 0.125),
    'China, neither annex: 20% less the 12.5% forced-labor duty')
@@ -263,7 +281,7 @@ ok(isTRUE(all.equal(china_nd$rate_s301fl + china_nd$rate_s301ec, rep(0.40, nrow(
 ok(all(vapply(setdiff(names(code_of), 'china'), function(e) {
      c0 <- code_of[[e]]
      ec('ec301_no_deals', 'ore', c0) == 0 &&
-       identical(fl('ec301_no_deals', 'ore', c0), get(base, 'rate_s301fl', 'ore', c0)) &&
+       identical(fl('ec301_no_deals', 'ore', c0), cell(base, 'rate_s301fl', 'ore', c0)) &&
        fl('ec301_no_deals', 'ore', c0) > 0
    }, logical(1))),
    'non-China 2601.12.00: no new duty, forced-labor duty unchanged and still charged')
@@ -293,7 +311,7 @@ ok(identical(kr$rate_s301ec[kr$country != KR], out$ec301_proposed$rate_s301ec[kr
 
 # -----------------------------------------------------------------------------
 cat('\n== Brazil modification: finished aircraft at a flat 10% ==\n')
-br <- function(r, p) get(r, 'rate_s301br', p, BR)
+br <- function(r, p) cell(r, 'rate_s301br', p, BR)
 ok(near(br(base, 'fin_air'), 0.025) && near(br(base, 'air_part'), 0.025),
    'actual: finished aircraft and aircraft parts both pay 25% x 10% = 2.5%')
 for (s in SCENARIOS) {
@@ -324,8 +342,11 @@ with_ec <- suppressMessages(apply_stacking_rules(
 ok(near(with_ec$total_additional[1], 0.50 + 0.25 + 0.10 + 0.40),
    'China steel: 40% is added in full on top of Section 232, the 2018-19 duty and fentanyl')
 zero_ec <- suppressMessages(apply_stacking_rules(mutate(stk_in, rate_s301ec = 0), cty_china = CN))
-old_policy <- pol[setdiff(names(pol), 'rate_s301ec')]
-no_col <- suppressMessages(apply_stacking_rules(stk_in, cty_china = CN, stacking_policy = old_policy))
+no_col <- suppressMessages(apply_stacking_rules(stk_in, cty_china = CN))
+ok(!'rate_s301ec' %in% names(no_col) &&
+     !'net_s301ec' %in% names(suppressMessages(
+       compute_net_authority_contributions(stk_in, cty_china = CN))),
+   'a table without the column is not given one by stacking')
 ok(identical(zero_ec$total_additional, no_col$total_additional) &&
      identical(zero_ec$total_rate, no_col$total_rate),
    'totals with an all-zero rate_s301ec are bit-identical to totals without the column')
@@ -336,7 +357,7 @@ ok('s301ec' %in% names(authority_report_buckets()) &&
      identical(authority_report_buckets()[['s301ec']], 'net_s301ec') &&
      !'net_s301ec' %in% authority_report_buckets()[['301']],
    'daily_by_authority reports it as its own column, not inside etr_301')
-ok('rate_s301ec' %in% RATE_SCHEMA, 'rate_s301ec is a panel column')
+ok(!'rate_s301ec' %in% RATE_SCHEMA, 'rate_s301ec is not a baseline panel column')
 
 # The daily by-authority table (unweighted means; the weighted columns use the
 # same grouping).
@@ -354,9 +375,32 @@ ok(near(daily$mean_s301ec, mean(c(0.40, 0.275))) &&
 parts <- daily %>% select(starts_with('mean_')) %>% unlist()
 ok(near(sum(parts), mean(with_ec$total_additional)),
    'daily_by_authority: the authority columns add up to the total additional rate')
+daily_base <- suppressMessages(build_daily_aggregates(
+  select(ts, -rate_s301ec) %>% mutate(total_additional = no_col$total_additional,
+                                      total_rate = no_col$total_rate),
+  date_range = c(day, day)))$daily_by_authority
+ok(identical(names(daily_base), setdiff(names(daily), 'mean_s301ec')),
+   'daily_by_authority: a series without the duty has no mean_s301ec column')
+
+# Quality report: pct_s301ec only where the column exists, and the timeline
+# check expects the duty from bnd_2027-04-01 only in such a series.
+if (!exists('compute_revision_quality')) {
+  suppressMessages(source(here('src', 'io', 'quality_report.R')))
+}
+ok('pct_s301ec' %in% names(compute_revision_quality(ts)) &&
+     !'pct_s301ec' %in% names(compute_revision_quality(select(ts, -rate_s301ec))),
+   'quality report: pct_s301ec only in a series that carries the duty')
+rq <- tibble(revision = c('basic', 'bnd_2027-04-01'),
+             effective_date = as.Date(c('2025-01-01', '2027-04-01')))
+timeline <- function(x) suppressMessages(check_authority_timeline(x))
+ok(nrow(timeline(rq)) == 0 &&
+     nrow(timeline(mutate(rq, pct_s301ec = c(0, 5)))) == 0 &&
+     nrow(timeline(mutate(rq, pct_s301ec = c(0, 0)))) == 1 &&
+     nrow(timeline(mutate(rq, pct_s301ec = c(5, 5)))) == 1,
+   'timeline check: silent for actual, expects the duty from bnd_2027-04-01 in a scenario')
 
 # -----------------------------------------------------------------------------
-cat('\n== boundary calendar: one extra snapshot in each scenario, none in actual ==\n')
+cat('\n== boundary calendar: every series has a 2027-04-01 snapshot ==\n')
 mints <- function(p) {
   rd <- load_revision_dates(use_policy_dates = TRUE)
   as.character(discover_boundaries(rd, here('data', 'timeseries'), p,
@@ -367,11 +411,10 @@ m_actual <- tryCatch(suppressMessages(mints(pp)), error = function(e) e)
 if (inherits(m_actual, 'error')) {
   cat('  SKIP: discover_boundaries unavailable here (', conditionMessage(m_actual), ')\n')
 } else {
-  ok(!'2027-04-01' %in% m_actual, 'actual: no bnd_2027-04-01')
+  ok(sum(m_actual == '2027-04-01') == 1, 'actual: bnd_2027-04-01 is minted')
   for (s in SCENARIOS) {
-    m <- suppressMessages(mints(pps[[s]]))
-    ok(sum(m == '2027-04-01') == 1 && setequal(setdiff(m, '2027-04-01'), m_actual),
-       paste0(s, ': exactly one extra mint, bnd_2027-04-01'))
+    ok(identical(suppressMessages(mints(pps[[s]])), m_actual),
+       paste0(s, ': same snapshot dates as actual'))
   }
 }
 
@@ -393,14 +436,20 @@ build <- function(p, date) {
 e2e <- tryCatch(list(actual = build(pp, START),
                      deal = build(pps$ec301_proposed, START),
                      no_deal = build(pps$ec301_no_deals, START),
-                     before = build(pps$ec301_no_deals, START - 1)),
+                     before = build(pps$ec301_no_deals, START - 1),
+                     actual_before = build(pp, START - 1)),
                 error = function(e) e)
 if (inherits(e2e, 'error')) {
   fail <- fail + 1L
   cat('  FAIL: fixture build stopped: ', conditionMessage(e2e), '\n')
 } else {
-  ok(all(e2e$actual$rate_s301ec == 0) && all(e2e$actual$statutory_rate_s301ec == 0),
-     'actual: rate_s301ec present and zero')
+  ec_cols <- c('rate_s301ec', 'statutory_rate_s301ec')
+  ok(!any(grepl('s301ec', names(e2e$actual))),
+     'actual: the snapshot has no excess-capacity column')
+  ok(identical(names(e2e$actual), names(e2e$actual_before)) &&
+       identical(e2e$actual$total_additional, e2e$actual_before$total_additional) &&
+       identical(e2e$actual$total_rate, e2e$actual_before$total_rate),
+     'actual: the 2027-04-01 snapshot has the same rates as the day before')
   cn <- function(d, col) d[[col]][d$country == CN]
   ok(near(cn(e2e$deal, 'rate_s301ec'), 0.20) && near(cn(e2e$no_deal, 'rate_s301ec'), 0.40),
      'scenario: Chinese steel pays 20% (deal) / 40% (no deal)')
@@ -412,12 +461,12 @@ if (inherits(e2e, 'error')) {
                  e2e$actual$total_additional[e2e$actual$country == KR]),
      'Korean steel pays no new duty (Section 232 exemption), through the Korea recompute')
   ok(all(e2e$before$rate_s301ec == 0) &&
-       identical(e2e$before$total_additional,
-                 build(pp, START - 1)$total_additional),
+       identical(e2e$before$total_additional, e2e$actual_before$total_additional),
      'the day before the start date the scenario equals actual')
-  ok(identical(names(e2e$actual), names(e2e$deal)) &&
-       !any(grepl('^s301(fl|ec)_', names(e2e$actual))),
-     'actual and scenario snapshots have the same columns; no working columns leak')
+  ok(setequal(setdiff(names(e2e$deal), names(e2e$actual)), ec_cols) &&
+       identical(names(e2e$before), names(e2e$deal)) &&
+       !any(grepl('^s301(fl|ec)_', names(e2e$deal))),
+     'a scenario snapshot adds exactly the two excess-capacity columns, before and after the start')
 }
 
 cat(sprintf('\n== SUMMARY: %d passed, %d failed ==\n', pass, fail))

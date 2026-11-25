@@ -500,8 +500,9 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
   # into a bucket below stops the build here, instead of silently vanishing from
   # the by-authority decomposition (its net contribution would otherwise leave
   # the reported parts short of total_additional with no error).
-  .verify_report_buckets <- function(row, net_df, prefix, value_of) {
+  .verify_report_buckets <- function(row, net_df, prefix, value_of, has_s301ec) {
     buckets <- authority_report_buckets()
+    if (!has_s301ec) buckets$s301ec <- NULL
     expected <- paste0(prefix, names(buckets))
     reported <- grep(paste0('^', prefix), names(row), value = TRUE)
     if (!setequal(reported, expected)) {
@@ -526,6 +527,11 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
                                     revision, valid_from, valid_until) {
     # Use shared net authority decomposition from helpers.R
     net_data <- compute_net_authority_contributions(rev_data, cty_china = CTY_CHINA)
+    # The proposed excess-capacity Section 301 duty is reported only in a
+    # series that carries its rate column (a scenario that enables it), so
+    # baseline tables keep their columns.
+    has_s301ec <- 'rate_s301ec' %in% names(rev_data)
+    auth_net_cols <- if (has_s301ec) auth_net_cols else setdiff(auth_net_cols, 'net_s301ec')
     # Zero-fill any registry authority column the decomposition omits. The
     # net_s301fl and content-split 301 (net_301_cs) are reported UNDER Section
     # 301. Zero-filling keeps older/pre-authority inputs readable, and driving
@@ -550,9 +556,6 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
       # separate as mean_s301br: a distinct baseline authority, FR 2026-14542.)
       mean_301 = mean(net_data$net_301 + net_data$net_301_cs + net_data$net_s301fl),
       mean_s301br = mean(net_data$net_s301br),
-      # Proposed excess-capacity Section 301: its own column, like Brazil's
-      # (zero unless a scenario enables it).
-      mean_s301ec = mean(net_data$net_s301ec),
       mean_ieepa = mean(net_data$net_ieepa),
       mean_fentanyl = mean(net_data$net_fentanyl),
       mean_s122 = mean(net_data$net_s122),
@@ -560,8 +563,14 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
       mean_section_201 = mean(net_data$net_section_201),
       mean_other = mean(net_data$net_other)
     )
+    # Its own column, like Brazil's; not folded into mean_301.
+    if (has_s301ec) {
+      row <- tibble::add_column(row, mean_s301ec = mean(net_data$net_s301ec),
+                                .after = 'mean_s301br')
+    }
     .verify_report_buckets(row, net_data, 'mean_',
-                           function(cols) mean(Reduce(`+`, net_data[cols])))
+                           function(cols) mean(Reduce(`+`, net_data[cols])),
+                           has_s301ec)
     if (has_weights) {
       if (nrow(wt_data) > 0) {
         wt_net <- compute_net_authority_contributions(wt_data, cty_china = CTY_CHINA)
@@ -571,7 +580,9 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
         row$etr_232 <- sum(wt_net$net_232 * wt_net$imports) / wctx$total_imports
         row$etr_301 <- sum((wt_net$net_301 + wt_net$net_301_cs + wt_net$net_s301fl) * wt_net$imports) / wctx$total_imports
         row$etr_s301br <- sum(wt_net$net_s301br * wt_net$imports) / wctx$total_imports
-        row$etr_s301ec <- sum(wt_net$net_s301ec * wt_net$imports) / wctx$total_imports
+        if (has_s301ec) {
+          row$etr_s301ec <- sum(wt_net$net_s301ec * wt_net$imports) / wctx$total_imports
+        }
         row$etr_ieepa <- sum(wt_net$net_ieepa * wt_net$imports) / wctx$total_imports
         row$etr_fentanyl <- sum(wt_net$net_fentanyl * wt_net$imports) / wctx$total_imports
         row$etr_s122 <- sum(wt_net$net_s122 * wt_net$imports) / wctx$total_imports
@@ -579,11 +590,12 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
         row$etr_section_201 <- sum(wt_net$net_section_201 * wt_net$imports) / wctx$total_imports
         row$etr_other <- sum(wt_net$net_other * wt_net$imports) / wctx$total_imports
         .verify_report_buckets(row, wt_net, 'etr_',
-                               function(cols) sum(Reduce(`+`, wt_net[cols]) * wt_net$imports) / wctx$total_imports)
+                               function(cols) sum(Reduce(`+`, wt_net[cols]) * wt_net$imports) / wctx$total_imports,
+                               has_s301ec)
       } else {
-        row$etr_232 <- row$etr_301 <- row$etr_s301br <- row$etr_s301ec <- 0
-        row$etr_ieepa <- row$etr_fentanyl <- 0
+        row$etr_232 <- row$etr_301 <- row$etr_s301br <- row$etr_ieepa <- row$etr_fentanyl <- 0
         row$etr_s122 <- row$etr_s338 <- row$etr_section_201 <- row$etr_other <- 0
+        if (has_s301ec) row$etr_s301ec <- 0
       }
     }
     return(row)
@@ -719,11 +731,15 @@ build_daily_aggregates <- function(ts, date_range = NULL, imports = NULL,
     agg_by_authority <- agg_by_authority %>%
       left_join(overall_etr, by = c('revision', 'valid_from', 'valid_until')) %>%
       mutate(
-        etr_base = weighted_etr - (etr_232 + etr_301 + etr_s301br + etr_s301ec +
-                                    etr_ieepa + etr_fentanyl + etr_s122 + etr_s338 +
+        etr_base = weighted_etr - (etr_232 + etr_301 + etr_s301br + etr_ieepa +
+                                    etr_fentanyl + etr_s122 + etr_s338 +
                                     etr_section_201 + etr_other)
       ) %>%
       select(-weighted_etr)
+    # Excess-capacity Section 301, where the series carries it.
+    if ('etr_s301ec' %in% names(agg_by_authority)) {
+      agg_by_authority$etr_base <- agg_by_authority$etr_base - agg_by_authority$etr_s301ec
+    }
   }
 
   # --- Expand revision-level aggregates to daily ---
@@ -1019,7 +1035,8 @@ save_daily_workbook <- function(daily, xlsx_path) {
   # Write README sheet (only if it doesn't exist yet)
   if (!'README' %in% names(wb)) {
     addWorksheet(wb, 'README')
-    readme <- build_daily_workbook_readme()
+    readme <- build_daily_workbook_readme(
+      has_s301ec = 'mean_s301ec' %in% names(daily$daily_by_authority))
     writeData(wb, 'README', readme, headerStyle = createStyle(textDecoration = 'bold'))
   }
 
@@ -1034,7 +1051,7 @@ save_daily_workbook <- function(daily, xlsx_path) {
 #' Build README content for the daily workbook
 #'
 #' @return Data frame describing each sheet and its variables
-build_daily_workbook_readme <- function() {
+build_daily_workbook_readme <- function(has_s301ec = FALSE) {
   rows <- list(
     # --- Header ---
     c('Tariff Rate Tracker — Daily Aggregates Workbook', ''),
@@ -1092,7 +1109,7 @@ build_daily_workbook_readme <- function() {
     c('mean_232', 'Mean net Section 232 contribution (steel, aluminum, autos, copper, derivatives)'),
     c('mean_301', 'Mean net Section 301 contribution (China §301 + content-split + forced-labor §301 when active)'),
     c('mean_s301br', 'Mean net Section 301 Brazil contribution (25% on Brazil, effective 2026-07-22)'),
-    c('mean_s301ec', 'Mean net Section 301 excess-capacity contribution (proposed 2026-11-25; zero outside the ec301 scenarios)'),
+    if (has_s301ec) c('mean_s301ec', 'Mean net Section 301 excess-capacity contribution (proposed 2026-11-25; ec301 scenarios only)'),
     c('mean_ieepa', 'Mean net IEEPA reciprocal contribution (mutual exclusion with 232)'),
     c('mean_fentanyl', 'Mean net IEEPA fentanyl contribution (CA, MX, CN)'),
     c('mean_s122', 'Mean net Section 122 contribution (post-IEEPA invalidation, 150-day limit)'),
@@ -1102,7 +1119,7 @@ build_daily_workbook_readme <- function() {
     c('etr_232', 'Import-weighted ETR contribution from Section 232'),
     c('etr_301', 'Import-weighted ETR contribution from Section 301 (incl. forced-labor §301 when active)'),
     c('etr_s301br', 'Import-weighted ETR contribution from Section 301 Brazil'),
-    c('etr_s301ec', 'Import-weighted ETR contribution from Section 301 excess capacity (zero outside the ec301 scenarios)'),
+    if (has_s301ec) c('etr_s301ec', 'Import-weighted ETR contribution from Section 301 excess capacity (ec301 scenarios only)'),
     c('etr_ieepa', 'Import-weighted ETR contribution from IEEPA reciprocal'),
     c('etr_fentanyl', 'Import-weighted ETR contribution from IEEPA fentanyl'),
     c('etr_s122', 'Import-weighted ETR contribution from Section 122'),
@@ -1111,7 +1128,8 @@ build_daily_workbook_readme <- function() {
     c('etr_other', 'Import-weighted ETR contribution from other authorities'),
     c('etr_base', 'Import-weighted base rate contribution (residual: weighted_etr minus all authority ETRs)'),
     c('', ''),
-    c('Note: etr_base + etr_232 + etr_301 + etr_s301br + etr_s301ec + etr_ieepa + etr_fentanyl + etr_s122 + etr_s338 + etr_section_201 + etr_other = weighted_etr (from daily_overall)', ''),
+    c('Note: etr_base + etr_232 + etr_301 + etr_s301br + etr_ieepa + etr_fentanyl + etr_s122 + etr_s338 + etr_section_201 + etr_other = weighted_etr (from daily_overall)', ''),
+    if (has_s301ec) c('In this series etr_s301ec is one more term on the left-hand side of that identity.', ''),
     c('', ''),
 
     # --- Notes ---
@@ -1123,6 +1141,7 @@ build_daily_workbook_readme <- function() {
     c('Source: Yale Budget Lab Tariff Rate Tracker, built from USITC HTS archives.', '')
   )
 
+  rows <- Filter(Negate(is.null), rows)
   df <- do.call(rbind, lapply(rows, function(r) data.frame(Column = r[1], Description = r[2], stringsAsFactors = FALSE)))
   return(df)
 }
@@ -1318,10 +1337,7 @@ daily_part_path <- function(snapshot_dir, revision) {
 # other authorities); rejecting v4 forces a rebuild. NB: reported under §301 so
 # the by-authority buckets reconcile to weighted_etr without a new column that a
 # downstream consumer's fixed authority map would silently drop.
-# v6 adds the Section 301 excess-capacity decomposition (mean_s301ec /
-# etr_s301ec) and folds etr_s301ec into the etr_base residual; v5 parts lack
-# the columns, so they are rejected like the earlier versions.
-DAILY_PART_SCHEMA_VERSION <- 6L
+DAILY_PART_SCHEMA_VERSION <- 5L
 
 write_daily_part_for_snapshot <- function(snapshot, revision, valid_from, valid_until,
                                           output_dir, imports = NULL,

@@ -109,11 +109,13 @@ Brazil change (finished aircraft pay a flat 10%):
 
 The rate table and the rules sit in `config/policy_params.yaml` under
 `section_301_excess_capacity`, switched off. An overlay sets `enabled: true`,
-picks `deal` or `no_deal` for each economy under `outcome`, switches on
-`section_301_brazil.modification_2026_11`, and restates `boundary_overrides`
-with 2027-04-01 added so the series gets a snapshot on that date. The duty is
-the `rate_s301ec` column, which is zero in `actual`. Build all four series
-with `config/build/s301ec.yaml` and check the result with
+picks `deal` or `no_deal` for each economy under `outcome`, and switches on
+`section_301_brazil.modification_2026_11`. The baseline `boundary_overrides`
+list includes 2027-04-01, so every series, `actual` included, has a snapshot
+starting that date (in `actual` its rates equal the interval before). The duty
+is the `rate_s301ec` column. It exists only in these scenarios: `actual` has no
+such column in its snapshots, daily files or quality report. Build all four
+series with `config/build/s301ec.yaml` and check the result with
 `scripts/verify_s301ec_snapshot.R`.
 
 ## Authoring a new scenario

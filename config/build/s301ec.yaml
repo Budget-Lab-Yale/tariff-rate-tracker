@@ -12,12 +12,13 @@
 # pay a flat 10%) from 2027-04-01.
 #
 # What to expect:
-#   * actual equals the current baseline in every existing column. It gains
-#     all-zero rate_s301ec / statutory_rate_s301ec panel columns, all-zero
-#     mean_s301ec / etr_s301ec columns in daily_by_authority and pct_s301ec in
-#     the quality report, and no 2027-04-01 snapshot.
-#   * each scenario equals actual before 2027-04-01 and has one extra
-#     snapshot, bnd_2027-04-01.
+#   * actual has the same columns and rates as the current baseline. It has a
+#     snapshot starting 2027-04-01 (bnd_2027-04-01) whose rates equal those of
+#     the interval before it.
+#   * each scenario has the same intervals as actual and equals it before
+#     2027-04-01. Its files carry extra columns: rate_s301ec and
+#     statutory_rate_s301ec in the panel, mean_s301ec / etr_s301ec in
+#     daily_by_authority, pct_s301ec in the quality report.
 #
 # Validation root; does not move `latest`.
 #   bash scripts/submit_build_array.sh --config config/build/s301ec.yaml

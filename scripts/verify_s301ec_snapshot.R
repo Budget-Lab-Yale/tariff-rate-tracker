@@ -8,10 +8,11 @@
 #   config/build/s301ec.yaml produces).
 #
 # What it checks:
-#   actual      no 2027-04-01 snapshot; rate_s301ec zero; Brazil finished
-#               aircraft still at 2.5%.
-#   scenarios   a 2027-04-01 snapshot exists; the interval before it equals
-#               actual; from 2027-04-01 every covered row carries the duty the
+#   actual      a 2027-04-01 snapshot with the same rates as the interval
+#               before it; no rate_s301ec column; Brazil finished aircraft
+#               still at 2.5%.
+#   scenarios   the same intervals as actual; the interval before 2027-04-01
+#               equals actual; from 2027-04-01 every covered row carries the duty the
 #               rules in config/policy_params.yaml imply, recomputed here from
 #               the snapshot's own MFN, forced-labor and Section 232 columns.
 # Chapter 98 rows are only checked against the ceiling: their duties are zeroed
@@ -67,29 +68,30 @@ brazil_aircraft <- function(d) {
 
 cat('================ actual ================\n')
 iv_actual <- intervals('actual')
-must(!START %in% iv_actual, paste('actual has no', START, 'snapshot'))
-last_actual <- max(iv_actual)
+must(START %in% iv_actual, paste('actual has a', START, 'snapshot'))
 pre_date <- max(iv_actual[iv_actual < START])
-actual_pre  <- read_snap('actual', pre_date)
-actual_last <- if (last_actual == pre_date) actual_pre else read_snap('actual', last_actual)
-must('rate_s301ec' %in% names(actual_last) && all(actual_last$rate_s301ec == 0) &&
-       all(actual_pre$rate_s301ec == 0),
-     'actual: rate_s301ec present and zero through the end of the series')
-ba <- brazil_aircraft(actual_last)
+actual_pre <- read_snap('actual', pre_date)
+actual_start <- read_snap('actual', START)
+must(!'rate_s301ec' %in% names(actual_start) && !'rate_s301ec' %in% names(actual_pre),
+     'actual: no rate_s301ec column')
+must(identical(actual_start$total_additional, actual_pre$total_additional) &&
+       identical(actual_start$base_rate, actual_pre$base_rate) &&
+       identical(actual_start$rate_s301br, actual_pre$rate_s301br),
+     paste0('actual: rates from ', START, ' equal those from ', pre_date))
+ba <- brazil_aircraft(actual_start)
 must(nrow(ba) > 0 && same(ba$rate_s301br, rep(OLD_AIRCRAFT_RATE, nrow(ba))),
      'actual: Brazil finished aircraft still pay 2.5%')
+rm(actual_start)
 
 for (s in SCENARIOS) {
   cat('\n================ ', s, ' ================\n', sep = '')
   if (!dir.exists(snap_dir(s))) { must(FALSE, paste(s, 'is in the vintage')); next }
   iv <- intervals(s)
-  must(START %in% iv, paste('has a', START, 'snapshot'))
-  must(setequal(setdiff(iv, START), iv_actual),
-       'the other interval dates are the same as in actual')
+  must(identical(iv, iv_actual), 'same interval dates as actual')
   if (!START %in% iv) next
 
   pre <- read_snap(s, pre_date)
-  must(all(pre$rate_s301ec == 0) &&
+  must('rate_s301ec' %in% names(pre) && all(pre$rate_s301ec == 0) &&
          identical(pre$total_additional, actual_pre$total_additional) &&
          identical(pre$rate_s301br, actual_pre$rate_s301br),
        paste0('interval from ', pre_date, ' equals actual (no duty before the start date)'))
@@ -124,12 +126,12 @@ for (s in SCENARIOS) {
     left_join(terms, by = 'country') %>%
     mutate(h8 = substr(hts10, 1, 8), ch98 = substr(hts10, 1, 2) == '98')
   rm(d)
-  hit <- function(codes) e$h8 %in% codes | e$hts10 %in% codes
+  hit <- function(codes) e$h8 %in% codes | e$hts10 %in% codes   # 8- or 10-digit codes
   e$common_full <- hit(lists$common_full)
   e$share <- case_when(hit(lists$common_aircraft) ~ lists$aircraft_share,
                        hit(lists$common_pharma) ~ lists$pharma_share, TRUE ~ 0)
-  e$country_full <- paste(e$country, e$h8) %in%
-    paste(lists$country_full$country, lists$country_full$hts_code)
+  own <- paste(lists$country_full$country, lists$country_full$hts_code)
+  e$country_full <- paste(e$country, e$h8) %in% own | paste(e$country, e$hts10) %in% own
   e$annex_b <- hit(lists$china_annex_b)
   e$in_232 <- .s232_in_scope(e) | e$hts10 %in% lists$patented_pharma_hts10
   post <- as.character(unlist(cfg$post_preference_cap_countries))

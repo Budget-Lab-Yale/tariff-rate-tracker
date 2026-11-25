@@ -16,8 +16,9 @@ AUTHORITY_REGISTRY <- data.frame(
     'net_s301fl', 'net_s301br', 'net_s301ec', 'net_s338', 'net_s122',
     'net_section_201', 'net_other'
   ),
-  # rate_s301ec is the proposed excess-capacity Section 301 duty. Its authority
-  # is built only when a scenario enables it, so the column is zero in baseline.
+  # rate_s301ec is the proposed excess-capacity Section 301 duty. It has no
+  # panel position (panel_order NA): the column exists only in a series whose
+  # scenario enables the authority, so baseline outputs gain no column.
   spec_authority = c(
     'section_232', 'ieepa_reciprocal', 'ieepa_fentanyl', 'section_301',
     NA, 'section_301_forced_labor', 'section_301_brazil',
@@ -38,10 +39,10 @@ AUTHORITY_REGISTRY <- data.frame(
     's338', 's122', 'section_201', 'other'
   ),
   report_sum_order = c(1L, 7L, 8L, 2L, 3L, 5L, 4L, 6L, 10L, 9L, 11L, 12L),
-  panel_order = c(1L, 7L, 8L, 2L, 3L, 5L, 4L, 6L, 10L, 9L, 11L, 12L),
+  panel_order = c(1L, 6L, 7L, 2L, 3L, 5L, 4L, NA, 9L, 8L, 10L, 11L),
   schema_group = c(
     'pre_swiss', 'pre_swiss', 'pre_swiss', 'pre_swiss', 'pre_swiss',
-    'pre_swiss', 'pre_swiss', 'pre_swiss', 'post_swiss', 'post_swiss',
+    'pre_swiss', 'pre_swiss', NA, 'post_swiss', 'post_swiss',
     'post_swiss', 'post_swiss'
   ),
   stringsAsFactors = FALSE
@@ -107,6 +108,12 @@ authority_panel_registry <- function(registry = AUTHORITY_REGISTRY) {
 
 authority_rate_columns <- function(registry = AUTHORITY_REGISTRY) {
   authority_panel_registry(registry)$rate_col
+}
+
+
+# Rate columns that exist only when a scenario enables their authority.
+authority_scenario_only_rate_columns <- function(registry = AUTHORITY_REGISTRY) {
+  registry$rate_col[is.na(registry$panel_order)]
 }
 
 
