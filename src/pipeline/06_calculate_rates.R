@@ -1419,6 +1419,13 @@ resolve_s301_exclusion_scope <- function(products, active_excl, excl_cfg) {
 #   basket_lines {prefixes, applicability_share}: lines the program covers only
 #                in part (drone parts inside all-aircraft 8807 etc.); the
 #                component is scaled by the share.
+#   basket_tranche_2 {prefixes, rate, applicability_share}: a second, lower-rate
+#                slice of basket lines (drones Annex III from 2027-02-09: parts
+#                for small drones at 25%). The adapter passes it only on
+#                snapshots on or after its effective_date. Its rate is capped
+#                by the same partner terms: target_total countries pay
+#                max(target - base, 0), country_rates countries pay at most
+#                their override (UK 10%). Adds rate * share on those lines.
 apply_additive_232_program <- function(rates, program_products,
                                        cfg, countries, pp) {
   if (!length(program_products) || is.null(cfg)) return(rates)
@@ -1443,6 +1450,11 @@ apply_additive_232_program <- function(rates, program_products,
   basket_share <- cfg$basket_lines$applicability_share %||% 1
   basket_pattern <- if (is.null(cfg$basket_lines)) NULL else
     paste0('^(', paste(unlist(cfg$basket_lines$prefixes), collapse = '|'), ')')
+  t2 <- cfg$basket_tranche_2
+  t2_share <- t2$applicability_share %||% 0
+  t2_rate <- t2$rate %||% 0
+  t2_pattern <- if (is.null(t2)) NULL else
+    paste0('^(', paste(unlist(t2$prefixes), collapse = '|'), ')')
 
   if (!'rate_232_nondisplacing' %in% names(rates)) rates$rate_232_nondisplacing <- 0
 
@@ -1452,6 +1464,13 @@ apply_additive_232_program <- function(rates, program_products,
       .hit = hts10 %in% program_products,
       .in_split = if (is.null(split_pattern)) FALSE else grepl(split_pattern, hts10),
       .in_basket = if (is.null(basket_pattern)) FALSE else grepl(basket_pattern, hts10),
+      .in_t2 = if (is.null(t2_pattern)) FALSE else grepl(t2_pattern, hts10),
+      .t2_component = if_else(
+        .in_t2,
+        if_else(!is.na(.target_total),
+                pmax(.target_total - base_rate, 0),
+                pmin(t2_rate, coalesce(.additive, 0))) * t2_share,
+        0),
       .additive = if_else(.in_split,
                           split_share * .additive + (1 - split_share) * .split_additive,
                           .additive),
@@ -1459,7 +1478,7 @@ apply_additive_232_program <- function(rates, program_products,
         !is.na(.target_total),
         pmax(.target_total - base_rate, 0),
         coalesce(.additive, 0)
-      ) * if_else(.in_basket, basket_share, 1),
+      ) * if_else(.in_basket, basket_share, 1) + .t2_component,
       # The proclamation makes this component additive to other duties. Keep it
       # out of the generic max-across-heading aggregation and add it here.
       rate_232 = if_else(.hit, rate_232 + .component, rate_232),
@@ -1472,7 +1491,7 @@ apply_additive_232_program <- function(rates, program_products,
         .hit & !isTRUE(cfg$displaces_overlays), .component, 0)
     ) %>%
     select(-.additive, -.split_additive, -.target_total, -.hit, -.in_split,
-           -.in_basket, -.component)
+           -.in_basket, -.in_t2, -.t2_component, -.component)
 }
 
 # --- Step 6: Section 301 blanket + USTR exclusions ---------------------------
