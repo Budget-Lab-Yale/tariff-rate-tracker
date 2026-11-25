@@ -1,0 +1,38 @@
+# Section 301 excess-capacity scenarios (USTR proposals of 2026-11-25).
+#
+# Builds `actual` and three scenarios in one vintage, through the same code and
+# the same 484(f) weight plan, so each scenario can be compared with actual
+# exactly:
+#   actual           - current law. The proposed duties are off.
+#   ec301_proposed   - the proposed duties from 2027-04-01 at the rates the
+#                      notices state first.
+#   ec301_no_deals   - every economy at its no-deal rate.
+#   ec301_all_deals  - every economy at its deal rate.
+# All three scenarios also apply the proposed Brazil change (finished aircraft
+# pay a flat 10%) from 2027-04-01.
+#
+# What to expect:
+#   * actual has the same columns and rates as the current baseline. It has a
+#     snapshot starting 2027-04-01 (bnd_2027-04-01) whose rates equal those of
+#     the interval before it.
+#   * each scenario has the same intervals as actual and equals it before
+#     2027-04-01. Its files carry extra columns: rate_s301ec and
+#     statutory_rate_s301ec in the panel, mean_s301ec / etr_s301ec in
+#     daily_by_authority, pct_s301ec in the quality report.
+#
+# Validation root; does not move `latest`.
+#   bash scripts/submit_build_array.sh --config config/build/s301ec.yaml
+#   Rscript scripts/verify_s301ec_snapshot.R <vintage dir>
+model_data_root: /nfs/roberts/project/pi_nrs36/shared/model_data/Tariff-Rate-Tracker/.validation/s301ec-fable
+policy_params_path: config/policy_params.yaml
+
+scenarios:
+  - ec301_proposed
+  - ec301_no_deals
+  - ec301_all_deals
+
+use_hts_dates: false        # policy effective dates
+weight_mode: required       # 484(f) per-interval weights; fail loud if missing
+update_latest: false
+allow_partial: false
+verify: true                # finalize runs scripts/verify_build.R

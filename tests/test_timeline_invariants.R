@@ -15,8 +15,10 @@
 #      zero on 02-20, not at 2026_rev_4 (02-24).                                  [out-of-window]
 #   3. The genuine 4-day [02-20, 02-23] window where IEEPA AND S122 are both 0
 #      (S122 starts 02-24). Deliberate; documented (risk R2).
-#   4. §301 cranes/chassis (9903.91.12-.16) turn ON 2026-11-10 (bnd, owner
-#      2026_rev_9) — previously masked forever by filter_active_ch99.            [out-of-window]
+#   4. §301 cranes/chassis (9903.91.12-.16): HTS 2026 rev_23 (effective
+#      2026-11-10) moved the turn-on from 2026-11-10 to 2027-01-10, so nothing
+#      happens on 2026-11-10 and the duty turns on 2027-01-10 (bnd, owner
+#      2026_rev_23) when the horizon reaches it.                                 [out-of-window]
 #   5. POSITIVE CONTROLS: §232 annex (2026-04-06) and auto-parts/Phase-1 dates sit
 #      ON real revision edges => NO spurious bnd_ split.
 #
@@ -128,38 +130,33 @@ s122_on <- snap_on('2026-02-24')
 check(max(s122_on$rate_s122) > 0,
       'S122 turns on 2026-02-24 (rate_s122 > 0)')
 
-# --- (4) §301 cranes/chassis 2026-11-10 turn-on (China) ------------------------
-# The boundary is DISCOVERED + minted (snapshot exists). The duty-imposing codes
-# 9903.91.12 (chassis, note 31(k)(i)) + 9903.91.14 (cranes, note 31(l)) are now
-# PRICED at +100% in section_301_rates (with the covered hts8 in
-# s301_product_lists.csv), so on 2026-11-10 the China crane (8426.19) + chassis
-# (8716.39/.90) hts8 rate_301 jumps to 1.00 (bumped via MAX from their pre-11-10
-# 301 listing, e.g. cranes 9903.92.10 = 0.25). The 0% complements/exemptions
-# (.13/.15/.16) are MAX-mooted and not separately modeled. The test detects the
-# priced state and asserts the RATE rises (the COUNT is unchanged — those products
-# were already 301-listed); it falls back to the inert-gap assertion if unpriced.
-# See docs/timeline_split_integration.md.
-check(file.exists(file.path(snapshot_dir, 'snapshot_bnd_2026-11-10.rds')),
-      'bnd_2026-11-10 snapshot exists (§301 cranes/chassis boundary minted)')
+# --- (4) §301 cranes/chassis turn-on (China), moved to 2027-01-10 by rev_23 ----
+# The duty-imposing codes 9903.91.12 (chassis, note 31(k)(i)) + 9903.91.14
+# (cranes, note 31(l)) are priced at +100% in section_301_rates. Under rev_10-
+# rev_22 text they turned on 2026-11-10 (bnd_2026-11-10). HTS 2026 rev_23
+# (effective 2026-11-10; FR Doc 2026-22867) moved the start to 2027-01-10, so
+# 2026-11-10 is now an ordinary revision edge with no change in this duty, and
+# the turn-on mints as bnd_2027-01-10 when the horizon reaches it. The 0%
+# complements/exemptions (.13/.15/.16) are MAX-mooted and not separately modeled.
+check(!file.exists(file.path(snapshot_dir, 'snapshot_bnd_2026-11-10.rds')),
+      'no bnd_2026-11-10 snapshot (rev_23 owns 2026-11-10)')
 crane_codes <- c('9903.91.12', '9903.91.13', '9903.91.14', '9903.91.15', '9903.91.16')
 priced <- !is.null(pp$SECTION_301_RATES) && any(crane_codes %in% pp$SECTION_301_RATES$ch99_pattern)
+check(priced, '§301 cranes/chassis headings are priced in section_301_rates')
 cc_hts8 <- c('84261900', '87163900', '87169030', '87169050')   # cranes 8426.19 + chassis 8716.39/.90
 cc_maxr <- function(D) {
   s <- snap_on(D); v <- s$rate_301[s$country == '5700' & substr(s$hts10, 1, 8) %in% cc_hts8]
   if (length(v)) max(v) else NA_real_
 }
-before <- cc_maxr('2026-11-09'); after <- cc_maxr('2026-11-10')
-if (priced) {
-  check(isTRUE(after == 1.0),
-        sprintf('§301 cranes/chassis rate_301 == 1.00 (100%%) on 2026-11-10 (was %.2f on 11-09)', before))
-  check(isTRUE(before < after),
-        sprintf('§301 cranes/chassis rate_301 RISES on 2026-11-10 (%.2f -> %.2f; mint is meaningful)', before, after))
-} else {
-  cat('  NOTE — flagged modeling gap: §301 cranes/chassis 9903.91.12/.14 not in\n',
-      '        section_301_rates => bnd_2026-11-10 daily-INERT (max crane/chassis rate_301 ',
-      before, ' -> ', after, '). Mechanism OK; pricing those codes is a separate task.\n', sep = '')
-  check(isTRUE(is.na(after) || after < 1.0),
-        '§301 codes unpriced => bnd_2026-11-10 daily-inert (documented gap)')
+nov9 <- cc_maxr('2026-11-09'); nov10 <- cc_maxr('2026-11-10')
+check(isTRUE(nov10 < 1.0) && isTRUE(all.equal(nov9, nov10)),
+      sprintf('§301 cranes/chassis rate_301 unchanged on 2026-11-10 (%.2f -> %.2f; turn-on moved)', nov9, nov10))
+if (as.Date(pp$SERIES_HORIZON_END) >= as.Date('2027-01-10')) {
+  check(file.exists(file.path(snapshot_dir, 'snapshot_bnd_2027-01-10.rds')),
+        'bnd_2027-01-10 snapshot exists (§301 cranes/chassis boundary minted)')
+  jan9 <- cc_maxr('2027-01-09'); jan10 <- cc_maxr('2027-01-10')
+  check(isTRUE(jan10 == 1.0) && isTRUE(jan9 < jan10),
+        sprintf('§301 cranes/chassis rate_301 rises to 1.00 on 2027-01-10 (was %.2f on 01-09)', jan9))
 }
 
 cat(sprintf('\nALL %d TIMELINE-INVARIANT ASSERTIONS PASSED (%d skipped)\n', pass, skip))

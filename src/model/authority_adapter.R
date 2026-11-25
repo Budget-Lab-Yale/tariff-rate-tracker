@@ -606,6 +606,133 @@ build_s301_tiers <- function(ch99_data, effective_date, pp) {
     pharma_hts8    = .resolve_hts8_list(cfg$pharma_products, effective_date),
     pharma_share   = clamp01(cfg$pharma_exempt_share),
     patented_pharma_hts10 = .resolve_patented_pharma(cfg, effective_date))
+
+  # Proposed modification of 2026-11-25 (off in baseline; the ec301_* scenarios
+  # turn it on). From its effective date the finished-aircraft lines leave the
+  # civil-aircraft use-share list and pay a flat rate instead. The sugar
+  # proposal in the same notice is not modeled (see policy_params.yaml).
+  mod <- cfg$modification_2026_11
+  if (isTRUE(mod$enabled)) {
+    if (is.null(mod$effective_date)) {
+      stop('section_301_brazil.modification_2026_11 is enabled but has no effective_date')
+    }
+    if (as.Date(effective_date) >= as.Date(mod$effective_date)) {
+      flat_hts8 <- as.character(unlist(mod$aircraft_lines))
+      ex <- spec$programs[[1]]$exempt_products
+      ex$aircraft_hts8  <- setdiff(ex$aircraft_hts8, flat_hts8)
+      ex$flat_rate_hts8 <- flat_hts8
+      ex$flat_rate      <- as.numeric(mod$aircraft_rate)
+      spec$programs[[1]]$exempt_products <- ex
+    }
+  }
+  spec
+}
+
+# ---- section 301 excess capacity (PROPOSED - scenarios only) ----------------
+# USTR's proposed actions of 2026-11-25 against 14 economies. The config block
+# is off in baseline, so this returns NULL there and the calculator leaves
+# rate_s301ec at zero. A scenario sets `enabled: true` and picks, for each
+# economy, the rate with a deal or the rate without one. The rules are set out
+# beside the config block; apply_section301_excess_capacity() applies them.
+
+# One row per Census country: the selected rate and how it is netted.
+.resolve_s301ec_terms <- function(cfg, eu27_codes, countries) {
+  outcome <- cfg$outcome %||% list()
+  rows <- lapply(names(cfg$economies), function(name) {
+    econ <- cfg$economies[[name]]
+    pick <- as.character(outcome[[name]] %||% NA_character_)
+    if (!pick %in% c('deal', 'no_deal')) {
+      stop("section_301_excess_capacity.outcome.", name,
+           " must be 'deal' or 'no_deal'", call. = FALSE)
+    }
+    term <- econ[[pick]]
+    codes <- as.character(unlist(econ$countries))
+    if (identical(codes, 'eu27')) codes <- names(eu27_codes)
+    tibble::tibble(
+      country       = codes,
+      economy       = name,
+      outcome       = pick,
+      rate          = as.numeric(term$rate),
+      net_of_mfn    = isTRUE(term$net_of_mfn),
+      china_rules   = isTRUE(econ$china_rules),
+      annexes_apply = !isFALSE(term$annexes_apply))
+  })
+  terms <- dplyr::bind_rows(rows)
+  unknown <- setdiff(names(outcome), names(cfg$economies))
+  if (length(unknown) || anyDuplicated(terms$country) || anyNA(terms$rate)) {
+    stop('section_301_excess_capacity: economies and outcome do not line up',
+         call. = FALSE)
+  }
+  terms[terms$country %in% as.character(countries), , drop = FALSE]
+}
+
+# Product lists (built by scripts/build_s301ec_annex.R). A missing file stops
+# the build: an empty list would silently charge exempt goods.
+.resolve_s301ec_lists <- function(cfg) {
+  read_list <- function(path) {
+    full <- here(path)
+    if (!file.exists(full)) {
+      stop('Excess-capacity product list not found: ', full,
+           ' - run scripts/build_s301ec_annex.R')
+    }
+    read_csv_cached(full, col_types = readr::cols(.default = readr::col_character()))
+  }
+  common  <- read_list(cfg$common_exemptions)
+  annex_b <- read_list(cfg$china_annex_b)
+  country <- read_list(cfg$country_exemptions) %>%
+    tidyr::separate_rows(countries, sep = ';') %>%
+    dplyr::rename(country = countries)
+  pharma <- read_list(cfg$patented_pharma_products)
+  list(
+    common_full     = common$hts_code[common$condition %in% c('full', 'ex')],
+    common_aircraft = common$hts_code[common$condition == 'aircraft'],
+    common_pharma   = common$hts_code[common$condition == 'pharma'],
+    aircraft_share  = as.numeric(cfg$aircraft_exempt_share),
+    pharma_share    = as.numeric(cfg$pharma_exempt_share),
+    country_full    = country[c('country', 'hts_code')],
+    china_annex_b   = annex_b$hts_code,
+    patented_pharma_hts10 = unique(as.character(pharma$hts10))
+  )
+}
+
+.build_section_301_excess_capacity <- function(pp, countries, effective_date) {
+  cfg <- pp$section_301_excess_capacity
+  if (is.null(cfg) || !isTRUE(cfg$enabled)) return(NULL)
+  if (is.null(cfg$effective_date)) {
+    stop('section_301_excess_capacity is enabled but has no effective_date')
+  }
+  eff <- as.Date(cfg$effective_date)
+  # Before the start date the authority exists but charges nothing.
+  active_now <- as.Date(effective_date) >= eff
+  rate_layer <- list()
+  settings <- list()
+  lists <- list()
+  if (active_now) {
+    terms <- .resolve_s301ec_terms(cfg, pp$eu27_codes, countries)
+    named <- function(x) stats::setNames(x, terms$country)
+    rate_layer$by_country <- named(terms$rate)
+    settings <- list(
+      net_of_mfn    = named(terms$net_of_mfn),
+      china_rules   = named(terms$china_rules),
+      annexes_apply = named(terms$annexes_apply),
+      china_annex_a_rate = as.numeric(cfg$china_annex_a_rate),
+      post_preference_cap_countries =
+        as.character(unlist(cfg$post_preference_cap_countries %||% character(0))))
+    lists <- .resolve_s301ec_lists(cfg)
+  }
+  spec <- authority_spec(
+    authority = 'section_301_excess_capacity',
+    stacking  = list(class = 'additive', exceptions = list()),
+    usmca_treatment = 'none',
+    active = list(from = eff, until = NA),
+    programs = list(authority_program(
+      id = 's301ec',
+      product_scope = list(include = 'all'),
+      country_scope = list(include = names(rate_layer$by_country) %||% character(0)),
+      rate = rate_layer,
+      settings = settings))
+  )
+  spec$programs[[1]]$exempt_products <- lists
   spec
 }
 
@@ -1071,6 +1198,17 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
         stop('Section 232 heading ', nm, ' has no valid resolved rate')
       product_scope <- cfg[intersect(product_fields, names(cfg))]
       settings <- cfg[setdiff(names(cfg), c(product_fields, 'default_rate'))]
+      # A dated second basket tranche (drones Annex III, 2027-02-09) is policy
+      # data resolved per revision like the heading gate above: kept only on
+      # snapshots dated on or after its effective date, so the calculator
+      # applies whatever it receives. Its turn-on needs a boundary_overrides mint.
+      if (!is.null(settings$basket_tranche_2)) {
+        t2_date <- settings$basket_tranche_2$effective_date
+        if (is.null(t2_date))
+          stop('Section 232 heading ', nm, ': basket_tranche_2 needs an effective_date')
+        if (is.null(effective_date) || as.Date(effective_date) < as.Date(t2_date))
+          settings$basket_tranche_2 <- NULL
+      }
       settings$is_heading <- TRUE
       section_232$programs[[length(section_232$programs) + 1L]] <- authority_program(
         id = nm,
@@ -1088,6 +1226,7 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
     for (nm in names(pp$section_232_headings)) {
       cfg <- pp$section_232_headings[[nm]]
       settings <- cfg[setdiff(names(cfg), c(product_fields, 'default_rate'))]
+      settings$basket_tranche_2 <- NULL   # no revision date here; program is disabled
       settings$is_heading <- TRUE
       section_232$programs[[length(section_232$programs) + 1L]] <- authority_program(
         id = nm,
@@ -1331,6 +1470,11 @@ build_authority_specs <- function(products, ch99_data, ieepa_rates, usmca,
   }
   if (!is.null(section_338)) {
     spec_list <- c(spec_list, list(section_338))
+  }
+  # Proposed excess-capacity Section 301: NULL unless a scenario enables it.
+  section_301_excess_capacity <- .build_section_301_excess_capacity(pp, countries, effective_date)
+  if (!is.null(section_301_excess_capacity)) {
+    spec_list <- c(spec_list, list(section_301_excess_capacity))
   }
   specs <- do.call(authority_spec_set, spec_list)
 

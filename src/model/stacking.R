@@ -256,6 +256,14 @@ compute_stacking_contributions <- function(df, policy) {
 }
 
 
+# Scenario-only rate columns (rate_s301ec) take part only when the table
+# carries them, so a baseline table is never given the column.
+.drop_absent_scenario_only <- function(policy, df) {
+  absent <- setdiff(authority_scenario_only_rate_columns(), names(df))
+  policy[setdiff(names(policy), absent)]
+}
+
+
 apply_stacking_rules <- function(df, cty_china = '5700', stacking_policy = NULL) {
   # Ensure optional columns exist and have no NAs
   df <- ensure_cols(df, list(rate_s122 = 0, rate_s301br = 0, rate_s338 = 0, rate_section_201 = 0, metal_share = 1.0),
@@ -268,7 +276,8 @@ apply_stacking_rules <- function(df, cty_china = '5700', stacking_policy = NULL)
   # the complement — there is no copper-specific carve-out for full-rate
   # fentanyl. CA/MX fentanyl on pure-copper heading products ends up at roughly
   # fent * (1 - copper_share).
-  policy <- stacking_policy %||% default_stacking_policy(cty_china)
+  policy <- .drop_absent_scenario_only(
+    stacking_policy %||% default_stacking_policy(cty_china), df)
   df <- compute_nonmetal_share(df)
   df <- compute_stacking_contributions(df, policy)
 
@@ -304,7 +313,8 @@ compute_net_authority_contributions <- function(df, cty_china = '5700',
                              rate_section_201 = 0, rate_other = 0,
                              metal_share = 1.0))
 
-  policy <- stacking_policy %||% default_stacking_policy(cty_china)
+  policy <- .drop_absent_scenario_only(
+    stacking_policy %||% default_stacking_policy(cty_china), df)
   df <- compute_nonmetal_share(df)
   df <- compute_stacking_contributions(df, policy)
 

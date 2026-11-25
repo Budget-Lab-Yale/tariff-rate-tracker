@@ -12,7 +12,9 @@
 #   * apply_additive_232_program(): thermal/non-thermal split, UK and partner
 #     rates, basket-line scaling, additive stacking, non-displacing bookkeeping
 #     that accumulates across polysilicon + drones;
-#   * a drone-only row stays visible to the overlays (.s232_in_scope FALSE).
+#   * a drone-only row stays visible to the overlays (.s232_in_scope FALSE);
+#   * the Annex III tranche (2027-02-09): 25% on a second slice of the 8807
+#     lines, partner caps, and its boundary_overrides mint.
 #
 # Usage: Rscript tests/test_drones_232.R
 # =============================================================================
@@ -95,7 +97,9 @@ rates <- tibble(
   base_rate = c(0, 0, 0, 0, 0.05, 0, 0, 0, 0),
   rate_232  = c(0, 0, 0, 0, 0, 0, 0.25, 0, 0))
 drone_products <- c('8806210000', '8806240000', '8807100015', '8537109170')
-out <- apply_additive_232_program(rates, drone_products, cfg,
+# Before 2027-02-09 the adapter drops basket_tranche_2 (Annex III); test that state here.
+cfg_pre <- modifyList(cfg, list(basket_tranche_2 = NULL))
+out <- apply_additive_232_program(rates, drone_products, cfg_pre,
                                   countries = c(CN, UK, DE, JP), pp = pp)
 split <- cfg$rate_split$share * cfg$default_rate +
   (1 - cfg$rate_split$share) * cfg$rate_split$rate
@@ -113,11 +117,44 @@ ok(out$rate_232[9] == 0, 'uncovered product untouched')
 ok(isTRUE(all.equal(out$rate_232_nondisplacing, out$rate_232 - rates$rate_232)),
    'rate_232_nondisplacing == the drone component on every row')
 
+cat('\n== Annex III tranche (2027-02-09) ==\n')
+# PP 11055 clause 2: from 2027-02-09, +25% on parts for use in any drone not
+# already in the 100% tier, on the four 8807 lines. The adapter passes
+# basket_tranche_2 only on snapshots on or after that date; without it the
+# calculator output above is unchanged.
+t2 <- cfg$basket_tranche_2
+ok(!is.null(t2) && identical(as.character(t2$effective_date), '2027-02-09'),
+   'basket_tranche_2 effective 2027-02-09 (PP 11055 cl. 2)')
+ok(isTRUE(all.equal(as.numeric(t2$rate), 0.25)), 'Annex III rate 25%')
+ok(setequal(unlist(t2$prefixes), c('88071000', '88072000', '88073000', '88079090')),
+   'Annex III covers the four 8807 lines only')
+ok('2027-02-09' %in% as.character(pp$BOUNDARY_OVERRIDES %||% pp$boundary_overrides),
+   '2027-02-09 is in boundary_overrides (config-driven turn-on needs a mint)')
+s1 <- cfg$basket_lines$applicability_share; s2 <- t2$applicability_share
+r2 <- tibble(hts10 = c('8807300030', '8807300030', '8807300030', '8537109170'),
+             country = c(CN, UK, DE, CN), base_rate = 0, rate_232 = c(0, 0, 0, 0.25))
+out_pre <- apply_additive_232_program(r2, unique(r2$hts10),
+                                      cfg_pre,
+                                      countries = c(CN, UK, DE), pp = pp)
+out_t2 <- apply_additive_232_program(r2, unique(r2$hts10), cfg,
+                                     countries = c(CN, UK, DE), pp = pp)
+ok(isTRUE(all.equal(out_pre$rate_232[1], 1.00 * s1)), 'before: China 8807 -> 1.00 x share 1')
+ok(isTRUE(all.equal(out_t2$rate_232[1], 1.00 * s1 + 0.25 * s2)),
+   'after: China 8807 -> 1.00 x share 1 + 0.25 x share 2')
+ok(isTRUE(all.equal(out_t2$rate_232[2], 0.10 * s1 + 0.10 * s2)),
+   'after: UK 8807 -> both slices capped at +10% (clause 4)')
+ok(isTRUE(all.equal(out_t2$rate_232[3], 0.15 * (s1 + s2))),
+   'after: EU 8807, MFN 0 -> 15% total on both slices')
+ok(isTRUE(all.equal(out_t2$rate_232[4], out_pre$rate_232[4])),
+   'after: 8537.10.9170 (not an Annex III line) unchanged')
+ok(isTRUE(all.equal(out_t2$rate_232_nondisplacing, out_t2$rate_232 - r2$rate_232)),
+   'after: rate_232_nondisplacing carries both slices')
+
 cat('\n== non-displacing bookkeeping accumulates across programs ==\n')
 poly_cfg <- list(default_rate = 0.15, displaces_overlays = FALSE)
 both <- rates[1, ] %>% mutate(hts10 = '8806240000')
 both <- apply_additive_232_program(both, '8806240000', poly_cfg, countries = CN, pp = list())
-both <- apply_additive_232_program(both, '8806240000', cfg, countries = CN, pp = pp)
+both <- apply_additive_232_program(both, '8806240000', cfg_pre, countries = CN, pp = pp)
 ok(isTRUE(all.equal(both$rate_232, 1.15)) &&
      isTRUE(all.equal(both$rate_232_nondisplacing, 1.15)),
    'second additive program adds to, not overwrites, rate_232_nondisplacing')

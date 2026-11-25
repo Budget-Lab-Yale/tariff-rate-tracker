@@ -15,7 +15,9 @@
 #   2026-02-20  owner 2026_rev_3   IEEPA invalidation (SCOTUS)           [config]
 #   2026-04-01  owner 2026_rev_4   Swiss/Liechtenstein floor expires     [config]
 #   2026-09-29  owner 2026_rev_10  pharma §232 turn-on override          [override]
-#   2026-11-10  owner 2026_rev_10  §301 cranes/chassis turn-on           [ch99]
+# 2026-11-10 (§301 cranes/chassis turn-on under rev_10-rev_22 text) is no longer a
+# boundary: HTS 2026 rev_23 (effective 2026-11-10) moved that turn-on to 2027-01-10,
+# so 2026-11-10 is now a real revision edge. 2027-01-10 lies past the horizon.
 # Edge-coincident boundaries that must NOT mint: 2025-05-03 (auto parts = rev_11
 # edge), 2025-04-09 (Phase-1 country rates = rev_8 edge), 2026-04-06 (§232 annex =
 # 2026_rev_5 edge). S122 and Swiss expiries mint on their first dead days.
@@ -104,11 +106,20 @@ for (edge in c('2025-04-09', '2026-04-06')) {
 
 # --- Ch99-offset scan (needs the cached parses) -------------------------------
 if (have_ch99) {
-  check('2026-11-10' %in% emitted,
-        '2026-11-10 (§301 cranes/chassis turn-on) is discovered from the Ch99 scan')
-  check(identical(owner_of('2026-11-10'), '2026_rev_15'),
-        '2026-11-10 owner resolves to 2026_rev_15 (tip interval)')
-  check(grepl('ch99', src_of('2026-11-10')), '2026-11-10 sourced from a Ch99 offset')
+  # HTS 2026 rev_23 (effective 2026-11-10) moved the §301 cranes/chassis turn-on
+  # (9903.91.12-.16) to 2027-01-10 and extended the 9903.88.69/.70 exclusions
+  # through 2027-01-09. 2026-11-10 is now rev_23's own edge, so it must not mint;
+  # 2027-01-10 mints only when the series horizon reaches it.
+  check(!('2026-11-10' %in% emitted) &&
+          any(rd$effective_date == as.Date('2026-11-10')),
+        '2026-11-10 is a real revision edge (rev_23), not a minted boundary')
+  horizon <- as.Date(pp$SERIES_HORIZON_END)
+  if (horizon >= as.Date('2027-01-10')) {
+    check('2027-01-10' %in% emitted && identical(owner_of('2027-01-10'), '2026_rev_23'),
+          '2027-01-10 (§301 exclusions end, cranes/chassis turn on) minted, owner 2026_rev_23')
+  } else {
+    check(!('2027-01-10' %in% emitted), '2027-01-10 lies past the horizon and is not minted')
+  }
   # Ch99 rate-less heading expiries (expiry-mirror scan): state flips on expiry+1.
   check(identical(owner_of('2025-06-01'), 'rev_13') && grepl('ch99_expiry', src_of('2025-06-01')),
         '2025-06-01 (Ch99 heading expiry) discovered, owner rev_13')
@@ -133,8 +144,11 @@ if (have_ch99) {
   # established convention (2026-07-24 has been listed since rev_13 landed).
   expected <- c('2025-03-12', '2025-06-01', '2025-09-01', '2025-11-14',
                 '2026-02-20', '2026-04-01', '2026-07-22',
-                '2026-07-31', '2026-09-29',
-                '2026-11-10', '2026-12-04')
+                '2026-07-31', '2026-09-29', '2026-12-04',
+                if (as.Date(pp$SERIES_HORIZON_END) >= as.Date('2027-01-10')) '2027-01-10',
+                if (as.Date(pp$SERIES_HORIZON_END) >= as.Date('2027-02-09')) '2027-02-09',
+                # Start date of the ec301_* scenarios; no rate change in actual.
+                if (as.Date(pp$SERIES_HORIZON_END) >= as.Date('2027-04-01')) '2027-04-01')
   check(setequal(emitted, expected),
         paste0('exactly {', paste(expected, collapse = ', '), '} discovered on the live grid'))
   check(all(!is.na(b$owner_rev)),

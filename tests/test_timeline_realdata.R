@@ -90,16 +90,24 @@ if (have_ch99) {
   #   2026-07-31 patented-pharma exclusion (boundary_overrides)
   #   2026-09-29 pharma §232 turn-on       (boundary_overrides)
   #   2026-12-04 polysilicon §232 turn-on  (boundary_overrides)
+  #   2027-02-09 drone §232 Annex III      (boundary_overrides; within horizon)
+  #   2027-04-01 start date of the ec301_* scenarios (boundary_overrides; no
+  #              rate change in actual)
   config_derived <- c('2025-03-12', '2025-11-14', '2026-02-20', '2026-04-01',
-                      '2026-07-22', '2026-07-31', '2026-09-29', '2026-12-04')
+                      '2026-07-22', '2026-07-31', '2026-09-29', '2026-12-04',
+                      if (as.Date(pp$SERIES_HORIZON_END) >= as.Date('2027-02-09')) '2027-02-09',
+                      if (as.Date(pp$SERIES_HORIZON_END) >= as.Date('2027-04-01')) '2027-04-01')
 
   # Tier 2 — discovered by the Ch99 effective_date/expiry offset scan, so they
   # appear only when data/timeseries holds FRESH caches for the owning revision.
   # have_ch99 only proves SOME ch99_*.rds exists, not that it is current, so a
   # stale or partial local scratch legitimately omits these. Allowed, not required.
   #   2025-06-01 / 2025-09-01 rate-less Ch99 heading expiries
-  #   2026-11-10              §301 cranes/chassis turn-on
-  ch99_derived <- c('2025-06-01', '2025-09-01', '2026-11-10')
+  #   2027-01-10              §301 exclusions end + cranes/chassis turn on (rev_23
+  #                           text; only when the horizon reaches it). Until rev_23
+  #                           this was 2026-11-10, now rev_23's own edge.
+  ch99_derived <- c('2025-06-01', '2025-09-01',
+                    if (as.Date(pp$SERIES_HORIZON_END) >= as.Date('2027-01-10')) '2027-01-10')
 
   # Dates that must NEVER be minted: policy-dating a revision to its duty's
   # turn-on makes that date a real revision edge, and discover_boundaries drops
@@ -109,7 +117,8 @@ if (have_ch99) {
   #   2026-07-24 rev_13 (forced-labor §301 / §122 sunset)
   #   2026-08-15 rev_16 (quartz §201)
   #   2026-08-22 rev_17 (§338 Canada)
-  edge_owned <- c('2026-07-24', '2026-08-15', '2026-08-22')
+  #   2026-11-10 2026_rev_23 (moved the §301 cranes/chassis turn-on to 2027-01-10)
+  edge_owned <- c('2026-07-24', '2026-08-15', '2026-08-22', '2026-11-10')
 
   emitted <- as.character(b$date)
 

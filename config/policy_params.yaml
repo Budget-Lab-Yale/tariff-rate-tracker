@@ -224,9 +224,20 @@ section_232_headings:
   #   * partner rates are assumed to qualify in full (clause 4 requires
   #     certification that critical components are allied-origin); the Blue
   #     UAS / FCC-list 180-day delay (clause 7, to 2027-02-09) and the onshoring
-  #     exemptions (9903.08.25/.26) are not modeled; statutory ceiling.
-  #   * Annex III (UAS components at 25% from 2027-02-09, clause 2) falls after
-  #     the series horizon and is not modeled.
+  #     exemptions (9903.08.25/.26) are not modeled; statutory ceiling. The
+  #     Blue UAS delay ends on 2027-02-09, so from then the ceiling is the law.
+  #   * Annex III (clause 2; Annex IV part B adds note 43(c)(5) and widens
+  #     9903.08.22): from 2027-02-09, +25% on parts for use in any drone that
+  #     the 100% tier (c)(2) does not already cover — in practice parts for
+  #     drones of 25 kg or less — on the four 8807 lines. Modeled as
+  #     basket_tranche_2: a second slice of those lines at 25%, scaled by its
+  #     own applicability share, with the same partner caps (clause 4: UK at
+  #     most 10%, the allies at most 15% including column 1). The share 0.04
+  #     is an UNCALIBRATED placeholder set at twice the first tranche's 0.02,
+  #     following the 2:1 ratio of small to large drone parts proposed in
+  #     data/raw/s232_uas/uas_claude_research.md section 3.4 (whose own
+  #     HTS-10 shares are far lower, 0.2%-2%). The proclamation dates the
+  #     tranche 2027-02-09; Annex IV part B's "February 9, 2026" is a typo.
   drones:
     prefixes: ['88062100', '88062200', '88062300', '88062400', '88062900',
                '88069100', '88069200', '88069300', '88069400', '88069900',
@@ -243,6 +254,11 @@ section_232_headings:
       prefixes: ['88071000', '88072000', '88073000', '88079090',
                  '8504409580', '8537109170']
       applicability_share: 0.02
+    basket_tranche_2:
+      effective_date: '2027-02-09'
+      prefixes: ['88071000', '88072000', '88073000', '88079090']
+      rate: 0.25
+      applicability_share: 0.04
     country_rates:
       CTY_UK: 0.10
     target_total:
@@ -627,8 +643,10 @@ section_301_rates:
   - ch99_pattern: '9903.92.10'
     s301_rate: 0.25
   # US note 31(k)/(l) — China intermodal chassis (9903.91.12) + ship-to-shore
-  # gantry cranes (9903.91.14), +100%, legally effective 2026-11-10 (gated by the
-  # Ch99 effective_date_offset, so active only from that date — surfaced by the
+  # gantry cranes (9903.91.14), +100%. Legally effective 2026-11-10 under HTS
+  # 2026 rev_10-rev_22; HTS 2026 rev_23 (USTR, FR Doc 2026-22867) moved the start
+  # to 2027-01-10. Gated by each revision's Ch99 effective_date_offset, so it
+  # follows whichever date that revision's text carries — surfaced by the
   # unified-timeline scan; see docs/timeline_split_integration.md). Only the two
   # DUTY-imposing arms are listed: 9903.91.13 (chassis note 31(k)(ii) complement)
   # and 9903.91.15/.16 (crane attestation exemptions) are "duty provided in the
@@ -1196,6 +1214,125 @@ section_301_brazil:
   # 07-31..09-29 window (same treatment as the FL note-52(f)(8) carve-out).
   patented_pharma_exempt_date: '2026-07-31'
   patented_pharma_products: 'resources/s232_pharma_products.csv'
+  # PROPOSED modification (USTR notice of 2026-11-25, hearing 2027-01-14;
+  # data/s301_excess_capacity/frn/Brazil_301_Modification_FRN.pdf). Not law, so
+  # it is OFF here and ACTUAL is unchanged. The notice proposes no effective
+  # date; the three ec301_* scenarios turn it on from 2027-04-01 by setting
+  # `enabled: true` and `effective_date`.
+  modification_2026_11:
+    enabled: false
+    effective_date: ~
+    # Finished aircraft lose the civil-aircraft exemption and pay a flat 10%.
+    # Once in effect, these six lines leave the aircraft use-share list (where
+    # they pay 25% x 10% = 2.5% today) and pay `aircraft_rate` in full. Aircraft
+    # parts and every other Brazil line are unchanged.
+    aircraft_rate: 0.10
+    aircraft_lines: ['88010000', '88021101', '88021201', '88022001',
+                     '88023001', '88024001']
+    # NOT MODELED (deviation S17 in docs/statutory_deviations.md). The notice
+    # would replace Brazil's 25% on seven over-quota sugar lines with a
+    # per-kilogram duty on sugar of EVERY origin. Turning dollars per kilogram
+    # into a percent of value needs Census unit values by line, origin and
+    # quota status, which the repository does not hold. Brazil therefore keeps
+    # its 25% on these lines and other origins pay nothing extra, even when the
+    # modification is on. The figures below are recorded for later use only.
+    sugar_specific_duty_per_kg:
+      raw_cane: 0.44
+      beet_and_refined: 0.60
+    sugar_lines:
+      raw_cane: ['17011350', '17011450']
+      beet_and_refined: ['17011250', '17019130', '17019950', '17029020',
+                         '21069046']
+
+# --- Section 301 "structural excess capacity" (PROPOSED - scenarios only) ----
+# USTR proposed actions of 2026-11-25 against 14 economies (pre-publication
+# notices in data/s301_excess_capacity/frn/; rules and decisions in
+# data/s301_excess_capacity/DECISION_RECORD.md). Nothing is in force and no
+# notice states an effective date, so the block is OFF here (`enabled: false`)
+# and ACTUAL carries no duty. The scenarios ec301_proposed, ec301_no_deals and
+# ec301_all_deals turn it on from 2027-04-01, the assumed start date.
+#
+# Each economy has two rates. `deal` is the rate the notice attaches to a
+# satisfactory agreement and `no_deal` the rate without one. `outcome` picks
+# one of the two for each economy. A scenario sets `enabled: true` and
+# `outcome`. The start date is already in `boundary_overrides` below.
+#
+# How the duty is computed (rate_s301ec, added on top of every other duty):
+#   * It tops up the forced-labor Section 301 duty to the stated rate R:
+#     duty = max(0, R - forced-labor duty). The forced-labor duty netted is the
+#     full rate a non-qualifying entry pays, before any use-share scaling.
+#   * Where `net_of_mfn` is true the stated rate is all-in, so the MFN rate is
+#     netted as well: duty = max(0, R - MFN - forced-labor duty). MFN is the
+#     same ad valorem base rate the forced-labor cap uses (South Korea: the
+#     rate after claimed KORUS preferences). Specific and compound MFN rates
+#     count as zero, as they do there.
+#   * The 13 economies other than China exempt the common product list, their
+#     own country list where they have one, and the eight Section 232 product
+#     groups the forced-labor action exempts. Drone and polysilicon Section 232
+#     goods are not exempt.
+#   * Lines exempt only for civil-aircraft or pharmaceutical use: the
+#     qualifying share of imports pays neither duty and the rest pays the
+#     formula above. The shares are the forced-labor placeholders.
+#   * China (`china_rules`): no Section 232 exemption, and the 2018-19 China
+#     Section 301 duties are not netted. With a deal, goods on the common list
+#     (its Annex A) pay a flat `china_annex_a_rate`, Annex B goods are exempt
+#     and other goods pay max(0, 20% - forced-labor duty). Without a deal both
+#     annexes fall away and every good pays 40% less the forced-labor duty it
+#     pays, so the two duties together come to 40%. 9403.70.40 and 9403.70.80
+#     appear in both annexes and are treated as Annex A lines.
+# NOT modeled (deviation S18 in docs/statutory_deviations.md): the textile
+# tariff-rate quota on which four notices ask for comment; goods in transit;
+# informational materials, donations and personal baggage; Liechtenstein (the
+# Swiss notice does not cover it); any end date.
+section_301_excess_capacity:
+  enabled: false
+  effective_date: '2027-04-01'
+  common_exemptions: 'resources/s301ec_common_exemptions.csv'
+  country_exemptions: 'resources/s301ec_country_exemptions.csv'
+  china_annex_b: 'resources/s301ec_china_annex_b.csv'
+  aircraft_exempt_share: 0.90
+  pharma_exempt_share: 0.50
+  china_annex_a_rate: 0.10
+  patented_pharma_products: 'resources/s232_pharma_products.csv'
+  post_preference_cap_countries: ['5800']             # South Korea
+  economies:
+    eu:          {countries: eu27,     deal: {rate: 0.15, net_of_mfn: true},  no_deal: {rate: 0.20, net_of_mfn: true}}
+    japan:       {countries: ['5880'], deal: {rate: 0.15, net_of_mfn: true},  no_deal: {rate: 0.20, net_of_mfn: true}}
+    switzerland: {countries: ['4419'], deal: {rate: 0.15, net_of_mfn: true},  no_deal: {rate: 0.20, net_of_mfn: true}}
+    korea:       {countries: ['5800'], deal: {rate: 0.15, net_of_mfn: true},  no_deal: {rate: 0.25, net_of_mfn: true}}
+    # Taiwan's 25% is stated net of Section 301 only, so MFN is not netted.
+    taiwan:      {countries: ['5830'], deal: {rate: 0.15, net_of_mfn: true},  no_deal: {rate: 0.25, net_of_mfn: false}}
+    bangladesh:  {countries: ['5380'], deal: {rate: 0.18, net_of_mfn: false}, no_deal: {rate: 0.20, net_of_mfn: false}}
+    cambodia:    {countries: ['5550'], deal: {rate: 0.18, net_of_mfn: false}, no_deal: {rate: 0.25, net_of_mfn: false}}
+    indonesia:   {countries: ['5600'], deal: {rate: 0.18, net_of_mfn: false}, no_deal: {rate: 0.25, net_of_mfn: false}}
+    malaysia:    {countries: ['5570'], deal: {rate: 0.18, net_of_mfn: false}, no_deal: {rate: 0.25, net_of_mfn: false}}
+    thailand:    {countries: ['5490'], deal: {rate: 0.18, net_of_mfn: false}, no_deal: {rate: 0.25, net_of_mfn: false}}
+    india:       {countries: ['5330'], deal: {rate: 0.17, net_of_mfn: false}, no_deal: {rate: 0.25, net_of_mfn: false}}
+    vietnam:     {countries: ['5520'], deal: {rate: 0.20, net_of_mfn: false}, no_deal: {rate: 0.35, net_of_mfn: false}}
+    # Singapore's 10% is below its 12.5% forced-labor duty, so it adds nothing.
+    singapore:   {countries: ['5590'], deal: {rate: 0.10, net_of_mfn: false}, no_deal: {rate: 0.20, net_of_mfn: false}}
+    china:
+      countries: ['5700']
+      china_rules: true
+      deal:    {rate: 0.20, net_of_mfn: false, annexes_apply: true}
+      no_deal: {rate: 0.40, net_of_mfn: false, annexes_apply: false}
+  # 'deal' or 'no_deal' for each economy. The values here are the rates the
+  # notices state first (the ec301_proposed scenario).
+  outcome:
+    eu: deal
+    japan: deal
+    switzerland: deal
+    korea: deal
+    taiwan: deal
+    bangladesh: deal
+    cambodia: deal
+    indonesia: deal
+    malaysia: deal
+    thailand: deal
+    china: deal
+    india: no_deal
+    vietnam: no_deal
+    singapore: no_deal
 
 # --- Series time horizon ---
 # End date for timeseries valid_until on the final revision.
@@ -1203,7 +1340,7 @@ section_301_brazil:
 # The last observed HTS revision is assumed to remain in force through this date,
 # subject to date-bounded policy overrides (Section 122 expiry, Swiss framework).
 series_horizon:
-  end_date: '2026-12-31'
+  end_date: '2027-06-30'
 
 # --- Future tariff activations ("turn-ON" dates) ---
 # Tariffs that are announced / legally effective on a FUTURE date but do not yet
@@ -1232,7 +1369,8 @@ series_horizon:
 # as-of recompute reproduces the change — no new operations).
 #
 # The three in-grid boundaries (2025-03-12 §232 metal-exemption expiry, 2026-02-20
-# IEEPA invalidation, 2026-11-10 §301 cranes/chassis turn-on) are auto-discovered.
+# IEEPA invalidation, 2027-01-10 §301 cranes/chassis turn-on and exclusion end —
+# 2026-11-10 until HTS 2026 rev_23 moved it) are auto-discovered.
 # 2026-09-29 is the pharma §232 turn-on: it has no Ch99 offset (config-driven), so the
 # scan can't see it, but the calc's pharma date-gate re-resolves it as-of that date —
 # exactly the "config date the scan can't see" case this backstop is for.
@@ -1252,7 +1390,16 @@ series_horizon:
 # Part B): config-driven, no Ch99 offset; the adapter's date-gate populates
 # patented_pharma_hts10 as-of that date, so an empty-ops mint materializes it —
 # without this mint the carve-out would first appear at bnd_2026-08-22.
-boundary_overrides: ['2026-06-08', '2026-07-22', '2026-07-24', '2026-07-31', '2026-08-22', '2026-09-29', '2026-12-04']
+# 2027-02-09 is the drone §232 Annex III turn-on (PP 11055 clause 2: 25% on
+# parts for use in drones, heading 8807, not already in the Annex I tier):
+# config-driven (section_232_headings.drones.basket_tranche_2), no Ch99 offset
+# in any archive; the adapter keeps the tranche only on snapshots dated on or
+# after it, so an empty-ops mint materializes it.
+# 2027-04-01 changes no rate in ACTUAL. It is the assumed start date of the
+# proposed excess-capacity Section 301 duties and the Brazil modification (the
+# ec301_* scenarios), and Tariff-Model's reference date for them, so every
+# series, ACTUAL included, gets a snapshot that starts on that date.
+boundary_overrides: ['2026-06-08', '2026-07-22', '2026-07-24', '2026-07-31', '2026-08-22', '2026-09-29', '2026-12-04', '2027-02-09', '2027-04-01']
 
 # --- Validation thresholds ---
 validation_thresholds:
